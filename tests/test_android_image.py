@@ -97,17 +97,18 @@ class InspectScriptTest(unittest.TestCase):
 
     def _make_test_zip(self):
         with zipfile.ZipFile(self.zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr('system.img', b'fake-system-img-data' * 100)
-            zf.writestr('vendor.img', b'fake-vendor-img-data' * 50)
-            zf.writestr('README.txt', 'test image')
+            # Real Android SDK images use an arch-prefixed directory inside the zip
+            zf.writestr('x86_64/system.img', b'fake-system-img-data' * 100)
+            zf.writestr('x86_64/vendor.img', b'fake-vendor-img-data' * 50)
+            zf.writestr('x86_64/README.txt', 'test image')
 
     def test_list_zip_contents_returns_all_members(self):
         self._make_test_zip()
         contents = inspect_img.list_zip_contents(self.zip_path)
         names = {m['name'] for m in contents['members']}
-        self.assertIn('system.img', names)
-        self.assertIn('vendor.img', names)
-        self.assertIn('README.txt', names)
+        self.assertIn('x86_64/system.img', names)
+        self.assertIn('x86_64/vendor.img', names)
+        self.assertIn('x86_64/README.txt', names)
         self.assertEqual(contents['member_count'], 3)
 
     def test_list_zip_contents_counts_sizes(self):
@@ -120,7 +121,9 @@ class InspectScriptTest(unittest.TestCase):
         self._make_test_zip()
         extract_dir = Path(self.tmp.name) / 'extract'
         extract_dir.mkdir()
-        out = inspect_img.extract_img_to_temp(self.zip_path, 'system.img', extract_dir)
+        # real Android SDK zip puts images inside a subdirectory prefix
+        out = inspect_img.extract_img_to_temp(self.zip_path, 'x86_64/system.img', extract_dir)
+        self.assertEqual(out.name, 'system.img', 'basename must be stripped of prefix')
         self.assertTrue(out.is_file())
         self.assertEqual(out.read_bytes(), b'fake-system-img-data' * 100)
 
@@ -130,7 +133,7 @@ class InspectScriptTest(unittest.TestCase):
         extract_dir.mkdir()
         existing = extract_dir / 'system.img'
         existing.write_bytes(b'already-there')
-        out = inspect_img.extract_img_to_temp(self.zip_path, 'system.img', extract_dir)
+        out = inspect_img.extract_img_to_temp(self.zip_path, 'x86_64/system.img', extract_dir)
         # Should not overwrite
         self.assertEqual(out.read_bytes(), b'already-there')
 

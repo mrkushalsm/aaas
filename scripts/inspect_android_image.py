@@ -61,8 +61,13 @@ def list_zip_contents(zip_path: Path) -> dict:
 
 
 def extract_img_to_temp(zip_path: Path, img_name: str, dest_dir: Path) -> Path:
-    """Extract a single .img file from the zip to dest_dir."""
-    dest = dest_dir / img_name
+    """Extract a single .img file from the zip to dest_dir.
+
+    Strips any directory prefix in the zip member name so the output is always
+    dest_dir/<basename>.  Skips extraction if the destination already exists.
+    """
+    basename = Path(img_name).name
+    dest = dest_dir / basename
     if dest.exists():
         return dest
     print(f'  extracting {img_name} from zip...', flush=True)
