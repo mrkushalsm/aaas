@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "baseline_image": "system-images;android-36;default;x86_64",
+  "candidates": [
+    {
+      "name": "minigbm Android 16 QPR2 allocator and mapper",
+      "repository": "https://android.googlesource.com/platform/external/minigbm",
+      "revision": "b7c93249f685222a524c51403719493cc114ff5d",
+      "selected_from": "refs/heads/android16-qpr2-release",
+      "modules": [
+        "android.hardware.graphics.allocator-service.minigbm",
+        "mapper.minigbm",
+        "libminigbm_gralloc",
+        "libminigbm_gralloc4_utils"
+      ],
+      "status": "source_verified_build_unattempted",
+      "compatibility": "unverified: SDK image predates this QPR2 source revision",
+      "integration": "requires matched Android build dependencies, VINTF, init service, and DMA-BUF validation"
+    }
+  ]
+}
