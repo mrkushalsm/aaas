@@ -1,3 +1,14 @@
 sources/
 __pycache__/
 *.pyc
+results/m01/lipstick/upstream/
+results/m01/lipstick/upstream-host/
+results/m01/lipstick/simple/
+results/m01/lipstick/qtwayland/
+results/m01/lipstick/qtwayland-compositor/
+results/m01/lipstick/qtw-*/
+results/m01/lipstick/upstream-run.*/
+results/m01/lipstick/qtwayland-compositor-src/
+results/m01/lipstick/.qmake.stash
+results/m01/lipstick/test-client-offscreen.log
+results/m01/lipstick/test-client-build/
