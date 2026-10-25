@@ -95,6 +95,31 @@ distribution package but is not currently installed. The Binder probe already
 uses the native kernel user/mount namespace and binderfs mechanisms that an
 unprivileged LXC configuration would need; an LXC boot is not yet claimed.
 
+## Minimal Android product gate
+
+The intended product is a small Android compatibility runtime inside LXC,
+using the host Linux kernel and the existing desktop compositor. The current
+SDK image is a diagnostic source of stock components, not the final service
+inventory. Keep Bionic, ART, Zygote, Binder service registration, the minimum
+framework services needed to start an app, SurfaceFlinger, and only the HALs
+those services demonstrably require. The Composer3 and gralloc path must use
+the independent host graphics transport already under development.
+
+Build the service list from source init declarations, VINTF entries, package
+dependencies, and observed boot failures. For each included daemon or APEX,
+record its consumer and a boot/app-launch test that fails when it is absent.
+For each omitted component, record the evidence that no retained service
+requires it. Start by evaluating telephony, media, camera, location, update,
+emulator, and device-storage services for omission; their absence is a
+hypothesis until dependency and runtime traces confirm it. Do not replace a
+required service with a success-returning stub or alter a binary to remove
+the dependency. An explicit source product configuration is the target.
+
+The first runtime gates are: Zygote starts from pristine Bionic/ART; a genuine
+service manager enforces a documented caller policy; the smallest viable
+`system_server` set stays alive; a test app launches and renders through the
+real graphics path. Passing an earlier gate does not imply the later ones.
+
 A guest-kernel experiment could retain stock Android SELinux and APEX
 semantics, but it is a different isolation architecture and is not adopted
 here. The direct-namespace path remains the research target.
