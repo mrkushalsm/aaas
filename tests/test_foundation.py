@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from pathlib import Path
 from jsonschema import Draft202012Validator
@@ -13,6 +14,8 @@ class FoundationTest(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         self.assertIn('digitalis', names)
         self.assertIn('drm_hwcomposer', names)
+        self.assertTrue(all(re.fullmatch(r'[0-9a-f]{40}', s['revision']) for s in manifest['sources']))
+        self.assertTrue(all(s['kind'] in ('standalone-git', 'repo-manifest', 'repo-project', 'repo-superproject', 'aosp-project-reference') for s in manifest['sources']))
 
     def test_schema_contract(self):
         schema = json.loads((ROOT / 'benchmarks/record.schema.json').read_text())

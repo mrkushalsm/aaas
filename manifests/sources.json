@@ -2,22 +2,187 @@
   "schema": 1,
   "report_sha256": "6568294b6fc38ecc9c84b8d0a558fded06abbac64ba9820412ea16acc3023e87",
   "sources": [
-    {"name":"droidloom","url":"https://github.com/denialwm/droidloom.git","revision":"ffccef6a7f6db4d2f1350e90668df2391b8f9b78","role":"competitor"},
-    {"name":"waydroid","url":"https://github.com/waydroid/waydroid.git","revision":"db7294c4c2bd43157bab94cf8a3015e22d9f1ad8","role":"competitor"},
-    {"name":"lipstick","url":"https://github.com/sailfishos/lipstick.git","revision":"b220a976699b30d69e00b5a6480ade809fca55ae","role":"experiment"},
-    {"name":"qt-hwc","url":"https://github.com/mer-hybris/qt5-qpa-hwcomposer-plugin.git","revision":"31f4f6506702bd872ac47305fc8f8d75f2bb047b","role":"experiment"},
-    {"name":"digitalis","url":"https://github.com/DigitalisX64/digitalis.git","revision":"e81431d67766f9a827b568b9137da131daecfa87","role":"translator candidate"},
-    {"name":"teto","url":"https://github.com/alderman-norta92/teto-apk.git","revision":"365d035faed6734fa07e47c33b92e9cbac17569b","role":"translator comparison"},
-    {"name":"drm_hwcomposer","url":"https://android.googlesource.com/platform/external/drm_hwcomposer","revision":"a8ef39578ca861e23160a0cd15df79bcf0e6d07b","role":"Composer3 reference; cited tree revision, not main snapshot"},
-    {"name":"waydroid-hal","url":"https://github.com/waydroid/android_hardware_waydroid.git","revision":"lineage-20","role":"HAL reference; branch is not immutable"},
-    {"name":"libhybris","url":"https://github.com/libhybris/libhybris.git","revision":null,"role":"compatibility audit"},
-    {"name":"libgbinder","url":"https://github.com/mer-hybris/libgbinder.git","revision":null,"role":"Binder reference"},
-    {"name":"goldfish-opengl","url":"https://android.googlesource.com/device/generic/goldfish-opengl","revision":null,"role":"HWC3 reference"},
-    {"name":"aosp-berberis","url":"https://android.googlesource.com/platform/frameworks/libs/binary_translation","revision":null,"role":"translator upstream"},
-    {"name":"drmfb-composer","url":"https://github.com/android-generic/external_drmfb-composer.git","revision":null,"role":"legacy HIDL reference"},
-    {"name":"lxc","url":"https://github.com/lxc/lxc.git","revision":null,"role":"isolation candidate"},
-    {"name":"digitalis-manifest","url":"https://github.com/DigitalisX64/manifest.git","revision":"android16","role":"AOSP product manifest; moving branch"},
-    {"name":"qtwayland","url":"https://github.com/qt/qtwayland.git","revision":null,"role":"nested compositor reference"},
-    {"name":"aosp-art","url":"https://android.googlesource.com/platform/art","revision":"0b5b2f22f22b140e2b23da17c96de7120ed4f221","role":"Native Bridge cited tree revision"}
+    {
+      "name": "droidloom",
+      "url": "https://github.com/denialwm/droidloom.git",
+      "revision": "ffccef6a7f6db4d2f1350e90668df2391b8f9b78",
+      "role": "competitor",
+      "kind": "standalone-git"
+    },
+    {
+      "name": "waydroid",
+      "url": "https://github.com/waydroid/waydroid.git",
+      "revision": "db7294c4c2bd43157bab94cf8a3015e22d9f1ad8",
+      "role": "competitor",
+      "kind": "standalone-git"
+    },
+    {
+      "name": "lipstick",
+      "url": "https://github.com/sailfishos/lipstick.git",
+      "revision": "b220a976699b30d69e00b5a6480ade809fca55ae",
+      "role": "experiment",
+      "kind": "standalone-git"
+    },
+    {
+      "name": "qt-hwc",
+      "url": "https://github.com/mer-hybris/qt5-qpa-hwcomposer-plugin.git",
+      "revision": "31f4f6506702bd872ac47305fc8f8d75f2bb047b",
+      "role": "experiment",
+      "kind": "standalone-git"
+    },
+    {
+      "name": "digitalis",
+      "url": "https://github.com/DigitalisX64/digitalis.git",
+      "revision": "e81431d67766f9a827b568b9137da131daecfa87",
+      "role": "translator candidate",
+      "kind": "repo-project",
+      "path": "digitalis",
+      "selected_from": "android16"
+    },
+    {
+      "name": "teto",
+      "url": "https://github.com/alderman-norta92/teto-apk.git",
+      "revision": "365d035faed6734fa07e47c33b92e9cbac17569b",
+      "role": "translator comparison",
+      "kind": "standalone-git"
+    },
+    {
+      "name": "drm_hwcomposer",
+      "url": "https://android.googlesource.com/platform/external/drm_hwcomposer",
+      "revision": "a8ef39578ca861e23160a0cd15df79bcf0e6d07b",
+      "role": "Composer3 reference; cited tree revision, not main snapshot",
+      "kind": "aosp-project-reference"
+    },
+    {
+      "name": "waydroid-hal",
+      "url": "https://github.com/waydroid/android_hardware_waydroid.git",
+      "revision": "5af0c114a19fc916de837ad553524cd2aade2719",
+      "role": "HAL reference; branch is not immutable",
+      "kind": "standalone-git",
+      "selected_from": "lineage-20",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "libhybris",
+      "url": "https://github.com/libhybris/libhybris.git",
+      "revision": "7079712a42ea2754adf747e70c6cc75764c8596e",
+      "role": "compatibility audit",
+      "kind": "standalone-git",
+      "selected_from": "HEAD",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "libgbinder",
+      "url": "https://github.com/mer-hybris/libgbinder.git",
+      "revision": "770f4ce2a5aca0bcaf4df2ba58e21fa30e74b1bc",
+      "role": "Binder reference",
+      "kind": "standalone-git",
+      "selected_from": "HEAD",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "goldfish-opengl",
+      "url": "https://android.googlesource.com/device/generic/goldfish-opengl",
+      "revision": "5cd042c8586a38b408f390fcef979d58ace3da23",
+      "role": "HWC3 reference",
+      "kind": "aosp-project-reference",
+      "selected_from": "HEAD",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "aosp-berberis",
+      "url": "https://android.googlesource.com/platform/frameworks/libs/binary_translation",
+      "revision": "a88c2a7a2d39b0c26caed425b8e9c1a100157881",
+      "role": "translator upstream",
+      "kind": "aosp-project-reference",
+      "selected_from": "HEAD",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "drmfb-composer",
+      "url": "https://github.com/android-generic/external_drmfb-composer.git",
+      "revision": "839fbd1c3a077e23d7b657625c528da6ccd8569e",
+      "role": "legacy HIDL reference",
+      "kind": "standalone-git",
+      "selected_from": "HEAD",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "lxc",
+      "url": "https://github.com/lxc/lxc.git",
+      "revision": "61d8ba0a959264dc0d281589526c1391f4406366",
+      "role": "isolation candidate",
+      "kind": "standalone-git",
+      "selected_from": "HEAD",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "digitalis-manifest",
+      "url": "https://github.com/DigitalisX64/manifest.git",
+      "revision": "c04ff674ee0926fe79e690b20493c7b2f0e380b4",
+      "role": "AOSP product manifest; moving branch",
+      "kind": "repo-manifest",
+      "selected_from": "android16",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "qtwayland",
+      "url": "https://github.com/qt/qtwayland.git",
+      "revision": "0c4724636fd22051558265a73c9b5d6e44fa8128",
+      "role": "nested compositor reference",
+      "kind": "standalone-git",
+      "selected_from": "HEAD",
+      "selection_policy": "M0.1 snapshot; existence checked independently; not claimed compatible with other snapshots"
+    },
+    {
+      "name": "aosp-art",
+      "url": "https://android.googlesource.com/platform/art",
+      "revision": "0b5b2f22f22b140e2b23da17c96de7120ed4f221",
+      "role": "Native Bridge cited tree revision",
+      "kind": "aosp-project-reference"
+    },
+    {
+      "name": "aosp-platform-manifest",
+      "url": "https://android.googlesource.com/platform/manifest",
+      "revision": "ee1f70e8abb9a6ef756469c3bbdea490e0a656cd",
+      "kind": "repo-manifest",
+      "selected_from": "android16-qpr2-release",
+      "role": "AOSP upstream manifest ref; Digitalis manifest is the active project list"
+    },
+    {
+      "name": "aosp-superproject",
+      "url": "https://android.googlesource.com/platform/superproject",
+      "revision": "cc66c82349f536b77341e13862a548c01b048963",
+      "kind": "repo-superproject",
+      "selected_from": "android16-qpr2-release",
+      "role": "AOSP project graph snapshot candidate; correspondence to Digitalis fork overrides unverified"
+    },
+    {
+      "name": "digitalis-goldfish",
+      "url": "https://github.com/DigitalisX64/device_generic_goldfish.git",
+      "revision": "bbc2f1e4237016e744be8de59b7b6b310f2cc242",
+      "kind": "repo-project",
+      "path": "device/generic/goldfish",
+      "selected_from": "android16",
+      "role": "Digitalis manifest override"
+    },
+    {
+      "name": "digitalis-berberis",
+      "url": "https://github.com/DigitalisX64/platform_frameworks_libs_binary_translation.git",
+      "revision": "8cf2036431e4ab1db540c1c8cd41b4abcbed75b5",
+      "kind": "repo-project",
+      "path": "frameworks/libs/binary_translation",
+      "selected_from": "android16",
+      "role": "Digitalis manifest override"
+    },
+    {
+      "name": "digitalis-sample",
+      "url": "https://github.com/DigitalisX64/sample_hello_digitalis.git",
+      "revision": "704f2479201ab0a68928a9a1e467810755b2f28d",
+      "kind": "repo-project",
+      "path": "sample/hellodigitalis",
+      "selected_from": "android16",
+      "role": "Digitalis manifest override"
+    }
   ]
 }
