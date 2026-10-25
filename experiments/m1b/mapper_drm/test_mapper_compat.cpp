@@ -71,8 +71,8 @@ enum StandardMetadataType : int64_t {
 static int allocate_real_drm_buffer(int* out_fd, uint32_t width, uint32_t height,
                                     uint32_t* out_stride, uint32_t* out_size) {
     const char* drm_nodes[] = {
-        "/dev/dri/renderD128",
         "/dev/dri/renderD129",
+        "/dev/dri/renderD128",
         "/dev/dri/card1",
         "/dev/dri/card2",
         nullptr
@@ -111,6 +111,26 @@ static int allocate_real_drm_buffer(int* out_fd, uint32_t width, uint32_t height
                 printf("[TEST] PRIME export failed: %s (errno=%d)\n", strerror(errno), errno);
             }
         } else {
+            // Try driver-specific hardware GPU DMA-BUF creation (Intel i915)
+            struct {
+                uint64_t size;
+                uint32_t handle;
+                uint32_t pad;
+            } gem_create = { (uint64_t)width * height * 4, 0, 0 };
+            if (ioctl(drm_fd, 0xc010645b /* DRM_IOCTL_I915_GEM_CREATE */, &gem_create) == 0) {
+                struct drm_prime_handle prime = {};
+                prime.handle = gem_create.handle;
+                prime.flags = DRM_CLOEXEC | DRM_RDWR;
+                if (ioctl(drm_fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &prime) == 0) {
+                    *out_fd = prime.fd;
+                    *out_stride = width;
+                    *out_size = gem_create.size;
+                    printf("[TEST] Hardware GPU DMA-BUF created: handle=%u prime_fd=%d size=%llu stride=%u\n",
+                           gem_create.handle, prime.fd, (unsigned long long)gem_create.size, *out_stride);
+                    close(drm_fd);
+                    return 0;
+                }
+            }
             printf("[TEST] DRM_IOCTL_MODE_CREATE_DUMB failed: %s (errno=%d)\n", strerror(errno), errno);
         }
         close(drm_fd);

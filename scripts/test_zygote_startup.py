@@ -48,6 +48,9 @@ def main():
     overlay_mapper = tmp_dir / "mapper.drm.so"
     mapper_bind = f'  --bind "{overlay_mapper}" /vendor/lib64/hw/mapper.ranchu.so \\\n' if (overlay_mapper.exists() and os.environ.get("AAAS_USE_DRM_MAPPER", "1") == "1") else ""
 
+    overlay_composer = tmp_dir / "android.hardware.graphics.composer3-service.aaas"
+    composer_bind = f'  --bind "{overlay_composer}" /vendor/bin/hw/android.hardware.graphics.composer3-service.ranchu \\\n' if (overlay_composer.exists() and os.environ.get("AAAS_USE_AAAS_COMPOSER", "1") == "1") else ""
+
     probe_bin = tmp_dir / "surfaceflinger_probe"
     probe_bind = f'  --bind "{probe_bin}" /system/bin/surfaceflinger_probe \\\n' if probe_bin.exists() else ""
     sf_probe_env = os.environ.get("AAAS_SF_PROBE", "0")
@@ -78,7 +81,7 @@ exec bwrap \\
   --as-pid-1 \\
   --unshare-pid \\
   --bind "{rootfs}" / \\
-{mapper_bind}{probe_bind}  --proc /proc \\
+{mapper_bind}{composer_bind}{probe_bind}  --proc /proc \\
   --bind "{fake_cmdline}" /proc/cmdline \\
   --dev /dev \\
   --dev-bind /dev/dri /dev/dri \\
