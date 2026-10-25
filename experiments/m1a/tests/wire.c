@@ -16,5 +16,6 @@ int main(void){int s[2];assert(!socketpair(AF_UNIX,SOCK_SEQPACKET,0,s));
  m.type=AAAS_RELEASE;assert(aaas_send(s[0],&m,0,0)==0);assert(aaas_recv(s[1],&out,fds,&n)==1);
  m.version=2;assert(aaas_send(s[0],&m,0,0)==-1&&errno==EINVAL);
  m.version=AAAS_VERSION;assert(aaas_send(s[0],&m,&s[0],1)==-1&&errno==EINVAL);
+ m.flags=1;assert(aaas_send(s[0],&m,0,0)==-1&&errno==EINVAL);m.flags=0;
  char short_packet[4]={0};assert(send(s[0],short_packet,sizeof(short_packet),0)==4);assert(aaas_recv(s[1],&out,fds,&n)==-1&&errno==EPROTO&&n==0);
  close(s[0]);assert(aaas_recv(s[1],&out,fds,&n)==0);close(s[1]);puts("wire tests passed");}

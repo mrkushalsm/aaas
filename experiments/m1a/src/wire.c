@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 static int valid(const aaas_msg *m,unsigned n){
- if(m->magic!=AAAS_MAGIC||m->version!=AAAS_VERSION||m->reserved||m->type<AAAS_HELLO||m->type>AAAS_CLOSE)return 0;
+ if(m->magic!=AAAS_MAGIC||m->version!=AAAS_VERSION||m->reserved||m->flags||m->type<AAAS_HELLO||m->type>AAAS_CLOSE)return 0;
  if(m->type==AAAS_BUFFER) return n==1&&m->generation&&m->id&&m->width&&m->height&&m->width<=AAAS_MAX_DIM&&m->height<=AAAS_MAX_DIM&&m->stride&&m->format;
  return n==0;
 }
