@@ -14,3 +14,5 @@ Order reflects dependencies; each result gets a dated directory with command tra
 | E8 lifecycle/baselines | Stopped/warm/frozen launch to first presentation; Waydroid/Droidloom on same hardware | Missing presentation evidence or apples-to-oranges configs | Build/image unavailable, record unavailability |
 
 First M1 experiment: resolve Lipstick simplecompositor's Qt5 compositor/private module requirements in an isolated build environment and run two nested Wayland clients. If this requires host-wide Qt replacement or mobile daemons, stop and report the dependency boundary.
+
+M0.1 preflight stopped at that boundary: the pinned Sailfish QtWayland fork declares 5.6.3 and its compositor target does not compile with the isolated Qt 5.15.8 toolchain; `mlite5` and other Sailfish packages are absent. The first M1 task must establish an x86_64 compatible Sailfish Qt toolchain and real package closure before attempting `nested_test.py`. The prepared harness is not runtime evidence.

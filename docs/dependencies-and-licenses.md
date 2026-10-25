@@ -1,6 +1,8 @@
 # Preliminary dependency and license audit
 
-This is a source-level planning matrix, not legal clearance. Full transitive SBOM and exact lock are blocked by unpinned AOSP product and several upstream trees. Review LICENSE/COPYING and generated build dependency graphs before importing code.
+This is a source-level planning matrix, not legal clearance. Full transitive SBOM and exact Android lock are blocked by the unmaterialized AOSP project graph and unavailable product build. Review LICENSE/COPYING and generated build dependency graphs before importing code.
+
+The actual M0.1 Lipstick probe subset, including a 389-package isolated-image notice inventory and the unresolved Sailfish dependencies, is audited separately in `lipstick-m01.md`. That audit does not extend to the whole Android runtime.
 
 | Component | Report license / status | Build/toolchain and dependencies | Privilege/hardware |
 |---|---|---|---|
