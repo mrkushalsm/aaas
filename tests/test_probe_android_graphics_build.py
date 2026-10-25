@@ -40,6 +40,22 @@ class GraphicsBuildProbeTest(unittest.TestCase):
                 with self.assertRaisesRegex(probe.ws.WorkspaceError, 'conflicting'):
                     probe.prepare_layout(workspace, [project])
 
+    def test_layout_replaces_own_symlink_with_copy_for_soong_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            src = workspace / 'sources/sample'
+            src.mkdir(parents=True)
+            (src / 'Android.bp').write_text('package {}\n')
+            dest = workspace / 'probes/graphics-qpr2/external/sample'
+            dest.parent.mkdir(parents=True)
+            dest.symlink_to(src, target_is_directory=True)
+            project = dict(checkout='sample', path='external/sample',
+                           revision='a' * 40, layout='copy')
+            probe.prepare_layout(workspace, [project])
+            self.assertFalse(dest.is_symlink())
+            self.assertEqual((dest / 'Android.bp').read_text(), 'package {}\n')
+            self.assertTrue((src / 'Android.bp').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

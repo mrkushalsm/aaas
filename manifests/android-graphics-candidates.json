@@ -4,15 +4,90 @@
   "source_snapshot": {
     "superproject_revision": "cc66c82349f536b77341e13862a548c01b048963",
     "projects": [
-      {"path": "external/minigbm", "checkout": "minigbm", "revision": "b7c93249f685222a524c51403719493cc114ff5d", "layout": "symlink"},
-      {"path": "frameworks/native", "checkout": "frameworks-native-qpr2", "revision": "fcbde2bcff56ca1d7bec9cabf8bdca5e288bf103", "layout": "symlink"},
-      {"path": "hardware/interfaces", "checkout": "hardware-interfaces-qpr2", "revision": "aa229558cbf04bc997ed27465c5e7ad497123d1b", "layout": "symlink"},
-      {"path": "build/make", "checkout": "build-make-qpr2", "revision": "b815dded1eafbf06191a6ae306956bb6ed6fb415", "layout": "symlink"},
-      {"path": "build/soong", "checkout": "build-soong-qpr2", "revision": "f389fa2a2a768a93bc99957e2288f3fbee032bff", "layout": "copy"},
-      {"path": "build/blueprint", "checkout": "build-blueprint-qpr2", "revision": "c39c8a4c103f1393f015a5befa7726f0c14c9bc2", "layout": "copy"},
-      {"path": "prebuilts/go/linux-x86", "checkout": "prebuilts-go-linux-x86-qpr2", "revision": "71c50d4d0da8b3dee5c70ee45789d001674ca5f6", "layout": "symlink"},
-      {"path": "external/golang-protobuf", "checkout": "golang-protobuf-qpr2", "revision": "fcb969a6e0df55f1460721e1b9c4f2c4d2b5a47f", "layout": "symlink"},
-      {"path": "external/pogreb", "checkout": "pogreb-qpr2", "revision": "c7851d75ff3a7b8228f548f7235d48cee9130971", "layout": "symlink"}
+      {
+        "path": "external/minigbm",
+        "checkout": "minigbm",
+        "revision": "b7c93249f685222a524c51403719493cc114ff5d",
+        "layout": "copy"
+      },
+      {
+        "path": "frameworks/native",
+        "checkout": "frameworks-native-qpr2",
+        "revision": "fcbde2bcff56ca1d7bec9cabf8bdca5e288bf103",
+        "layout": "copy"
+      },
+      {
+        "path": "hardware/interfaces",
+        "checkout": "hardware-interfaces-qpr2",
+        "revision": "aa229558cbf04bc997ed27465c5e7ad497123d1b",
+        "layout": "copy"
+      },
+      {
+        "path": "build/make",
+        "checkout": "build-make-qpr2",
+        "revision": "b815dded1eafbf06191a6ae306956bb6ed6fb415",
+        "layout": "symlink"
+      },
+      {
+        "path": "build/soong",
+        "checkout": "build-soong-qpr2",
+        "revision": "f389fa2a2a768a93bc99957e2288f3fbee032bff",
+        "layout": "copy"
+      },
+      {
+        "path": "build/blueprint",
+        "checkout": "build-blueprint-qpr2",
+        "revision": "c39c8a4c103f1393f015a5befa7726f0c14c9bc2",
+        "layout": "copy"
+      },
+      {
+        "path": "prebuilts/go/linux-x86",
+        "checkout": "prebuilts-go-linux-x86-qpr2",
+        "revision": "71c50d4d0da8b3dee5c70ee45789d001674ca5f6",
+        "layout": "symlink"
+      },
+      {
+        "path": "external/golang-protobuf",
+        "checkout": "golang-protobuf-qpr2",
+        "revision": "fcb969a6e0df55f1460721e1b9c4f2c4d2b5a47f",
+        "layout": "copy"
+      },
+      {
+        "path": "external/pogreb",
+        "checkout": "pogreb-qpr2",
+        "revision": "c7851d75ff3a7b8228f548f7235d48cee9130971",
+        "layout": "copy"
+      },
+      {
+        "path": "external/starlark-go",
+        "checkout": "external-starlark-go-qpr2",
+        "revision": "4947cdc739c985f6d86941e22894f5cefe7c9e9a",
+        "layout": "copy"
+      },
+      {
+        "path": "prebuilts/build-tools",
+        "checkout": "prebuilts-build-tools-qpr2",
+        "revision": "412724a805835d89234d67c363f7ada7f5f8a67f",
+        "layout": "symlink"
+      },
+      {
+        "path": "build/release",
+        "checkout": "build-release-qpr2",
+        "revision": "0998133091794b56253fd6bd5c33ed0e0e5bd9de",
+        "layout": "symlink"
+      },
+      {
+        "path": "toolchain/pgo-profiles",
+        "checkout": "toolchain-pgo-profiles-qpr2",
+        "revision": "09143208038651bf107b8557d79a206b962cb7b6",
+        "layout": "symlink"
+      },
+      {
+        "path": "external/go-cmp",
+        "checkout": "external-go-cmp-qpr2",
+        "revision": "163db04d0a17fd9b25316c6203d2d911a40461f6",
+        "layout": "copy"
+      }
     ]
   },
   "candidates": [
