@@ -64,6 +64,24 @@ class WorkspaceGuardTest(unittest.TestCase):
                 guard.check(self.workspace, 90 * guard.GIB)
             self.assertLess(guard.check(self.workspace)['used_bytes'], 80 * guard.GIB)
 
+    def test_initialize_new_workspace_and_repeat(self):
+        (self.workspace / guard.MARKER).unlink()
+        self.workspace.rmdir()
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(f_bavail=200, f_frsize=guard.GIB)):
+            first = guard.initialize(self.workspace, self.mount)
+            marker = json.loads((self.workspace / guard.MARKER).read_text())
+            self.assertEqual(first['workspace'], str(self.workspace))
+            self.assertTrue(all((self.workspace / name).is_dir() for name in guard.LAYOUT))
+            guard.initialize(self.workspace, self.mount)
+            self.assertEqual(json.loads((self.workspace / guard.MARKER).read_text()), marker)
+
+    def test_initialize_refuses_existing_unmarked_data(self):
+        (self.workspace / guard.MARKER).unlink()
+        with patch.object(guard, 'mount_identity', return_value=self.identity):
+            with self.assertRaisesRegex(guard.WorkspaceError, 'missing workspace marker'):
+                guard.initialize(self.workspace, self.mount)
+
 
 if __name__ == '__main__':
     unittest.main()

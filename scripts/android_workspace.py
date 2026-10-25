@@ -12,9 +12,11 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 
 GIB = 1 << 30
 MARKER = '.aaas-workspace.json'
+LAYOUT = ('images', 'sources', 'out', 'cache', 'logs', 'tmp', 'mnt')
 
 
 class WorkspaceError(RuntimeError):
@@ -44,6 +46,31 @@ def allocated_bytes(root):
                 seen.add(key)
                 total += st.st_blocks * 512
     return total
+
+
+def initialize(workspace, mount_target):
+    workspace = Path(workspace).absolute()
+    target = Path(mount_target).absolute()
+    if workspace.parent != target or workspace.name in ('', '.', '..'):
+        raise WorkspaceError('workspace must be a new direct child of the mount')
+    identity = mount_identity(target)
+    if identity['target'] != str(target):
+        raise WorkspaceError(f'external disk is not mounted at {target}')
+    if identity['filesystem'] not in ('ext4', 'xfs', 'btrfs', 'ntfs3'):
+        raise WorkspaceError(f'unsupported filesystem: {identity["filesystem"]}')
+    if workspace.exists():
+        return check(workspace)
+    if not os.access(target, os.W_OK | os.X_OK):
+        raise WorkspaceError('mount is not writable')
+    workspace.mkdir(mode=0o700)
+    marker = dict(schema=1, workspace_id=str(uuid.uuid4()),
+                  mount_target=str(target), mount_uuid=identity['uuid'],
+                  filesystem=identity['filesystem'], budget_gib=100,
+                  reserve_gib=20, working_ceiling_gib=80)
+    (workspace / MARKER).write_text(json.dumps(marker, indent=2) + '\n')
+    for name in LAYOUT:
+        (workspace / name).mkdir()
+    return check(workspace)
 
 
 def check(workspace, predicted=0):
@@ -116,16 +143,22 @@ def run_guarded(workspace, predicted, interval, command, log_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace', default=os.environ.get('AAAS_WORKSPACE'))
+    parser.add_argument('--mount', help='mounted external volume for init')
     parser.add_argument('--predict-gib', type=float, default=0)
     parser.add_argument('--interval', type=float, default=2)
     parser.add_argument('--log', type=Path)
-    parser.add_argument('action', choices=('check', 'run'))
+    parser.add_argument('action', choices=('init', 'check', 'run'))
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if not args.workspace:
         parser.error('--workspace or AAAS_WORKSPACE is required')
     try:
         predicted = int(args.predict_gib * GIB)
+        if args.action == 'init':
+            if not args.mount:
+                parser.error('--mount is required for init')
+            print(json.dumps(initialize(args.workspace, args.mount), indent=2))
+            return 0
         if args.action == 'check':
             print(json.dumps(check(args.workspace, predicted), indent=2))
             return 0
