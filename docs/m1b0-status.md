@@ -142,9 +142,11 @@ AIDL HAL services for both display composition and memory allocation:
 2. **Explicit Fence Synchronization (`libsync.so`):**
    Acquire and release fences are passed as sync file descriptors (`/dev/sync` or DMA-BUF fences).
    This directly confirms the viability of the M1A.1 GPU fence synchronization architecture.
-3. **Mapper 5.0 & DMA-BUF:**
-   The memory allocation architecture uses Gralloc Mapper 5.0, where buffer handles encapsulate
-   DMA-BUF file descriptors suitable for zero-copy presentation into Wayland host compositors.
+3. **Mapper 5.0:**
+   The SDK image declares a Ranchu Gralloc Mapper 5.0. Its handle layout and
+   successful DMA-BUF import into the host compositor have not been verified.
+   The later diagnostic SurfaceFlinger run aborts while this mapper opens
+   missing Goldfish devices; see `docs/m1b-graphics-blocker.md`.
 
 ---
 
