@@ -6,6 +6,7 @@ unresolved project; success would still require ABI and runtime validation.
 """
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -73,7 +74,8 @@ def main():
             print(json.dumps({'status': 'prepared', 'root': str(root)}))
             return 0
         output = args.workspace / 'out' / 'graphics-qpr2'
-        log = args.workspace / 'logs' / 'graphics-build-probe.log'
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+        log = args.workspace / 'logs' / f'graphics-build-probe-{stamp}.log'
         budget_log = args.workspace / 'logs' / 'graphics-build-budget.jsonl'
         command = [str(root / 'build/soong/soong_ui.bash'), '--make-mode', '-j2',
                    'mapper.minigbm', 'android.hardware.graphics.allocator-service.minigbm']

@@ -10,7 +10,8 @@
       {"path": "build/make", "checkout": "build-make-qpr2", "revision": "b815dded1eafbf06191a6ae306956bb6ed6fb415", "layout": "symlink"},
       {"path": "build/soong", "checkout": "build-soong-qpr2", "revision": "f389fa2a2a768a93bc99957e2288f3fbee032bff", "layout": "copy"},
       {"path": "build/blueprint", "checkout": "build-blueprint-qpr2", "revision": "c39c8a4c103f1393f015a5befa7726f0c14c9bc2", "layout": "copy"},
-      {"path": "prebuilts/go/linux-x86", "checkout": "prebuilts-go-linux-x86-qpr2", "revision": "71c50d4d0da8b3dee5c70ee45789d001674ca5f6", "layout": "symlink"}
+      {"path": "prebuilts/go/linux-x86", "checkout": "prebuilts-go-linux-x86-qpr2", "revision": "71c50d4d0da8b3dee5c70ee45789d001674ca5f6", "layout": "symlink"},
+      {"path": "external/golang-protobuf", "checkout": "golang-protobuf-qpr2", "revision": "fcb969a6e0df55f1460721e1b9c4f2c4d2b5a47f", "layout": "symlink"}
     ]
   },
   "candidates": [

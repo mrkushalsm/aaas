@@ -43,12 +43,17 @@ product configuration rather than hidden behind emulation hooks.
    coherent minimal product entirely from one pinned source graph. Record
    mapper stable-C version, allocator AIDL version, VINTF, and linked library
    ABI before installing any candidate into an experimental rootfs.
-2. Build the upstream minigbm pair without source edits. The current bounded
-   QPR2 Soong probe stops before compilation at the absent
-   `external/golang-protobuf/proto` bootstrap dependency; its log is
-   `$AAAS_WORKSPACE/logs/graphics-build-probe.log`. Resolve source closure
-   under the external-workspace budget rather than copying random libraries
-   from a different Android build.
+2. Build the upstream minigbm pair without source edits. The bounded QPR2
+   Soong probe first stopped before compilation at
+   `external/golang-protobuf/proto`. The pinned superproject
+   `cc66c82349f536b77341e13862a548c01b048963` identifies that project
+   as `fcb969a6e0df55f1460721e1b9c4f2c4d2b5a47f`, which was fetched
+   unchanged. The next probe still stopped before compilation, now at missing
+   `external/pogreb`. Its retained log is
+   `$AAAS_WORKSPACE/logs/graphics-build-probe-after-golang-protobuf.log`.
+   Future probe runs write unique timestamped logs. Resolve source closure
+   under the external-workspace budget rather than copying libraries from a
+   different Android build.
 3. In a disposable image overlay, test allocator registration, mapper load,
    DMA-BUF allocation, cross-process import, metadata, and release fences.
    A build alone is insufficient. Keep the pristine SDK partitions unchanged.
