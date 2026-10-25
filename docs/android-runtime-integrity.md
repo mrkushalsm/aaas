@@ -82,6 +82,53 @@ fences before starting stock SurfaceFlinger. If the SDK image cannot be
 matched, use a source-built product or verified image from the same build
 graph. Do not use a binary patch or success-returning shim to pass this gate.
 
+### Bounded upstream build probe (2026-10-26)
+
+The pinned AOSP superproject revision in the graphics candidate manifest maps
+minigbm, frameworks/native, hardware/interfaces, build/make, build/soong,
+build/blueprint, and prebuilts/go/linux-x86 to specific commits. Each commit
+was verified against a local Git checkout and the superproject tree, and the projects were fetched unchanged
+to the external workspace. These checkouts use about 1.2 GiB, dominated by
+the pinned Go prebuilt. They are an internally consistent **partial** QPR2
+source snapshot, not the source tree that produced the older SDK image.
+The Go prebuilt is used only by AOSP's Soong microfactory during build
+bootstrap. AaaS runtime and host transport do not depend on Go.
+
+The SDK image contains many runtime shared libraries required by minigbm,
+including allocator-V2-ndk, libbinder_ndk, libdrm, libdmabufheap, libsync,
+and libgralloctypes. It does not contain minigbm's own libraries. Their
+build requires Soong and platform headers; `libarect` is provided by the
+pinned frameworks/native checkout, while Mapper 5 provider headers come
+from the pinned hardware/interfaces checkout. Presence of runtime `.so`
+files does not supply matching build headers or prove ABI compatibility.
+
+```sh
+export AAAS_WORKSPACE=/run/media/mrkus/Homework/aaas-workspace
+python3 scripts/probe_android_graphics_build.py \
+  --workspace "$AAAS_WORKSPACE" --prepare-only
+python3 scripts/probe_android_graphics_build.py \
+  --workspace "$AAAS_WORKSPACE"
+```
+
+The second command exited 1 after Soong's microfactory started. Its first
+unresolved dependency is `external/golang-protobuf/proto`, required while
+building `android/soong/cmd/soong_ui`. The full output and live budget samples
+remain in `$AAAS_WORKSPACE/logs/graphics-build-probe.log` and
+`graphics-build-budget.jsonl`. No minigbm object or binary was produced.
+This establishes that the selected modules cannot be built from the seven
+project partial tree. Resolving one Go package alone would not prove the
+remaining Soong and Android dependency closure; a locked, compatible build
+graph is required before a meaningful allocator/mapper build attempt.
+
+The original `system.raw.img` was mounted read-only with `guestmount` and
+unmounted without modification. Its stock SurfaceFlinger SHA-256 is
+`a6d1ddc34b15c5841ac7e89fd57e6210b718013cf4888cecb9c397f858d64848`;
+its stock `libbinder.so` SHA-256 is
+`7f355db5308449a1d5015aeedf73ce33557bb5eec0c49f8930fbc20927da06f2`.
+The latter differs from the patched library in the diagnostic rootfs. The
+raw LP partitions remain the clean read-only baseline; no new rootfs copy was
+created.
+
 ## Installation boundary
 
 Current container runners contain fixed user paths, subuid ranges, cgroup
