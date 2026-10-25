@@ -39,6 +39,21 @@ class RuntimeAuditTest(unittest.TestCase):
             result = audit.audit(Path(tmp), Path(tmp), ('vendor/bin/service',))
             self.assertEqual(result[0]['status'], 'missing_partition')
 
+    def test_detects_unexpected_overlay_and_modified_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            overlay = root / 'system/lib64/libselinux_shim.so'
+            overlay.parent.mkdir(parents=True)
+            overlay.write_bytes(b'shim')
+            findings = audit.audit_overlays(root)
+            self.assertEqual(findings[0]['status'], 'unexpected_overlay')
+            with patch.object(audit.subprocess, 'run') as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = ' M src/Vulkan/libVulkan.cpp\n'
+                source = audit.audit_source_checkout(root)
+            self.assertEqual(source[0]['status'], 'source_modified')
+            self.assertEqual(source[0]['modified_entries'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()

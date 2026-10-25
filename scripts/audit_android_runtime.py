@@ -32,6 +32,11 @@ CRITICAL = (
     'vendor/etc/init/android.hardware.graphics.allocator-service.ranchu.rc',
     'vendor/etc/init/lights-default.rc',
 )
+FORBIDDEN_OVERLAYS = (
+    'system/lib64/libselinux_shim.so',
+    'vendor/lib64/libselinux_shim.so',
+    'system/bin/surfaceflinger_minimal',
+)
 
 
 def sha256(data):
@@ -74,13 +79,36 @@ def audit(rootfs, partitions, paths=CRITICAL):
     return findings
 
 
+def audit_overlays(rootfs, paths=FORBIDDEN_OVERLAYS):
+    return [dict(path=path, status='unexpected_overlay')
+            for path in paths if (rootfs / path).exists()]
+
+
+def audit_source_checkout(path):
+    if not path:
+        return []
+    result = subprocess.run(['git', '-C', str(path), 'status', '--porcelain'],
+                            capture_output=True, text=True, check=False)
+    if result.returncode:
+        return [dict(path=str(path), status='source_unreadable',
+                     reason=result.stderr.strip())]
+    if result.stdout.strip():
+        return [dict(path=str(path), status='source_modified',
+                     modified_entries=len(result.stdout.splitlines()))]
+    return []
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rootfs', required=True, type=Path)
     parser.add_argument('--partitions', required=True, type=Path)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--swiftshader-source', type=Path,
+                        help='optional SwiftShader checkout to reject local source patches')
     args = parser.parse_args()
-    findings = audit(args.rootfs, args.partitions)
+    findings = (audit(args.rootfs, args.partitions) +
+                audit_overlays(args.rootfs) +
+                audit_source_checkout(args.swiftshader_source))
     report = {'schema': 1, 'rootfs': str(args.rootfs),
               'partitions': str(args.partitions), 'findings': findings}
     encoded = json.dumps(report, indent=2) + '\n'

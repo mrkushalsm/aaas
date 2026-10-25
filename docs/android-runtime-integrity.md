@@ -43,12 +43,14 @@ python3 scripts/android_workspace.py --workspace "$AAAS_WORKSPACE" check
 python3 scripts/audit_android_runtime.py \
   --rootfs "$AAAS_WORKSPACE/rootfs_m1b1" \
   --partitions "$AAAS_WORKSPACE/tmp/partitions" \
+  --swiftshader-source "$AAAS_WORKSPACE/sources/swiftshader" \
   --output "$AAAS_WORKSPACE/logs/runtime-integrity.json"
 ```
 
 Exit 0 means every listed critical file matches the source image. Exit 1
-means modified, missing, or unreadable files. The checker never repairs or
-deletes anything. It is deliberately a critical-file gate, not a complete
+means modified, missing, or unreadable files, known extra shims, or local
+SwiftShader source edits. The checker never repairs or deletes anything. It
+is deliberately a critical-file gate, not a complete
 filesystem attestation. A clean install path must also checksum the source
 archive and use a fresh extraction, with an inventory of every intentional
 overlay and its license.
