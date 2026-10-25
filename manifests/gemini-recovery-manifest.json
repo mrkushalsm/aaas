@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "recovery_target": "AaaS M1B Gemini Android 16 Container Boot Path",
+  "recovery_branch": "gemini-boot-recovery",
+  "base_commit": "06615d97e28bdf69a23d4cba79930985aa0cfd91",
+  "timestamp": "2026-10-26T02:58:30+05:30",
+  "recovered_files": [
+    {
+      "path": "scripts/extract_all_apexes.py",
+      "status": "modified",
+      "sha256": "226c304bfefce66c86ed27c4266751f28ef6ea921b78c9f23029c353821fd57e",
+      "description": "APEX extractor with normalized absolute symlinks for staging rootfs"
+    },
+    {
+      "path": "experiments/m1b/shim_selinux.c",
+      "status": "untracked",
+      "sha256": "e5df4d81ee296f475954d34b5d7ca5279bbeb5e0935bc332d5d810c700e2f75d",
+      "description": "Freestanding SELinux and container compatibility shim (libselinux_shim.so)"
+    },
+    {
+      "path": "experiments/m1b/surfaceflinger_minimal.cpp",
+      "status": "untracked",
+      "sha256": "38975f36f99e72893ecaa2c47e951e23eacf4baa95e85e93b59c00bc32ade88d",
+      "description": "Diagnostic minimal SurfaceFlinger probe source"
+    },
+    {
+      "path": "scripts/run_container_init.py",
+      "status": "untracked",
+      "sha256": "b652d9c2a1eb09fb3426d4d302b2522dffd215e0eaa423fbe5a67ec345f15bc8",
+      "description": "Container init runner configuring binderfs, namespaces, and subuid mapping"
+    },
+    {
+      "path": "scripts/test_binder_ipc.py",
+      "status": "untracked",
+      "sha256": "ad4f2b8518f402308c8de30a462962f1c94e2fa43678e72d9cf5672c26457596",
+      "description": "Binder IPC service check and list probe runner"
+    },
+    {
+      "path": "scripts/test_property_service.py",
+      "status": "untracked",
+      "sha256": "f18823fa5c56030382005c98208dfb3086ab9a82b1b1fd0dd60a0c58a48dc56b",
+      "description": "Property service query probe runner"
+    },
+    {
+      "path": "scripts/test_zygote_startup.py",
+      "status": "untracked",
+      "sha256": "b71f36f7d11da1024015a061ac9f6fcbd57489612da14bf22625ab4d66f6404f",
+      "description": "Full diagnostic Zygote, SurfaceFlinger, and system_server startup runner"
+    }
+  ],
+  "workspace_artifacts": {
+    "rootfs": "/run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1",
+    "libselinux_shim_so": "/run/media/mrkus/Homework/aaas-workspace/tmp/libselinux_shim.so",
+    "test_zygote_out": "/run/media/mrkus/Homework/aaas-workspace/tmp/test_zygote_out.txt",
+    "test_zygote_kmsg": "/run/media/mrkus/Homework/aaas-workspace/tmp/test_zygote_kmsg.txt",
+    "full_logcat": "/run/media/mrkus/Homework/aaas-workspace/tmp/full_logcat.log",
+    "sf_strace": "/run/media/mrkus/Homework/aaas-workspace/tmp/sf_strace.log"
+  }
+}

@@ -49,6 +49,18 @@ def extract_single_apex(apex_path: Path, target_dir: Path):
             stderr=subprocess.PIPE,
             check=True
         )
+        # Normalize extracted absolute symlinks
+        dest_prefix = str(dest)
+        for link in dest.rglob('*'):
+            if link.is_symlink():
+                t = os.readlink(link)
+                if t.startswith(dest_prefix):
+                    rel = t[len(dest_prefix):]
+                    parts = rel.split('/')
+                    if len(parts) >= 2 and parts[1] == 'system':
+                        rel = '/' + '/'.join(parts[1:])
+                    link.unlink()
+                    link.symlink_to(rel)
         print(f"Extracted: {pkg_name} -> {dest}")
     finally:
         if tmp_img_path.exists():
