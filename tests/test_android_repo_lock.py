@@ -23,6 +23,8 @@ class RepoLockTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'override mismatch'):
                 validate_locked(path, {'x': 'b' * 40})
             self.assertEqual(validate_locked(path, {'x': 'a' * 40})['x'], 'a' * 40)
+            with self.assertRaisesRegex(ValueError, 'project path mismatch'):
+                validate_locked(path, {'x': 'a' * 40}, {'x', 'y'})
 
 
 if __name__ == '__main__':

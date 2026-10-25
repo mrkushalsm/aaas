@@ -54,7 +54,7 @@ def manifest_projects(directory):
     return projects, remotes
 
 
-def validate_locked(path, expected_overrides):
+def validate_locked(path, expected_overrides, expected_paths=None):
     manifest = ET.parse(path).getroot()
     if manifest.tag != 'manifest':
         raise ValueError('not a repo manifest')
@@ -69,6 +69,10 @@ def validate_locked(path, expected_overrides):
         projects[directory] = revision
     if not projects:
         raise ValueError('empty locked manifest')
+    if expected_paths is not None and set(projects) != set(expected_paths):
+        missing = sorted(set(expected_paths) - set(projects))
+        extra = sorted(set(projects) - set(expected_paths))
+        raise ValueError(f'project path mismatch: missing={missing[:5]} extra={extra[:5]}')
     for directory, revision in expected_overrides.items():
         if projects.get(directory) != revision:
             raise ValueError(f'override mismatch: {directory}')
@@ -83,18 +87,18 @@ def main():
     args = parser.parse_args()
     sources = json.loads((ROOT / 'manifests/sources.json').read_text())['sources']
     overrides = {s['path']: s['revision'] for s in sources if s.get('kind') == 'repo-project'}
+    expected_projects, remotes = manifest_projects(args.manifest_dir)
     if args.action == 'inspect':
-        projects, remotes = manifest_projects(args.manifest_dir)
-        print(json.dumps(dict(project_count=len(projects), remote_count=len(remotes),
-                              unresolved_paths=[p for p, v in projects.items() if not SHA.fullmatch(v['revision'])],
+        print(json.dumps(dict(project_count=len(expected_projects), remote_count=len(remotes),
+                              unresolved_paths=[p for p, v in expected_projects.items() if not SHA.fullmatch(v['revision'])],
                               override_paths=sorted(overrides)), indent=2))
     elif args.action == 'generate':
         # Run only inside a completed repo sync. repo itself emits the resolved SHA graph.
         subprocess.run(['repo', 'manifest', '-r', '-o', str(args.lock)], check=True)
-        projects = validate_locked(args.lock, overrides)
+        projects = validate_locked(args.lock, overrides, expected_projects)
         print(f'locked {len(projects)} project revisions')
     else:
-        projects = validate_locked(args.lock, overrides)
+        projects = validate_locked(args.lock, overrides, expected_projects)
         print(f'validated {len(projects)} immutable project revisions')
 
 
