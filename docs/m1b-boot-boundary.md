@@ -44,6 +44,23 @@ pinned upstream `frameworks/native/cmds/servicemanager/Access.cpp` checks
 clean probe demonstrates this check is the first verified stock-service stop
 on this host, after Binder opened successfully.
 
+The separate kernel-only probe below created a disposable binderfs node in an
+unprivileged user and mount namespace, then issued the same
+`BINDER_SET_CONTEXT_MGR_EXT` request with
+`FLAT_BINDER_FLAG_TXN_SECURITY_CTX` used by pinned AOSP `libbinder`:
+
+```sh
+python3 scripts/probe_binder_context_manager.py \
+  | tee "$AAAS_WORKSPACE/logs/binder-context-manager-probe.json"
+```
+
+On this host it returned `{"accepted": true, "errno": null}`. The kernel
+accepts the context-manager registration request despite inactive SELinux.
+This does not prove that Binder transactions carry useful security labels or
+that Android service access checks work. The probe mounts and unmounts its own
+binderfs and does not alter Android files. Transaction security and caller
+authorization still require separate tests.
+
 ## What can be retained from the diagnostic work
 
 | Component | Diagnostic finding | Production direction |
@@ -67,11 +84,16 @@ experiment.
 
 The next source-based path is a *purpose-built Android container product*
 whose changes are explicit and reviewed at source level: define a substitute
-service-access policy for hosts without Android SELinux, resolve Binder's
-security-context request without hex editing, and support real APEX activation
-or a verified source-built alternative. This is a security design decision,
+service-access policy for hosts without Android SELinux and support real APEX
+activation or a verified source-built alternative. The kernel accepts Binder's
+security-context request, but caller-label behavior remains unverified. This is a security design decision,
 not a compiler workaround. It must retain Linux namespace/cgroup isolation
 and be tested against hostile app UIDs before an installer can rely on it.
+
+LXC is the intended container manager for this path. It is available as a
+distribution package but is not currently installed. The Binder probe already
+uses the native kernel user/mount namespace and binderfs mechanisms that an
+unprivileged LXC configuration would need; an LXC boot is not yet claimed.
 
 A guest-kernel experiment could retain stock Android SELinux and APEX
 semantics, but it is a different isolation architecture and is not adopted
