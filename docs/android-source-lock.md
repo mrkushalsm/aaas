@@ -7,8 +7,13 @@ Digitalis's `android16` manifest is pinned at `c04ff674ee0926fe79e690b20493c7b2f
 To materialize the Android graph on a sufficiently provisioned isolated build machine:
 
 ```sh
+git clone https://gerrit.googlesource.com/git-repo git-repo-tool
+git -C git-repo-tool checkout --detach f4ce9572d1f9e412a5685297d2806ce410e4d4a0
+export PATH="$PWD/git-repo-tool:$PATH"
 mkdir -p android16 && cd android16
-repo init -u https://github.com/DigitalisX64/manifest.git -b android16
+repo init -u https://github.com/DigitalisX64/manifest.git -b android16 \
+  --repo-url=https://gerrit.googlesource.com/git-repo \
+  --repo-rev=f4ce9572d1f9e412a5685297d2806ce410e4d4a0
 git -C .repo/manifests checkout --detach c04ff674ee0926fe79e690b20493c7b2f0e380b4
 repo sync -c -j4
 python3 /absolute/path/to/aaas/scripts/android_repo_lock.py generate --lock /absolute/path/to/aaas/manifests/android16-locked.xml

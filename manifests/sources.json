@@ -158,6 +158,22 @@
       "role": "AOSP project graph snapshot candidate; correspondence to Digitalis fork overrides unverified"
     },
     {
+      "name": "sailfish-qtwayland",
+      "url": "https://github.com/sailfishos/qtwayland.git",
+      "revision": "f377218d71c1c2de7b0cf71f0acd551309d8e86b",
+      "kind": "standalone-git",
+      "selected_from": "HEAD",
+      "role": "Lipstick QtCompositor and compositor-private API provider; MODULE_VERSION 5.6.3"
+    },
+    {
+      "name": "git-repo-tool",
+      "url": "https://gerrit.googlesource.com/git-repo",
+      "revision": "f4ce9572d1f9e412a5685297d2806ce410e4d4a0",
+      "kind": "standalone-git",
+      "selected_from": "HEAD",
+      "role": "Android repo manifest and sync tool for lock materialization"
+    },
+    {
       "name": "digitalis-goldfish",
       "url": "https://github.com/DigitalisX64/device_generic_goldfish.git",
       "revision": "bbc2f1e4237016e744be8de59b7b6b310f2cc242",
