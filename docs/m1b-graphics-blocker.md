@@ -68,3 +68,45 @@ product configuration rather than hidden behind emulation hooks.
 Stop if the matching source graph cannot be obtained within the storage
 budget, if the pair fails ABI/VINTF checks, or if render-node access requires
 weakening host security. Preserve the logs and exact command for that stop.
+
+## Bounded QPR2 build closure result (2026-10-26)
+
+The source resolver pinned additional projects from the same superproject:
+`external/starlark-go`, `prebuilts/build-tools`, `build/release`,
+`toolchain/pgo-profiles`, and `external/go-cmp`. Revisions and checkout paths
+are in `manifests/android-graphics-candidates.json`. The source checkouts are
+unchanged; Soong-scanned projects are copied into the generated probe tree
+because its `Android.bp` scanner did not discover modules through directory
+symlinks. The build itself now runs inside an unprivileged Bubblewrap user,
+PID, and network namespace with the host root read-only and only the guarded
+external workspace writable. This outer sandbox remains active if Soong's
+own `nsjail` sandbox is unavailable.
+
+Reproduce the last bounded attempt with:
+
+```sh
+python3 scripts/android_workspace.py --workspace "$AAAS_WORKSPACE" --predict-gib 2 check
+python3 scripts/probe_android_graphics_build.py --workspace "$AAAS_WORKSPACE" --predict-gib 2
+```
+
+The latest retained log is
+`$AAAS_WORKSPACE/logs/graphics-build-probe-20261025T204150197637Z.log`.
+Product configuration for AOSP's `module_x86_64-trunk_staging-eng` succeeded;
+the Blueprint bootstrap then failed on **three undefined module providers**:
+`golang-dependency-mapper-protoimpl`, `kernel-config-soong-rules`, and
+`soong-selinux`. These are global Soong bootstrap dependencies, not minigbm
+compiler errors. The previous `aosp_x86_64` configuration also required
+unrelated Virtualization product files. The module product is only a build
+probe target, not the proposed AaaS runtime product.
+
+This is the current major build blocker: the targeted build still requires a
+substantial coherent AOSP source graph, including build plugins outside the
+graphics pair. Resolving one missing project at a time no longer gives a
+bounded estimate for reaching compilation. The host reports 15.3 GiB RAM,
+below Soong's approximate 16 GiB minimum warning, though no out-of-memory
+failure has been observed. The guarded workspace used about 13.5 GiB at this
+stop, below its 80 GiB ceiling. No Android graphics HAL binary was produced.
+
+Next, generate and size a complete immutable source graph for a deliberately
+minimal Android product before fetching more projects. Keep the SDK image as
+diagnostic evidence; QPR2-built HAL compatibility with it remains unverified.
