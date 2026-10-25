@@ -13,13 +13,14 @@ from pathlib import Path
 def main():
     rootfs = Path("/run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1")
     tmp_dir = Path("/run/media/mrkus/Homework/aaas-workspace/tmp")
-    kmsg_log = tmp_dir / "kmsg_zygote_test.log"
+    prefix = os.environ.get("AAAS_LOG_PREFIX", "")
+    kmsg_log = tmp_dir / f"{prefix}kmsg_zygote_test.log"
     kmsg_log.write_text("")
     os.chmod(kmsg_log, 0o666)
-    full_logcat_log = tmp_dir / "full_logcat.log"
+    full_logcat_log = tmp_dir / f"{prefix}full_logcat.log"
     full_logcat_log.write_text("")
     os.chmod(full_logcat_log, 0o666)
-    sf_strace_log = tmp_dir / "sf_strace.log"
+    sf_strace_log = tmp_dir / f"{prefix}sf_strace.log"
     sf_strace_log.write_text("")
     os.chmod(sf_strace_log, 0o666)
 
@@ -43,6 +44,13 @@ def main():
     if fifo_path.exists():
         fifo_path.unlink()
     os.mkfifo(fifo_path)
+
+    overlay_mapper = tmp_dir / "mapper.drm.so"
+    mapper_bind = f'  --bind "{overlay_mapper}" /vendor/lib64/hw/mapper.ranchu.so \\\n' if (overlay_mapper.exists() and os.environ.get("AAAS_USE_DRM_MAPPER", "1") == "1") else ""
+
+    probe_bin = tmp_dir / "surfaceflinger_probe"
+    probe_bind = f'  --bind "{probe_bin}" /system/bin/surfaceflinger_probe \\\n' if probe_bin.exists() else ""
+    sf_probe_env = os.environ.get("AAAS_SF_PROBE", "0")
 
     runner_script = tmp_dir / f"run_zygote_probe_{os.getpid()}.sh"
     script_text = f"""#!/bin/sh
@@ -70,7 +78,7 @@ exec bwrap \\
   --as-pid-1 \\
   --unshare-pid \\
   --bind "{rootfs}" / \\
-  --proc /proc \\
+{mapper_bind}{probe_bind}  --proc /proc \\
   --bind "{fake_cmdline}" /proc/cmdline \\
   --dev /dev \\
   --dev-bind /dev/dri /dev/dri \\
@@ -120,7 +128,12 @@ exec bwrap \\
     /system/bin/start installd
     /system/bin/start vendor.light-default
     /system/bin/start vendor.hwcomposer-3
-    /system/bin/strace -f -tt -T -s 128 -o /data_sf_strace.log /system/bin/surfaceflinger &
+    if [ "{sf_probe_env}" = "1" ]; then
+      echo "=== STARTING DIAGNOSTIC SURFACEFLINGER PROBE ==="
+      /system/bin/surfaceflinger_probe &
+    else
+      /system/bin/strace -f -tt -T -s 128 -o /data_sf_strace.log /system/bin/surfaceflinger &
+    fi
     sleep 2.0
 
     echo "=== STEP 2: SETTING ODSIGN DONE & STARTING ZYGOTE ==="
