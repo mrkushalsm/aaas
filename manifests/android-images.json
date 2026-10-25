@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "comment": "Public Android SDK system images. sha1 is the 40-hex SHA1 from the SDK XML repository index (sys-img2-1.xml). These are emulator system images, not full AOSP build outputs. They are suitable for feasibility probing within the storage budget.",
+  "sdk_xml_url": "https://dl.google.com/android/repository/sys-img/android/sys-img2-1.xml",
+  "sdk_xml_fetched": "2026-10-25",
+  "images": [
+    {
+      "sdk_path": "system-images;android-36;default;x86_64",
+      "android_version": "16",
+      "api_level": 36,
+      "revision": "r02",
+      "arch": "x86_64",
+      "url": "https://dl.google.com/android/repository/sys-img/android/x86_64-36_r02.zip",
+      "size_bytes": 844217077,
+      "size_mib": 805.1,
+      "sha1": "829c076e8ff448a336097ae25a355b495ba36e2c",
+      "notes": "Android 16 (API 36) x86_64 AOSP default system image. Verified available 2026-10-25. SHA1 from Google SDK XML; no SHA256 provided by Google in this index. This is the primary feasibility target.",
+      "status": "available"
+    },
+    {
+      "sdk_path": "system-images;android-35;default;x86_64",
+      "android_version": "15",
+      "api_level": 35,
+      "revision": "r02",
+      "arch": "x86_64",
+      "url": "https://dl.google.com/android/repository/sys-img/android/x86_64-35_r02.zip",
+      "size_bytes": 782404023,
+      "size_mib": 746.2,
+      "sha1": "2d857d170c0d1b827149565da34b3383e5306f7f",
+      "notes": "Android 15 (API 35) x86_64 AOSP default system image. Fallback if Android 16 has incompatible HAL ABI.",
+      "status": "available"
+    }
+  ],
+  "limitations": [
+    "These are emulator/SDK system images, not full AOSP build outputs from ci.android.com.",
+    "They contain system.img (and related images) for the AVD emulator. Composer3 HAL stubs may be present as AIDL passthrough or stub implementations, not a full HWC2/HWC3 vendor HAL.",
+    "The Google Android Build CI (ci.android.com) legacy API returns 403; the newer Build API v4 requires authentication.",
+    "Cuttlefish images (aosp_cf_x86_64_phone) would include full virtual hardware HALs but are not publicly downloadable without CI auth.",
+    "NTFS3 on the external disk does not support sparse files; 805 MiB will be fully allocated on disk.",
+    "No reflinks; no loop-device mount without root; guestmount via libguestfs available as unprivileged alternative."
+  ]
+}
