@@ -32,7 +32,9 @@ def audit(rootfs, apex_log):
         'required_runtime_staged': all(name in staged for name in required),
         'required_runtime_active': all(name in active for name in required),
         'loop_control_activation_failures': failures,
-        'activation_verified': bool(active) and failures == 0,
+        'activation_verified': (bool(entries) and len(active) == len(entries)
+                                and all(name in active for name in required)
+                                and failures == 0),
     }
 
 
