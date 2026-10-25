@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "report_sha256": "6568294b6fc38ecc9c84b8d0a558fded06abbac64ba9820412ea16acc3023e87",
+  "sources": [
+    {"name":"droidloom","url":"https://github.com/denialwm/droidloom.git","revision":"ffccef6a7f6db4d2f1350e90668df2391b8f9b78","role":"competitor"},
+    {"name":"waydroid","url":"https://github.com/waydroid/waydroid.git","revision":"db7294c4c2bd43157bab94cf8a3015e22d9f1ad8","role":"competitor"},
+    {"name":"lipstick","url":"https://github.com/sailfishos/lipstick.git","revision":"b220a976699b30d69e00b5a6480ade809fca55ae","role":"experiment"},
+    {"name":"qt-hwc","url":"https://github.com/mer-hybris/qt5-qpa-hwcomposer-plugin.git","revision":"31f4f6506702bd872ac47305fc8f8d75f2bb047b","role":"experiment"},
+    {"name":"digitalis","url":"https://github.com/DigitalisX64/digitalis.git","revision":"e81431d67766f9a827b568b9137da131daecfa87","role":"translator candidate"},
+    {"name":"teto","url":"https://github.com/alderman-norta92/teto-apk.git","revision":"365d035faed6734fa07e47c33b92e9cbac17569b","role":"translator comparison"},
+    {"name":"drm_hwcomposer","url":"https://android.googlesource.com/platform/external/drm_hwcomposer","revision":"a8ef39578ca861e23160a0cd15df79bcf0e6d07b","role":"Composer3 reference; cited tree revision, not main snapshot"},
+    {"name":"waydroid-hal","url":"https://github.com/waydroid/android_hardware_waydroid.git","revision":"lineage-20","role":"HAL reference; branch is not immutable"},
+    {"name":"libhybris","url":"https://github.com/libhybris/libhybris.git","revision":null,"role":"compatibility audit"},
+    {"name":"libgbinder","url":"https://github.com/mer-hybris/libgbinder.git","revision":null,"role":"Binder reference"},
+    {"name":"goldfish-opengl","url":"https://android.googlesource.com/device/generic/goldfish-opengl","revision":null,"role":"HWC3 reference"},
+    {"name":"aosp-berberis","url":"https://android.googlesource.com/platform/frameworks/libs/binary_translation","revision":null,"role":"translator upstream"},
+    {"name":"drmfb-composer","url":"https://github.com/android-generic/external_drmfb-composer.git","revision":null,"role":"legacy HIDL reference"},
+    {"name":"lxc","url":"https://github.com/lxc/lxc.git","revision":null,"role":"isolation candidate"}
+  ]
+}
