@@ -14,3 +14,4 @@ results/m01/lipstick/test-client-offscreen.log
 results/m01/lipstick/test-client-build/
 experiments/m1a/build/
 experiments/m1a/core
+*.kate-swp
