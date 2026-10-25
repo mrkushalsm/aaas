@@ -127,12 +127,32 @@ static void test_syncobj_fd_transfer(void) {
     printf("  [PASS] test_syncobj_fd_transfer\n");
 }
 
+static void test_unsignaled_future_point_export(void) {
+    int drm_fd = open_render_node();
+    assert(drm_fd >= 0);
+
+    uint32_t tl = 0;
+    assert(syncobj_create_timeline(drm_fd, &tl) == 0);
+
+    // Unsignaled point 99: export must fail gracefully with EINVAL (-1)
+    int out_fd = -1;
+    int r = syncobj_timeline_export_sync_file(drm_fd, tl, 99, &out_fd);
+    assert(r != 0);
+    assert(out_fd == -1);
+    assert(errno == EINVAL);
+
+    syncobj_destroy(drm_fd, tl);
+    close(drm_fd);
+    printf("  [PASS] test_unsignaled_future_point_export (EINVAL returned, no fabrication)\n");
+}
+
 int main(void) {
     printf("Starting Sync Utility unit tests...\n");
     test_sync_file_validation();
     test_timeline_signal_wait();
     test_sync_file_timeline_import_export();
     test_syncobj_fd_transfer();
+    test_unsignaled_future_point_export();
     printf("All Sync Utility unit tests PASSED!\n");
     return 0;
 }
