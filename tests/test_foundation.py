@@ -16,6 +16,9 @@ class FoundationTest(unittest.TestCase):
         self.assertIn('drm_hwcomposer', names)
         self.assertTrue(all(re.fullmatch(r'[0-9a-f]{40}', s['revision']) for s in manifest['sources']))
         self.assertTrue(all(s['kind'] in ('standalone-git', 'repo-manifest', 'repo-project', 'repo-superproject', 'aosp-project-reference') for s in manifest['sources']))
+        evidence = json.loads((ROOT / 'results/m0/source-verification.json').read_text())
+        self.assertEqual({s['name'] for s in manifest['sources']}, {s['name'] for s in evidence})
+        self.assertTrue(all(s['status'].startswith('verified') for s in evidence))
 
     def test_schema_contract(self):
         schema = json.loads((ROOT / 'benchmarks/record.schema.json').read_text())

@@ -16,7 +16,8 @@ for source in sources:
     elif len(rev) == 40 and all(c in '0123456789abcdef' for c in rev):
         # GitHub and Gitiles both expose commit objects over HTTPS without cloning.
         url = source['url'].removesuffix('.git')
-        if 'github.com/' in url:
+        github_url = url if 'github.com/' in url else None
+        if github_url:
             url = url.replace('github.com/', 'api.github.com/repos/') + '/commits/' + rev
         else:
             url += '/+/' + rev + '?format=JSON'
@@ -24,6 +25,12 @@ for source in sources:
         row['status'] = 'verified-commit-object' if p.returncode == 0 and p.stdout == '200' else 'unverified'
         row['http_status'] = p.stdout
         row['error'] = p.stderr.strip()
+        if row['status'] == 'unverified' and github_url:
+            page = github_url + '/commit/' + rev
+            fallback = subprocess.run(['curl', '-L', '-sS', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '20', page], capture_output=True, text=True)
+            row['fallback_http_status'] = fallback.stdout
+            if fallback.returncode == 0 and fallback.stdout == '200':
+                row['status'] = 'verified-commit-page'
     else:
         p = subprocess.run(['git', 'ls-remote', '--heads', source['url'], rev], capture_output=True, text=True, timeout=30)
         row['status'] = 'verified-moving-ref' if p.returncode == 0 and p.stdout.strip() else 'unverified'
