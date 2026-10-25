@@ -51,9 +51,13 @@ product configuration rather than hidden behind emulation hooks.
    unchanged. The next probe still stopped before compilation, now at missing
    `external/pogreb`. Its retained log is
    `$AAAS_WORKSPACE/logs/graphics-build-probe-after-golang-protobuf.log`.
-   Future probe runs write unique timestamped logs. Resolve source closure
-   under the external-workspace budget rather than copying libraries from a
-   different Android build.
+   The pinned superproject then identified `external/pogreb` at
+   `c7851d75ff3a7b8228f548f7235d48cee9130971`; a further probe moved
+   the bootstrap stop to missing `external/starlark-go/starlark`. Its full log
+   is `$AAAS_WORKSPACE/logs/graphics-build-probe-20261025T203247068261Z.log`.
+   No minigbm compilation has occurred. Future probe runs write unique
+   timestamped logs. Resolve source closure under the external-workspace
+   budget rather than copying libraries from a different Android build.
 3. In a disposable image overlay, test allocator registration, mapper load,
    DMA-BUF allocation, cross-process import, metadata, and release fences.
    A build alone is insufficient. Keep the pristine SDK partitions unchanged.
