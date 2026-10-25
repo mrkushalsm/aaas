@@ -1,0 +1,91 @@
+{
+  "manifest_repository": "https://android.googlesource.com/platform/manifest",
+  "manifest_revision": "2e764235335a27ee8cc8efc16baef4c0f6a5b3fe",
+  "manifest_sha256": "b84e9005591ec5b224c1bc65cd8b5908956c1ffc099b0b8ce75830e6e05e8732",
+  "projects": [
+    {
+      "path": "build/make",
+      "repository": "https://android.googlesource.com/platform/build",
+      "revision": "874fa586c48ae230ebfcff0df1b9c1b004fa8f7c"
+    },
+    {
+      "path": "build/blueprint",
+      "repository": "https://android.googlesource.com/platform/build/blueprint",
+      "revision": "dcb14f2e146f40cf1f212efb220e9aa1f3cfc280"
+    },
+    {
+      "path": "build/release",
+      "repository": "https://android.googlesource.com/platform/build/release",
+      "revision": "5da94f17b7a143d754a3b250c08bff210d3b046b"
+    },
+    {
+      "path": "build/soong",
+      "repository": "https://android.googlesource.com/platform/build/soong",
+      "revision": "533c3c2c9166b49caa556518bb547d8f9acf9594"
+    },
+    {
+      "path": "art",
+      "repository": "https://android.googlesource.com/platform/art",
+      "revision": "ed6c006bd06ae060bd9698fd2cb25c4865512ec3"
+    },
+    {
+      "path": "bionic",
+      "repository": "https://android.googlesource.com/platform/bionic",
+      "revision": "09a271af557444c9a6b3f3146d6d474156fd6cdb"
+    },
+    {
+      "path": "external/minigbm",
+      "repository": "https://android.googlesource.com/platform/external/minigbm",
+      "revision": "10d2dbeec1d248e7a040ecab225a075caa34b2bf"
+    },
+    {
+      "path": "external/protobuf",
+      "repository": "https://android.googlesource.com/platform/external/protobuf",
+      "revision": "da98e5a6593907dd162bb6c206570c0afa5326ac"
+    },
+    {
+      "path": "frameworks/base",
+      "repository": "https://android.googlesource.com/platform/frameworks/base",
+      "revision": "99b01a65cc4c104933788b3143285ab6bae65827"
+    },
+    {
+      "path": "frameworks/native",
+      "repository": "https://android.googlesource.com/platform/frameworks/native",
+      "revision": "2827a4a16b0340ecd07c2d5a6c89991799b362bb"
+    },
+    {
+      "path": "hardware/interfaces",
+      "repository": "https://android.googlesource.com/platform/hardware/interfaces",
+      "revision": "5688f7eb1e117ed26e642a695de300b7683acb87"
+    },
+    {
+      "path": "prebuilts/clang/host/linux-x86",
+      "repository": "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86",
+      "revision": "2d4dcbff7cb42f360f368bacf51cfe711fd1cb0f"
+    },
+    {
+      "path": "prebuilts/go/linux-x86",
+      "repository": "https://android.googlesource.com/platform/prebuilts/go/linux-x86",
+      "revision": "f88af64a3b03b7ea14489d60349913a48a584ea3"
+    },
+    {
+      "path": "system/apex",
+      "repository": "https://android.googlesource.com/platform/system/apex",
+      "revision": "9921a73777f97def1d8851dd0a1529f1c45bcc72"
+    },
+    {
+      "path": "system/core",
+      "repository": "https://android.googlesource.com/platform/system/core",
+      "revision": "68be0c2c0006a0740d0b1809abe4717308f90d15"
+    },
+    {
+      "path": "system/sepolicy",
+      "repository": "https://android.googlesource.com/platform/system/sepolicy",
+      "revision": "d4a7f392598cee96d9479a8ac0f84259c19b043a"
+    }
+  ],
+  "release_tag": "android-16.0.0_r1",
+  "schema": 1,
+  "scope": "selected component inventory; not a complete repo sync or minimal-product closure",
+  "superproject_ref": "android-16.0.0_r1"
+}
