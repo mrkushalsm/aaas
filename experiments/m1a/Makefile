@@ -16,7 +16,11 @@ $(BUILD)/linux-dmabuf-client-protocol.h: $(XML)/linux-dmabuf/linux-dmabuf-unstab
 	wayland-scanner client-header $< $@
 $(BUILD)/linux-dmabuf-protocol.c: $(XML)/linux-dmabuf/linux-dmabuf-unstable-v1.xml | $(BUILD)
 	wayland-scanner private-code $< $@
-$(BUILD)/aaas-m1a: src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/linux-dmabuf-protocol.c
+$(BUILD)/presentation-time-client-protocol.h: $(XML)/presentation-time/presentation-time.xml | $(BUILD)
+	wayland-scanner client-header $< $@
+$(BUILD)/presentation-time-protocol.c: $(XML)/presentation-time/presentation-time.xml | $(BUILD)
+	wayland-scanner private-code $< $@
+$(BUILD)/aaas-m1a: src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/linux-dmabuf-protocol.c $(BUILD)/presentation-time-protocol.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@ $(LDLIBS)
 $(BUILD)/test-wire: tests/wire.c src/wire.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
