@@ -15,6 +15,9 @@
     {"name":"goldfish-opengl","url":"https://android.googlesource.com/device/generic/goldfish-opengl","revision":null,"role":"HWC3 reference"},
     {"name":"aosp-berberis","url":"https://android.googlesource.com/platform/frameworks/libs/binary_translation","revision":null,"role":"translator upstream"},
     {"name":"drmfb-composer","url":"https://github.com/android-generic/external_drmfb-composer.git","revision":null,"role":"legacy HIDL reference"},
-    {"name":"lxc","url":"https://github.com/lxc/lxc.git","revision":null,"role":"isolation candidate"}
+    {"name":"lxc","url":"https://github.com/lxc/lxc.git","revision":null,"role":"isolation candidate"},
+    {"name":"digitalis-manifest","url":"https://github.com/DigitalisX64/manifest.git","revision":"android16","role":"AOSP product manifest; moving branch"},
+    {"name":"qtwayland","url":"https://github.com/qt/qtwayland.git","revision":null,"role":"nested compositor reference"},
+    {"name":"aosp-art","url":"https://android.googlesource.com/platform/art","revision":"0b5b2f22f22b140e2b23da17c96de7120ed4f221","role":"Native Bridge cited tree revision"}
   ]
 }
