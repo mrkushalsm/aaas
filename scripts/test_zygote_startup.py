@@ -33,6 +33,10 @@ def main():
     egl_test_log.write_text("")
     os.chmod(egl_test_log, 0o666)
 
+    tombstone_dir = tmp_dir / f"{prefix}tombstones"
+    tombstone_dir.mkdir(exist_ok=True)
+    os.chmod(tombstone_dir, 0o777)
+
     fake_kptr = tmp_dir / "fake_kptr"
     fake_sysrq = tmp_dir / "fake_sysrq"
     fake_modprobe = tmp_dir / "fake_modprobe"
@@ -57,7 +61,7 @@ def main():
     overlay_mapper = tmp_dir / "mapper.drm.so"
     mapper_bind = f'  --bind "{overlay_mapper}" /vendor/lib64/hw/mapper.ranchu.so \\\n' if (overlay_mapper.exists() and os.environ.get("AAAS_USE_DRM_MAPPER", "1") == "1") else ""
 
-    overlay_composer = tmp_dir / "android.hardware.graphics.composer3-service.aaas"
+    overlay_composer = Path(os.environ.get("AAAS_COMPOSER_OVERLAY", str(tmp_dir / "android.hardware.graphics.composer3-service.aaas")))
     composer_bind = f'  --bind "{overlay_composer}" /vendor/bin/hw/android.hardware.graphics.composer3-service.ranchu \\\n' if (overlay_composer.exists() and os.environ.get("AAAS_USE_AAAS_COMPOSER", "1") == "1") else ""
 
     overlay_allocator = tmp_dir / "android.hardware.graphics.allocator-service.aaas"
@@ -68,7 +72,7 @@ def main():
     ipc_dir.chmod(0o777)
     ipc_bind = f'  --dir /dev/aaas \\\n  --bind "{ipc_dir}" /dev/aaas \\\n'
 
-    overlay_vulkan = tmp_dir / "vulkan.pastel.so"
+    overlay_vulkan = Path(os.environ.get("AAAS_VULKAN_OVERLAY", str(tmp_dir / "vulkan.pastel.so")))
     vulkan_bind = f'  --bind "{overlay_vulkan}" /vendor/lib64/hw/vulkan.pastel.so \\\n' if overlay_vulkan.exists() else ""
 
     overlay_libvulkan = tmp_dir / "libvulkan.so"
@@ -85,6 +89,30 @@ def main():
 
     sf_probe_env = os.environ.get("AAAS_SF_PROBE", "0")
     sf_strace_env = os.environ.get("AAAS_SF_STRACE", "0")
+    sf_gdbserver_env = os.environ.get("AAAS_SF_GDBSERVER", "0")
+    bootanim_gdbserver_env = os.environ.get("AAAS_BOOTANIM_GDBSERVER", "0")
+    host_debug_bind = "  --bind /usr /usr \\\n  --symlink /usr/lib64 /lib64 \\\n" if sf_gdbserver_env == "1" or bootanim_gdbserver_env == "1" else ""
+    bootanim_debug_bind = ""
+    if bootanim_gdbserver_env == "1":
+        debug_dir = tmp_dir / f"{prefix}debug"
+        debug_dir.mkdir(exist_ok=True)
+        debug_dir.chmod(0o777)
+        (debug_dir / "bootanim.rc").write_text(
+            "service bootanim /debug/bootanim_wrapper.sh\n"
+            + (rootfs / "system/etc/init/bootanim.rc").read_text().split("\n", 1)[1]
+        )
+        wrapper = debug_dir / "bootanim_wrapper.sh"
+        wrapper.write_text(
+            "#!/system/bin/sh\n"
+            "umask 000\n"
+            "LD_PRELOAD= /usr/bin/gdbserver --once :12346 "
+            "/system/bin/bootanimation > /debug/gdbserver.log 2>&1\n"
+        )
+        wrapper.chmod(0o755)
+        bootanim_debug_bind = (
+            f'  --bind "{debug_dir}" /debug \\\n'
+            f'  --bind "{debug_dir / "bootanim.rc"}" /system/etc/init/bootanim.rc \\\n'
+        )
     egl_test_env = os.environ.get("AAAS_EGL_TEST", "0")
     bootanim_env = os.environ.get("AAAS_BOOTANIM", "1")
     boot_wait = os.environ.get("AAAS_BOOT_WAIT", "8.0")
@@ -115,7 +143,7 @@ exec bwrap \\
   --as-pid-1 \\
   --unshare-pid \\
   --bind "{rootfs}" / \\
-{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}{libvulkan_bind}{angle_bind}{probe_bind}{egl_test_bind}  --proc /proc \\
+{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}{libvulkan_bind}{angle_bind}{probe_bind}{egl_test_bind}{host_debug_bind}{bootanim_debug_bind}  --proc /proc \\
   --bind "{fake_cmdline}" /proc/cmdline \\
   --dev /dev \\
   --dev-bind /dev/dri /dev/dri \\
@@ -139,6 +167,8 @@ exec bwrap \\
   --tmpfs /dev/socket \\
   --tmpfs /dev/__properties__ \\
   --tmpfs /data \\
+  --dir /tombstone_export \\
+  --bind "{tombstone_dir}" /tombstone_export \\
   --setenv PATH /system/bin:/apex/com.android.art/bin \\
   --setenv ANDROID_ROOT /system \\
   --setenv ANDROID_DATA /data \\
@@ -183,6 +213,8 @@ exec bwrap \\
     if [ "{sf_probe_env}" = "1" ]; then
       echo "=== STARTING DIAGNOSTIC SURFACEFLINGER PROBE ==="
       /system/bin/surfaceflinger_probe &
+    elif [ "{sf_gdbserver_env}" = "1" ]; then
+      LD_PRELOAD= /usr/bin/gdbserver --once :12345 /system/bin/surfaceflinger &
     elif [ "{sf_strace_env}" = "1" ]; then
       /system/bin/strace -f -tt -T -s 128 -o /data_sf_strace.log /system/bin/surfaceflinger &
     else
@@ -261,6 +293,7 @@ exec bwrap \\
     /system/bin/logcat -d | grep -iE "zygote|app_process|system_server|fatal|exception" | tail -n 60
 
     echo "=== TOMBSTONES SUMMARY ==="
+    /system/bin/toybox cp /data/tombstones/* /tombstone_export/ 2>/dev/null
     for t in /data/tombstones/*.pb; do
       if [ -f "$t" ]; then
         echo "Tombstone: $t"
@@ -284,6 +317,20 @@ exec bwrap \\
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     uid = os.getuid()
     gid = os.getgid()
+    # Wait until unshare has entered the new user namespace. Mapping the PID
+    # while it still belongs to our host namespace fails with EPERM.
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if p.poll() is not None:
+            raise RuntimeError("unshare exited before user namespace mapping")
+        try:
+            if not Path(f"/proc/{p.pid}/uid_map").read_text().strip():
+                break
+        except FileNotFoundError:
+            pass
+        time.sleep(0.01)
+    else:
+        raise TimeoutError("unshare did not enter a new user namespace")
     subprocess.run(["newuidmap", str(p.pid), "0", str(uid), "1", "1", "100000", "65535"], check=True)
     subprocess.run(["newgidmap", str(p.pid), "0", str(gid), "1", "1", "100000", "65535"], check=True)
 

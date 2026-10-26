@@ -395,6 +395,14 @@ static void handle_incoming_buffer(presenter_app *a) {
     int dma_fd = fds[0];
     int acquire_fence_fd = (m.flags & AAAS_V2_FLAG_EXPLICIT_SYNC && nfds > 1) ? fds[1] : -1;
 
+    if ((m.flags & AAAS_V2_FLAG_EXPLICIT_SYNC) &&
+        (acquire_fence_fd < 0 || !sync_file_is_valid(acquire_fence_fd))) {
+        for (unsigned i = 0; i < nfds; i++) close(fds[i]);
+        a->rejected++;
+        log_presenter_event("invalid_acquire_fence", m.generation, m.id, NULL);
+        return;
+    }
+
     struct gbm_bo *stage_bo = NULL;
     char link[128], path[64];
     snprintf(path, sizeof(path), "/proc/self/fd/%d", dma_fd);
@@ -402,6 +410,12 @@ static void handle_incoming_buffer(presenter_app *a) {
     bool is_memfd = (llen > 0 && strncmp(link, "/memfd:", 7) == 0);
 
     if (is_memfd && a->gbm) {
+        if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
+            for (unsigned i = 0; i < nfds; i++) close(fds[i]);
+            a->rejected++;
+            log_presenter_event("acquire_fence_timeout", m.generation, m.id, NULL);
+            return;
+        }
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
 
@@ -446,13 +460,26 @@ static void handle_incoming_buffer(presenter_app *a) {
         zwp_linux_dmabuf_v1_create_params(a->dmabuf);
     zwp_linux_buffer_params_v1_add(params, dma_fd, 0, m.offset[0], m.stride[0],
                                    (uint32_t)(m.modifier >> 32), (uint32_t)m.modifier);
-    // Dump frame pixels to PPM for verification
-    if (m.id >= 1) {
+    // Optional diagnostic capture. Keep production presentation free of the
+    // synchronous readback and disk writes performed by this probe.
+    const char *frame_dump_dir = getenv("AAAS_FRAME_DUMP_DIR");
+    const char *frame_dump_every = getenv("AAAS_FRAME_DUMP_EVERY");
+    unsigned dump_every = frame_dump_every ? (unsigned)strtoul(frame_dump_every, NULL, 10) : 1;
+    if (frame_dump_dir && frame_dump_dir[0] && dump_every && m.id % dump_every == 0) {
+        if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
+            close(dma_fd);
+            close(acquire_fence_fd);
+            if (stage_bo) gbm_bo_destroy(stage_bo);
+            zwp_linux_buffer_params_v1_destroy(params);
+            a->rejected++;
+            log_presenter_event("capture_acquire_timeout", m.generation, m.id, NULL);
+            return;
+        }
         size_t map_sz = (size_t)m.stride[0] * m.height;
         void *map_ptr = mmap(NULL, map_sz, PROT_READ, MAP_SHARED, dma_fd, 0);
         if (map_ptr != MAP_FAILED) {
             char ppm_path[256];
-            snprintf(ppm_path, sizeof(ppm_path), "/home/mrkus/Work/personal/projects/aaas/artifacts/m1b7_frame_%u.ppm", m.id);
+            snprintf(ppm_path, sizeof(ppm_path), "%s/frame_%u.ppm", frame_dump_dir, m.id);
             FILE *fp = fopen(ppm_path, "wb");
             if (fp) {
                 fprintf(fp, "P6\n%u %u\n255\n", m.width, m.height);

@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <poll.h>
 #include <time.h>
 
@@ -292,8 +293,11 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
         }
     }
 
-    transport_log("[AaasTransport] Submitting frame id=%u (slot=%u, %dx%d, fmt=0x%x, stride=%u, dma_fd=%d, acq_fd=%d)\n",
-                  m.id, frame.slot, m.width, m.height, m.format, m.stride[0], send_fds[0], (nfds > 1 ? send_fds[1] : -1));
+    struct stat backing = {};
+    fstat(frame.dma_fd, &backing);
+    transport_log("[AaasTransport] Submitting frame id=%u (slot=%u, %dx%d, fmt=0x%x, stride=%u, dma_fd=%d, acq_fd=%d, backing_dev=%llu, backing_ino=%llu)\n",
+                  m.id, frame.slot, m.width, m.height, m.format, m.stride[0], send_fds[0], (nfds > 1 ? send_fds[1] : -1),
+                  (unsigned long long)backing.st_dev, (unsigned long long)backing.st_ino);
 
     int res = aaas_v2_send(mSockFd, &m, send_fds, nfds);
     close(send_fds[0]);
