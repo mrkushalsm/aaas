@@ -19,7 +19,7 @@ PROTOCOLS_SRC = \
 	$(BUILD)/presentation-time-protocol.c \
 	$(BUILD)/linux-drm-syncobj-protocol.c
 
-all: $(BUILD)/aaas-m1a $(BUILD)/aaas-m1a1
+all: $(BUILD)/aaas-m1a $(BUILD)/aaas-m1a1 $(BUILD)/wayland-host-presenter
 
 $(BUILD):
 	mkdir -p $@
@@ -55,6 +55,10 @@ $(BUILD)/aaas-m1a: src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/
 # New M1A.1 GPU Explicit Sync (v2)
 $(BUILD)/aaas-m1a1: src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
+
+# Standalone Host Wayland Presenter for Android Container
+$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) src/wayland_host_presenter.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
 
 # Tests
 $(BUILD)/test-wire: tests/wire.c src/wire.c | $(BUILD)

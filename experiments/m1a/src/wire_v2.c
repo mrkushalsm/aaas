@@ -7,7 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 
-static int is_dmabuf_fd(int fd) {
+static int is_valid_buffer_fd(int fd, uint32_t flags) {
     if (fd < 0) return 0;
     struct stat st;
     if (fstat(fd, &st) < 0) return 0;
@@ -16,8 +16,14 @@ static int is_dmabuf_fd(int fd) {
     ssize_t len = readlink(path, link, sizeof(link) - 1);
     if (len < 0) return 0;
     link[len] = '\0';
-    return (strncmp(link, "/dmabuf:", 8) == 0 ||
-            strncmp(link, "anon_inode:[dmabuf]", 19) == 0);
+    if (strncmp(link, "/dmabuf:", 8) == 0 ||
+        strncmp(link, "anon_inode:[dmabuf]", 19) == 0) {
+        return 1;
+    }
+    if ((flags & AAAS_V2_FLAG_LINEAR) && strncmp(link, "/memfd:", 7) == 0) {
+        return 1;
+    }
+    return 0;
 }
 
 static int validate_v2(const aaas_v2_msg *m, unsigned nfds) {
@@ -144,9 +150,9 @@ int aaas_v2_recv(int sock, aaas_v2_msg *msg, int *fds, unsigned *nfds) {
 
     // Deep validation of file descriptors
     if (msg->type == AAAS_V2_BUFFER) {
-        // Validate DMA-BUF FD(s)
+        // Validate DMA-BUF or linear buffer FD(s)
         for (uint32_t p = 0; p < msg->num_planes; p++) {
-            if (!is_dmabuf_fd(fds[p])) {
+            if (!is_valid_buffer_fd(fds[p], msg->flags)) {
                 for (unsigned i = 0; i < *nfds; i++) close(fds[i]);
                 *nfds = 0;
                 errno = EBADFD;

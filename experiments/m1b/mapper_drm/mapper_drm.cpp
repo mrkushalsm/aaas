@@ -304,11 +304,33 @@ static AIMapper_Error mapper_rereadLockedBuffer(buffer_handle_t buffer) {
     return AIMAPPER_ERROR_NONE;
 }
 
-static int32_t provide_bytes(const void* src, size_t sz, void* dest, size_t destSize) {
-    if (!dest) return (int32_t)sz;
-    if (destSize < sz) return -AIMAPPER_ERROR_BAD_VALUE;
-    memcpy(dest, src, sz);
-    return (int32_t)sz;
+static const uint64_t STANDARD_METADATA_NAME_LEN = 53; // strlen("android.hardware.graphics.common.StandardMetadataType")
+
+static int32_t provide_metadata(int64_t standardMetadataType,
+                                 const void* payload, size_t payloadSize,
+                                 void* dest, size_t destSize) {
+    size_t total_aidl = 8 + STANDARD_METADATA_NAME_LEN + 8 + payloadSize;
+    if (!dest || destSize == 0) {
+        return (int32_t)total_aidl;
+    }
+    if (destSize == payloadSize) {
+        // Direct payload mode for raw/legacy callers
+        memcpy(dest, payload, payloadSize);
+        return (int32_t)payloadSize;
+    }
+    if (destSize < total_aidl) {
+        return -AIMAPPER_ERROR_BAD_VALUE;
+    }
+    uint8_t* p = (uint8_t*)dest;
+    uint64_t name_len = STANDARD_METADATA_NAME_LEN;
+    memcpy(p, &name_len, 8);
+    p += 8;
+    memcpy(p, STANDARD_METADATA_NAME, STANDARD_METADATA_NAME_LEN);
+    p += STANDARD_METADATA_NAME_LEN;
+    memcpy(p, &standardMetadataType, 8);
+    p += 8;
+    memcpy(p, payload, payloadSize);
+    return (int32_t)total_aidl;
 }
 
 // 8. getStandardMetadata
@@ -326,101 +348,116 @@ static int32_t mapper_getStandardMetadata(buffer_handle_t buffer,
             break;
         }
     }
+    ImportedBuffer parsed_buf;
+    memset(&parsed_buf, 0, sizeof(parsed_buf));
     if (!b) {
-        pthread_mutex_unlock(&g_mutex);
-        return -AIMAPPER_ERROR_BAD_BUFFER;
+        if (parse_handle((const native_handle_t*)buffer, &parsed_buf) == 0) {
+            b = &parsed_buf;
+        } else {
+            pthread_mutex_unlock(&g_mutex);
+            return -AIMAPPER_ERROR_BAD_BUFFER;
+        }
     }
 
     int32_t ret = -AIMAPPER_ERROR_UNSUPPORTED;
     switch (standardMetadataType) {
         case METADATA_BUFFER_ID: {
             uint64_t val = b->buffer_id;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_NAME: {
             const char* name = "aaas_native_buffer";
             uint64_t len = strlen(name);
-            size_t total = 8 + len;
-            if (!outMetadata) {
-                ret = (int32_t)total;
-            } else if (outMetadataSize < total) {
-                ret = -AIMAPPER_ERROR_BAD_VALUE;
-            } else {
-                memcpy(outMetadata, &len, 8);
-                memcpy((char*)outMetadata + 8, name, len);
-                ret = (int32_t)total;
-            }
+            uint8_t name_payload[8 + 32];
+            memcpy(name_payload, &len, 8);
+            memcpy(name_payload + 8, name, len);
+            ret = provide_metadata(standardMetadataType, name_payload, 8 + len, outMetadata, outMetadataSize);
             break;
         }
         case METADATA_WIDTH: {
             uint64_t val = b->width;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_HEIGHT: {
             uint64_t val = b->height;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_STRIDE: {
             uint32_t val = b->stride;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_LAYER_COUNT: {
             uint64_t val = 1;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_PIXEL_FORMAT_REQUESTED: {
             int32_t val = b->format;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_PIXEL_FORMAT_FOURCC: {
             uint32_t val = drm_fourcc_from_hal(b->format);
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_PIXEL_FORMAT_MODIFIER: {
             uint64_t val = DRM_FORMAT_MOD_LINEAR;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_USAGE: {
             uint64_t val = b->usage;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_ALLOCATION_SIZE: {
             uint64_t val = b->size;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_PROTECTED_CONTENT: {
             uint64_t val = 0;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_COMPRESSION: {
             uint64_t val = 0;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_INTERLACED: {
             uint64_t val = 0;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_DATASPACE: {
             int32_t val = b->dataspace;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
+            break;
+        }
+        case METADATA_PLANE_LAYOUTS: {
+            int64_t layout[10];
+            layout[0] = 1; // 1 plane layout
+            layout[1] = 0; // 0 components in plane
+            layout[2] = 0; // offsetInBytes
+            layout[3] = 32; // sampleIncrementInBits
+            layout[4] = (int64_t)b->stride * 4; // strideInBytes
+            layout[5] = (int64_t)b->width; // widthInSamples
+            layout[6] = (int64_t)b->height; // heightInSamples
+            layout[7] = (int64_t)b->size; // totalSizeInBytes
+            layout[8] = 1; // horizontalSubsampling
+            layout[9] = 1; // verticalSubsampling
+            ret = provide_metadata(standardMetadataType, layout, sizeof(layout), outMetadata, outMetadataSize);
             break;
         }
         case METADATA_BLEND_MODE: {
             int32_t val = b->blend_mode;
-            ret = provide_bytes(&val, sizeof(val), outMetadata, outMetadataSize);
+            ret = provide_metadata(standardMetadataType, &val, sizeof(val), outMetadata, outMetadataSize);
             break;
         }
         default:
@@ -518,6 +555,7 @@ static const AIMapper_MetadataTypeDescription g_supported_types[] = {
     { { STANDARD_METADATA_NAME, METADATA_PROTECTED_CONTENT }, "PROTECTED_CONTENT", true, false },
     { { STANDARD_METADATA_NAME, METADATA_DATASPACE }, "DATASPACE", true, true },
     { { STANDARD_METADATA_NAME, METADATA_BLEND_MODE }, "BLEND_MODE", true, true },
+    { { STANDARD_METADATA_NAME, METADATA_PLANE_LAYOUTS }, "PLANE_LAYOUTS", true, false },
 };
 
 // 12. listSupportedMetadataTypes

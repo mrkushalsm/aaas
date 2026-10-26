@@ -9,6 +9,7 @@
 
 #include <wayland-client.h>
 #include <drm_fourcc.h>
+#include <gbm.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <poll.h>
@@ -18,6 +19,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/resource.h>
+#include <sys/mman.h>
 
 #define MAX_SLOTS 32
 
@@ -35,6 +37,9 @@ typedef struct {
     uint64_t release_point;
     struct wp_linux_drm_syncobj_timeline_v1 *release_timeline;
     bool explicit_sync_used;
+
+    /* Staging BO for linear memfd fallback */
+    struct gbm_bo *staging_bo;
 } presenter_slot;
 
 struct presenter_app {
@@ -44,6 +49,7 @@ struct presenter_app {
     int closed;
 
     int drm_fd;
+    struct gbm_device *gbm;
 
     /* Wayland globals */
     struct wl_display *display;
@@ -107,7 +113,9 @@ static void dmabuf_modifier(void *data, struct zwp_linux_dmabuf_v1 *obj,
     (void)obj;
     presenter_app *a = data;
     uint64_t mod = ((uint64_t)hi << 32) | lo;
-    if (format == DRM_FORMAT_XRGB8888 && a->num_modifiers < 512) {
+    if ((format == DRM_FORMAT_XRGB8888 || format == DRM_FORMAT_ARGB8888 ||
+         format == DRM_FORMAT_RGBA8888 || format == DRM_FORMAT_ABGR8888) &&
+        a->num_modifiers < 512) {
         a->supported_modifiers[a->num_modifiers++] = mod;
     }
 }
@@ -172,6 +180,7 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
         .height = h,
     };
     if (aaas_v2_send(a->sock, &m, NULL, 0) != 0) {
+        fprintf(stderr, "[AaaS Presenter] aaas_v2_send RESIZE failed: %s (errno=%d)\n", strerror(errno), errno);
         a->closed = 1;
     }
     char extra[64];
@@ -247,6 +256,10 @@ static void buffer_released(void *data, struct wl_buffer *buf) {
 
     a->released++;
     wl_buffer_destroy(buf);
+    if (s->staging_bo) {
+        gbm_bo_destroy(s->staging_bo);
+        s->staging_bo = NULL;
+    }
     s->wl = NULL;
     s->active = 0;
 }
@@ -254,6 +267,18 @@ static void buffer_released(void *data, struct wl_buffer *buf) {
 static const struct wl_buffer_listener buffer_listener = {
     .release = buffer_released
 };
+
+static void check_release_timelines(presenter_app *a) {
+    if (a->drm_fd < 0) return;
+    for (int i = 0; i < MAX_SLOTS; i++) {
+        presenter_slot *s = &a->slots[i];
+        if (s->active && s->explicit_sync_used && s->release_timeline_handle) {
+            if (syncobj_timeline_wait(a->drm_fd, s->release_timeline_handle, s->release_point, 0) == 0) {
+                buffer_released(s, s->wl);
+            }
+        }
+    }
+}
 
 static void pres_sync_output(void *data, struct wp_presentation_feedback *f, struct wl_output *o) {
     (void)data; (void)f; (void)o;
@@ -268,6 +293,7 @@ static void pres_presented(void *data, struct wp_presentation_feedback *f,
     char extra[64];
     snprintf(extra, sizeof(extra), "\"flags\":%u", flags);
     log_presenter_event("frame_presented", a->gen, 0, extra);
+    check_release_timelines(a);
     wp_presentation_feedback_destroy(f);
 }
 
@@ -285,6 +311,7 @@ static const struct wp_presentation_feedback_listener pres_feedback_listener = {
 };
 
 static int modifier_supported(presenter_app *a, uint64_t mod) {
+    if (mod == DRM_FORMAT_MOD_LINEAR || mod == DRM_FORMAT_MOD_INVALID) return 1;
     for (unsigned i = 0; i < a->num_modifiers; i++) {
         if (a->supported_modifiers[i] == mod) return 1;
     }
@@ -302,14 +329,41 @@ static void handle_incoming_buffer(presenter_app *a) {
         return;
     }
 
-    if (m.type != AAAS_V2_BUFFER || !a->configured || m.generation != a->gen ||
-        m.width != a->w || m.height != a->h || m.format != DRM_FORMAT_XRGB8888 ||
+    if (m.type == AAAS_V2_HELLO) {
+        aaas_v2_msg resp = {
+            .magic = AAAS_V2_MAGIC,
+            .version = AAAS_V2_VERSION,
+            .type = AAAS_V2_RESIZE,
+            .generation = a->gen ? a->gen : 1,
+            .width = a->w ? a->w : 1280,
+            .height = a->h ? a->h : 720,
+        };
+        aaas_v2_send(a->sock, &resp, NULL, 0);
+        log_presenter_event("producer_hello_ack", resp.generation, 0, NULL);
+        return;
+    }
+
+    bool format_ok = (m.format == DRM_FORMAT_XRGB8888 || m.format == DRM_FORMAT_ARGB8888 ||
+                      m.format == DRM_FORMAT_RGBA8888 || m.format == DRM_FORMAT_ABGR8888);
+    if (!a->configured && a->w && a->h) {
+        a->configured = 1;
+    }
+    if (a->gen == 0 && m.generation > 0) {
+        a->gen = m.generation;
+    }
+
+    bool gen_ok = (m.generation == a->gen || a->gen == 0 || m.generation == 0);
+    bool dim_ok = (m.width == a->w && m.height == a->h);
+
+    if (m.type != AAAS_V2_BUFFER || !format_ok || !gen_ok || !dim_ok ||
         !modifier_supported(a, m.modifier)) {
         for (unsigned i = 0; i < nfds; i++) close(fds[i]);
         a->rejected++;
         log_presenter_event("rejected_stale_or_format", m.generation, m.id, NULL);
         return;
     }
+
+    check_release_timelines(a);
 
     // Find available slot
     presenter_slot *s = NULL;
@@ -334,6 +388,52 @@ static void handle_incoming_buffer(presenter_app *a) {
     int dma_fd = fds[0];
     int acquire_fence_fd = (m.flags & AAAS_V2_FLAG_EXPLICIT_SYNC && nfds > 1) ? fds[1] : -1;
 
+    struct gbm_bo *stage_bo = NULL;
+    char link[128], path[64];
+    snprintf(path, sizeof(path), "/proc/self/fd/%d", dma_fd);
+    ssize_t llen = readlink(path, link, sizeof(link) - 1);
+    bool is_memfd = (llen > 0 && strncmp(link, "/memfd:", 7) == 0);
+
+    if (is_memfd && a->gbm) {
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+
+        stage_bo = gbm_bo_create(a->gbm, m.width, m.height, m.format, GBM_BO_USE_LINEAR);
+        if (stage_bo) {
+            uint32_t stage_stride = gbm_bo_get_stride(stage_bo);
+            size_t src_size = (size_t)m.stride[0] * m.height;
+            void *src_map = mmap(NULL, src_size, PROT_READ, MAP_SHARED, dma_fd, 0);
+            if (src_map != MAP_FAILED) {
+                uint32_t map_stride = 0;
+                void *map_data = NULL;
+                void *dst_map = gbm_bo_map(stage_bo, 0, 0, m.width, m.height,
+                                           GBM_BO_TRANSFER_WRITE, &map_stride, &map_data);
+                if (dst_map) {
+                    for (uint32_t y = 0; y < m.height; y++) {
+                        memcpy((char*)dst_map + y * map_stride,
+                               (char*)src_map + y * m.stride[0],
+                               m.width * 4);
+                    }
+                    gbm_bo_unmap(stage_bo, map_data);
+                }
+                munmap(src_map, src_size);
+            }
+            close(dma_fd);
+            dma_fd = gbm_bo_get_fd(stage_bo);
+            m.stride[0] = stage_stride;
+            m.modifier = gbm_bo_get_modifier(stage_bo);
+
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            uint64_t copy_us = ((uint64_t)(t1.tv_sec - t0.tv_sec) * 1000000ULL +
+                                (t1.tv_nsec - t0.tv_nsec) / 1000ULL);
+            char copy_json[128];
+            snprintf(copy_json, sizeof(copy_json),
+                     "\"fallback\":\"cpu_staging_copy\",\"overhead_us\":%llu",
+                     (unsigned long long)copy_us);
+            log_presenter_event("staging_copy", m.generation, m.id, copy_json);
+        }
+    }
+
     // Import DMA-BUF into Wayland wl_buffer
     struct zwp_linux_buffer_params_v1 *params =
         zwp_linux_dmabuf_v1_create_params(a->dmabuf);
@@ -347,6 +447,7 @@ static void handle_incoming_buffer(presenter_app *a) {
 
     if (!wl_buf) {
         if (acquire_fence_fd >= 0) close(acquire_fence_fd);
+        if (stage_bo) gbm_bo_destroy(stage_bo);
         a->rejected++;
         log_presenter_event("dmabuf_import_failed", m.generation, m.id, NULL);
         return;
@@ -358,6 +459,7 @@ static void handle_incoming_buffer(presenter_app *a) {
     s->gen = m.generation;
     s->active = 1;
     s->explicit_sync_used = false;
+    s->staging_bo = stage_bo;
     wl_buffer_add_listener(wl_buf, &buffer_listener, s);
     a->imported++;
 
@@ -461,6 +563,9 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         node = "/dev/dri/renderD128";
         app.drm_fd = open(node, O_RDWR | O_CLOEXEC);
     }
+    if (app.drm_fd >= 0) {
+        app.gbm = gbm_create_device(app.drm_fd);
+    }
 
     bool explicit_sync_available = (app.syncobj_mgr != NULL && app.drm_fd >= 0 && !config->force_implicit_sync);
     char cap_extra[128];
@@ -491,6 +596,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     }
 
     wl_surface_commit(app.surface);
+    wl_display_roundtrip(app.display);
 
     // Event loop
     while (!app.closed) {
@@ -538,6 +644,8 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             log_presenter_event("compositor_disconnect", app.gen, 0, NULL);
             break;
         }
+
+        check_release_timelines(&app);
 
         if (p[1].revents & POLLIN) {
             handle_incoming_buffer(&app);
@@ -595,6 +703,9 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     }
     if (app.syncobj_mgr) {
         wp_linux_drm_syncobj_manager_v1_destroy(app.syncobj_mgr);
+    }
+    if (app.gbm) {
+        gbm_device_destroy(app.gbm);
     }
     if (app.drm_fd >= 0) {
         close(app.drm_fd);

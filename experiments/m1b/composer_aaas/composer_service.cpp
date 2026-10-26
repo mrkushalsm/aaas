@@ -13,6 +13,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <set>
+#include <mutex>
 
 #include <android/binder_ibinder.h>
 #include <android/binder_manager.h>
@@ -24,12 +26,17 @@
 #include <aidl/android/hardware/graphics/composer3/IComposerCallback.h>
 #include <aidl/android/hardware/graphics/composer3/PresentOrValidate.h>
 #include <aidl/android/hardware/graphics/composer3/PresentFence.h>
+#include <aidl/android/hardware/graphics/composer3/ReleaseFences.h>
 #include <aidl/android/hardware/graphics/composer3/ChangedCompositionTypes.h>
+#include <aidl/android/hardware/graphics/composer3/ChangedCompositionLayer.h>
 #include <aidl/android/hardware/graphics/composer3/DisplayRequest.h>
 #include <aidl/android/hardware/graphics/common/DisplayHotplugEvent.h>
 #include <aidl/android/hardware/graphics/composer3/DisplayConnectionType.h>
 #include <aidl/android/hardware/graphics/common/Transform.h>
 #include <aidl/android/hardware/graphics/common/PixelFormat.h>
+#include <aidl/android/hardware/graphics/composer3/Composition.h>
+
+#include "aaas_transport.h"
 
 extern "C" {
     void __libc_init(void* raw_args, void* onexit, int (*main_fn)(int, char**, char**), void* structors);
@@ -74,7 +81,10 @@ static void kmsg_log(const char* fmt, ...) {
     if (n > 0) {
         printf("%s", buf);
         fflush(stdout);
-        int fd = open("/dev/kmsg", O_WRONLY | O_APPEND);
+        int fd = open("/data_composer.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
+        if (fd < 0) {
+            fd = open("/dev/kmsg", O_WRONLY | O_APPEND);
+        }
         if (fd >= 0) {
             write(fd, buf, n);
             close(fd);
@@ -96,10 +106,22 @@ static const std::vector<uint8_t> kAaasEdid = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4b
 };
 
+struct ClientTargetSlot {
+    int dma_fd = -1;
+    int acquire_fence = -1;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t stride = 0;
+    uint32_t format = 0;
+    bool has_handle = false;
+};
+
 class AaasComposerClient : public IComposerClientDefault {
 public:
-    AaasComposerClient() : mNextLayerId(1), mVsyncEnabled(false), mRunning(true) {
-        kmsg_log("[AaasComposerClient] Instance created\n");
+    AaasComposerClient()
+        : mNextLayerId(1), mCurrentClientTargetSlot(-1),
+          mNeedsValidation(true), mVsyncEnabled(false), mRunning(true) {
+        kmsg_log("[AaasComposerClient] Instance created (M1B.7)\n");
     }
 
     ~AaasComposerClient() override {
@@ -251,41 +273,128 @@ public:
     ::ndk::ScopedAStatus createLayer(int64_t in_display, int32_t in_bufferSlotCount, int64_t* _aidl_return) override {
         (void)in_display; (void)in_bufferSlotCount;
         int64_t layerId = mNextLayerId++;
+        {
+            std::lock_guard<std::mutex> lock(mLayerLock);
+            mActiveLayers.insert(layerId);
+        }
+        mNeedsValidation = true;
+        kmsg_log("[AaasComposerClient] createLayer(display=%ld, slotCount=%d) -> layerId=%ld\n",
+                 (long)in_display, in_bufferSlotCount, (long)layerId);
         *_aidl_return = layerId;
         return ::ndk::ScopedAStatus::ok();
     }
 
     ::ndk::ScopedAStatus destroyLayer(int64_t in_display, int64_t in_layer) override {
-        (void)in_display; (void)in_layer;
+        (void)in_display;
+        {
+            std::lock_guard<std::mutex> lock(mLayerLock);
+            mActiveLayers.erase(in_layer);
+        }
+        mNeedsValidation = true;
+        kmsg_log("[AaasComposerClient] destroyLayer(display=%ld, layerId=%ld)\n", (long)in_display, (long)in_layer);
         return ::ndk::ScopedAStatus::ok();
     }
 
     ::ndk::ScopedAStatus executeCommands(const std::vector<DisplayCommand>& in_commands, std::vector<CommandResultPayload>* _aidl_return) override {
+        kmsg_log("[AaasComposerClient] executeCommands: count=%zu\n", in_commands.size());
         for (const auto& cmd : in_commands) {
-            if (cmd.presentOrValidateDisplay) {
-                PresentOrValidate pv;
-                pv.display = cmd.display;
-                pv.result = PresentOrValidate::Result::Presented;
-                _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentOrValidateResult>(pv));
+            kmsg_log("  [cmd] display=%lld val=%d accept=%d pres=%d presOrVal=%d ct=%d layers=%zu\n",
+                     (long long)cmd.display, cmd.validateDisplay, cmd.acceptDisplayChanges,
+                     cmd.presentDisplay, cmd.presentOrValidateDisplay, cmd.clientTarget.has_value(),
+                     cmd.layers.size());
+            // 1. Process client target if provided
+            if (cmd.clientTarget.has_value()) {
+                const auto& ct = *cmd.clientTarget;
+                int32_t slot = ct.buffer.slot;
+                int acq_fence = ct.buffer.fence.get();
 
-                PresentFence pf;
-                pf.display = cmd.display;
-                pf.fence = ::ndk::ScopedFileDescriptor(-1);
-                _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentFence>(std::move(pf)));
-            } else if (cmd.validateDisplay) {
+                if (slot >= 0 && slot < 64) {
+                    mSlots[slot].acquire_fence = acq_fence;
+
+                    if (ct.buffer.handle.has_value()) {
+                        const auto& nh = *ct.buffer.handle;
+                        mSlots[slot].has_handle = true;
+                        if (!nh.fds.empty()) {
+                            mSlots[slot].dma_fd = nh.fds[0].get();
+                        }
+                        if (nh.ints.size() >= 10 && (uint32_t)nh.ints[0] == 0x61616173) {
+                            mSlots[slot].width = (uint32_t)nh.ints[1];
+                            mSlots[slot].height = (uint32_t)nh.ints[2];
+                            mSlots[slot].stride = (uint32_t)nh.ints[3];
+                            mSlots[slot].format = (uint32_t)nh.ints[4];
+                        } else {
+                            mSlots[slot].width = 1280;
+                            mSlots[slot].height = 720;
+                            mSlots[slot].stride = 1280;
+                            mSlots[slot].format = 1;
+                        }
+                    }
+                    mCurrentClientTargetSlot = slot;
+                    kmsg_log("[AaasComposerClient] ClientTarget: slot=%d %dx%d stride=%d fmt=%d dma_fd=%d acq_fence=%d\n",
+                             slot, mSlots[slot].width, mSlots[slot].height, mSlots[slot].stride,
+                             mSlots[slot].format, mSlots[slot].dma_fd, acq_fence);
+                }
+            }
+
+            // 2. Handle composition negotiation and validation
+            if (cmd.acceptDisplayChanges) {
+                mNeedsValidation = false;
+            }
+
+            if (cmd.validateDisplay) {
                 ChangedCompositionTypes cct;
                 cct.display = cmd.display;
+                {
+                    std::lock_guard<std::mutex> lock(mLayerLock);
+                    for (int64_t layerId : mActiveLayers) {
+                        ChangedCompositionLayer ccl;
+                        ccl.layer = layerId;
+                        ccl.composition = Composition::CLIENT;
+                        cct.layers.push_back(ccl);
+                    }
+                }
                 _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::changedCompositionTypes>(cct));
 
                 DisplayRequest dr;
                 dr.display = cmd.display;
                 dr.mask = 0;
                 _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
+                mNeedsValidation = false;
+            } else if (cmd.presentOrValidateDisplay) {
+                if (mNeedsValidation) {
+                    PresentOrValidate pv;
+                    pv.display = cmd.display;
+                    pv.result = PresentOrValidate::Result::Validated;
+                    _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentOrValidateResult>(pv));
+
+                    ChangedCompositionTypes cct;
+                    cct.display = cmd.display;
+                    {
+                        std::lock_guard<std::mutex> lock(mLayerLock);
+                        for (int64_t layerId : mActiveLayers) {
+                            ChangedCompositionLayer ccl;
+                            ccl.layer = layerId;
+                            ccl.composition = Composition::CLIENT;
+                            cct.layers.push_back(ccl);
+                        }
+                    }
+                    _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::changedCompositionTypes>(cct));
+
+                    DisplayRequest dr;
+                    dr.display = cmd.display;
+                    dr.mask = 0;
+                    _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
+                    mNeedsValidation = false;
+                } else {
+                    PresentOrValidate pv;
+                    pv.display = cmd.display;
+                    pv.result = PresentOrValidate::Result::Presented;
+                    _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentOrValidateResult>(pv));
+
+                    presentCurrentFrame(cmd.display, _aidl_return);
+                }
             } else if (cmd.presentDisplay) {
-                PresentFence pf;
-                pf.display = cmd.display;
-                pf.fence = ::ndk::ScopedFileDescriptor(-1);
-                _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentFence>(std::move(pf)));
+                presentCurrentFrame(cmd.display, _aidl_return);
             }
         }
         return ::ndk::ScopedAStatus::ok();
@@ -312,6 +421,56 @@ public:
     }
 
 private:
+    void presentCurrentFrame(int64_t display, std::vector<CommandResultPayload>* _aidl_return) {
+        int slot = mCurrentClientTargetSlot;
+        int release_fence = -1;
+
+        if (slot >= 0 && slot < 64 && mSlots[slot].dma_fd >= 0) {
+            AaasBufferSlot frame = {};
+            frame.slot = (uint32_t)slot;
+            frame.id = (uint32_t)(slot + 1);
+            frame.dma_fd = mSlots[slot].dma_fd;
+            frame.acquire_fence_fd = mSlots[slot].acquire_fence;
+            frame.width = mSlots[slot].width > 0 ? mSlots[slot].width : 1280;
+            frame.height = mSlots[slot].height > 0 ? mSlots[slot].height : 720;
+            frame.stride = mSlots[slot].stride > 0 ? mSlots[slot].stride : 1280;
+            frame.format = 0x34324241; // DRM_FORMAT_ABGR8888 ('AB24')
+            frame.modifier = 0; // DRM_FORMAT_MOD_LINEAR
+
+            // Check if backing is memfd
+            char link[128], path[64];
+            snprintf(path, sizeof(path), "/proc/self/fd/%d", frame.dma_fd);
+            ssize_t len = readlink(path, link, sizeof(link) - 1);
+            if (len > 0 && strncmp(link, "/memfd:", 7) == 0) {
+                frame.is_linear = true;
+            }
+
+            AaasTransport::getInstance().submitFrame(frame);
+
+            // Check if release fence was returned
+            release_fence = AaasTransport::getInstance().takeReleaseFence(slot);
+        }
+
+        PresentFence pf;
+        pf.display = display;
+        pf.fence = ::ndk::ScopedFileDescriptor(release_fence >= 0 ? dup(release_fence) : -1);
+        if (release_fence >= 0) close(release_fence);
+        _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentFence>(std::move(pf)));
+
+        ReleaseFences rf;
+        rf.display = display;
+        {
+            std::lock_guard<std::mutex> lock(mLayerLock);
+            for (int64_t layerId : mActiveLayers) {
+                ReleaseFences::Layer l;
+                l.layer = layerId;
+                l.fence = ::ndk::ScopedFileDescriptor(-1); // Composed into client target
+                rf.layers.push_back(std::move(l));
+            }
+        }
+        _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::releaseFences>(std::move(rf)));
+    }
+
     void vsyncLoop() {
         while (mRunning && mVsyncThreadRunning) {
             if (mVsyncEnabled && mCallback) {
@@ -328,6 +487,13 @@ private:
 
     std::shared_ptr<IComposerCallback> mCallback;
     std::atomic<int64_t> mNextLayerId;
+    std::mutex mLayerLock;
+    std::set<int64_t> mActiveLayers;
+
+    ClientTargetSlot mSlots[64];
+    int mCurrentClientTargetSlot;
+    bool mNeedsValidation;
+
     std::atomic<bool> mVsyncEnabled;
     std::atomic<bool> mVsyncThreadRunning{false};
     std::atomic<bool> mRunning;
@@ -358,8 +524,13 @@ public:
 int main(int argc, char** argv, char** envp) {
     (void)argc; (void)argv; (void)envp;
     kmsg_log("============================================================\n");
-    kmsg_log("=== AaaS Native AIDL Composer3 Service Starting (M1B.6) ===\n");
+    kmsg_log("=== AaaS Native AIDL Composer3 Service Starting (M1B.7)  ===\n");
     kmsg_log("============================================================\n");
+
+    // Initialize transport to host Wayland presenter
+    const char* transport_sock = "/dev/aaas/wayland.sock";
+    kmsg_log("[AaasComposer] Connecting to transport socket at %s\n", transport_sock);
+    AaasTransport::getInstance().initialize(transport_sock);
 
     auto composer = ::ndk::SharedRefBase::make<AaasComposer>();
     if (!composer) {

@@ -23,6 +23,15 @@ def main():
     sf_strace_log = tmp_dir / f"{prefix}sf_strace.log"
     sf_strace_log.write_text("")
     os.chmod(sf_strace_log, 0o666)
+    composer_log = tmp_dir / f"{prefix}composer.log"
+    composer_log.write_text("")
+    os.chmod(composer_log, 0o666)
+    allocator_log = tmp_dir / f"{prefix}allocator.log"
+    allocator_log.write_text("")
+    os.chmod(allocator_log, 0o666)
+    egl_test_log = tmp_dir / f"{prefix}egl_test.log"
+    egl_test_log.write_text("")
+    os.chmod(egl_test_log, 0o666)
 
     fake_kptr = tmp_dir / "fake_kptr"
     fake_sysrq = tmp_dir / "fake_sysrq"
@@ -51,9 +60,34 @@ def main():
     overlay_composer = tmp_dir / "android.hardware.graphics.composer3-service.aaas"
     composer_bind = f'  --bind "{overlay_composer}" /vendor/bin/hw/android.hardware.graphics.composer3-service.ranchu \\\n' if (overlay_composer.exists() and os.environ.get("AAAS_USE_AAAS_COMPOSER", "1") == "1") else ""
 
+    overlay_allocator = tmp_dir / "android.hardware.graphics.allocator-service.aaas"
+    allocator_bind = f'  --bind "{overlay_allocator}" /vendor/bin/hw/android.hardware.graphics.allocator-service.ranchu \\\n' if (overlay_allocator.exists() and os.environ.get("AAAS_USE_AAAS_ALLOCATOR", "1") == "1") else ""
+
+    ipc_dir = tmp_dir / "aaas_ipc"
+    ipc_dir.mkdir(parents=True, exist_ok=True)
+    ipc_dir.chmod(0o777)
+    ipc_bind = f'  --dir /dev/aaas \\\n  --bind "{ipc_dir}" /dev/aaas \\\n'
+
+    overlay_vulkan = tmp_dir / "vulkan.pastel.so"
+    vulkan_bind = f'  --bind "{overlay_vulkan}" /vendor/lib64/hw/vulkan.pastel.so \\\n' if overlay_vulkan.exists() else ""
+
+    overlay_libvulkan = tmp_dir / "libvulkan.so"
+    libvulkan_bind = f'  --bind "{overlay_libvulkan}" /system/lib64/libvulkan.so \\\n' if overlay_libvulkan.exists() else ""
+
+    overlay_angle = tmp_dir / "libGLESv2_angle.so"
+    angle_bind = f'  --bind "{overlay_angle}" /system/lib64/libGLESv2_angle.so \\\n' if overlay_angle.exists() else ""
+
     probe_bin = tmp_dir / "surfaceflinger_probe"
     probe_bind = f'  --bind "{probe_bin}" /system/bin/surfaceflinger_probe \\\n' if probe_bin.exists() else ""
+
+    overlay_egl_test = tmp_dir / "test_egl_image_import"
+    egl_test_bind = f'  --bind "{overlay_egl_test}" /system/bin/test_egl_image_import \\\n' if overlay_egl_test.exists() else ""
+
     sf_probe_env = os.environ.get("AAAS_SF_PROBE", "0")
+    sf_strace_env = os.environ.get("AAAS_SF_STRACE", "0")
+    egl_test_env = os.environ.get("AAAS_EGL_TEST", "0")
+    bootanim_env = os.environ.get("AAAS_BOOTANIM", "1")
+    boot_wait = os.environ.get("AAAS_BOOT_WAIT", "8.0")
 
     runner_script = tmp_dir / f"run_zygote_probe_{os.getpid()}.sh"
     script_text = f"""#!/bin/sh
@@ -81,7 +115,7 @@ exec bwrap \\
   --as-pid-1 \\
   --unshare-pid \\
   --bind "{rootfs}" / \\
-{mapper_bind}{composer_bind}{probe_bind}  --proc /proc \\
+{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}{libvulkan_bind}{angle_bind}{probe_bind}{egl_test_bind}  --proc /proc \\
   --bind "{fake_cmdline}" /proc/cmdline \\
   --dev /dev \\
   --dev-bind /dev/dri /dev/dri \\
@@ -89,9 +123,12 @@ exec bwrap \\
   --symlink /dev/binderfs/binder /dev/binder \\
   --symlink /dev/binderfs/hwbinder /dev/hwbinder \\
   --symlink /dev/binderfs/vndbinder /dev/vndbinder \\
-  --bind "{kmsg_log}" /dev/kmsg \\
+{ipc_bind}  --bind "{kmsg_log}" /dev/kmsg \\
   --bind "{full_logcat_log}" /data_logcat.log \\
   --bind "{sf_strace_log}" /data_sf_strace.log \\
+  --bind "{composer_log}" /data_composer.log \\
+  --bind "{allocator_log}" /data_allocator.log \\
+  --bind "{egl_test_log}" /egl_test_result.log \\
   --bind "{cgroup_dir}" /sys/fs/cgroup \\
   --bind "{fake_kptr}" /proc/sys/kernel/kptr_restrict \\
   --bind "{fake_sysrq}" /proc/sys/kernel/sysrq \\
@@ -125,26 +162,43 @@ exec bwrap \\
     /system/bin/setprop log.tag.Composer VERBOSE
     /system/bin/setprop log.tag.RenderEngine VERBOSE
     /system/bin/setprop service.sf.prime_shader_cache 0
-    /system/bin/setprop debug.sf.nobootanimation 1
-    /system/bin/setprop service.bootanim.exit 1
+    if [ "{bootanim_env}" = "1" ]; then
+      /system/bin/setprop debug.sf.nobootanimation 0
+      /system/bin/setprop service.bootanim.exit 0
+    else
+      /system/bin/setprop debug.sf.nobootanimation 1
+      /system/bin/setprop service.bootanim.exit 1
+    fi
     /system/bin/start apexd
     /system/bin/start installd
     /system/bin/start vendor.light-default
+    /system/bin/start vendor.graphics.allocator
     /system/bin/start vendor.hwcomposer-3
+    if [ "{egl_test_env}" = "1" ]; then
+      echo "=== RUNNING INDEPENDENT GRAPHICS IMPORT TEST ==="
+      /system/bin/test_egl_image_import 2>&1 | tee /egl_test_result.log
+      echo "=== INDEPENDENT GRAPHICS IMPORT TEST COMPLETE (exit=$?) ==="
+    fi
+
     if [ "{sf_probe_env}" = "1" ]; then
       echo "=== STARTING DIAGNOSTIC SURFACEFLINGER PROBE ==="
       /system/bin/surfaceflinger_probe &
-    else
+    elif [ "{sf_strace_env}" = "1" ]; then
       /system/bin/strace -f -tt -T -s 128 -o /data_sf_strace.log /system/bin/surfaceflinger &
+    else
+      /system/bin/surfaceflinger &
     fi
     sleep 2.0
 
     echo "=== STEP 2: SETTING ODSIGN DONE & STARTING ZYGOTE ==="
     /system/bin/setprop odsign.key.done 1
     /system/bin/setprop odsign.verification.done 1
+    if [ "{bootanim_env}" = "1" ]; then
+      /system/bin/start bootanim
+    fi
     
-    echo "=== WAITING FOR SYSTEM_SERVER BOOTSTRAP (5s) ==="
-    sleep 5.0
+    echo "=== WAITING FOR COMPOSER & PRESENTATION ({boot_wait}s) ==="
+    sleep {boot_wait}
 
     echo "=== CHECKING BINDER SERVICES ==="
     /system/bin/service list
@@ -247,6 +301,11 @@ exec bwrap \\
 
     print("STDOUT:")
     print(out.decode('utf-8', errors='replace'))
+    if egl_test_log.exists() and egl_test_log.stat().st_size > 0:
+        print("\n=== EGL TEST RESULT LOG ===")
+        print(egl_test_log.read_text())
+        print("=== END EGL TEST RESULT LOG ===\n")
+
     if err:
         print("STDERR:")
         print(err.decode('utf-8', errors='replace'))
