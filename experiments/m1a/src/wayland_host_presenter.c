@@ -34,6 +34,7 @@ static void print_usage(const char *prog) {
 int main(int argc, char **argv) {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
+    signal(SIGHUP, SIG_IGN);
 
     const char *socket_path = "/run/media/mrkus/Homework/aaas-workspace/tmp/aaas_ipc/wayland.sock";
     const char *title = "AaaS Android 16 Desktop";

@@ -110,6 +110,9 @@ void AaasTransport::shutdown() {
             mReleaseFences[i] = -1;
         }
     }
+    mInFlightSlots.clear();
+    mInFlightBackingInos.clear();
+    mReleaseCv.notify_all();
 }
 
 bool AaasTransport::connectSocket() {
@@ -185,6 +188,9 @@ void AaasTransport::transportThreadLoop() {
             if (mSockFd >= 0) close(mSockFd);
             mSockFd = -1;
             mConnected = false;
+            mInFlightSlots.clear();
+            mInFlightBackingInos.clear();
+            mReleaseCv.notify_all();
             continue;
         }
 
@@ -199,6 +205,9 @@ void AaasTransport::transportThreadLoop() {
                 if (mSockFd >= 0) close(mSockFd);
                 mSockFd = -1;
                 mConnected = false;
+                mInFlightSlots.clear();
+                mInFlightBackingInos.clear();
+                mReleaseCv.notify_all();
                 continue;
             }
 
@@ -215,8 +224,13 @@ void AaasTransport::transportThreadLoop() {
                 if (it != mIdToSlot.end()) {
                     uint32_t slot_idx = it->second;
                     mIdToSlot.erase(it);
-                    transport_log("[AaasTransport] Received RELEASE for slot %u (id=%u, fence_fd=%d)\n",
-                                  slot_idx, msg.id, fence_fd);
+                    mInFlightSlots.erase(slot_idx);
+                    auto ino_it = mSlotToBackingIno.find(slot_idx);
+                    if (ino_it != mSlotToBackingIno.end()) {
+                        mInFlightBackingInos.erase(ino_it->second);
+                    }
+                    transport_log("[AaasTransport] Received RELEASE for slot %u (id=%u, fence_fd=%d, remaining_in_flight=%zu)\n",
+                                  slot_idx, msg.id, fence_fd, mInFlightSlots.size());
                     if (slot_idx < 64) {
                         if (mReleaseFences[slot_idx] >= 0) {
                             close(mReleaseFences[slot_idx]);
@@ -225,6 +239,7 @@ void AaasTransport::transportThreadLoop() {
                     } else if (fence_fd >= 0) {
                         close(fence_fd);
                     }
+                    mReleaseCv.notify_all();
                 } else {
                     transport_log("[AaasTransport] Received RELEASE for unknown id=%u\n", msg.id);
                     if (fence_fd >= 0) close(fence_fd);
@@ -235,12 +250,66 @@ void AaasTransport::transportThreadLoop() {
                 if (mSockFd >= 0) close(mSockFd);
                 mSockFd = -1;
                 mConnected = false;
+                mInFlightSlots.clear();
+                mInFlightBackingInos.clear();
+                mReleaseCv.notify_all();
             }
         }
     }
 }
 
+bool AaasTransport::waitForSlotRelease(uint32_t slot, uint32_t timeout_ms) {
+    std::unique_lock<std::mutex> lock(mLock);
+    if (!mConnected || mSockFd < 0) return true;
+    if (mInFlightSlots.find(slot) == mInFlightSlots.end()) {
+        return true;
+    }
+    transport_log("[AaasTransport] Backpressure: waiting for slot %u release (in_flight=%zu)...\n",
+                  slot, mInFlightSlots.size());
+    bool ok = mReleaseCv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this, slot]() {
+        return !mConnected || mInFlightSlots.find(slot) == mInFlightSlots.end();
+    });
+    if (!ok) {
+        transport_log("[AaasTransport] WARNING: Timeout waiting for slot %u release after %ums (in_flight=%zu)\n",
+                      slot, timeout_ms, mInFlightSlots.size());
+    } else {
+        transport_log("[AaasTransport] Slot %u release confirmed (remaining in_flight=%zu)\n",
+                      slot, mInFlightSlots.size());
+    }
+    return ok;
+}
+
+bool AaasTransport::waitForAnyRelease(uint32_t timeout_ms) {
+    std::unique_lock<std::mutex> lock(mLock);
+    if (!mConnected || mSockFd < 0 || mInFlightSlots.size() < 2) return true;
+    transport_log("[AaasTransport] Backpressure: 2 buffers in flight, waiting for release...\n");
+    bool ok = mReleaseCv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this]() {
+        return !mConnected || mInFlightSlots.size() < 2;
+    });
+    if (!ok) {
+        transport_log("[AaasTransport] WARNING: Timeout waiting for any release after %ums (in_flight=%zu)\n",
+                      timeout_ms, mInFlightSlots.size());
+    } else {
+        transport_log("[AaasTransport] Buffer release confirmed (remaining in_flight=%zu)\n",
+                      mInFlightSlots.size());
+    }
+    return ok;
+}
+
+bool AaasTransport::isSlotInFlight(uint32_t slot) {
+    std::lock_guard<std::mutex> lock(mLock);
+    return mInFlightSlots.find(slot) != mInFlightSlots.end();
+}
+
+size_t AaasTransport::getInFlightCount() {
+    std::lock_guard<std::mutex> lock(mLock);
+    return mInFlightSlots.size();
+}
+
 int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
+    // Before acquiring mLock, wait if this slot is already in flight
+    waitForSlotRelease(frame.slot, 40);
+
     std::lock_guard<std::mutex> lock(mLock);
     if (!mConnected || mSockFd < 0) {
         transport_log("[AaasTransport] Cannot submitFrame: not connected\n");
@@ -252,6 +321,16 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
 
     uint32_t frame_id = mNextId++;
     mIdToSlot[frame_id] = frame.slot;
+    mInFlightSlots.insert(frame.slot);
+
+    struct stat backing = {};
+    fstat(frame.dma_fd, &backing);
+    if (mInFlightBackingInos.find(backing.st_ino) != mInFlightBackingInos.end()) {
+        transport_log("[AaasTransport] VIOLATION WARNING: Backing ino %llu submitted while still recorded in flight!\n",
+                      (unsigned long long)backing.st_ino);
+    }
+    mSlotToBackingIno[frame.slot] = backing.st_ino;
+    mInFlightBackingInos.insert(backing.st_ino);
 
     aaas_v2_msg m = {};
     m.magic = AAAS_V2_MAGIC;
@@ -279,6 +358,8 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
     int dma_dup = dup(frame.dma_fd);
     if (dma_dup < 0) {
         transport_log("[AaasTransport] dup(dma_fd=%d) failed: %s\n", frame.dma_fd, strerror(errno));
+        mInFlightSlots.erase(frame.slot);
+        mInFlightBackingInos.erase(backing.st_ino);
         return -1;
     }
     send_fds[0] = dma_dup;
@@ -293,11 +374,9 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
         }
     }
 
-    struct stat backing = {};
-    fstat(frame.dma_fd, &backing);
-    transport_log("[AaasTransport] Submitting frame id=%u (slot=%u, %dx%d, fmt=0x%x, stride=%u, dma_fd=%d, acq_fd=%d, backing_dev=%llu, backing_ino=%llu)\n",
+    transport_log("[AaasTransport] Submitting frame id=%u (slot=%u, %dx%d, fmt=0x%x, stride=%u, dma_fd=%d, acq_fd=%d, backing_dev=%llu, backing_ino=%llu, in_flight=%zu)\n",
                   m.id, frame.slot, m.width, m.height, m.format, m.stride[0], send_fds[0], (nfds > 1 ? send_fds[1] : -1),
-                  (unsigned long long)backing.st_dev, (unsigned long long)backing.st_ino);
+                  (unsigned long long)backing.st_dev, (unsigned long long)backing.st_ino, mInFlightSlots.size());
 
     int res = aaas_v2_send(mSockFd, &m, send_fds, nfds);
     close(send_fds[0]);
@@ -307,6 +386,8 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
 
     if (res != 0) {
         transport_log("[AaasTransport] aaas_v2_send failed: %s (errno=%d)\n", strerror(errno), errno);
+        mInFlightSlots.erase(frame.slot);
+        mInFlightBackingInos.erase(backing.st_ino);
         return -1;
     }
 
@@ -321,3 +402,4 @@ int AaasTransport::takeReleaseFence(uint32_t slot) {
     mReleaseFences[slot] = -1;
     return fd;
 }
+

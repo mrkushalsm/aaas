@@ -341,6 +341,9 @@ public:
                 int acq_fence = ct.buffer.fence.get();
 
                 if (slot >= 0 && slot < 64) {
+                    // Backpressure: ensure slot is released by host before proceeding
+                    AaasTransport::getInstance().waitForSlotRelease((uint32_t)slot, 40);
+
                     if (mSlots[slot].acquire_fence >= 0) {
                         close(mSlots[slot].acquire_fence);
                         mSlots[slot].acquire_fence = -1;
@@ -383,6 +386,9 @@ public:
             }
 
             if (cmd.validateDisplay) {
+                // Backpressure: if both buffers in double-buffered pool are in flight, wait
+                AaasTransport::getInstance().waitForAnyRelease(40);
+
                 ChangedCompositionTypes cct;
                 cct.display = cmd.display;
                 {
@@ -402,6 +408,9 @@ public:
                 _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
                 mNeedsValidation = false;
             } else if (cmd.presentOrValidateDisplay) {
+                // Backpressure: if both buffers in double-buffered pool are in flight, wait
+                AaasTransport::getInstance().waitForAnyRelease(40);
+
                 PresentOrValidate pv;
                 pv.display = cmd.display;
                 pv.result = PresentOrValidate::Result::Validated;
@@ -524,15 +533,18 @@ private:
                 munmap(ct_ptr, ct_sz);
             }
 
+            // Wait for any previous submission of this slot to be released by host
+            AaasTransport::getInstance().waitForSlotRelease((uint32_t)slot, 40);
+
+            // Retrieve the genuine release fence exported by the host for this slot
+            release_fence = AaasTransport::getInstance().takeReleaseFence(slot);
+
             AaasTransport::getInstance().submitFrame(frame);
 
             if (mSlots[slot].acquire_fence >= 0) {
                 close(mSlots[slot].acquire_fence);
                 mSlots[slot].acquire_fence = -1;
             }
-
-            // Check if release fence was returned
-            release_fence = AaasTransport::getInstance().takeReleaseFence(slot);
         }
 
         if (release_fence < 0) {
