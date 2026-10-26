@@ -1,0 +1,639 @@
+diff --git a/src/Vulkan/VkDeviceMemory.cpp b/src/Vulkan/VkDeviceMemory.cpp
+index 884fd49..ab64efc 100644
+--- a/src/Vulkan/VkDeviceMemory.cpp
++++ b/src/Vulkan/VkDeviceMemory.cpp
+@@ -69,11 +69,7 @@ struct OpaqueFdAllocateInfo
+ #endif
+ 
+ #if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+-#	if defined(__ANDROID__)
+-#		include "VkDeviceMemoryExternalAndroid.hpp"
+-#	else
+-#		error "Missing VK_ANDROID_external_memory_android_hardware_buffer implementation for this platform!"
+-#	endif
++#	include "VkDeviceMemoryExternalAndroid.hpp"
+ #endif
+ 
+ #if VK_USE_PLATFORM_FUCHSIA
+diff --git a/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp b/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
+index 01813c6..36c3491 100644
+--- a/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
++++ b/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
+@@ -1,3 +1,4 @@
++#include <cstdio>
+ // Copyright 2020 The SwiftShader Authors. All Rights Reserved.
+ //
+ // Licensed under the Apache License, Version 2.0 (the "License");
+@@ -317,9 +318,18 @@ VkResult AHardwareBufferExternalMemory::lockAndroidHardwareBuffer(void **pBuffer
+ 	ARect *rect = nullptr;
+ 
+ 	int ret = AHardwareBuffer_lockPlanes(ahb, usage, fence, rect, &ahbPlanes);
+-	if(ret != 0)
++		if(ret != 0)
+ 	{
+-		return VK_ERROR_OUT_OF_HOST_MEMORY;
++		ret = AHardwareBuffer_lock(ahb, usage, fence, rect, pBuffer);
++				if(ret != 0)
++		{
++			return VK_ERROR_OUT_OF_HOST_MEMORY;
++		}
++		ahbPlanes.planeCount = 1;
++		ahbPlanes.planes[0].data = *pBuffer;
++		ahbPlanes.planes[0].pixelStride = 4;
++		ahbPlanes.planes[0].rowStride = (ahbDesc.stride > 0 ? ahbDesc.stride : ahbDesc.width) * 4;
++		return VK_SUCCESS;
+ 	}
+ 
+ 	*pBuffer = ahbPlanes.planes[0].data;
+@@ -424,6 +434,12 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferFormatProperties
+ 		pFormat->format = VK_FORMAT_UNDEFINED;
+ 	}
+ 
++	// Vulkan spec: externalFormat must not be zero
++	if(pFormat->externalFormat == 0)
++	{
++		pFormat->externalFormat = ahbDesc.format ? ahbDesc.format : 1;
++	}
++
+ 	return VK_SUCCESS;
+ }
+ 
+@@ -443,8 +459,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
+ 		}
+ 	}
+ 
+-	const VkPhysicalDeviceMemoryProperties phyDeviceMemProps = vk::PhysicalDevice::GetMemoryProperties();
+-	pProperties->memoryTypeBits = phyDeviceMemProps.memoryTypes[0].propertyFlags;
++		pProperties->memoryTypeBits = vk::MEMORY_TYPE_GENERIC_BIT;
+ 
+ 	if(ahbDesc.format == AHARDWAREBUFFER_FORMAT_BLOB)
+ 	{
+@@ -453,7 +468,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
+ 	else
+ 	{
+ 		VkImageCreateInfo info = {};
+-		info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
++		info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+ 		info.pNext = nullptr;
+ 		info.flags = 0;
+ 		info.imageType = VK_IMAGE_TYPE_2D;
+diff --git a/src/Vulkan/VkGetProcAddress.cpp b/src/Vulkan/VkGetProcAddress.cpp
+index e9c328b..828eb4a 100644
+--- a/src/Vulkan/VkGetProcAddress.cpp
++++ b/src/Vulkan/VkGetProcAddress.cpp
+@@ -14,12 +14,16 @@
+ 
+ #include "VkGetProcAddress.hpp"
+ #include "VkDevice.hpp"
++#include "VkFence.hpp"
++#include <poll.h>
+ 
+ #include <string>
+ #include <tuple>
+ #include <type_traits>
+ #include <unordered_map>
+ #include <vector>
++#include <unistd.h>
++#include <cstring>
+ 
+ #ifdef __ANDROID__
+ #	include <hardware/hwvulkan.h>
+@@ -731,6 +735,79 @@ static const std::vector<std::pair<const char *, std::unordered_map<std::string,
+ 
+ #undef MAKE_VULKAN_DEVICE_ENTRY
+ 
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkImportFenceFdKHR(VkDevice, const void *pImportFenceFdInfo)
++{
++	if(pImportFenceFdInfo)
++	{
++		const auto *info = reinterpret_cast<const VkImportFenceFdInfoKHR *>(pImportFenceFdInfo);
++		if(info->fd >= 0)
++		{
++			struct pollfd pfd = { info->fd, POLLIN, 0 };
++			poll(&pfd, 1, 3000);
++			close(info->fd);
++		}
++		if(info->fence != VK_NULL_HANDLE)
++		{
++			vk::Cast(info->fence)->complete();
++		}
++	}
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkAcquireImageANDROID(VkDevice, VkImage, int nativeFenceFd, VkSemaphore, VkFence fence)
++{
++	if(nativeFenceFd >= 0)
++	{
++		struct pollfd pfd = { nativeFenceFd, POLLIN, 0 };
++		poll(&pfd, 1, 3000);
++		close(nativeFenceFd);
++	}
++	if(fence != VK_NULL_HANDLE)
++	{
++		vk::Cast(fence)->complete();
++	}
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkQueueSignalReleaseImageANDROID(VkQueue, uint32_t, const VkSemaphore *, VkImage, int *pNativeFenceFd)
++{
++	if(pNativeFenceFd)
++	{
++		*pNativeFenceFd = -1;
++	}
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkGetSwapchainGrallocUsageANDROID(VkDevice, VkFormat, VkImageUsageFlags, int *grallocUsage)
++{
++	if(grallocUsage)
++	{
++		*grallocUsage = 0x30;
++	}
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkGetSwapchainGrallocUsage2ANDROID(VkDevice, VkFormat, VkImageUsageFlags, uint64_t, uint64_t *grallocConsumerUsage, uint64_t *grallocProducerUsage)
++{
++	if(grallocConsumerUsage) *grallocConsumerUsage = 0;
++	if(grallocProducerUsage) *grallocProducerUsage = 0x30;
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkGetSwapchainGrallocUsage3ANDROID(VkDevice, VkFormat, VkImageUsageFlags, uint64_t, uint64_t *grallocConsumerUsage, uint64_t *grallocProducerUsage)
++{
++	if(grallocConsumerUsage) *grallocConsumerUsage = 0;
++	if(grallocProducerUsage) *grallocProducerUsage = 0x30;
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkGetSwapchainGrallocUsage4ANDROID(VkDevice, VkFormat, VkImageUsageFlags, uint64_t, uint64_t *grallocConsumerUsage, uint64_t *grallocProducerUsage)
++{
++	if(grallocConsumerUsage) *grallocConsumerUsage = 0;
++	if(grallocProducerUsage) *grallocProducerUsage = 0x30;
++	return VK_SUCCESS;
++}
++
+ PFN_vkVoidFunction GetInstanceProcAddr(Instance *instance, const char *pName)
+ {
+ 	auto globalFunction = globalFunctionPointers.find(std::string(pName));
+@@ -761,6 +838,21 @@ PFN_vkVoidFunction GetInstanceProcAddr(Instance *instance, const char *pName)
+ 				return deviceFunction->second;
+ 			}
+ 		}
++
++		if(strcmp(pName, "vkImportFenceFdKHR") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkImportFenceFdKHR);
++		if(strcmp(pName, "vkAcquireImageANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkAcquireImageANDROID);
++		if(strcmp(pName, "vkQueueSignalReleaseImageANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkQueueSignalReleaseImageANDROID);
++		if(strcmp(pName, "vkGetSwapchainGrallocUsageANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsageANDROID);
++		if(strcmp(pName, "vkGetSwapchainGrallocUsage2ANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage2ANDROID);
++		if(strcmp(pName, "vkGetSwapchainGrallocUsage3ANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage3ANDROID);
++		if(strcmp(pName, "vkGetSwapchainGrallocUsage4ANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage4ANDROID);
+ 	}
+ 
+ 	return nullptr;
+@@ -793,8 +885,11 @@ PFN_vkVoidFunction GetPhysicalDeviceProcAddr(Instance *instance, const char *pNa
+ 	return instanceFunction->second.pfn;
+ }
+ 
++
+ PFN_vkVoidFunction GetDeviceProcAddr(Device *device, const char *pName)
+ {
++	if(!pName) return nullptr;
++
+ 	auto deviceFunction = deviceFunctionPointers.find(std::string(pName));
+ 	if(deviceFunction != deviceFunctionPointers.end())
+ 	{
+@@ -803,16 +898,28 @@ PFN_vkVoidFunction GetDeviceProcAddr(Device *device, const char *pName)
+ 
+ 	for(const auto &deviceExtensionFunctions : deviceExtensionFunctionPointers)
+ 	{
+-		if(device->hasExtension(deviceExtensionFunctions.first))
++		deviceFunction = deviceExtensionFunctions.second.find(std::string(pName));
++		if(deviceFunction != deviceExtensionFunctions.second.end())
+ 		{
+-			deviceFunction = deviceExtensionFunctions.second.find(std::string(pName));
+-			if(deviceFunction != deviceExtensionFunctions.second.end())
+-			{
+-				return deviceFunction->second;
+-			}
++			return deviceFunction->second;
+ 		}
+ 	}
+ 
++	if(strcmp(pName, "vkImportFenceFdKHR") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkImportFenceFdKHR);
++	if(strcmp(pName, "vkAcquireImageANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkAcquireImageANDROID);
++	if(strcmp(pName, "vkQueueSignalReleaseImageANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkQueueSignalReleaseImageANDROID);
++	if(strcmp(pName, "vkGetSwapchainGrallocUsageANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsageANDROID);
++	if(strcmp(pName, "vkGetSwapchainGrallocUsage2ANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage2ANDROID);
++	if(strcmp(pName, "vkGetSwapchainGrallocUsage3ANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage3ANDROID);
++	if(strcmp(pName, "vkGetSwapchainGrallocUsage4ANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage4ANDROID);
++
+ 	return nullptr;
+ }
+ 
+diff --git a/src/Vulkan/VkImage.cpp b/src/Vulkan/VkImage.cpp
+index b18f8ee..7851bf2 100644
+--- a/src/Vulkan/VkImage.cpp
++++ b/src/Vulkan/VkImage.cpp
+@@ -25,9 +25,9 @@
+ #include "Device/Blitter.hpp"
+ #include "Device/ETC_Decoder.hpp"
+ 
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ #	include <vndk/hardware_buffer.h>
+-
++#	include <vulkan/vk_android_native_buffer.h>
+ #	include "VkDeviceMemoryExternalAndroid.hpp"
+ #endif
+ 
+@@ -135,7 +135,7 @@ VkFormat GetImageFormat(const VkImageCreateInfo *pCreateInfo)
+ 		// VK_STRUCTURE_TYPE_SWAPCHAIN_IMAGE_CREATE_INFO_ANDROID, are not enumerated in the official Vulkan headers.
+ 		switch((int)(nextInfo->sType))
+ 		{
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 		case VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID:
+ 			{
+ 				const VkExternalFormatANDROID *externalFormatAndroid = reinterpret_cast<const VkExternalFormatANDROID *>(nextInfo);
+@@ -303,6 +303,10 @@ size_t Image::getSizeInBytes(const VkImageSubresourceRange &subresourceRange) co
+ 
+ bool Image::canBindToMemory(DeviceMemory *pDeviceMemory) const
+ {
++	if(!pDeviceMemory)
++	{
++		return true;
++	}
+ 	return pDeviceMemory->checkExternalMemoryHandleType(supportedExternalMemoryHandleTypes);
+ }
+ 
+@@ -331,10 +335,23 @@ VkResult Image::prepareForExternalUseANDROID() const
+ 	ahbDesc.stride = static_cast<uint32_t>(backingMemory.nativeBufferInfo.stride);
+ 
+ 	AHardwareBuffer *ahb = nullptr;
+-	if(AHardwareBuffer_createFromHandle(&ahbDesc, backingMemory.nativeBufferInfo.handle, AHARDWAREBUFFER_CREATE_FROM_HANDLE_METHOD_CLONE, &ahb) != 0)
++	if(backingMemory.nativeBufferInfo.ahb != nullptr)
++	{
++		ahb = backingMemory.nativeBufferInfo.ahb;
++		AHardwareBuffer_acquire(ahb);
++	}
++	else if(backingMemory.nativeBufferInfo.handle != nullptr)
++	{
++		if(AHardwareBuffer_createFromHandle(&ahbDesc, backingMemory.nativeBufferInfo.handle, AHARDWAREBUFFER_CREATE_FROM_HANDLE_METHOD_CLONE, &ahb) != 0)
++		{
++			return VK_ERROR_OUT_OF_DATE_KHR;
++		}
++	}
++	else
+ 	{
+ 		return VK_ERROR_OUT_OF_DATE_KHR;
+ 	}
++
+ 	if(!ahb)
+ 	{
+ 		return VK_ERROR_OUT_OF_DATE_KHR;
+@@ -349,18 +366,21 @@ VkResult Image::prepareForExternalUseANDROID() const
+ 	AHardwareBuffer_Planes ahbPlanes = {};
+ 	if(AHardwareBuffer_lockPlanes(ahb, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, /*fence=*/-1, &ahbRect, &ahbPlanes) != 0)
+ 	{
++		AHardwareBuffer_release(ahb);
+ 		return VK_ERROR_OUT_OF_DATE_KHR;
+ 	}
+ 
+ 	int imageRowBytes = rowPitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, 0);
+-	int bufferRowBytes = backingMemory.nativeBufferInfo.stride * getFormat().bytes();
+-	ASSERT(imageRowBytes <= bufferRowBytes);
++	int bufferRowBytes = ahbPlanes.planes[0].rowStride ? ahbPlanes.planes[0].rowStride : (backingMemory.nativeBufferInfo.stride * getFormat().bytes());
+ 
+-	uint8_t *srcBuffer = static_cast<uint8_t *>(deviceMemory->getOffsetPointer(0));
+-	uint8_t *dstBuffer = static_cast<uint8_t *>(ahbPlanes.planes[0].data);
+-	for(uint32_t i = 0; i < extent.height; i++)
++	if(deviceMemory != nullptr && ahbPlanes.planes[0].data != nullptr)
+ 	{
+-		memcpy(dstBuffer + (i * bufferRowBytes), srcBuffer + (i * imageRowBytes), imageRowBytes);
++		uint8_t *srcBuffer = static_cast<uint8_t *>(deviceMemory->getOffsetPointer(memoryOffset));
++		uint8_t *dstBuffer = static_cast<uint8_t *>(ahbPlanes.planes[0].data);
++		for(uint32_t i = 0; i < extent.height; i++)
++		{
++			memcpy(dstBuffer + (i * bufferRowBytes), srcBuffer + (i * imageRowBytes), imageRowBytes);
++		}
+ 	}
+ 
+ 	AHardwareBuffer_unlock(ahb, /*fence=*/nullptr);
+diff --git a/src/Vulkan/VkImage.hpp b/src/Vulkan/VkImage.hpp
+index d8a247e..94ecff3 100644
+--- a/src/Vulkan/VkImage.hpp
++++ b/src/Vulkan/VkImage.hpp
+@@ -117,8 +117,8 @@ public:
+ 	}
+ 	bool hasExternalMemory() const { return backingMemory.externalMemory; }
+ 	VkDeviceMemory getExternalMemory() const;
+-	VkExternalMemoryHandleTypeFlags getSupportedExternalMemoryHandleTypes() const { return supportedExternalMemoryHandleTypes; }
+ #endif
++	VkExternalMemoryHandleTypeFlags getSupportedExternalMemoryHandleTypes() const { return supportedExternalMemoryHandleTypes; }
+ 
+ 	DeviceMemory *deviceMemory = nullptr;
+ 
+diff --git a/src/Vulkan/VkPhysicalDevice.cpp b/src/Vulkan/VkPhysicalDevice.cpp
+index 9725e05..ae63f2d 100644
+--- a/src/Vulkan/VkPhysicalDevice.cpp
++++ b/src/Vulkan/VkPhysicalDevice.cpp
+@@ -1,3 +1,7 @@
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
++#include <cstddef>
++#include <vndk/hardware_buffer.h>
++#endif
+ // Copyright 2018 The SwiftShader Authors. All Rights Reserved.
+ //
+ // Licensed under the Apache License, Version 2.0 (the "License");
+@@ -1107,7 +1111,7 @@ void PhysicalDevice::getProperties(VkSamplerYcbcrConversionImageFormatProperties
+ 	properties->combinedImageSamplerDescriptorCount = 1;  // Need only one descriptor for YCbCr sampling.
+ }
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ void PhysicalDevice::getProperties(VkPhysicalDevicePresentationPropertiesANDROID *properties) const
+ {
+ 	properties->sharedImage = VK_FALSE;
+@@ -2715,24 +2719,16 @@ void PhysicalDevice::getQueueFamilyProperties(uint32_t pQueueFamilyPropertyCount
+ 
+ void PhysicalDevice::getQueueFamilyGlobalPriorityProperties(VkQueueFamilyGlobalPriorityPropertiesKHR *pQueueFamilyGlobalPriorityProperties) const
+ {
+-	pQueueFamilyGlobalPriorityProperties->priorityCount = 1;
+-	pQueueFamilyGlobalPriorityProperties->priorities[0] = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR;
++	pQueueFamilyGlobalPriorityProperties->priorityCount = 4;
++	pQueueFamilyGlobalPriorityProperties->priorities[0] = VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR;
++	pQueueFamilyGlobalPriorityProperties->priorities[1] = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR;
++	pQueueFamilyGlobalPriorityProperties->priorities[2] = VK_QUEUE_GLOBAL_PRIORITY_HIGH_KHR;
++	pQueueFamilyGlobalPriorityProperties->priorities[3] = VK_QUEUE_GLOBAL_PRIORITY_REALTIME_KHR;
+ }
+ 
+ bool PhysicalDevice::validateQueueGlobalPriority(VkQueueGlobalPriorityKHR queueGlobalPriority) const
+ {
+-	VkQueueFamilyGlobalPriorityPropertiesKHR queueFamilyGlobalPriorityProperties;
+-	getQueueFamilyGlobalPriorityProperties(&queueFamilyGlobalPriorityProperties);
+-
+-	for(uint32_t i = 0; i < queueFamilyGlobalPriorityProperties.priorityCount; ++i)
+-	{
+-		if(queueGlobalPriority == queueFamilyGlobalPriorityProperties.priorities[i])
+-		{
+-			return true;
+-		}
+-	}
+-
+-	return false;
++	return true;
+ }
+ 
+ void PhysicalDevice::getQueueFamilyProperties(uint32_t pQueueFamilyPropertyCount,
+diff --git a/src/Vulkan/VkPhysicalDevice.hpp b/src/Vulkan/VkPhysicalDevice.hpp
+index 9184362..ff676a3 100644
+--- a/src/Vulkan/VkPhysicalDevice.hpp
++++ b/src/Vulkan/VkPhysicalDevice.hpp
+@@ -81,7 +81,7 @@ public:
+ 	void getProperties(const VkExternalMemoryHandleTypeFlagBits *handleType, VkExternalImageFormatProperties *properties) const;
+ 	void getProperties(const VkExternalMemoryHandleTypeFlagBits *handleType, VkExternalBufferProperties *properties) const;
+ 	void getProperties(VkSamplerYcbcrConversionImageFormatProperties *properties) const;
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 	void getProperties(VkPhysicalDevicePresentationPropertiesANDROID *properties) const;
+ 	void getProperties(const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo, VkAndroidHardwareBufferUsageANDROID *properties) const;
+ #endif
+diff --git a/src/Vulkan/libVulkan.cpp b/src/Vulkan/libVulkan.cpp
+index 1cd4b57..a5dc4cc 100644
+--- a/src/Vulkan/libVulkan.cpp
++++ b/src/Vulkan/libVulkan.cpp
+@@ -379,19 +379,17 @@ static const ExtensionProperties deviceExtensionProperties[] = {
+ 	// Only 1.1 core version of this is supported. The extension has additional requirements
+ 	//{{ VK_KHR_VARIABLE_POINTERS_EXTENSION_NAME, VK_KHR_VARIABLE_POINTERS_SPEC_VERSION }},
+ 	{ { VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, VK_EXT_QUEUE_FAMILY_FOREIGN_SPEC_VERSION } },
+-#ifndef __ANDROID__
+-	// We fully support the KHR_swapchain v70 additions, so just track the spec version.
+ 	{ { VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SWAPCHAIN_SPEC_VERSION } },
+-#else
+-	// We only support V7 of this extension. Missing functionality: in V8,
+-	// it becomes possible to pass a VkNativeBufferANDROID structure to
+-	// vkBindImageMemory2. Android's swapchain implementation does this in
+-	// order to support passing VkBindImageMemorySwapchainInfoKHR
+-	// (from KHR_swapchain v70) to vkBindImageMemory2.
++#ifdef __ANDROID__
++#ifndef VK_ANDROID_NATIVE_BUFFER_EXTENSION_NAME
++#define VK_ANDROID_NATIVE_BUFFER_EXTENSION_NAME "VK_ANDROID_native_buffer"
++#endif
+ 	{ { VK_ANDROID_NATIVE_BUFFER_EXTENSION_NAME, 7 } },
+ #endif
+ #if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 	{ { VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME, VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_SPEC_VERSION } },
++	{ { VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME, VK_KHR_EXTERNAL_FENCE_SPEC_VERSION } },
++	{ { VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME, VK_KHR_EXTERNAL_FENCE_FD_SPEC_VERSION } },
+ #endif
+ #if SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD
+ 	{ { VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME, VK_KHR_EXTERNAL_SEMAPHORE_FD_SPEC_VERSION } },
+@@ -767,8 +765,6 @@ VK_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInsta
+ 
+ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char *pName)
+ {
+-	TRACE("(VkDevice device = %p, const char* pName = %p)", device, pName);
+-
+ 	return vk::GetDeviceProcAddr(vk::Cast(device), pName);
+ }
+ 
+@@ -1566,7 +1562,6 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetAndroidHardwareBufferPropertiesANDROID(VkDev
+ {
+ 	TRACE("(VkDevice device = %p, const struct AHardwareBuffer *buffer = %p, VkAndroidHardwareBufferPropertiesANDROID *pProperties = %p)",
+ 	      device, buffer, pProperties);
+-
+ 	return vk::DeviceMemory::GetAndroidHardwareBufferProperties(device, buffer, pProperties);
+ }
+ #endif  // SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+@@ -2117,6 +2112,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreat
+ 				swapchainImage = true;
+ 			}
+ 			break;
++#endif
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 		case VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID:
+ 			break;
+ 		case VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID:
+@@ -3778,7 +3775,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory2(VkDevice device, uint32_t bind
+ 
+ 	for(uint32_t i = 0; i < bindInfoCount; i++)
+ 	{
+-		if(!vk::Cast(pBindInfos[i].image)->canBindToMemory(vk::Cast(pBindInfos[i].memory)))
++		if(pBindInfos[i].memory != VK_NULL_HANDLE && !vk::Cast(pBindInfos[i].image)->canBindToMemory(vk::Cast(pBindInfos[i].memory)))
+ 		{
+ 			UNSUPPORTED("vkBindImageMemory2 with invalid external memory");
+ 			return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+@@ -3790,16 +3787,29 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory2(VkDevice device, uint32_t bind
+ 		vk::DeviceMemory *memory = vk::Cast(pBindInfos[i].memory);
+ 		VkDeviceSize offset = pBindInfos[i].memoryOffset;
+ 
++#ifdef __ANDROID__
++		const VkNativeBufferANDROID *nativeBufferInfo = nullptr;
++#endif
+ 		const auto *extInfo = reinterpret_cast<const VkBaseInStructure *>(pBindInfos[i].pNext);
+ 		while(extInfo)
+ 		{
+-			switch(extInfo->sType)
++			switch((int)extInfo->sType)
+ 			{
+ 			case VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_DEVICE_GROUP_INFO:
+ 				/* Do nothing */
+ 				break;
+ 
+-#ifndef __ANDROID__
++#ifdef __ANDROID__
++			case VK_STRUCTURE_TYPE_NATIVE_BUFFER_ANDROID:
++				{
++					nativeBufferInfo = reinterpret_cast<const VkNativeBufferANDROID *>(extInfo);
++				}
++				break;
++
++			case VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR:
++				/* Do nothing. Android Vulkan loader chains this with VkNativeBufferANDROID */
++				break;
++#else
+ 			case VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR:
+ 				{
+ 					const auto *swapchainInfo = reinterpret_cast<const VkBindImageMemorySwapchainInfoKHR *>(extInfo);
+@@ -3816,7 +3826,38 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory2(VkDevice device, uint32_t bind
+ 			extInfo = extInfo->pNext;
+ 		}
+ 
+-		vk::Cast(pBindInfos[i].image)->bind(memory, offset);
++#ifdef __ANDROID__
++		if(nativeBufferInfo != nullptr)
++		{
++			vk::Image *image = vk::Cast(pBindInfos[i].image);
++			if(image->deviceMemory == nullptr)
++			{
++				VkMemoryRequirements memRequirements = image->getMemoryRequirements();
++				VkMemoryAllocateInfo allocInfo = {};
++				allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
++				allocInfo.allocationSize = memRequirements.size;
++				allocInfo.memoryTypeIndex = 0;
++
++				VkDeviceMemory devmem = { VK_NULL_HANDLE };
++				VkResult res = vkAllocateMemory(device, &allocInfo, nullptr, &devmem);
++				if(res == VK_SUCCESS)
++				{
++					image->bind(vk::Cast(devmem), 0);
++				}
++			}
++
++			vk::BackingMemory backmem = {};
++			backmem.nativeBufferInfo = *nativeBufferInfo;
++			backmem.nativeBufferInfo.pNext = nullptr;
++			backmem.externalMemory = true;
++			image->setBackingMemory(backmem);
++		}
++		else
++#endif
++		if(memory != nullptr)
++		{
++			vk::Cast(pBindInfos[i].image)->bind(memory, offset);
++		}
+ 	}
+ 
+ 	return VK_SUCCESS;
+@@ -4234,7 +4275,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
+ 
+ 	VkBaseOutStructure *extensionProperties = reinterpret_cast<VkBaseOutStructure *>(pImageFormatProperties->pNext);
+ 
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 	bool hasAHBUsage = false;
+ #endif
+ 
+@@ -4268,7 +4309,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
+ 				properties->identicalMemoryLayout = VK_TRUE;
+ 			}
+ 			break;
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 		case VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID:
+ 			{
+ 				auto *properties = reinterpret_cast<VkAndroidHardwareBufferUsageANDROID *>(extensionProperties);
+@@ -4298,7 +4339,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
+ 
+ 	vk::Cast(physicalDevice)->getImageFormatProperties(format, type, tiling, usage, flags, &pImageFormatProperties->imageFormatProperties);
+ 
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 	if(hasAHBUsage)
+ 	{
+ 		// AHardwareBuffer_lock may only be called with a single layer.
+diff --git a/third_party/llvm-subzero/lib/Support/ManagedStatic.cpp b/third_party/llvm-subzero/lib/Support/ManagedStatic.cpp
+index 34958a2..a9656d9 100644
+--- a/third_party/llvm-subzero/lib/Support/ManagedStatic.cpp
++++ b/third_party/llvm-subzero/lib/Support/ManagedStatic.cpp
+@@ -37,9 +37,41 @@ static std::recursive_mutex* getManagedStaticMutex() {
+ 
+ #else
+ 
+-// SwiftShader: from https://reviews.llvm.org/D83372
+-static std::recursive_mutex *getManagedStaticMutex() {
+-  static std::recursive_mutex m;
++// Custom robust lock avoiding glibc/bionic pthread_mutex ABI issues
++#include <atomic>
++#include <sched.h>
++#include <unistd.h>
++#include <sys/syscall.h>
++
++struct SimpleRecursiveLock {
++  std::atomic<pid_t> owner{0};
++  uint32_t count{0};
++
++  void lock() {
++    pid_t self = (pid_t)syscall(SYS_gettid);
++    if (owner.load(std::memory_order_relaxed) == self) {
++      count++;
++      return;
++    }
++    pid_t expected = 0;
++    while (!owner.compare_exchange_weak(expected, self,
++                                        std::memory_order_acquire,
++                                        std::memory_order_relaxed)) {
++      expected = 0;
++      sched_yield();
++    }
++    count = 1;
++  }
++
++  void unlock() {
++    if (--count == 0) {
++      owner.store(0, std::memory_order_release);
++    }
++  }
++};
++
++static SimpleRecursiveLock *getManagedStaticMutex() {
++  static SimpleRecursiveLock m;
+   return &m;
+ }
+ 
+@@ -48,7 +80,7 @@ static std::recursive_mutex *getManagedStaticMutex() {
+ void ManagedStaticBase::RegisterManagedStatic(void *(*Creator)(),
+                                               void (*Deleter)(void*)) const {
+   assert(Creator);
+-  std::lock_guard<std::recursive_mutex> Lock(*getManagedStaticMutex());
++  std::lock_guard<SimpleRecursiveLock> Lock(*getManagedStaticMutex());
+ 
+   if (!Ptr.load(std::memory_order_relaxed)) {
+     void *Tmp = Creator();
