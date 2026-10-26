@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <time.h>
 #include <stdarg.h>
+#include <sys/mman.h>
+#include <sys/ioctl.h>
 
 #include <atomic>
 #include <chrono>
@@ -302,6 +304,36 @@ public:
                      (long long)cmd.display, cmd.validateDisplay, cmd.acceptDisplayChanges,
                      cmd.presentDisplay, cmd.presentOrValidateDisplay, cmd.clientTarget.has_value(),
                      cmd.layers.size());
+            for (const auto& l : cmd.layers) {
+                int slot = l.buffer.has_value() ? l.buffer->slot : -1;
+                int has_h = l.buffer.has_value() && l.buffer->handle.has_value();
+                int fd = -1;
+                if (has_h && !l.buffer->handle->fds.empty()) {
+                    fd = l.buffer->handle->fds[0].get();
+                }
+                kmsg_log("    [layer] id=%lld buf=%d slot=%d has_h=%d fd=%d\n",
+                         (long long)l.layer, l.buffer.has_value(), slot, has_h, fd);
+                if (fd >= 0 && l.buffer->handle->ints.size() >= 8 && (uint32_t)l.buffer->handle->ints[0] == 0x61616173) {
+                    uint32_t w = (uint32_t)l.buffer->handle->ints[1];
+                    uint32_t h = (uint32_t)l.buffer->handle->ints[2];
+                    uint32_t str = (uint32_t)l.buffer->handle->ints[3];
+                    uint32_t sz = (uint32_t)l.buffer->handle->ints[7];
+                    void* ptr = mmap(NULL, sz, PROT_READ, MAP_SHARED, fd, 0);
+                    if (ptr != MAP_FAILED) {
+                        const uint8_t* u = (const uint8_t*)ptr;
+                        uint8_t min_v = 255, max_v = 0;
+                        size_t non_zero = 0;
+                        for (size_t i = 0; i < sz; i++) {
+                            if (u[i] < min_v) min_v = u[i];
+                            if (u[i] > max_v) max_v = u[i];
+                            if (u[i] != 0) non_zero++;
+                        }
+                        kmsg_log("      [layer %lld buffer] %dx%d stride=%d sz=%u min=%u max=%u non_zero=%zu\n",
+                                 (long long)l.layer, w, h, str, sz, min_v, max_v, non_zero);
+                        munmap(ptr, sz);
+                    }
+                }
+            }
             // 1. Process client target if provided
             if (cmd.clientTarget.has_value()) {
                 const auto& ct = *cmd.clientTarget;
@@ -309,13 +341,22 @@ public:
                 int acq_fence = ct.buffer.fence.get();
 
                 if (slot >= 0 && slot < 64) {
-                    mSlots[slot].acquire_fence = acq_fence;
+                    if (mSlots[slot].acquire_fence >= 0) {
+                        close(mSlots[slot].acquire_fence);
+                        mSlots[slot].acquire_fence = -1;
+                    }
+                    if (acq_fence >= 0) {
+                        mSlots[slot].acquire_fence = dup(acq_fence);
+                    }
 
                     if (ct.buffer.handle.has_value()) {
                         const auto& nh = *ct.buffer.handle;
                         mSlots[slot].has_handle = true;
-                        if (!nh.fds.empty()) {
-                            mSlots[slot].dma_fd = nh.fds[0].get();
+                        if (!nh.fds.empty() && nh.fds[0].get() >= 0) {
+                            if (mSlots[slot].dma_fd >= 0) {
+                                close(mSlots[slot].dma_fd);
+                            }
+                            mSlots[slot].dma_fd = dup(nh.fds[0].get());
                         }
                         if (nh.ints.size() >= 10 && (uint32_t)nh.ints[0] == 0x61616173) {
                             mSlots[slot].width = (uint32_t)nh.ints[1];
@@ -332,7 +373,7 @@ public:
                     mCurrentClientTargetSlot = slot;
                     kmsg_log("[AaasComposerClient] ClientTarget: slot=%d %dx%d stride=%d fmt=%d dma_fd=%d acq_fence=%d\n",
                              slot, mSlots[slot].width, mSlots[slot].height, mSlots[slot].stride,
-                             mSlots[slot].format, mSlots[slot].dma_fd, acq_fence);
+                             mSlots[slot].format, mSlots[slot].dma_fd, mSlots[slot].acquire_fence);
                 }
             }
 
@@ -361,38 +402,29 @@ public:
                 _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
                 mNeedsValidation = false;
             } else if (cmd.presentOrValidateDisplay) {
-                if (mNeedsValidation) {
-                    PresentOrValidate pv;
-                    pv.display = cmd.display;
-                    pv.result = PresentOrValidate::Result::Validated;
-                    _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentOrValidateResult>(pv));
+                PresentOrValidate pv;
+                pv.display = cmd.display;
+                pv.result = PresentOrValidate::Result::Validated;
+                _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentOrValidateResult>(pv));
 
-                    ChangedCompositionTypes cct;
-                    cct.display = cmd.display;
-                    {
-                        std::lock_guard<std::mutex> lock(mLayerLock);
-                        for (int64_t layerId : mActiveLayers) {
-                            ChangedCompositionLayer ccl;
-                            ccl.layer = layerId;
-                            ccl.composition = Composition::CLIENT;
-                            cct.layers.push_back(ccl);
-                        }
+                ChangedCompositionTypes cct;
+                cct.display = cmd.display;
+                {
+                    std::lock_guard<std::mutex> lock(mLayerLock);
+                    for (int64_t layerId : mActiveLayers) {
+                        ChangedCompositionLayer ccl;
+                        ccl.layer = layerId;
+                        ccl.composition = Composition::CLIENT;
+                        cct.layers.push_back(ccl);
                     }
-                    _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::changedCompositionTypes>(cct));
-
-                    DisplayRequest dr;
-                    dr.display = cmd.display;
-                    dr.mask = 0;
-                    _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
-                    mNeedsValidation = false;
-                } else {
-                    PresentOrValidate pv;
-                    pv.display = cmd.display;
-                    pv.result = PresentOrValidate::Result::Presented;
-                    _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentOrValidateResult>(pv));
-
-                    presentCurrentFrame(cmd.display, _aidl_return);
                 }
+                _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::changedCompositionTypes>(cct));
+
+                DisplayRequest dr;
+                dr.display = cmd.display;
+                dr.mask = 0;
+                _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
+                mNeedsValidation = false;
             } else if (cmd.presentDisplay) {
                 presentCurrentFrame(cmd.display, _aidl_return);
             }
@@ -421,6 +453,37 @@ public:
     }
 
 private:
+    static int create_signaled_fence() {
+        int drm_fd = open("/dev/dri/renderD129", O_RDWR | O_CLOEXEC);
+        if (drm_fd < 0) return -1;
+
+        struct {
+            uint32_t handle;
+            uint32_t flags;
+        } create_args = {0, 1 /* DRM_SYNCOBJ_CREATE_SIGNALED */};
+
+        if (ioctl(drm_fd, 0xc00864bf, &create_args) != 0 || create_args.handle == 0) {
+            close(drm_fd);
+            return -1;
+        }
+
+        struct {
+            uint32_t handle;
+            uint32_t flags;
+            int32_t fd;
+            uint32_t pad;
+        } h2fd_args = {create_args.handle, 1 /* DRM_SYNCOBJ_HANDLE_TO_FD_FLAGS_EXPORT_SYNC_FILE */, -1, 0};
+
+        int res = ioctl(drm_fd, 0xc00c64c1, &h2fd_args);
+        ioctl(drm_fd, 0xc00864c0, &create_args);
+        close(drm_fd);
+
+        if (res == 0 && h2fd_args.fd >= 0) {
+            return h2fd_args.fd;
+        }
+        return -1;
+    }
+
     void presentCurrentFrame(int64_t display, std::vector<CommandResultPayload>* _aidl_return) {
         int slot = mCurrentClientTargetSlot;
         int release_fence = -1;
@@ -445,16 +508,40 @@ private:
                 frame.is_linear = true;
             }
 
+            uint32_t ct_sz = frame.stride * frame.height * 4;
+            void* ct_ptr = mmap(NULL, ct_sz, PROT_READ, MAP_SHARED, frame.dma_fd, 0);
+            if (ct_ptr != MAP_FAILED) {
+                const uint8_t* u = (const uint8_t*)ct_ptr;
+                uint8_t min_v = 255, max_v = 0;
+                size_t non_zero = 0;
+                for (size_t i = 0; i < ct_sz; i++) {
+                    if (u[i] < min_v) min_v = u[i];
+                    if (u[i] > max_v) max_v = u[i];
+                    if (u[i] != 0) non_zero++;
+                }
+                kmsg_log("[AaasComposerClient] ClientTarget slot=%d %dx%d stride=%d sz=%u min=%u max=%u non_zero=%zu\n",
+                         slot, frame.width, frame.height, frame.stride, ct_sz, min_v, max_v, non_zero);
+                munmap(ct_ptr, ct_sz);
+            }
+
             AaasTransport::getInstance().submitFrame(frame);
+
+            if (mSlots[slot].acquire_fence >= 0) {
+                close(mSlots[slot].acquire_fence);
+                mSlots[slot].acquire_fence = -1;
+            }
 
             // Check if release fence was returned
             release_fence = AaasTransport::getInstance().takeReleaseFence(slot);
         }
 
+        if (release_fence < 0) {
+            release_fence = create_signaled_fence();
+        }
+
         PresentFence pf;
         pf.display = display;
-        pf.fence = ::ndk::ScopedFileDescriptor(release_fence >= 0 ? dup(release_fence) : -1);
-        if (release_fence >= 0) close(release_fence);
+        pf.fence = ::ndk::ScopedFileDescriptor(release_fence >= 0 ? release_fence : create_signaled_fence());
         _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentFence>(std::move(pf)));
 
         ReleaseFences rf;
@@ -464,7 +551,7 @@ private:
             for (int64_t layerId : mActiveLayers) {
                 ReleaseFences::Layer l;
                 l.layer = layerId;
-                l.fence = ::ndk::ScopedFileDescriptor(-1); // Composed into client target
+                l.fence = ::ndk::ScopedFileDescriptor(create_signaled_fence());
                 rf.layers.push_back(std::move(l));
             }
         }

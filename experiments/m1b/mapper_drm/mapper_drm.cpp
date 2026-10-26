@@ -251,13 +251,33 @@ static AIMapper_Error mapper_lock(buffer_handle_t buffer, uint64_t cpuUsage,
     pthread_mutex_lock(&g_mutex);
     ImportedBuffer* b = NULL;
     for (int i = 0; i < MAX_IMPORTED_BUFFERS; i++) {
-        if (g_buffers[i].in_use && g_buffers[i].handle == buffer) {
+        if (g_buffers[i].in_use && (g_buffers[i].handle == buffer || g_buffers[i].cloned_nh == buffer)) {
             b = &g_buffers[i];
             break;
         }
     }
     if (!b) {
+        int free_idx = -1;
+        for (int i = 0; i < MAX_IMPORTED_BUFFERS; i++) {
+            if (!g_buffers[i].in_use) {
+                free_idx = i;
+                break;
+            }
+        }
+        if (free_idx >= 0) {
+            ImportedBuffer parsed_buf;
+            if (parse_handle((const native_handle_t*)buffer, &parsed_buf) == 0) {
+                g_buffers[free_idx] = parsed_buf;
+                g_buffers[free_idx].in_use = true;
+                g_buffers[free_idx].handle = buffer;
+                b = &g_buffers[free_idx];
+                kmsg_log("<6>[MAPPER.DRM] mapper_lock auto-registered unimported buffer\n");
+            }
+        }
+    }
+    if (!b) {
         pthread_mutex_unlock(&g_mutex);
+        kmsg_log("<3>[MAPPER.DRM] mapper_lock failed: BAD_BUFFER\n");
         return AIMAPPER_ERROR_BAD_BUFFER;
     }
 

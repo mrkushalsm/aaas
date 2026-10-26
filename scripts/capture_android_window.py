@@ -22,8 +22,12 @@ found;
 with open(SCRIPT_JS, "w") as f:
     f.write(kwin_js)
 
-def try_raise_and_capture():
-    for _ in range(60):
+import sys
+
+def try_raise_and_capture(log_name="m1b7_live18_presenter.log"):
+    log_path = f"/run/media/mrkus/Homework/aaas-workspace/tmp/{log_name}"
+    captured = False
+    for attempt in range(60):
         time.sleep(0.5)
         try:
             num = subprocess.check_output(
@@ -36,26 +40,27 @@ def try_raise_and_capture():
             subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", "aaas_raise"],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-            # Check presenter log to see if a frame was committed/presented
-            log_path = "/run/media/mrkus/Homework/aaas-workspace/tmp/m1b7_live17_presenter.log"
             if os.path.exists(log_path):
                 with open(log_path, "r") as lf:
                     content = lf.read()
-                    if "frame_presented" in content or "frame_committed" in content:
-                        time.sleep(0.2)
+                    count = content.count("frame_committed")
+                    if count >= 3 or (count >= 1 and attempt >= 14):
+                        time.sleep(2.0)
                         # Capture active window
                         subprocess.run(["spectacle", "-a", "-b", "-n", "-o", ARTIFACT_PATH], check=True)
                         print("CAPTURED_ACTIVE_WINDOW")
                         # Also capture full desktop as backup
                         subprocess.run(["spectacle", "-b", "-n", "-o", "/home/mrkus/Work/personal/projects/aaas/artifacts/m1b7_desktop_frame.png"], check=True)
                         print("CAPTURED_DESKTOP")
+                        captured = True
                         return True
         except Exception as e:
             pass
     return False
 
 if __name__ == "__main__":
-    if try_raise_and_capture():
+    log_arg = sys.argv[1] if len(sys.argv) > 1 else "m1b7_live18_presenter.log"
+    if try_raise_and_capture(log_arg):
         print("SUCCESS")
     else:
         print("TIMEOUT")

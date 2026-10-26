@@ -162,30 +162,36 @@ static const struct xdg_wm_base_listener wm_base_listener = {
 static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t serial) {
     presenter_app *a = data;
     xdg_surface_ack_configure(xs, serial);
-    a->configured = 1;
+    uint32_t prev_w = a->w;
+    uint32_t prev_h = a->h;
     uint32_t w = a->w ? a->w : 640;
     uint32_t h = a->h ? a->h : 480;
     if (w > 1920) w = 1920;
     if (h > 1080) h = 1080;
     a->w = w;
     a->h = h;
-    a->gen++;
 
-    aaas_v2_msg m = {
-        .magic = AAAS_V2_MAGIC,
-        .version = AAAS_V2_VERSION,
-        .type = AAAS_V2_RESIZE,
-        .generation = a->gen,
-        .width = w,
-        .height = h,
-    };
-    if (aaas_v2_send(a->sock, &m, NULL, 0) != 0) {
-        fprintf(stderr, "[AaaS Presenter] aaas_v2_send RESIZE failed: %s (errno=%d)\n", strerror(errno), errno);
-        a->closed = 1;
+    bool initial = !a->configured;
+    a->configured = 1;
+
+    if (initial || w != prev_w || h != prev_h) {
+        a->gen++;
+        aaas_v2_msg m = {
+            .magic = AAAS_V2_MAGIC,
+            .version = AAAS_V2_VERSION,
+            .type = AAAS_V2_RESIZE,
+            .generation = a->gen,
+            .width = w,
+            .height = h,
+        };
+        if (aaas_v2_send(a->sock, &m, NULL, 0) != 0) {
+            fprintf(stderr, "[AaaS Presenter] aaas_v2_send RESIZE failed: %s (errno=%d)\n", strerror(errno), errno);
+            a->closed = 1;
+        }
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"width\":%u,\"height\":%u", w, h);
+        log_presenter_event("configure", a->gen, 0, extra);
     }
-    char extra[64];
-    snprintf(extra, sizeof(extra), "\"width\":%u,\"height\":%u", w, h);
-    log_presenter_event("configure", a->gen, 0, extra);
 }
 
 static const struct xdg_surface_listener xdg_surf_listener = {
@@ -352,7 +358,8 @@ static void handle_incoming_buffer(presenter_app *a) {
         a->gen = m.generation;
     }
 
-    bool gen_ok = (m.generation == a->gen || a->gen == 0 || m.generation == 0);
+    bool gen_ok = (m.generation == a->gen || a->gen == 0 || m.generation == 0 ||
+                   (m.width == a->w && m.height == a->h && m.generation <= a->gen));
     bool dim_ok = (m.width == a->w && m.height == a->h);
 
     if (m.type != AAAS_V2_BUFFER || !format_ok || !gen_ok || !dim_ok ||
@@ -439,6 +446,35 @@ static void handle_incoming_buffer(presenter_app *a) {
         zwp_linux_dmabuf_v1_create_params(a->dmabuf);
     zwp_linux_buffer_params_v1_add(params, dma_fd, 0, m.offset[0], m.stride[0],
                                    (uint32_t)(m.modifier >> 32), (uint32_t)m.modifier);
+    // Dump frame pixels to PPM for verification
+    if (m.id >= 1) {
+        size_t map_sz = (size_t)m.stride[0] * m.height;
+        void *map_ptr = mmap(NULL, map_sz, PROT_READ, MAP_SHARED, dma_fd, 0);
+        if (map_ptr != MAP_FAILED) {
+            char ppm_path[256];
+            snprintf(ppm_path, sizeof(ppm_path), "/home/mrkus/Work/personal/projects/aaas/artifacts/m1b7_frame_%u.ppm", m.id);
+            FILE *fp = fopen(ppm_path, "wb");
+            if (fp) {
+                fprintf(fp, "P6\n%u %u\n255\n", m.width, m.height);
+                const uint8_t *src = (const uint8_t*)map_ptr;
+                for (uint32_t y = 0; y < m.height; y++) {
+                    const uint8_t *row = src + y * m.stride[0];
+                    for (uint32_t x = 0; x < m.width; x++) {
+                        uint8_t r = row[x * 4 + 0];
+                        uint8_t g = row[x * 4 + 1];
+                        uint8_t b = row[x * 4 + 2];
+                        fputc(r, fp);
+                        fputc(g, fp);
+                        fputc(b, fp);
+                    }
+                }
+                fclose(fp);
+                fprintf(stderr, "[AaaS Presenter] Dumped frame %u to %s\n", m.id, ppm_path);
+            }
+            munmap(map_ptr, map_sz);
+        }
+    }
+
     close(dma_fd);
 
     struct wl_buffer *wl_buf =
