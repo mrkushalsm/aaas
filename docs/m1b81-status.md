@@ -261,7 +261,12 @@ with `-Wall -Wextra -Werror` and its two kernel transactions gave the expected
 different replies. The UID-gate test passed for UID 1000, root, and app UID
 10000. `python3 scripts/probe_binder_sid.py` also passed its bounded
 end-to-end assertion. `python3 -m py_compile scripts/test_zygote_startup.py` and
-`git diff --check` passed. Live runs did **not** pass framework boot.
+`git diff --check` passed. After the later diagnostics, the 73 Python tests
+and M1A tests passed again. The workspace check confirmed the intended NTFS3
+mount, 17.1 GiB used against the 80 GiB ceiling, and more than the 20 GiB
+reserve free. Live runs reached `sys.boot_completed=1` only with diagnostic
+overlays. Settings did not complete a verified first draw and one run crashed
+in SwiftShader, so stable boot and UI presentation remain unproven.
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
@@ -272,7 +277,7 @@ end-to-end assertion. `python3 -m py_compile scripts/test_zygote_startup.py` and
 | G5 app-data correctness | PARTIAL | Real directory and narrowed modes; user settings write errors removed in one diagnostic run |
 | G6 framework readiness | PARTIAL | 289 registered services and Settings focus with diagnostic overlays; functional probes incomplete |
 | G7 boot completion | PARTIAL | Framework set `sys.boot_completed=1` in diagnostic runs; source fixes pending |
-| G8 trusted activity | PARTIAL | Settings launch returned success and focus; actual UI surface not verified |
+| G8 trusted activity | PARTIAL | Settings launch returned success and focus; first draw blocks in BufferQueue dequeue and one run crashed in SwiftShader |
 | G9 Wayland activity pixels | FAIL | Startup progress pixels captured, no Settings pixels |
 | G10 graphics baseline | PARTIAL | 59 host submissions in one live run; full sustained regression untested |
 | G11 security/cleanup | PARTIAL | Isolated runs cleaned up; diagnostic SID handling remains insecure |
