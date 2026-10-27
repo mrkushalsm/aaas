@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <signal.h>
 
 typedef struct {
     int sock;
@@ -12,6 +13,7 @@ typedef struct {
     const char *drm_node;
     bool force_implicit_sync;
     uint32_t max_frames; /* 0 for infinite */
+    const volatile sig_atomic_t *running; /* optional signal-driven shutdown */
 } aaas_presenter_config;
 
 /**

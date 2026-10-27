@@ -27,6 +27,7 @@ static void print_usage(const char *prog) {
             "  --node <path>       DRM render node path (default: /dev/dri/renderD129)\n"
             "  --implicit-sync     Force implicit synchronization\n"
             "  --frames <N>        Exit after presenting N frames (default: 0 = infinite)\n"
+            "  --exit-on-close     Exit after the first client window closes\n"
             "  --help              Show this help message\n",
             prog);
 }
@@ -43,6 +44,7 @@ int main(int argc, char **argv) {
     const char *drm_node = "/dev/dri/renderD129";
     bool force_implicit = false;
     uint32_t max_frames = 0;
+    bool exit_on_close = false;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) {
@@ -59,6 +61,8 @@ int main(int argc, char **argv) {
             force_implicit = true;
         } else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             max_frames = (uint32_t)strtoul(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--exit-on-close") == 0) {
+            exit_on_close = true;
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -120,13 +124,14 @@ int main(int argc, char **argv) {
             .drm_node = drm_node,
             .force_implicit_sync = force_implicit,
             .max_frames = max_frames,
+            .running = &g_running,
         };
 
         int ret = aaas_run_gpu_presenter(&cfg);
         printf("[AaaS Presenter] Presenter run finished with code %d\n", ret);
         close(client_sock);
 
-        if (max_frames > 0 || !g_running) {
+        if (max_frames > 0 || exit_on_close || !g_running) {
             break;
         }
         printf("[AaaS Presenter] Ready for next connection...\n");

@@ -662,7 +662,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     wl_display_roundtrip(app.display);
 
     // Event loop
-    while (!app.closed) {
+    while (!app.closed && (!config->running || *config->running)) {
         if (config->max_frames > 0 && app.submitted >= config->max_frames) {
             break;
         }
