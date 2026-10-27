@@ -14,6 +14,10 @@ typedef struct {
     bool force_implicit_sync;
     uint32_t max_frames; /* 0 for infinite */
     const volatile sig_atomic_t *running; /* optional signal-driven shutdown */
+
+    /* Optional private input channel.  -1 disables pointer forwarding. */
+    int input_listen_fd;
+    uint64_t input_session_id;
 } aaas_presenter_config;
 
 /**

@@ -92,6 +92,8 @@ int main(int argc, char **argv) {
         .drm_node = drm_node,
         .force_implicit_sync = force_implicit || cpu_fallback,
         .max_frames = max_frames,
+        .input_listen_fd = -1,
+        .input_session_id = 0,
     };
     int ret = aaas_run_gpu_presenter(&pres_cfg);
     close(socks[0]);

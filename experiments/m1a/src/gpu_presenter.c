@@ -1,4 +1,6 @@
 #include "gpu_presenter.h"
+#include "input_map.h"
+#include "input_v1.h"
 #include "wire_v2.h"
 #include "sync_util.h"
 
@@ -20,6 +22,8 @@
 #include <time.h>
 #include <sys/resource.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
+#include <math.h>
 
 #define MAX_SLOTS 32
 
@@ -86,6 +90,32 @@ struct presenter_app {
     uint64_t presented;
     uint64_t discarded;
     uint64_t explicit_sync_frames;
+
+    /* Wayland pointer input */
+    struct wl_seat *seat;
+    struct wl_pointer *pointer;
+    uint32_t seat_name;
+    double pointer_x;
+    double pointer_y;
+    int pointer_focus;
+    int content_focus;
+    uint32_t focus_generation;
+    uint32_t pressed_buttons;
+    int32_t last_input_x;
+    int32_t last_input_y;
+
+    /*
+     * Private input transport.  The Android display can be a different size
+     * from the Wayland surface, so keep the last accepted buffer geometry.
+     */
+    uint32_t display_w;
+    uint32_t display_h;
+    int input_listen_fd;
+    int input_fd;
+    uint64_t input_session_id;
+    uint32_t input_sequence;
+    uint64_t input_sent;
+    uint64_t input_dropped;
 };
 
 static void log_presenter_event(const char *event, uint32_t gen, uint32_t id,
@@ -103,6 +133,369 @@ static void log_presenter_event(const char *event, uint32_t gen, uint32_t id,
                 (unsigned long long)t_ns, event, gen, id);
     }
 }
+
+static uint64_t monotonic_ns(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+}
+
+static uint32_t button_mask(uint32_t button) {
+    switch (button) {
+    case AAAS_INPUT_BUTTON_LEFT: return 1u << 0;
+    case AAAS_INPUT_BUTTON_RIGHT: return 1u << 1;
+    case AAAS_INPUT_BUTTON_MIDDLE: return 1u << 2;
+    default: return 0;
+    }
+}
+
+static aaas_mapped_point map_surface_point(presenter_app *a, double sx, double sy) {
+    uint32_t display_w = a->display_w ? a->display_w : a->w;
+    uint32_t display_h = a->display_h ? a->display_h : a->h;
+    return aaas_map_surface_to_display(sx, sy, a->w, a->h, display_w, display_h);
+}
+
+static void input_send_packet(presenter_app *a, uint16_t type, int32_t x, int32_t y,
+                              uint32_t button, uint32_t state, uint32_t flags) {
+    if (a->input_fd < 0 || a->input_session_id == 0) {
+        if (type == AAAS_INPUT_BUTTON || type == AAAS_INPUT_FOCUS) {
+            log_presenter_event("input_no_adapter", a->gen, 0, NULL);
+        }
+        return;
+    }
+
+    aaas_input_msg host = {
+        .magic = AAAS_INPUT_MAGIC,
+        .version = AAAS_INPUT_VERSION,
+        .type = type,
+        .length = AAAS_INPUT_MSG_SIZE,
+        .sequence = ++a->input_sequence,
+        .display_id = 0,
+        .display_generation = a->gen ? a->gen : 1,
+        .timestamp_ns = monotonic_ns(),
+        .session_id = a->input_session_id,
+        .x = x,
+        .y = y,
+        .button = button,
+        .state = state,
+        .focus_generation = a->focus_generation,
+        .flags = flags,
+        .reserved = 0,
+    };
+    aaas_input_msg wire;
+    aaas_input_to_wire(&wire, &host);
+
+    ssize_t n = send(a->input_fd, &wire, sizeof(wire), MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (n != (ssize_t)sizeof(wire)) {
+        int saved_errno = errno;
+        a->input_dropped++;
+        char extra[128];
+        snprintf(extra, sizeof(extra), "\"input_type\":%u,\"errno\":%d",
+                 (unsigned)type, saved_errno);
+        log_presenter_event("input_send_failed", a->gen, host.sequence, extra);
+        if (n < 0 && saved_errno != EAGAIN && saved_errno != EWOULDBLOCK &&
+            saved_errno != EINTR) {
+            close(a->input_fd);
+            a->input_fd = -1;
+        }
+        return;
+    }
+
+    a->input_sent++;
+    char extra[256];
+    snprintf(extra, sizeof(extra),
+             "\"input_type\":%u,\"x\":%d,\"y\":%d,\"button\":%u,\"state\":%u,"
+             "\"display_generation\":%u,\"focus_generation\":%u,\"sequence\":%u",
+             (unsigned)type, x, y, button, state, host.display_generation,
+             host.focus_generation, host.sequence);
+    log_presenter_event("input_sent", a->gen, host.sequence, extra);
+}
+
+static void input_send_hello(presenter_app *a) {
+    int32_t w = (int32_t)(a->display_w ? a->display_w : a->w);
+    int32_t h = (int32_t)(a->display_h ? a->display_h : a->h);
+    if (w <= 0 || h <= 0) {
+        w = 1280;
+        h = 720;
+    }
+    input_send_packet(a, AAAS_INPUT_HELLO, w, h, 0, 1, 0);
+}
+
+static void input_release_buttons(presenter_app *a, const char *reason) {
+    uint32_t pressed = a->pressed_buttons;
+    if (!pressed) {
+        return;
+    }
+    static const uint32_t buttons[] = {
+        AAAS_INPUT_BUTTON_LEFT,
+        AAAS_INPUT_BUTTON_RIGHT,
+        AAAS_INPUT_BUTTON_MIDDLE,
+    };
+    for (unsigned i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
+        if (pressed & button_mask(buttons[i])) {
+            input_send_packet(a, AAAS_INPUT_BUTTON, a->last_input_x, a->last_input_y,
+                              buttons[i], AAAS_INPUT_BUTTON_RELEASED, 0);
+        }
+    }
+    a->pressed_buttons = 0;
+    char extra[96];
+    snprintf(extra, sizeof(extra), "\"reason\":\"%s\",\"buttons\":%u",
+             reason, pressed);
+    log_presenter_event("input_buttons_released", a->gen, 0, extra);
+}
+
+static void input_focus_enter(presenter_app *a, int32_t x, int32_t y) {
+    a->focus_generation++;
+    a->content_focus = 1;
+    a->last_input_x = x;
+    a->last_input_y = y;
+    input_send_packet(a, AAAS_INPUT_FOCUS, x, y, 0, AAAS_INPUT_FOCUS_ENTER, 0);
+}
+
+static void input_focus_leave(presenter_app *a, int32_t x, int32_t y) {
+    a->focus_generation++;
+    a->content_focus = 0;
+    input_send_packet(a, AAAS_INPUT_FOCUS, x, y, 0, AAAS_INPUT_FOCUS_LEAVE, 0);
+}
+
+static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t serial,
+                          struct wl_surface *surface, wl_fixed_t sx, wl_fixed_t sy) {
+    (void)pointer;
+    (void)serial;
+    presenter_app *a = data;
+    if (surface != a->surface) {
+        return;
+    }
+    a->pointer_focus = 1;
+    a->pointer_x = wl_fixed_to_double(sx);
+    a->pointer_y = wl_fixed_to_double(sy);
+    aaas_mapped_point p = map_surface_point(a, a->pointer_x, a->pointer_y);
+    if (p.inside) {
+        input_focus_enter(a, p.x, p.y);
+    } else {
+        a->content_focus = 0;
+    }
+    char extra[192];
+    snprintf(extra, sizeof(extra),
+             "\"surface_x\":%.3f,\"surface_y\":%.3f,\"mapped\":%s,"
+             "\"display_x\":%d,\"display_y\":%d",
+             a->pointer_x, a->pointer_y, p.inside ? "true" : "false", p.x, p.y);
+    log_presenter_event("input_pointer_enter", a->gen, 0, extra);
+}
+
+static void pointer_leave(void *data, struct wl_pointer *pointer, uint32_t serial,
+                          struct wl_surface *surface) {
+    (void)pointer;
+    (void)serial;
+    presenter_app *a = data;
+    if (surface != a->surface) {
+        return;
+    }
+    a->pointer_focus = 0;
+    if (a->pressed_buttons) {
+        input_release_buttons(a, "pointer_leave");
+    }
+    if (a->content_focus) {
+        input_focus_leave(a, a->last_input_x, a->last_input_y);
+    }
+    a->content_focus = 0;
+    log_presenter_event("input_pointer_leave", a->gen, 0, NULL);
+}
+
+static void pointer_motion(void *data, struct wl_pointer *pointer, uint32_t time,
+                           wl_fixed_t sx, wl_fixed_t sy) {
+    (void)pointer;
+    (void)time;
+    presenter_app *a = data;
+    a->pointer_x = wl_fixed_to_double(sx);
+    a->pointer_y = wl_fixed_to_double(sy);
+    if (!a->pointer_focus) {
+        return;
+    }
+
+    aaas_mapped_point p = map_surface_point(a, a->pointer_x, a->pointer_y);
+    if (p.inside) {
+        if (!a->content_focus) {
+            input_focus_enter(a, p.x, p.y);
+        }
+        a->last_input_x = p.x;
+        a->last_input_y = p.y;
+        input_send_packet(a, AAAS_INPUT_MOTION, p.x, p.y, 0, 0, 0);
+    } else if (a->content_focus) {
+        if (a->pressed_buttons) {
+            input_release_buttons(a, "content_leave");
+        }
+        input_focus_leave(a, a->last_input_x, a->last_input_y);
+    }
+}
+
+static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t serial,
+                           uint32_t time, uint32_t button, uint32_t state) {
+    (void)pointer;
+    (void)serial;
+    (void)time;
+    presenter_app *a = data;
+    if (!a->pointer_focus) {
+        return;
+    }
+
+    aaas_mapped_point p = map_surface_point(a, a->pointer_x, a->pointer_y);
+    if (!p.inside) {
+        if (a->content_focus) {
+            if (a->pressed_buttons) {
+                input_release_buttons(a, "button_outside");
+            }
+            input_focus_leave(a, a->last_input_x, a->last_input_y);
+        }
+        return;
+    }
+    if (!a->content_focus) {
+        input_focus_enter(a, p.x, p.y);
+    }
+    a->last_input_x = p.x;
+    a->last_input_y = p.y;
+
+    uint32_t mask = button_mask(button);
+    if (!mask) {
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"button\":%u", button);
+        log_presenter_event("input_unsupported_button", a->gen, 0, extra);
+        return;
+    }
+
+    if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+        if (a->pressed_buttons & mask) {
+            log_presenter_event("input_duplicate_press", a->gen, 0, NULL);
+            return;
+        }
+        a->pressed_buttons |= mask;
+        input_send_packet(a, AAAS_INPUT_BUTTON, p.x, p.y, button,
+                          AAAS_INPUT_BUTTON_PRESSED, 0);
+    } else if (state == WL_POINTER_BUTTON_STATE_RELEASED) {
+        if (!(a->pressed_buttons & mask)) {
+            log_presenter_event("input_release_without_press", a->gen, 0, NULL);
+            return;
+        }
+        a->pressed_buttons &= ~mask;
+        input_send_packet(a, AAAS_INPUT_BUTTON, p.x, p.y, button,
+                          AAAS_INPUT_BUTTON_RELEASED, 0);
+    } else {
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"state\":%u", state);
+        log_presenter_event("input_bad_button_state", a->gen, 0, extra);
+        return;
+    }
+
+    char extra[192];
+    snprintf(extra, sizeof(extra),
+             "\"button\":%u,\"state\":%u,\"display_x\":%d,\"display_y\":%d",
+             button, state, p.x, p.y);
+    log_presenter_event("input_pointer_button", a->gen, 0, extra);
+}
+
+static void pointer_axis(void *data, struct wl_pointer *pointer, uint32_t time,
+                         uint32_t axis, wl_fixed_t value) {
+    (void)pointer;
+    (void)time;
+    presenter_app *a = data;
+    char extra[96];
+    snprintf(extra, sizeof(extra), "\"axis\":%u,\"value\":%.3f",
+             axis, wl_fixed_to_double(value));
+    log_presenter_event("input_axis_ignored", a->gen, 0, extra);
+}
+
+static void pointer_frame(void *data, struct wl_pointer *pointer) {
+    (void)data;
+    (void)pointer;
+}
+
+static void pointer_axis_source(void *data, struct wl_pointer *pointer,
+                                uint32_t axis_source) {
+    (void)data;
+    (void)pointer;
+    (void)axis_source;
+}
+
+static void pointer_axis_stop(void *data, struct wl_pointer *pointer,
+                              uint32_t time, uint32_t axis) {
+    (void)data;
+    (void)pointer;
+    (void)time;
+    (void)axis;
+}
+
+static void pointer_axis_discrete(void *data, struct wl_pointer *pointer,
+                                  uint32_t axis, int32_t discrete) {
+    (void)data;
+    (void)pointer;
+    (void)axis;
+    (void)discrete;
+}
+
+static const struct wl_pointer_listener pointer_listener = {
+    .enter = pointer_enter,
+    .leave = pointer_leave,
+    .motion = pointer_motion,
+    .button = pointer_button,
+    .axis = pointer_axis,
+    .frame = pointer_frame,
+    .axis_source = pointer_axis_source,
+    .axis_stop = pointer_axis_stop,
+    .axis_discrete = pointer_axis_discrete,
+};
+
+static void destroy_pointer(presenter_app *a) {
+    if (!a->pointer) {
+        return;
+    }
+    if (wl_proxy_get_version((struct wl_proxy *)a->pointer) >=
+        WL_POINTER_RELEASE_SINCE_VERSION) {
+        wl_pointer_release(a->pointer);
+    } else {
+        wl_pointer_destroy(a->pointer);
+    }
+    a->pointer = NULL;
+}
+
+static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t caps) {
+    presenter_app *a = data;
+    bool pointer_capable = (caps & WL_SEAT_CAPABILITY_POINTER) != 0;
+    char extra[64];
+    snprintf(extra, sizeof(extra), "\"pointer_capable\":%s",
+             pointer_capable ? "true" : "false");
+    log_presenter_event("input_seat_capabilities", a->gen, 0, extra);
+
+    if (pointer_capable) {
+        if (!a->pointer) {
+            a->pointer = wl_seat_get_pointer(seat);
+            wl_pointer_add_listener(a->pointer, &pointer_listener, a);
+            log_presenter_event("input_pointer_bound", a->gen, 0, NULL);
+        }
+    } else if (a->pointer) {
+        if (a->pressed_buttons) {
+            input_release_buttons(a, "pointer_removed");
+        }
+        if (a->content_focus) {
+            input_focus_leave(a, a->last_input_x, a->last_input_y);
+        }
+        a->pointer_focus = 0;
+        a->content_focus = 0;
+        destroy_pointer(a);
+        log_presenter_event("input_pointer_unbound", a->gen, 0, NULL);
+    }
+}
+
+static void seat_name(void *data, struct wl_seat *seat, const char *name) {
+    (void)seat;
+    (void)name;
+    presenter_app *a = data;
+    log_presenter_event("input_seat_name", a->gen, 0, NULL);
+}
+
+static const struct wl_seat_listener seat_listener = {
+    .capabilities = seat_capabilities,
+    .name = seat_name,
+};
 
 static void dmabuf_format(void *data, struct zwp_linux_dmabuf_v1 *obj, uint32_t f) {
     (void)data; (void)obj; (void)f;
@@ -138,11 +531,40 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
         a->dmabuf = wl_registry_bind(r, name, &zwp_linux_dmabuf_v1_interface, 3);
     } else if (strcmp(iface, "wp_linux_drm_syncobj_manager_v1") == 0) {
         a->syncobj_mgr = wl_registry_bind(r, name, &wp_linux_drm_syncobj_manager_v1_interface, 1);
+    } else if (strcmp(iface, "wl_seat") == 0) {
+        a->seat_name = name;
+        uint32_t bind_ver = ver < 5 ? ver : 5;
+        a->seat = wl_registry_bind(r, name, &wl_seat_interface, bind_ver);
+        wl_seat_add_listener(a->seat, &seat_listener, a);
     }
 }
 
 static void registry_global_remove(void *data, struct wl_registry *r, uint32_t n) {
-    (void)data; (void)r; (void)n;
+    (void)r;
+    presenter_app *a = data;
+    if (n != a->seat_name || !a->seat) {
+        return;
+    }
+    if (a->pointer) {
+        if (a->pressed_buttons) {
+            input_release_buttons(a, "seat_removed");
+        }
+        if (a->content_focus) {
+            input_focus_leave(a, a->last_input_x, a->last_input_y);
+        }
+        a->pointer_focus = 0;
+        a->content_focus = 0;
+        destroy_pointer(a);
+    }
+    if (wl_proxy_get_version((struct wl_proxy *)a->seat) >=
+        WL_SEAT_RELEASE_SINCE_VERSION) {
+        wl_seat_release(a->seat);
+    } else {
+        wl_seat_destroy(a->seat);
+    }
+    a->seat = NULL;
+    a->seat_name = 0;
+    log_presenter_event("input_seat_removed", a->gen, 0, NULL);
 }
 
 static const struct wl_registry_listener registry_listener = {
@@ -372,6 +794,9 @@ static void handle_incoming_buffer(presenter_app *a) {
 
     check_release_timelines(a);
 
+    a->display_w = m.width;
+    a->display_h = m.height;
+
     // Find available slot
     presenter_slot *s = NULL;
     for (int i = 0; i < MAX_SLOTS; i++) {
@@ -589,11 +1014,91 @@ static void handle_incoming_buffer(presenter_app *a) {
     log_presenter_event("frame_committed", m.generation, m.id, extra);
 }
 
+static void input_adapter_accept(presenter_app *a) {
+    int fd = accept4(a->input_listen_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (fd < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            char extra[64];
+            snprintf(extra, sizeof(extra), "\"errno\":%d", errno);
+            log_presenter_event("input_accept_failed", a->gen, 0, extra);
+        }
+        return;
+    }
+    if (a->input_fd >= 0) {
+        close(a->input_fd);
+        a->input_fd = -1;
+        log_presenter_event("input_adapter_replaced", a->gen, 0, NULL);
+    }
+    a->input_fd = fd;
+    a->input_sequence = 0;
+    a->input_dropped = 0;
+    log_presenter_event("input_adapter_connected", a->gen, 0, NULL);
+    input_send_hello(a);
+    if (a->content_focus) {
+        /* The adapter may have connected after the pointer entered. */
+        input_send_packet(a, AAAS_INPUT_FOCUS, a->last_input_x, a->last_input_y,
+                          0, AAAS_INPUT_FOCUS_ENTER, 0);
+    }
+}
+
+static void input_adapter_read(presenter_app *a) {
+    aaas_input_msg wire;
+    ssize_t n = recv(a->input_fd, &wire, sizeof(wire), MSG_TRUNC);
+    if (n <= 0) {
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return;
+        }
+        log_presenter_event(n < 0 ? "input_adapter_error" : "input_adapter_disconnect",
+                            a->gen, 0, NULL);
+        close(a->input_fd);
+        a->input_fd = -1;
+        return;
+    }
+    if (n != (ssize_t)sizeof(wire)) {
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"length\":%ld", (long)n);
+        log_presenter_event("input_invalid_adapter_message", a->gen, 0, extra);
+        return;
+    }
+    aaas_input_msg host;
+    aaas_input_from_wire(&host, &wire);
+    char why[64] = {0};
+    if (aaas_input_validate(&host, a->input_session_id, 0, why, sizeof(why)) != 0) {
+        char extra[128];
+        snprintf(extra, sizeof(extra), "\"reason\":\"%s\"", why);
+        log_presenter_event("input_invalid_adapter_message", a->gen, 0, extra);
+        return;
+    }
+    if (host.type == AAAS_INPUT_HELLO && (host.flags & AAAS_INPUT_FLAG_ACK)) {
+        log_presenter_event("input_adapter_ready", a->gen, 0, NULL);
+    } else {
+        log_presenter_event("input_adapter_message", a->gen, host.sequence, NULL);
+    }
+}
+
+static void input_teardown(presenter_app *a) {
+    if (a->pressed_buttons) {
+        input_release_buttons(a, "teardown");
+    }
+    if (a->content_focus) {
+        input_focus_leave(a, a->last_input_x, a->last_input_y);
+    }
+    if (a->input_fd >= 0) {
+        input_send_packet(a, AAAS_INPUT_SHUTDOWN, a->last_input_x, a->last_input_y,
+                          0, 0, 0);
+        close(a->input_fd);
+        a->input_fd = -1;
+    }
+}
+
 int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     presenter_app app = {
         .sock = config->sock,
         .w = config->initial_width ? config->initial_width : 640,
         .h = config->initial_height ? config->initial_height : 480,
+        .input_listen_fd = config->input_listen_fd,
+        .input_fd = -1,
+        .input_session_id = config->input_session_id,
     };
 
     app.display = wl_display_connect(NULL);
@@ -682,11 +1187,27 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             break;
         }
 
-        struct pollfd p[2] = {
+        struct pollfd p[4] = {
             { .fd = wl_display_get_fd(app.display), .events = POLLIN },
-            { .fd = app.sock, .events = POLLIN }
+            { .fd = app.sock, .events = POLLIN },
         };
-        int r = poll(p, 2, 200);
+        nfds_t nfds = 2;
+        int input_listen_idx = -1;
+        int input_idx = -1;
+        if (app.input_listen_fd >= 0) {
+            input_listen_idx = (int)nfds;
+            p[nfds].fd = app.input_listen_fd;
+            p[nfds].events = POLLIN;
+            nfds++;
+        }
+        if (app.input_fd >= 0) {
+            input_idx = (int)nfds;
+            p[nfds].fd = app.input_fd;
+            p[nfds].events = POLLIN;
+            nfds++;
+        }
+
+        int r = poll(p, nfds, 200);
         if (r < 0) {
             wl_display_cancel_read(app.display);
             if (errno == EINTR) continue;
@@ -708,6 +1229,19 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             break;
         }
 
+        if (input_idx >= 0 && (p[input_idx].revents & POLLIN)) {
+            input_adapter_read(&app);
+        }
+        if (input_idx >= 0 && app.input_fd >= 0 &&
+            (p[input_idx].revents & (POLLHUP | POLLERR))) {
+            log_presenter_event("input_adapter_disconnect", app.gen, 0, NULL);
+            close(app.input_fd);
+            app.input_fd = -1;
+        }
+        if (input_listen_idx >= 0 && (p[input_listen_idx].revents & POLLIN)) {
+            input_adapter_accept(&app);
+        }
+
         check_release_timelines(&app);
 
         if (p[1].revents & POLLIN) {
@@ -718,6 +1252,8 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             break;
         }
     }
+
+    input_teardown(&app);
 
     // Teardown notification
     aaas_v2_msg close_msg = {
@@ -730,15 +1266,18 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
 
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
-    char summary_extra[256];
+    char summary_extra[320];
     snprintf(summary_extra, sizeof(summary_extra),
              "\"imports\":%llu,\"submissions\":%llu,\"releases\":%llu,\"rejected\":%llu,"
              "\"presented\":%llu,\"discarded\":%llu,\"explicit_sync_frames\":%llu,"
+             "\"input_sent\":%llu,\"input_dropped\":%llu,"
              "\"maxrss_kib\":%ld,\"user_us\":%ld,\"system_us\":%ld",
              (unsigned long long)app.imported, (unsigned long long)app.submitted,
              (unsigned long long)app.released, (unsigned long long)app.rejected,
              (unsigned long long)app.presented, (unsigned long long)app.discarded,
              (unsigned long long)app.explicit_sync_frames,
+             (unsigned long long)app.input_sent,
+             (unsigned long long)app.input_dropped,
              usage.ru_maxrss,
              usage.ru_utime.tv_sec * 1000000L + usage.ru_utime.tv_usec,
              usage.ru_stime.tv_sec * 1000000L + usage.ru_stime.tv_usec);
@@ -772,6 +1311,19 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     }
     if (app.drm_fd >= 0) {
         close(app.drm_fd);
+    }
+
+    if (app.pointer) {
+        destroy_pointer(&app);
+    }
+    if (app.seat) {
+        if (wl_proxy_get_version((struct wl_proxy *)app.seat) >=
+            WL_SEAT_RELEASE_SINCE_VERSION) {
+            wl_seat_release(app.seat);
+        } else {
+            wl_seat_destroy(app.seat);
+        }
+        app.seat = NULL;
     }
 
     xdg_toplevel_destroy(app.toplevel);

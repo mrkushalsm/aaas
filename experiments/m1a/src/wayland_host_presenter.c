@@ -28,6 +28,8 @@ static void print_usage(const char *prog) {
             "  --implicit-sync     Force implicit synchronization\n"
             "  --frames <N>        Exit after presenting N frames (default: 0 = infinite)\n"
             "  --exit-on-close     Exit after the first client window closes\n"
+            "  --input-socket <p>  Private pointer input socket (SEQPACKET)\n"
+            "  --input-session <id> 64-bit input session identity\n"
             "  --help              Show this help message\n",
             prog);
 }
@@ -45,6 +47,8 @@ int main(int argc, char **argv) {
     bool force_implicit = false;
     uint32_t max_frames = 0;
     bool exit_on_close = false;
+    const char *input_socket_path = NULL;
+    uint64_t input_session_id = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) {
@@ -63,6 +67,10 @@ int main(int argc, char **argv) {
             max_frames = (uint32_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--exit-on-close") == 0) {
             exit_on_close = true;
+        } else if (strcmp(argv[i], "--input-socket") == 0 && i + 1 < argc) {
+            input_socket_path = argv[++i];
+        } else if (strcmp(argv[i], "--input-session") == 0 && i + 1 < argc) {
+            input_session_id = strtoull(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -71,6 +79,11 @@ int main(int argc, char **argv) {
             print_usage(argv[0]);
             return 1;
         }
+    }
+
+    if (input_socket_path && input_session_id == 0) {
+        fprintf(stderr, "[AaaS Presenter] --input-socket requires --input-session\n");
+        return 1;
     }
 
     int server_sock = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
@@ -105,6 +118,50 @@ int main(int argc, char **argv) {
     printf("[AaaS Presenter] Waiting for Android container connection...\n");
     fflush(stdout);
 
+    int input_server_sock = -1;
+    if (input_socket_path) {
+        if (strcmp(input_socket_path, socket_path) == 0) {
+            fprintf(stderr, "[AaaS Presenter] input and frame sockets must differ\n");
+            close(server_sock);
+            unlink(socket_path);
+            return 2;
+        }
+        input_server_sock = socket(AF_UNIX,
+                                   SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+        if (input_server_sock < 0) {
+            perror("[AaaS Presenter] input socket failed");
+            close(server_sock);
+            unlink(socket_path);
+            return 2;
+        }
+        unlink(input_socket_path);
+        struct sockaddr_un input_addr;
+        memset(&input_addr, 0, sizeof(input_addr));
+        input_addr.sun_family = AF_UNIX;
+        strncpy(input_addr.sun_path, input_socket_path,
+                sizeof(input_addr.sun_path) - 1);
+        if (bind(input_server_sock, (struct sockaddr *)&input_addr,
+                 sizeof(input_addr)) < 0) {
+            perror("[AaaS Presenter] input bind failed");
+            close(input_server_sock);
+            close(server_sock);
+            unlink(socket_path);
+            return 2;
+        }
+        chmod(input_socket_path, 0660);
+        if (listen(input_server_sock, 4) < 0) {
+            perror("[AaaS Presenter] input listen failed");
+            close(input_server_sock);
+            unlink(input_socket_path);
+            close(server_sock);
+            unlink(socket_path);
+            return 2;
+        }
+        printf("[AaaS Presenter] Input listening on %s (session=%016llx)\n",
+               input_socket_path, (unsigned long long)input_session_id);
+        fflush(stdout);
+    }
+
     while (g_running) {
         int client_sock = accept(server_sock, NULL, NULL);
         if (client_sock < 0) {
@@ -125,6 +182,8 @@ int main(int argc, char **argv) {
             .force_implicit_sync = force_implicit,
             .max_frames = max_frames,
             .running = &g_running,
+            .input_listen_fd = input_server_sock,
+            .input_session_id = input_session_id,
         };
 
         int ret = aaas_run_gpu_presenter(&cfg);
@@ -140,6 +199,10 @@ int main(int argc, char **argv) {
 
     close(server_sock);
     unlink(socket_path);
+    if (input_server_sock >= 0) {
+        close(input_server_sock);
+        unlink(input_socket_path);
+    }
     printf("[AaaS Presenter] Clean shutdown complete.\n");
     return 0;
 }
