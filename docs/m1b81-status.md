@@ -1,10 +1,11 @@
 # M1B.8.1 status — 2026-10-27
 
-**Overall: PARTIAL.** Keystore2's first failure is explained and reproduced at the
-Binder kernel boundary. A scoped diagnostic advanced framework startup into
-synthetic-password key import. Stable boot, production-equivalent caller
-authorization, source-based NetworkStats repair, and Settings presentation are
-not yet established.
+**Overall: PARTIAL.** Keystore2's first failure is reproduced at the Binder
+kernel boundary. Scoped diagnostic overlays let the framework set
+`sys.boot_completed=1`, register hundreds of services, launch Settings, and
+send Android startup-screen frames to Wayland. Accepted caller authorization,
+source-built BPF repairs, a verified Settings first draw, and stable graphics
+remain outstanding.
 
 ## Recovery and preservation
 
