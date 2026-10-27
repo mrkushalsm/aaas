@@ -17,6 +17,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import aaas_cgroup
+
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE = Path('/run/media/mrkus/Homework/aaas-workspace')
@@ -145,6 +148,8 @@ def main():
     parser.add_argument('--startup-timeout', type=int, default=90)
     parser.add_argument('--use-source-lmkd', action='store_true',
                         help='Use the source-built Android 16 LMKD binary instead of diagnostic overlay')
+    parser.add_argument('--memory-policy', choices=('none', 'cgroup'), default='none',
+                        help='Apply a rootless delegated cgroup v2 memory policy')
     args = parser.parse_args()
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
@@ -174,6 +179,18 @@ def main():
     logcat = session / 'logcat.log'
     logcat.touch()
     logcat.chmod(0o666)
+    policy = None
+    policy_monitor = None
+    policy_log = session / 'policy.jsonl'
+    if args.memory_policy == 'cgroup':
+        try:
+            policy = aaas_cgroup.CgroupSession.create(
+                name=f'{os.getpid()}-{session.name.rsplit("_", 1)[-1]}')
+        except aaas_cgroup.CgroupError as error:
+            print(f'AaaS: cgroup memory policy unavailable: {error}', file=sys.stderr)
+            os.close(lock_fd)
+            return 1
+        print(f'AaaS: cgroup memory policy at {policy.session_dir}', flush=True)
     runner = make_session_runner(session)
     prefix = f'm1b84_session_{os.getpid()}_'
     env = os.environ.copy()
@@ -219,17 +236,28 @@ def main():
                     raise RuntimeError('Android exited before Settings became ready')
                 if status.read_text().strip() == 'RUNNING':
                     transition('RUNNING')
+                    if policy is not None:
+                        policy_monitor = aaas_cgroup.ProcessPolicyMonitor(
+                            policy, policy_log)
+                        policy_monitor.start()
+                        print('AaaS: tracking Android memory priority classes', flush=True)
                     print('Settings process started. Close its window or press Ctrl+C to stop.', flush=True)
                     break
                 if status.read_text().strip() == 'FAILED' or time.monotonic() >= deadline:
                     raise RuntimeError('Android Settings did not become ready')
                 time.sleep(.25)
+            warned_degraded = False
             while not stop and state == 'RUNNING':
                 if presenter.poll() is not None:
                     print('AaaS: presenter exited; stopping Android', flush=True)
                     break
                 if android.poll() is not None or status.read_text().strip() == 'FAILED':
                     raise RuntimeError('Android runtime failed')
+                if (policy_monitor is not None and policy_monitor.degraded
+                        and not warned_degraded):
+                    warned_degraded = True
+                    print('AaaS: memory policy monitor degraded; Android continues',
+                          file=sys.stderr, flush=True)
                 time.sleep(.25)
         transition('STOPPING')
         return 0
@@ -238,6 +266,8 @@ def main():
         transition('FAILED')
         return 1
     finally:
+        if policy_monitor is not None:
+            policy_monitor.stop(timeout=12)
         for process in (android, presenter):
             if process is None:
                 continue
@@ -253,6 +283,22 @@ def main():
                 except ProcessLookupError:
                     pass
                 process.wait(timeout=8)
+        if policy is not None:
+            summary = policy_monitor.summary() if policy_monitor is not None else {}
+            try:
+                cleanup = policy.shutdown()
+            except Exception as error:
+                cleanup = {'removed': False,
+                           'failures': {'shutdown': f'{type(error).__name__}: {error}'}}
+            summary['cleanup'] = cleanup
+            (session / 'policy-summary.json').write_text(
+                json.dumps(summary, indent=1, default=str) + '\n')
+            if cleanup['failures']:
+                print(f'AaaS: memory policy cleanup issues: {cleanup["failures"]}',
+                      file=sys.stderr, flush=True)
+            else:
+                print(f'AaaS: memory policy hierarchy removed ({policy.session_dir})',
+                      flush=True)
         if state != 'FAILED':
             transition('STOPPED')
         print(f'AaaS logs: {session}', flush=True)
