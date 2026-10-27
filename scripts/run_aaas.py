@@ -26,6 +26,7 @@ PRESENTER = ROOT / 'experiments/m1a/build/wayland-host-presenter'
 RUNNER_SHA256 = 'd6361e97933ab2dfd18f544ac3ed00100b984e31cad24d2773ad9426c00621f7'
 VULKAN_SHA256 = '1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181'
 LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd'
+LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce'
 
 
 def sha256(path):
@@ -96,7 +97,15 @@ def make_session_runner(session):
     return output
 
 
-def verify_requirements():
+def select_lmkd_overlay(use_source_lmkd):
+    return (
+        ('m1b85_lmkd_source_built', LMKD_SOURCE_BUILT_SHA256)
+        if use_source_lmkd else
+        ('m1b83_lmkd_vmstats_diagnostic', LMKD_DIAGNOSTIC_SHA256)
+    )
+
+
+def verify_requirements(use_source_lmkd=False):
     check = subprocess.run(
         [sys.executable, str(ROOT / 'scripts/android_workspace.py'),
          '--workspace', str(WORKSPACE), 'check'],
@@ -109,9 +118,10 @@ def verify_requirements():
         raise RuntimeError(f'unexpected workspace mount: {mount}')
     if not PRESENTER.is_file():
         raise RuntimeError(f'build the presenter first: {PRESENTER}')
+    lmkd_overlay_entry = select_lmkd_overlay(use_source_lmkd)
     required = {
         'AAAS_VULKAN_OVERLAY': ('m1b83_sampling_lock_vulkan.so', VULKAN_SHA256),
-        'AAAS_LMKD_OVERLAY': ('m1b83_lmkd_vmstats_diagnostic', LMKD_DIAGNOSTIC_SHA256),
+        'AAAS_LMKD_OVERLAY': lmkd_overlay_entry,
         'AAAS_RANGING_JAR_OVERLAY': ('m1b8_service-ranging.rebuilt2.jar', None),
         'AAAS_NETWORKSTATS_LIB_OVERLAY': ('m1b81_networkstats_uid_diagnostic.so', None),
         'AAAS_MEMINFO_LIB_OVERLAY': ('m1b81_meminfo_gpu_diagnostic.so', None),
@@ -133,10 +143,12 @@ def verify_requirements():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--startup-timeout', type=int, default=90)
+    parser.add_argument('--use-source-lmkd', action='store_true',
+                        help='Use the source-built Android 16 LMKD binary instead of diagnostic overlay')
     args = parser.parse_args()
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
-    paths = verify_requirements()
+    paths = verify_requirements(use_source_lmkd=args.use_source_lmkd)
     lock_fd = os.open(TMP / '.aaas_session.lock', os.O_CREAT | os.O_RDWR, 0o600)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
