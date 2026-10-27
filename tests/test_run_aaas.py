@@ -35,6 +35,30 @@ class ForegroundRunnerTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'runner changed'):
                     SESSION.make_session_runner(Path(directory))
 
+    def test_single_instance_lock_rejection(self):
+        import fcntl
+        import os
+        import subprocess
+        import sys
+        lock_path = SESSION.TMP / '.aaas_session.lock'
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            res = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 2)
+            self.assertIn('another foreground session is already running', res.stderr)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+
+    def test_invalid_startup_timeout_rejected(self):
+        import subprocess
+        import sys
+        res = subprocess.run([sys.executable, str(SCRIPT), '--startup-timeout', '0'],
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 2)
+        self.assertIn('startup timeout must be positive', res.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()
