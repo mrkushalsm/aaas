@@ -100,9 +100,11 @@ Both mediaserver and system_server abort at
 `libcodec2_client.so: Codec2Client::CacheServiceNames` with
 `Check failed: serviceManager Hardware service manager is not running`.
 Tombstones `m1b81_keystore_uidprobe1_tombstones/tombstone_00` and `_01`
-contain the matching native stacks. The next narrow experiment is to trace
-why `defaultServiceManager()` for HIDL is unavailable in those processes,
-checking hwservicemanager, hwbinder namespace access, and loaded libraries.
+contain the matching native stacks. The `hwservicemanager` process is alive
+and answers other `getTransport` requests in the same run, so its mere process
+state does not explain the failed `android.hidl.manager@1.2` lookup. The next
+narrow experiment is to trace that HIDL lookup, hwbinder replies, and the
+specific loaded client libraries in mediaserver and system_server.
 Do not suppress the Codec2 assertion without establishing its service contract.
 
 ## Remaining work
