@@ -53,12 +53,12 @@ $(BUILD)/aaas-m1a: src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/
 	$(CC) $(CFLAGS) $(CPPFLAGS) src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/linux-dmabuf-protocol.c $(BUILD)/presentation-time-protocol.c -o $@ $(LDLIBS)
 
 # New M1A.1 GPU Explicit Sync (v2)
-$(BUILD)/aaas-m1a1: src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
-	$(CC) $(CFLAGS) $(CPPFLAGS) src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
+$(BUILD)/aaas-m1a1: src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
 
 # Standalone Host Wayland Presenter for Android Container
-$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
-	$(CC) $(CFLAGS) $(CPPFLAGS) src/wayland_host_presenter.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
+$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) src/wayland_host_presenter.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
 
 # Tests
 $(BUILD)/test-wire: tests/wire.c src/wire.c | $(BUILD)
@@ -73,11 +73,23 @@ $(BUILD)/test-sync-util: tests/test_sync_util.c src/sync_util.c | $(BUILD)
 $(BUILD)/test-stress: tests/test_stress.c src/wire_v2.c src/sync_util.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@ $(LDLIBS) -lpthread
 
-test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress
+$(BUILD)/test-input-map: tests/test_input_map.c src/input_map.c | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD)/test-input-v1: tests/test_input_v1.c src/input_v1.c | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
+
+$(BUILD)/test-input-state: tests/test_input_state.c src/input_state.c src/input_v1.c | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
+
+test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state
 	$(BUILD)/test-wire
 	$(BUILD)/test-wire-v2
 	$(BUILD)/test-sync-util
 	$(BUILD)/test-stress
+	$(BUILD)/test-input-map
+	$(BUILD)/test-input-v1
+	$(BUILD)/test-input-state
 
 clean:
 	rm -rf $(BUILD)
