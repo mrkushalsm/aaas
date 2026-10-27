@@ -190,6 +190,41 @@ not produce another host submission. Its Binder dump timed out. The next
 graphics investigation is why SurfaceFlinger stops submitting after the
 startup screen despite the Settings window being focused.
 
+An additional `m1b81_sftrace1_` run traced SurfaceFlinger and recorded 65
+Composer3 submissions, with three layers and changing client-target pixel
+ranges after the Settings launch. This shows the earlier frame-22 stop is
+timing dependent. Those later buffers were not captured, so their content is
+still unverified. A repeat `m1b81_settings_late1_` stalled before usable
+frames; its logs remain in the workspace. During that run, the runner's
+`unshare -f` parent exited while the namespace child kept stdout/stderr
+open, allowing `communicate()` to outlive the 140-second deadline. The
+diagnostic runner now starts a process group and kills that group at its
+timeout. A local parent/child timeout probe confirmed the cleanup mechanism;
+the modified runner has not yet had a repeat live timeout test.
+
+`m1b81_settings_retry1_` captured frame 35, still showing "Phone is
+starting..." despite Settings focus. The WindowManager dump named
+`Splash Screen com.android.settings` as the top fullscreen opaque window.
+In `m1b81_settings_stack3_`, a SIGQUIT trace from Settings PID 1107 showed
+its main thread waiting in `DrawFrameTask::drawFrame`, while its RenderThread
+waited in `BufferQueueProducer::dequeueBuffer` through
+`ReliableSurface::hook_dequeueBuffer` and EGL `beginFrame`. This is an actual
+first-draw blockage, not proof that Settings pixels were presented. The full
+trace is retained externally as
+`m1b81_settings_stack3_tombstones/trace_00`.
+
+Another bounded run, `m1b81_dualstack1_`, made 73 host submissions but
+Settings PID 1110 crashed in RenderThread before a useful SIGQUIT trace.
+Tombstone `m1b81_dualstack1_tombstones/tombstone_04` records SIGSEGV in
+`pthread_mutex_lock`, called from SwiftShader
+`sw::DrawCall::run` at `vulkan.pastel.so` PC `0x199350`. The mutex address
+in `rdi` points into libc read-only string data. The matching source call is
+`draw->batchDataPool->borrow()` in `src/Device/Renderer.cpp`. This supports
+an invalid pool/mutex pointer, but the allocation and corruption origin are
+unidentified. No SwiftShader patch was made on this evidence alone. The
+runtime remains timing sensitive, with a graphics crash distinct from the
+earlier framework service blockers.
+
 The boot run exposed repeated `EACCES` writes to
 `/data/system/users/0/package-restrictions.xml` and settings files. The
 diagnostic runner had pre-created `/data/system/users/0` as root. It now
