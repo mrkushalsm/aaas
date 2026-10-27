@@ -38,12 +38,21 @@ In that run, Settings PID 651 constructed a Renderer and logged 128 draws using 
 
 A second, temporary diagnostic edit called `setprop ctl.stop lmkd` after framework boot; init reported `stopped`. This run (`m1b82_nolmkd_`) still produced `Status: timeout` for Settings launch, a blocked Settings RenderThread in `BufferQueueProducer::dequeueBuffer`, SurfaceFlinger dump timeouts, and only 7 host submissions. The stop happened after a five-second settle, during which earlier watchdog kills occurred. Therefore removing later watchdog kills did **not** restore first-draw progress in this run. The temporary runner edit and SwiftShader source edit were restored byte-for-byte from the pre-edit backups, and the original overlay was never replaced.
 
+The running `lmkd` ELF build ID is `0820006cb7c64cb792202a9058eb08e8`. Its strings include `bpf.progs_loaded` and the observed watchdog messages. [AOSP's lmkd source](https://android.googlesource.com/platform/system/memory/lmkd/+/refs/heads/main/lmkd.cpp) waits for BPF programs when initializing the memevent listener after boot completion and has a watchdog that kills registered processes if its main loop stalls. This is a plausible explanation for the observed wait-and-kill sequence, but the source revision of the image's exact binary has not been established.
+
+An additional run with the runner's existing `AAAS_SF_STRACE=1` mode captured a **different Settings wait point**. Its RenderThread was in `vk::Queue::waitIdle`, called by the retained `vkQueueSignalReleaseImageANDROID` synchronization path during ANGLE `QueuePresentKHR`. The corresponding SurfaceFlinger main thread (TID 187) ended in `epoll_pwait`; its RenderEngine thread (TID 243) ended in a futex wait. The host recorded 65 submissions and 64 releases. Evidence is in `results/m1b82/sfstrace_diagnostic.json` and raw external logs prefixed `m1b82_sfstrace_`. The queue task that prevented `waitIdle` from completing was not captured, so this does not establish a renderer deadlock. It does show that the apparent first-draw stall can be sampled both before dequeue and during Vulkan queue completion.
+
+A bounded `debuggerd -b` request for native SurfaceFlinger stacks started but did not produce a backtrace before its eight-second timeout. A later controlled SIGABRT request for the diagnostic Settings process was enqueued by tombstoned but did not yield a Settings tombstone during that run; that run also lacked a presenter connection and is excluded from graphics conclusions. Neither request changed production sources or the original overlay. The inherited runner was restored after each probe.
+
+A 60-second diagnostic hold after stopping `lmkd` did not resolve the stall. Settings launched with `Status: ok`, but its first captured RenderThread trace was again in `BufferQueueProducer::dequeueBuffer`, and the presenter produced only eight frames before its own bounded timeout. The hold completed without verified Settings pixels. Stopping `lmkd` caused 2,355 ActivityManager connection failures in this run, so this experiment is **not** evidence of a stable framework with memory management disabled. Settings later died; its cause was not established. The same run produced a separate SystemUI SIGSEGV in `sw::SpirvEmitter::getImageSampler` in the original SwiftShader overlay (external `m1b82_hold_tombstones/tombstone_02`), indicating another graphics fault requiring independent triage. Structured evidence is `results/m1b82/hold_diagnostic.json`; raw logs have prefix `m1b82_hold_`. The temporary runner edit was restored with a matching SHA-256 afterward.
+
 ## Next smallest experiments
 
 1. Extend the retained lifetime trace to cover batch pool storage destruction and draw ticket completion, and reproduce the invalid-mutex crash with the matching instrumented ELF. The trace should prove whether the pool storage was destroyed before the draw or overwritten while live.
-2. Capture Settings' BufferQueue state at the blocked dequeue: slot states, queued/acquired/dequeued counts, buffer IDs, fences, and release callbacks. Use a native-safe SurfaceFlinger stack capture method; do not use SIGQUIT again. Distinguish app-layer BufferQueue state from Composer3 client-target releases.
-3. Address `lmkd`'s missing-BPF watchdog behavior through its actual supported fallback or a narrow source fix. Do not present the temporary `ctl.stop` diagnostic as a production correction.
-4. Patch only demonstrated ownership violations, add focused reproducers, and then repeat real Settings runs with presenter captures and BootAnimation regression.
+2. Extend the SwiftShader trace around `vk::Queue::submitQueue`, `Queue::waitIdle`, `Renderer::synchronize`, draw-ticket completion, and Marl worker tasks. This should identify the unfinished queue task observed in the `m1b82_sfstrace_` run without assuming it shares the stale-pool crash's cause.
+3. Capture Settings' BufferQueue state at the blocked dequeue: slot states, queued/acquired/dequeued counts, buffer IDs, fences, and release callbacks. Distinguish app-layer BufferQueue state from Composer3 client-target releases.
+4. Address `lmkd`'s missing-BPF watchdog behavior through its actual supported fallback or a narrow source fix. Do not present the temporary `ctl.stop` diagnostic as a production correction.
+5. Patch only demonstrated ownership violations, add focused reproducers, and then repeat real Settings runs with presenter captures and BootAnimation regression.
 
 ## Gates
 
@@ -55,7 +64,7 @@ A second, temporary diagnostic edit called `setprop ctl.stop lmkd` after framewo
 | G4 BufferQueue stall diagnosed | Partial | Blocking call located; queue state and reason unknown. |
 | G5 BufferQueue progress restored | Fail | Settings first draw remained blocked. |
 | G6 Settings rendered | Fail | Captured screen is startup progress. |
-| G7 Settings stable | Fail | No repeated successful first draws. |
+| G7 Settings stable | Fail | No repeated successful first draws; 60-second diagnostic hold showed no verified Settings pixels. |
 | G8 buffer/fence safety | Partial | Client-target trace showed 41 releases for 42 submissions; app-buffer safety unverified. |
 | G9 framework continuity | Fail | `lmkd` killed Settings in one run; another timed out even after diagnostic `lmkd` stop. |
 | G10 resources/lifecycle | Partial | Processes exited after bounded runs; full lifecycle matrix not executed. |
