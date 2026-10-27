@@ -1,0 +1,18 @@
+diff --git a/src/Vulkan/VkDevice.hpp b/src/Vulkan/VkDevice.hpp
+index f6ff70f..ce73445 100644
+--- a/src/Vulkan/VkDevice.hpp
++++ b/src/Vulkan/VkDevice.hpp
+@@ -104,10 +104,12 @@ public:
+ 		template<typename Function>
+ 		std::shared_ptr<rr::Routine> getOrCreate(const Key &key, Function &&createRoutine)
+ 		{
++			// updateSnapshot() rebuilds snapshot under this mutex. Readers must
++			// hold the same lock while looking up and copying a routine.
++			marl::lock lock(mutex);
+ 			auto it = snapshot.find(key);
+ 			if(it != snapshot.end()) { return it->second; }
+ 
+-			marl::lock lock(mutex);
+ 			if(auto existingRoutine = cache.lookup(key))
+ 			{
+ 				return existingRoutine;
