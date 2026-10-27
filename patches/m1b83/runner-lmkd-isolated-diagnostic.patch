@@ -1,0 +1,30 @@
+--- a/scripts/test_zygote_startup.py
++++ b/scripts/test_zygote_startup.py
+@@ -75,7 +75,7 @@
+     overlay_allocator = tmp_dir / "android.hardware.graphics.allocator-service.aaas"
+     allocator_bind = f'  --bind "{overlay_allocator}" /vendor/bin/hw/android.hardware.graphics.allocator-service.ranchu \\\n' if (overlay_allocator.exists() and os.environ.get("AAAS_USE_AAAS_ALLOCATOR", "1") == "1") else ""
+ 
+-    ipc_dir = tmp_dir / "aaas_ipc"
++    ipc_dir = tmp_dir / "m1b83_isolated_ipc"
+     ipc_dir.mkdir(parents=True, exist_ok=True)
+     ipc_dir.chmod(0o777)
+     ipc_bind = f'  --dir /dev/aaas \\\n  --bind "{ipc_dir}" /dev/aaas \\\n'
+@@ -83,6 +83,9 @@
+     overlay_vulkan = Path(os.environ.get("AAAS_VULKAN_OVERLAY", str(tmp_dir / "vulkan.pastel.so")))
+     vulkan_bind = f'  --bind "{overlay_vulkan}" /vendor/lib64/hw/vulkan.pastel.so \\\n' if overlay_vulkan.exists() else ""
+ 
++    lmkd_probe = tmp_dir / "m1b83_lmkd_vmstats_diagnostic"
++    lmkd_bind = f'  --ro-bind "{lmkd_probe}" /system/bin/lmkd \\\n' if lmkd_probe.exists() else ""
++
+     overlay_libvulkan = tmp_dir / "libvulkan.so"
+     libvulkan_bind = f'  --bind "{overlay_libvulkan}" /system/lib64/libvulkan.so \\\n' if overlay_libvulkan.exists() else ""
+ 
+@@ -245,7 +248,7 @@
+   --as-pid-1 \\
+   --unshare-pid \\
+   --bind "{rootfs}" / \\
+-{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}{libvulkan_bind}{angle_bind}{probe_bind}{egl_test_bind}{host_debug_bind}{bootanim_debug_bind}{apex_info_bind}{ranging_jar_bind}{networkstats_lib_bind}{meminfo_lib_bind}{wifi_feature_bind}{services_jar_bind}{keystore_sid_bind}{hwsm_sid_bind}{keystore_trace_bind}  --proc /proc \\
++{lmkd_bind}{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}{libvulkan_bind}{angle_bind}{probe_bind}{egl_test_bind}{host_debug_bind}{bootanim_debug_bind}{apex_info_bind}{ranging_jar_bind}{networkstats_lib_bind}{meminfo_lib_bind}{wifi_feature_bind}{services_jar_bind}{keystore_sid_bind}{hwsm_sid_bind}{keystore_trace_bind}  --proc /proc \\
+   --bind "{fake_cmdline}" /proc/cmdline \\
+   --dev /dev \\
+ {tun_bind}  --dev-bind /dev/dri /dev/dri \\
