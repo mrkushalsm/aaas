@@ -158,6 +158,47 @@ usage or bypass valid-map metadata checks. Reverse-apply and whitespace
 checks pass. The patch is **not built or deployed**, and its source revision
 has not been matched to the loaded binary.
 
+### Boot completion and Android frame capture with diagnostic overlays
+
+`scripts/patch_meminfo_gpu_diagnostic.py` checks the original `libmeminfo.so`
+SHA-256 `f0793a8cd9c637d4b4e1e3c4aec30d1821a1768a6b6d882b045b4bc2f22f4e3c`
+and changes only the invalid-FD branch in its map metadata checker to take
+the existing normal return. Valid FDs still take the metadata checks. Output
+SHA-256 is `1b392b6b652a0e8d299e99003ab964d15d4cc40a4dbcd82e33add52ce6e6a8f8`.
+The runner mounts it only when `AAAS_MEMINFO_LIB_OVERLAY` is set. This is a
+reversible diagnostic, not an accepted implementation.
+
+With that overlay plus the earlier Keystore, HIDL, UWB, native NetworkStats,
+and Java statistics diagnostics, `m1b81_meminfo_probe1_` reached
+`sys.boot_completed=1` after about six seconds. Binder listed 289 services.
+`cmd activity start-activity -W -n com.android.settings/.Settings` returned
+`Status: ok`; WindowManager reported a focused Settings window. These
+results are diagnostic boot evidence and do not make the Keystore SID handling
+or statistics overlays acceptable source fixes.
+
+`m1b81_settings_presenter1_` ran the existing Wayland presenter alongside
+Android: 59 submissions, 57 presentations, 2 discards, 58 releases, zero
+rejections. `m1b81_settings_capture2_` enabled the presenter's existing
+DMA-BUF frame dump: 22 submitted and presented frames, 21 releases, zero
+rejections. The 22 Android buffer captures had eight distinct RGB hashes.
+`results/m1b81/settings_capture2.json` records each frame hash and changed
+pixel count. The last frame in `artifacts/m1b81_phone_starting.png` visibly
+shows the genuine Android "Phone is starting..." progress screen. **No
+captured frame shows the Settings interface.** SurfaceFlinger reported boot
+finished near the last submitted frame, and later Settings launch/focus did
+not produce another host submission. Its Binder dump timed out. The next
+graphics investigation is why SurfaceFlinger stops submitting after the
+startup screen despite the Settings window being focused.
+
+The boot run exposed repeated `EACCES` writes to
+`/data/system/users/0/package-restrictions.xml` and settings files. The
+diagnostic runner had pre-created `/data/system/users/0` as root. It now
+assigns the `/data/system/users` chain to Android UID/GID 1000 and uses
+init-compatible parent modes. In `m1b81_data_perm1_`, the same boot reached
+completion and Settings focus; those exact PackageManager and SettingsState
+write errors did not recur. This remains inherited, uncommitted runner work
+until the full data topology and persistence are audited.
+
 The inherited runner's recursive mode `0777` setup was changed to explicit
 directory owners and modes. This remains uncommitted diagnostic work and
 requires an init-rule and persistence audit before G5 can pass.
@@ -172,10 +213,10 @@ requires an init-rule and persistence audit before G5 can pass.
   Test missing, denied, corrupt, and valid BPF-map cases before live reuse.
 - **Application data:** Validate the new explicit ownership and modes against
   Android init rules and persisted user data before treating the layout as secure.
-- **Framework/UI/graphics:** Resolve libmeminfo and later boot blockers, probe
-  PackageManager and ActivityManager while alive, launch a genuine Settings
-  activity, and verify its pixels through the existing Wayland presenter. No
-  M1B.7.2 live graphics regression run was performed in this investigation.
+- **Framework/UI/graphics:** Determine why SurfaceFlinger stops submitting
+  after the startup screen, then capture actual Settings pixels. Verify
+  PackageManager and ActivityManager functionality beyond registration. A
+  full M1B.7.2 sustained graphics regression run remains outstanding.
 
 ## Tests and gates
 
@@ -193,12 +234,12 @@ end-to-end assertion. `python3 -m py_compile scripts/test_zygote_startup.py` and
 | G2 Keystore diagnosis | PASS | Live `-95`, scoped probe, isolated Binder flag A/B |
 | G3 KeyMint functional | PARTIAL | Real `importKey` reached; crypto round trip unverified |
 | G4 NetworkStats compatibility | PARTIAL | Diagnostic overlays only |
-| G5 app-data correctness | PARTIAL | Real directory and narrowed modes in diagnostic runner; full audit pending |
-| G6 framework readiness | PARTIAL | Reached phase 1000; libmeminfo then aborts system_server |
-| G7 boot completion | FAIL | `sys.boot_completed` never `1` |
-| G8 trusted activity | PARTIAL | FallbackHome forked, not sustained |
-| G9 Wayland activity pixels | FAIL | Not tested |
-| G10 graphics baseline | UNVERIFIED | Historical evidence retained; no new live test |
+| G5 app-data correctness | PARTIAL | Real directory and narrowed modes; user settings write errors removed in one diagnostic run |
+| G6 framework readiness | PARTIAL | 289 registered services and Settings focus with diagnostic overlays; functional probes incomplete |
+| G7 boot completion | PARTIAL | Framework set `sys.boot_completed=1` in diagnostic runs; source fixes pending |
+| G8 trusted activity | PARTIAL | Settings launch returned success and focus; actual UI surface not verified |
+| G9 Wayland activity pixels | FAIL | Startup progress pixels captured, no Settings pixels |
+| G10 graphics baseline | PARTIAL | 59 host submissions in one live run; full sustained regression untested |
 | G11 security/cleanup | PARTIAL | Isolated runs cleaned up; diagnostic SID handling remains insecure |
 | G12 tests/reproducibility | PARTIAL | Baseline tests and new traces retained; fixes incomplete |
 
