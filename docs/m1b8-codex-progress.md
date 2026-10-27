@@ -27,7 +27,22 @@ The log contains "Found Uwb Resources APK at: com.android.uwb.resources" and "Ra
 
 Framework boot remains incomplete. At boot phase 550, system_server aborts in the Android tethering APEX libnetworkstats.so while reading network statistics. The tombstone identifies build ID e1b05e69b0136229f3972fd3bc807aed, BpfMapRO<unsigned int, unsigned int>::abortOnMismatch(bool)+676, called by parseBpfNetworkStatsDetail(). Disassembly shows a negative BPF map FD branches to abort() at library offset 0x20080. The isolated rootless runtime has no usable pinned network-statistics BPF maps; its BPF loader fails. This is a separate framework readiness blocker.
 
-The next experiment is to inspect the NetworkStats native and Java API contract and propagate an unavailable-map error without aborting system_server. Any compatibility behavior must keep statistics unavailable or explicitly empty; it must not claim real traffic accounting. Then verify boot completion and the Settings activity before adding input.
+The next source change needs to handle absent BPF statistics at the
+NetworkStats and BatteryStats boundary without aborting system_server.
+Any compatibility behavior must report statistics unavailable or explicitly
+empty; it must not claim real traffic accounting. Then verify boot
+completion and the Settings activity before adding input.
+
+An isolated binary diagnostic (external workspace prefix m1b8_bpf_diag2_)
+let both BpfMapRO template specializations return with their negative map FDs.
+It was **not** installed in the rootfs or accepted as a production patch.
+This exposed the next causal boundary: native network statistics returns
+Bad file descriptor; NetworkStatsFactory throws IOException; the BatteryStats
+Wi-Fi collector wraps it as an uncaught IllegalStateException in
+system_server. ActivityManager printed "System now ready" during this
+diagnostic, but system_server restarted and sys.boot_completed did not
+stabilize. The exact tombstones and logcat are retained in the external
+workspace.
 
 ## Verification boundary
 
