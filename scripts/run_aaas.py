@@ -26,6 +26,7 @@ WORKSPACE = Path('/run/media/mrkus/Homework/aaas-workspace')
 TMP = WORKSPACE / 'tmp'
 RUNNER = ROOT / 'scripts/test_zygote_startup.py'
 PRESENTER = ROOT / 'experiments/m1a/build/wayland-host-presenter'
+INPUT_ADAPTER = ROOT / 'experiments/m1c/input_adapter/build/aaas-input-adapter'
 RUNNER_SHA256 = 'd6361e97933ab2dfd18f544ac3ed00100b984e31cad24d2773ad9426c00621f7'
 VULKAN_SHA256 = '1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181'
 LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd'
@@ -62,10 +63,20 @@ def make_session_runner(session):
         '    status_bind = f\'  --bind "{session_status}" /aaas_session_status \\\\\\n\'\n'
         '    session_logcat = Path(os.environ["AAAS_SESSION_LOGCAT"])\n'
         '    logcat_bind = f\'  --bind "{session_logcat}" /aaas_session_logcat \\\\\\n\'\n'
+        '    input_adapter = Path(os.environ.get("AAAS_INPUT_ADAPTER", ""))\n'
+        '    input_adapter_bind = f\'  --ro-bind "{input_adapter}" '
+        '/system/bin/aaas-input-adapter \\\\\\n\' if input_adapter.is_file() else ""\n'
+        '    input_adapter_log = Path(os.environ.get("AAAS_INPUT_ADAPTER_LOG", ""))\n'
+        '    input_adapter_log_bind = f\'  --bind "{input_adapter_log}" '
+        '/aaas_input_adapter.log \\\\\\n\' if input_adapter_log.is_file() else ""\n'
         '    overlay_angle = tmp_dir / "libGLESv2_angle.so"',
     )
-    source = replace_once(source, '{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
-                          '{lmkd_bind}{status_bind}{logcat_bind}{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}')
+    source = replace_once(
+        source,
+        '{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
+        '{lmkd_bind}{status_bind}{logcat_bind}{input_adapter_bind}'
+        '{input_adapter_log_bind}{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
+    )
     source = replace_once(
         source,
         '    /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true',
@@ -76,6 +87,12 @@ def make_session_runner(session):
         source,
         '    /system/bin/toybox sleep 3\n    if [ "{settings_sigquit}"',
         '    /system/bin/toybox sleep 3\n'
+        '    if [ -x /system/bin/aaas-input-adapter ]; then\n'
+        '      /system/bin/aaas-input-adapter --socket /dev/aaas/input.sock '
+        '--session-file /dev/aaas/input_session --log /aaas_input_adapter.log &\n'
+        '      INPUT_ADAPTER_PID=$!\n'
+        '      echo "AAAS_INPUT_ADAPTER_STARTED $INPUT_ADAPTER_PID"\n'
+        '    fi\n'
         '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
         '[ -z "$(/system/bin/toybox pidof com.android.settings)" ]; then\n'
         '      echo FAILED > /aaas_session_status\n'
@@ -121,6 +138,9 @@ def verify_requirements(use_source_lmkd=False):
         raise RuntimeError(f'unexpected workspace mount: {mount}')
     if not PRESENTER.is_file():
         raise RuntimeError(f'build the presenter first: {PRESENTER}')
+    if not INPUT_ADAPTER.is_file():
+        print(f'AaaS: input adapter not built; pointer input disabled ({INPUT_ADAPTER})',
+              file=sys.stderr)
     lmkd_overlay_entry = select_lmkd_overlay(use_source_lmkd)
     required = {
         'AAAS_VULKAN_OVERLAY': ('m1b83_sampling_lock_vulkan.so', VULKAN_SHA256),
@@ -179,6 +199,12 @@ def main():
     logcat = session / 'logcat.log'
     logcat.touch()
     logcat.chmod(0o666)
+    input_adapter_log = session / 'input-adapter.log'
+    input_adapter_log.touch()
+    input_adapter_log.chmod(0o666)
+    input_session = int.from_bytes(os.urandom(8), 'little') or 1
+    (ipc / 'input_session').write_text(f'0x{input_session:016x}\n')
+    (ipc / 'input_session').chmod(0o600)
     policy = None
     policy_monitor = None
     policy_log = session / 'policy.jsonl'
@@ -198,7 +224,9 @@ def main():
     env.update(AAAS_LOG_PREFIX=prefix, AAAS_BOOTANIM='0',
                AAAS_BOOT_WAIT=str(args.startup_timeout),
                AAAS_SESSION_IPC=str(ipc), AAAS_SESSION_STATUS=str(status),
-               AAAS_SESSION_LOGCAT=str(logcat))
+               AAAS_SESSION_LOGCAT=str(logcat),
+               AAAS_INPUT_ADAPTER=str(INPUT_ADAPTER) if INPUT_ADAPTER.is_file() else '',
+               AAAS_INPUT_ADAPTER_LOG=str(input_adapter_log))
     presenter = android = None
     state = 'CREATED'
 
@@ -214,7 +242,10 @@ def main():
         with (session / 'presenter.log').open('wb') as presenter_log, (session / 'android.log').open('wb') as android_log:
             transition('STARTING_PRESENTER')
             presenter = subprocess.Popen(
-                [str(PRESENTER), '--socket', str(ipc / 'wayland.sock'), '--exit-on-close'],
+                [str(PRESENTER), '--socket', str(ipc / 'wayland.sock'),
+                 '--input-socket', str(ipc / 'input.sock'),
+                 '--input-session', f'0x{input_session:016x}',
+                 '--exit-on-close'],
                 stdout=presenter_log, stderr=subprocess.STDOUT,
                 start_new_session=True,
             )

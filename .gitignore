@@ -5,6 +5,7 @@ results/
 benchmarks/
 experiments/m1a/build/
 experiments/m1a/core
+experiments/m1c/input_adapter/build/
 *.kate-swp
 *.log
 *.jsonl

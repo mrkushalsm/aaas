@@ -35,6 +35,29 @@ class ForegroundRunnerTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'runner changed'):
                     SESSION.make_session_runner(Path(directory))
 
+    def test_runner_binds_adapter_and_starts_private_input_channel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            adapter = root / 'aaas-input-adapter'
+            adapter.write_text('adapter')
+            adapter.chmod(0o755)
+            adapter_log = root / 'input-adapter.log'
+            adapter_log.touch()
+            with patch.dict('os.environ', {
+                    'AAAS_INPUT_ADAPTER': str(adapter),
+                    'AAAS_INPUT_ADAPTER_LOG': str(adapter_log),
+            }):
+                generated = SESSION.make_session_runner(root).read_text()
+        self.assertIn('--ro-bind "{input_adapter}" /system/bin/aaas-input-adapter',
+                      generated)
+        self.assertIn('--bind "{input_adapter_log}" /aaas_input_adapter.log',
+                      generated)
+        self.assertIn('/system/bin/aaas-input-adapter --socket /dev/aaas/input.sock',
+                      generated)
+        self.assertIn('--session-file /dev/aaas/input_session', generated)
+        self.assertIn('--log /aaas_input_adapter.log', generated)
+        self.assertIn('/dev/aaas/input.sock', generated)
+
     def test_single_instance_lock_rejection(self):
         import fcntl
         import os
