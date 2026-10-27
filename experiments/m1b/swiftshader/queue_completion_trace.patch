@@ -1,0 +1,180 @@
+--- a/src/Device/Renderer.cpp
++++ b/src/Device/Renderer.cpp
+@@ -38,6 +38,34 @@
+ #include "marl/defer.h"
+ #include "marl/trace.h"
+ 
++#include <cstdarg>
++#include <cstdio>
++#include <cstring>
++#include <dlfcn.h>
++#include <unistd.h>
++
++static void m1b82TraceLifetime(const char *format, ...)
++{
++	char message[256];
++	va_list args;
++	va_start(args, format);
++	std::vsnprintf(message, sizeof(message), format, args);
++	va_end(args);
++	using LogWrite = int (*)(int, const char *, const char *);
++	static LogWrite logWrite = [] {
++		void *liblog = dlopen("liblog.so", RTLD_NOW | RTLD_LOCAL);
++		return liblog ? reinterpret_cast<LogWrite>(dlsym(liblog, "__android_log_write")) : nullptr;
++	}();
++	if(logWrite)
++	{
++		logWrite(3, "M1B82-LIFETIME", message);
++	}
++	else
++	{
++		std::fprintf(stderr, "[M1B82-LIFETIME] %s\n", message);
++	}
++}
++
+ #undef max
+ 
+ #ifndef NDEBUG
+@@ -158,6 +186,9 @@
+ Renderer::Renderer(vk::Device *device)
+     : device(device)
+ {
++	void *storage = nullptr;
++	std::memcpy(&storage, &batchDataPool, sizeof(storage));
++	m1b82TraceLifetime("construct pid=%d renderer=%p pool=%p storage=%p", getpid(), this, &batchDataPool, storage);
+ 	vertexProcessor.setRoutineCacheSize(1024);
+ 	pixelProcessor.setRoutineCacheSize(1024);
+ 	setupProcessor.setRoutineCacheSize(1024);
+@@ -165,7 +196,11 @@
+ 
+ Renderer::~Renderer()
+ {
++	void *storage = nullptr;
++	std::memcpy(&storage, &batchDataPool, sizeof(storage));
++	m1b82TraceLifetime("destroy-enter pid=%d renderer=%p pool=%p storage=%p", getpid(), this, &batchDataPool, storage);
+ 	drawTickets.take().wait();
++	m1b82TraceLifetime("destroy-drained pid=%d renderer=%p", getpid(), this);
+ }
+ 
+ // Renderer objects have to be mem aligned to the alignment provided in the class declaration
+@@ -550,6 +585,13 @@
+ 
+ void DrawCall::run(vk::Device *device, const marl::Loan<DrawCall> &draw, marl::Ticket::Queue *tickets, marl::Ticket::Queue clusterQueues[MaxClusterCount])
+ {
++	static std::atomic<int> traceCount{0};
++	if(traceCount.fetch_add(1, std::memory_order_relaxed) < 128)
++	{
++		void *storage = nullptr;
++		std::memcpy(&storage, draw->batchDataPool, sizeof(storage));
++		m1b82TraceLifetime("draw pid=%d draw=%p pool=%p storage=%p batches=%u", getpid(), draw.get(), draw->batchDataPool, storage, draw->numBatches);
++	}
+ 	draw->setup();
+ 
+ 	const auto numPrimitives = draw->numPrimitives;
+@@ -558,6 +600,11 @@
+ 
+ 	auto ticket = tickets->take();
+ 	auto finally = marl::make_shared_finally([device, draw, ticket] {
++		static std::atomic<int> traceDoneCount{0};
++		if(traceDoneCount.fetch_add(1, std::memory_order_relaxed) < 128)
++		{
++			m1b82TraceLifetime("draw-complete pid=%d draw=%p id=%d", getpid(), draw.get(), draw->id);
++		}
+ 		MARL_SCOPED_EVENT("FINISH draw %d", draw->id);
+ 		draw->teardown(device);
+ 		ticket.done();
+--- a/src/Vulkan/VkQueue.cpp
++++ b/src/Vulkan/VkQueue.cpp
+@@ -29,6 +29,29 @@
+ #include "marl/trace.h"
+ 
+ #include <cstring>
++#include <atomic>
++#include <cstdarg>
++#include <cstdio>
++#include <dlfcn.h>
++#include <unistd.h>
++
++static void m1b82TraceQueue(const char *format, ...)
++{
++	static std::atomic<int> lines{0};
++	if(lines.fetch_add(1, std::memory_order_relaxed) >= 512) return;
++	char message[256];
++	va_list args;
++	va_start(args, format);
++	std::vsnprintf(message, sizeof(message), format, args);
++	va_end(args);
++	using LogWrite = int (*)(int, const char *, const char *);
++	static LogWrite logWrite = [] {
++		void *liblog = dlopen("liblog.so", RTLD_NOW | RTLD_LOCAL);
++		return liblog ? reinterpret_cast<LogWrite>(dlsym(liblog, "__android_log_write")) : nullptr;
++	}();
++	if(logWrite) logWrite(3, "M1B82-QUEUE", message);
++	else std::fprintf(stderr, "[M1B82-QUEUE] %s\n", message);
++}
+ 
+ namespace vk {
+ 
+@@ -74,6 +97,7 @@
+ 
+ void Queue::submitQueue(const Task &task)
+ {
++	m1b82TraceQueue("submit-enter pid=%d queue=%p submits=%u event=%d", getpid(), this, task.submitCount, task.events != nullptr);
+ 	if(renderer == nullptr)
+ 	{
+ 		renderer.reset(new sw::Renderer(device));
+@@ -84,6 +108,7 @@
+ 		SubmitInfo &submitInfo = task.pSubmits[i];
+ 		for(uint32_t j = 0; j < submitInfo.waitSemaphoreCount; j++)
+ 		{
++			m1b82TraceQueue("semaphore-wait-enter pid=%d queue=%p submit=%u index=%u", getpid(), this, i, j);
+ 			if(auto *sem = DynamicCast<TimelineSemaphore>(submitInfo.pWaitSemaphores[j]))
+ 			{
+ 				ASSERT(j < submitInfo.waitSemaphoreValueCount);
+@@ -97,6 +122,7 @@
+ 			{
+ 				UNSUPPORTED("Unknown semaphore type");
+ 			}
++			m1b82TraceQueue("semaphore-wait-done pid=%d queue=%p submit=%u index=%u", getpid(), this, i, j);
+ 		}
+ 
+ 		{
+@@ -105,7 +131,9 @@
+ 			executionState.events = task.events.get();
+ 			for(uint32_t j = 0; j < submitInfo.commandBufferCount; j++)
+ 			{
++				m1b82TraceQueue("command-enter pid=%d queue=%p submit=%u index=%u", getpid(), this, i, j);
+ 				Cast(submitInfo.pCommandBuffers[j])->submit(executionState);
++				m1b82TraceQueue("command-done pid=%d queue=%p submit=%u index=%u", getpid(), this, i, j);
+ 			}
+ 		}
+ 
+@@ -136,9 +164,12 @@
+ 	{
+ 		// TODO: fix renderer signaling so that work submitted separately from (but before) a fence
+ 		// is guaranteed complete by the time the fence signals.
++		m1b82TraceQueue("synchronize-enter pid=%d queue=%p", getpid(), this);
+ 		renderer->synchronize();
++		m1b82TraceQueue("synchronize-done pid=%d queue=%p", getpid(), this);
+ 		task.events->done();
+ 	}
++	m1b82TraceQueue("submit-done pid=%d queue=%p", getpid(), this);
+ }
+ 
+ void Queue::taskLoop(marl::Scheduler *scheduler)
+@@ -168,6 +199,7 @@
+ 
+ VkResult Queue::waitIdle()
+ {
++	m1b82TraceQueue("wait-idle-enter pid=%d queue=%p", getpid(), this);
+ 	// Wait for task queue to flush.
+ 	auto event = std::make_shared<sw::CountedEvent>();
+ 	event->add();  // done() is called at the end of submitQueue()
+@@ -177,6 +209,7 @@
+ 	pending.put(task);
+ 
+ 	event->wait();
++	m1b82TraceQueue("wait-idle-done pid=%d queue=%p", getpid(), this);
+ 
+ 	garbageCollect();
+ 
