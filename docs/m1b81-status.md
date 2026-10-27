@@ -94,9 +94,9 @@ UID-gate unit test is `experiments/m1b/test_keystore_sid_probe.c`.
 
 ## Next fatal boundary
 
-The UID-scoped probe allows ActivityManager ready phase and Settings
+The UID-scoped Keystore2 probe allows ActivityManager ready phase and Settings
 FallbackHome process creation, but `sys.boot_completed` never reaches `1`.
-Both mediaserver and system_server abort at
+Both mediaserver and system_server first abort at
 `libcodec2_client.so: Codec2Client::CacheServiceNames` with
 `Check failed: serviceManager Hardware service manager is not running`.
 Tombstones `m1b81_keystore_uidprobe1_tombstones/tombstone_00` and `_01`
@@ -105,23 +105,74 @@ and answers other `getTransport` requests in the same run, so its mere process
 state does not explain the failed `android.hidl.manager@1.2` lookup. The next
 narrow experiment is to trace that HIDL lookup, hwbinder replies, and the
 specific loaded client libraries in mediaserver and system_server.
-Do not suppress the Codec2 assertion without establishing its service contract.
+
+A further **diagnostic-only** run, `m1b81_hwsm_sidprobe1_`, interposed
+`android::hardware::setRequestingSid` only in hwservicemanager. The Codec2
+assertion disappeared, supporting the same missing caller-context mechanism
+for HIDL manager interface retrieval. This is not an authorization fix: the
+HIDL manager's access policy has not been reconstructed or tested. The run
+then reached a third native BPF-map constructor failure in
+`BpfMapRO<unsigned int, StatsValue>::abortOnMismatch`, inside
+`bpfGetUidStats()`. Tombstone `_00` records the precise stack. The inherited
+NetworkStats diagnostic overlay covered two earlier template instantiations
+but not this one. The immediate next task is a source-based unavailable-map
+path that preserves `EBADF`/unavailable semantics across all three call sites.
+
+The Android 16 Connectivity source was then cloned at
+`627eb3c63e7c7cb3cb9f8ea319e4bb1676079c3a` to the external workspace.
+`patches/m1b81/connectivity-networkstats-unavailable-map.patch` changes
+`BpfNetworkStats.cpp` to initialize each pinned map through the existing
+`Result`-returning `init()` API instead of the aborting pathname constructor.
+It returns the original open error (such as `ENOENT` or `EACCES`), while valid
+map type/flag mismatches still abort. The JNI factory now restores `errno`
+from that negative result before returning its documented error sentinel.
+The patch passes `git diff --check` but has **not** been built or loaded; it
+does not by itself resolve the Java BatteryStats caller failures. The external
+Git checkout retains the unmodified source in its HEAD, and the repository
+patch is the reviewable change. No claim of NetworkStats repair follows from
+the source patch alone.
 
 ## Remaining work
+
+### Later diagnostic boot boundary
+
+The checksum-guarded `scripts/patch_networkstats_uid_diagnostic.py` extends
+the retained diagnostic overlay to the third BPF map template. In
+`m1b81_network_uidprobe1_`, Android reached ActivityManager's "System now
+ready" and phase 1000, then failed because
+`/data/system_de/0/powerstats` was absent. The runner now creates that exact
+directory with UID 1000 and mode 0700. In `m1b81_powerstats_dir1_`, the
+PowerStats failure disappeared. The next fatal is `libmeminfo.so` build ID
+`257fd9b6821b01b2d6a22e3015afda57`:
+`ReadProcessGpuUsageKb` calls an aborting `BpfMapRO` pathname constructor
+for a missing GPU statistics map. Tombstone
+`m1b81_powerstats_dir1_tombstones/tombstone_01` records PC `0x14096` in
+`abortOnMismatch` and PC `0x12a78` in `ReadProcessGpuUsageKb`.
+
+Android 16 `platform/system/memory/libmeminfo` source revision
+`d392610501ce556d7aa10d047e02f197256cd6a4` was retained in the
+external workspace. `patches/m1b81/libmeminfo-unavailable-gpu-map.patch`
+uses `BpfMapRO::init()` in both GPU map readers, returning their existing
+`false` status with the real map-open error. It does not report zero GPU
+usage or bypass valid-map metadata checks. Reverse-apply and whitespace
+checks pass. The patch is **not built or deployed**, and its source revision
+has not been matched to the loaded binary.
+
+The inherited runner's recursive mode `0777` setup was changed to explicit
+directory owners and modes. This remains uncommitted diagnostic work and
+requires an init-rule and persistence audit before G5 can pass.
 
 - **Key management:** Replace the opt-in SID diagnostic with a reviewed,
   source-based development policy that uses kernel caller identity, denies
   unknown callers, and does not advertise hardware guarantees. Verify actual
   key import and cryptographic round trip before treating KeyMint as functional.
-- **Network statistics:** Identify the closest source baseline for the loaded
-  tethering library and framework JAR. Replace diagnostic machine-code/DEX
-  overlays with narrow source patches that distinguish unavailable BPF maps
-  from valid empty results, then rebuild and retest.
-- **Application data:** `/data/data` is now a real directory, which allows
-  app spawning. The inherited runner still applies recursive mode `0777` to
-  `/data` and `/data_mirror`; ownership and modes must be aligned with the
-  image's init rules before calling this correct or secure.
-- **Framework/UI/graphics:** Resolve Codec2 and later boot blockers, probe
+- **Network statistics:** Build and ABI-check the new Android 16 Connectivity
+  source patch, then replace the native binary diagnostic. Identify and patch
+  the matching framework Java caller source, replacing the DEX diagnostic.
+  Test missing, denied, corrupt, and valid BPF-map cases before live reuse.
+- **Application data:** Validate the new explicit ownership and modes against
+  Android init rules and persisted user data before treating the layout as secure.
+- **Framework/UI/graphics:** Resolve libmeminfo and later boot blockers, probe
   PackageManager and ActivityManager while alive, launch a genuine Settings
   activity, and verify its pixels through the existing Wayland presenter. No
   M1B.7.2 live graphics regression run was performed in this investigation.
@@ -142,13 +193,13 @@ end-to-end assertion. `python3 -m py_compile scripts/test_zygote_startup.py` and
 | G2 Keystore diagnosis | PASS | Live `-95`, scoped probe, isolated Binder flag A/B |
 | G3 KeyMint functional | PARTIAL | Real `importKey` reached; crypto round trip unverified |
 | G4 NetworkStats compatibility | PARTIAL | Diagnostic overlays only |
-| G5 app-data correctness | PARTIAL | Real directory; modes still too broad |
-| G6 framework readiness | FAIL | Codec2 aborts system_server |
+| G5 app-data correctness | PARTIAL | Real directory and narrowed modes in diagnostic runner; full audit pending |
+| G6 framework readiness | PARTIAL | Reached phase 1000; libmeminfo then aborts system_server |
 | G7 boot completion | FAIL | `sys.boot_completed` never `1` |
 | G8 trusted activity | PARTIAL | FallbackHome forked, not sustained |
 | G9 Wayland activity pixels | FAIL | Not tested |
 | G10 graphics baseline | UNVERIFIED | Historical evidence retained; no new live test |
-| G11 security/cleanup | PARTIAL | Isolated runs cleaned up; diagnostic SID and modes are insecure |
+| G11 security/cleanup | PARTIAL | Isolated runs cleaned up; diagnostic SID handling remains insecure |
 | G12 tests/reproducibility | PARTIAL | Baseline tests and new traces retained; fixes incomplete |
 
 **M1B.8.1 remains partial.** No input bridge work was started.
