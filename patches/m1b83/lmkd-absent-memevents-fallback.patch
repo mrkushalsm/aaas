@@ -1,0 +1,30 @@
+diff --git a/lmkd.cpp b/lmkd.cpp
+index 3cb458d..1d51c1f 100644
+--- a/lmkd.cpp
++++ b/lmkd.cpp
+@@ -29,6 +29,7 @@
+ #include <sys/mman.h>
+ #include <sys/pidfd.h>
+ #include <sys/socket.h>
++#include <sys/stat.h>
+ #include <sys/syscall.h>
+ #include <sys/sysinfo.h>
+ #include <time.h>
+@@ -3500,6 +3501,17 @@ static bool init_memevent_listener_monitoring() {
+ 
+     if (memevent_listener) return true;
+ 
++#ifdef AAAS_CONTAINER_RUNTIME
++    // This container does not run Android's BPF loader. An unavailable pinned
++    // memevents ring buffer cannot be used, so use the caller's existing
++    // vmstats fallback. Keep the normal wait when the map is accessible,
++    // rather than treating an arbitrary BPF error as no pressure.
++    struct stat ringbuf_stat;
++    if (stat(MEM_EVENTS_LMKD_RB, &ringbuf_stat) < 0 && (errno == ENOENT || errno == EACCES)) {
++        ALOGW("LMKD memevents ring buffer unavailable (%d); using vmstats fallback", errno);
++        return false;
++    }
++#endif
+     // Make sure bpf programs are loaded, else we'll wait until they are loaded
+     android::bpf::waitForProgsLoaded();
+     memevent_listener = std::make_unique<android::bpf::memevents::MemEventListener>(
