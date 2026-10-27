@@ -44,6 +44,35 @@ diagnostic, but system_server restarted and sys.boot_completed did not
 stabilize. The exact tombstones and logcat are retained in the external
 workspace.
 
+## Later diagnostic boundaries
+
+Removing the unbacked Wi-Fi feature XML made ContextHubService dereference
+a null WifiManager during boot phase 500. That diagnostic configuration was
+discarded.
+
+A separate diagnostic services.jar overlay let the BatteryStats Wi-Fi and
+mobile readers return null only when the NetworkStats failure had an
+IOException cause. The collectors already support an unavailable result.
+This reached boot phase 600, then the mobile data stats puller encountered
+the same unavailable-map error. Catching that error in a further diagnostic
+overlay moved startup into the app launch phase. These overlays remain
+external experiments; they are not production fixes.
+
+At that point Zygote rejected app data directories because the harness
+created /data/data as a symlink. A temporary runtime-script change made it a
+real directory. In the m1b8_appdata1_ run, ActivityManager launched
+com.android.settings/.FallbackHome and forked SystemUI. No actual Settings
+screen was verified. system_server then crashed while initializing a
+synthetic password: Keystore2 failed on a Binder transaction to obtain a
+security level. The next investigation should inspect Keystore2 and
+KeyMint service logs and Binder transaction behavior. The boot property
+still did not stabilize.
+
 ## Verification boundary
 
-The Python suite passed 73 tests, M1A transport and synchronization tests passed, and the external-workspace mount and budget check passed. No interactive Android activity, Wayland input delivery, or new sustained graphics run was demonstrated in this continuation. The M1B.8 milestone is **partial**.
+The Python suite passed 73 tests, M1A transport and synchronization tests
+passed, and the external-workspace mount and budget check passed. No
+interactive Android activity, Wayland input delivery, or new sustained
+graphics run was demonstrated in this continuation. The Settings
+FallbackHome fork establishes only partial activity launch. The M1B.8
+milestone is **partial**.
