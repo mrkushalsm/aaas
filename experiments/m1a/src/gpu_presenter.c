@@ -495,8 +495,10 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
 
     char extra[192];
     snprintf(extra, sizeof(extra),
-             "\"button\":%u,\"state\":%u,\"display_x\":%d,\"display_y\":%d",
-             button, state, p.x, p.y);
+             "\"button\":%u,\"state\":%u,\"surface_x\":%.3f,"
+             "\"surface_y\":%.3f,\"surface_w\":%u,\"surface_h\":%u,"
+             "\"display_x\":%d,\"display_y\":%d",
+             button, state, a->pointer_x, a->pointer_y, a->w, a->h, p.x, p.y);
     log_presenter_event("input_pointer_button", a->gen, 0, extra);
 }
 

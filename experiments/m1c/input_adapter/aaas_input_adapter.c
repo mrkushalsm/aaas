@@ -259,7 +259,9 @@ static int wait_for_child(pid_t pid) {
             }
             return -1;
         }
-        usleep(5000);
+        /* Keep synchronous framework-built scrolls from adding another
+         * 5 ms scheduling quantum to each Android input event. */
+        usleep(1000);
     }
 }
 
@@ -333,7 +335,12 @@ static int inject_cmd_motion(const char *motion, int32_t x, int32_t y,
 static int inject_cmd_scroll(int32_t x, int32_t y, uint32_t source,
                              float vscroll, float hscroll,
                              uint32_t sequence, int64_t request_ns) {
-    const char *input_source = source == AAAS_SOURCE_TOUCHPAD ? "touchpad" : "mouse";
+    /* Android's generic View scroll handlers gate AXIS_VSCROLL/HSCROLL on
+     * SOURCE_CLASS_POINTER.  SOURCE_TOUCHPAD is position-class and Settings'
+     * ScrollViews ignore its ACTION_SCROLL even though injection succeeds.
+     * Normalize both Wayland wheel and touchpad deltas to Android mouse scroll. */
+    const char *input_source = "mouse";
+    const char *origin_source = source == AAAS_SOURCE_TOUCHPAD ? "touchpad" : "mouse";
     char xs[16], ys[16], vs[48], hs[48];
     snprintf(xs, sizeof(xs), "%d", x);
     snprintf(ys, sizeof(ys), "%d", y);
@@ -372,11 +379,11 @@ static int inject_cmd_scroll(int32_t x, int32_t y, uint32_t source,
     uint64_t done_ns = monotonic_ns();
     adapter_logf(rc == 0 ? "inject_done" : "inject_failed",
                  "\"backend\":\"cmd\",\"action\":\"SCROLL\","
-                 "\"source\":\"%s\",\"x\":%d,\"y\":%d,"
+                 "\"source\":\"%s\",\"android_source\":\"%s\",\"x\":%d,\"y\":%d,"
                  "\"vscroll\":%.6g,\"hscroll\":%.6g,\"sequence\":%u,"
                  "\"rc\":%d,\"request_ns\":%llu,\"start_ns\":%llu,"
                  "\"done_ns\":%llu,\"elapsed_ns\":%llu",
-                 input_source, x, y, (double)vscroll, (double)hscroll,
+                 origin_source, input_source, x, y, (double)vscroll, (double)hscroll,
                  sequence, rc, (unsigned long long)request_ns,
                  (unsigned long long)start_ns, (unsigned long long)done_ns,
                  (unsigned long long)(done_ns - start_ns));
@@ -499,6 +506,107 @@ typedef struct {
     input_backend selected_backend;
 } adapter_state;
 
+static int handle_message(int fd, adapter_state *st,
+                          const aaas_input_msg *wire);
+
+static int accept_message(adapter_state *st, const aaas_input_msg *wire,
+                          aaas_input_msg *m, int64_t *request_ns,
+                          int64_t *recv_ns) {
+    aaas_input_from_wire(m, wire);
+    *request_ns = (int64_t)m->timestamp_ns;
+    *recv_ns = (int64_t)monotonic_ns();
+
+    char why[64] = {0};
+    if (!aaas_input_state_accept(&st->order, m, why, sizeof(why))) {
+        st->invalid_messages++;
+        adapter_logf("invalid_message", "\"reason\":\"%s\",\"count\":%u",
+                     why, st->invalid_messages);
+        return st->invalid_messages >= 8 ? -1 : 0;
+    }
+    return 1;
+}
+
+/* Touchpad protocols can emit one small delta per display frame. The Android
+ * cmd input process takes 5-10 ms to start, so adjacent continuous deltas may
+ * arrive faster than they can be injected. Sum only adjacent touchpad scroll
+ * packets (never across a button/focus/motion event) and inject one equivalent
+ * ACTION_SCROLL, preserving event order and avoiding an input backlog. */
+static int handle_touchpad_scroll_burst(int fd, adapter_state *st,
+                                       const aaas_input_msg *first_wire) {
+    aaas_input_msg m;
+    aaas_input_from_wire(&m, first_wire);
+    if (m.type != AAAS_INPUT_SCROLL ||
+        (m.button != AAAS_INPUT_AXIS_SOURCE_FINGER &&
+         m.button != AAAS_INPUT_AXIS_SOURCE_CONTINUOUS)) {
+        return handle_message(fd, st, first_wire);
+    }
+    int64_t request_ns = 0, recv_ns = 0;
+    int accepted = accept_message(st, first_wire, &m, &request_ns, &recv_ns);
+    if (accepted <= 0) return accepted < 0;
+
+    int64_t total_v = (int32_t)m.state;
+    int64_t total_h = (int32_t)m.reserved;
+    uint32_t count = 1;
+    uint32_t first_sequence = m.sequence;
+    uint32_t last_sequence = m.sequence;
+    int32_t x = m.x, y = m.y;
+    uint64_t generation = m.display_generation;
+    uint32_t focus_generation = m.focus_generation;
+    const uint32_t source = m.button;
+    const int64_t first_request_ns = request_ns;
+
+    while (count < 128) {
+        aaas_input_msg peek_wire, peek;
+        ssize_t n = recv(fd, &peek_wire, sizeof(peek_wire),
+                         MSG_PEEK | MSG_DONTWAIT | MSG_TRUNC);
+        if (n != (ssize_t)sizeof(peek_wire)) break;
+        aaas_input_from_wire(&peek, &peek_wire);
+        if (peek.type != AAAS_INPUT_SCROLL || peek.button != source ||
+            peek.display_generation != generation ||
+            peek.focus_generation != focus_generation) {
+            break;
+        }
+
+        aaas_input_msg next_wire;
+        n = recv(fd, &next_wire, sizeof(next_wire), MSG_DONTWAIT | MSG_TRUNC);
+        if (n != (ssize_t)sizeof(next_wire)) break;
+        int64_t next_request_ns = 0, next_recv_ns = 0;
+        accepted = accept_message(st, &next_wire, &m,
+                                  &next_request_ns, &next_recv_ns);
+        if (accepted < 0) return 1;
+        if (!accepted) continue;
+        total_v += (int32_t)m.state;
+        total_h += (int32_t)m.reserved;
+        if (total_v > INT32_MAX || total_v < INT32_MIN ||
+            total_h > INT32_MAX || total_h < INT32_MIN) {
+            adapter_log("scroll_batch_overflow", NULL);
+            return 0;
+        }
+        x = m.x;
+        y = m.y;
+        last_sequence = m.sequence;
+        count++;
+    }
+
+    st->last_x = x;
+    st->last_y = y;
+    if (!st->focused) {
+        adapter_log("unfocused_scroll_rejected", NULL);
+        return 0;
+    }
+    float v = (float)total_v / 120.0f;
+    float h = (float)total_h / 120.0f;
+    adapter_logf("scroll_batch", "\"source\":\"%s\",\"count\":%u,"
+                 "\"vscroll\":%.6g,\"hscroll\":%.6g,\"first_sequence\":%u,"
+                 "\"last_sequence\":%u,\"oldest_request_ns\":%llu",
+                 source == AAAS_INPUT_AXIS_SOURCE_FINGER ? "finger" : "continuous",
+                 count, (double)v, (double)h,
+                 first_sequence, last_sequence,
+                 (unsigned long long)first_request_ns);
+    return inject_cmd_scroll(x, y, AAAS_SOURCE_TOUCHPAD, v, h,
+                             last_sequence, first_request_ns) != 0;
+}
+
 static int inject_request(adapter_state *st, int action, int32_t x, int32_t y,
                           uint32_t source, uint32_t tool_type,
                           uint32_t button_state, uint32_t action_button,
@@ -549,17 +657,9 @@ static void release_all(adapter_state *st, int32_t x, int32_t y,
 
 static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire) {
     aaas_input_msg m;
-    aaas_input_from_wire(&m, wire);
-    int64_t request_ns = (int64_t)m.timestamp_ns;
-    int64_t recv_ns = (int64_t)monotonic_ns();
-
-    char why[64] = {0};
-    if (!aaas_input_state_accept(&st->order, &m, why, sizeof(why))) {
-        st->invalid_messages++;
-        adapter_logf("invalid_message", "\"reason\":\"%s\",\"count\":%u",
-                     why, st->invalid_messages);
-        return st->invalid_messages >= 8 ? 1 : 0;
-    }
+    int64_t request_ns = 0, recv_ns = 0;
+    int accepted = accept_message(st, wire, &m, &request_ns, &recv_ns);
+    if (accepted <= 0) return accepted < 0;
 
     switch (m.type) {
     case AAAS_INPUT_HELLO: {
@@ -857,7 +957,15 @@ int main(int argc, char **argv) {
                 adapter_log("invalid_message_length", NULL);
                 continue;
             }
-            if (handle_message(fd, &st, &wire)) {
+            aaas_input_msg message;
+            aaas_input_from_wire(&message, &wire);
+            int should_stop =
+                    message.type == AAAS_INPUT_SCROLL &&
+                    (message.button == AAAS_INPUT_AXIS_SOURCE_FINGER ||
+                     message.button == AAAS_INPUT_AXIS_SOURCE_CONTINUOUS)
+                    ? handle_touchpad_scroll_burst(fd, &st, &wire)
+                    : handle_message(fd, &st, &wire);
+            if (should_stop) {
                 break;
             }
         }
