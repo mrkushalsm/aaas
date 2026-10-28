@@ -24,10 +24,10 @@ import aaas_cgroup
 ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE = Path('/run/media/mrkus/Homework/aaas-workspace')
 TMP = WORKSPACE / 'tmp'
-RUNNER = ROOT / 'scripts/test_zygote_startup.py'
+RUNNER = ROOT / 'scripts/aaas_session_runner_base.py'
 PRESENTER = ROOT / 'experiments/m1a/build/wayland-host-presenter'
 INPUT_ADAPTER = ROOT / 'experiments/m1c/input_adapter/build/aaas-input-adapter'
-RUNNER_SHA256 = 'd6361e97933ab2dfd18f544ac3ed00100b984e31cad24d2773ad9426c00621f7'
+RUNNER_SHA256 = '63987b632cfc28f15eaa406f8b6fedc2f80f0c7c63fa2d8a751558d02267e396'
 VULKAN_SHA256 = '1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181'
 LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd'
 LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce'
@@ -46,6 +46,7 @@ def replace_once(source, old, new):
 def make_session_runner(session):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
+    timeout = '140'
     source = RUNNER.read_text()
     source = replace_once(source, '    ipc_dir = tmp_dir / "aaas_ipc"',
                           '    ipc_dir = Path(os.environ["AAAS_SESSION_IPC"])')
@@ -77,11 +78,11 @@ def make_session_runner(session):
         '{lmkd_bind}{status_bind}{logcat_bind}{input_adapter_bind}'
         '{input_adapter_log_bind}{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
     )
+    logcat_anchor = '    /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true'
     source = replace_once(
-        source,
-        '    /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true',
+        source, logcat_anchor,
         '    /system/bin/logcat -b all -v threadtime > /aaas_session_logcat 2>&1 &\n'
-        '    /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true',
+        + logcat_anchor,
     )
     source = replace_once(
         source,
@@ -110,7 +111,7 @@ def make_session_runner(session):
     )
     source = replace_once(source, '                         start_new_session=True)',
                           '                         start_new_session=False)')
-    source = replace_once(source, 'p.communicate(timeout=140)', 'p.communicate(timeout=None)')
+    source = replace_once(source, f'p.communicate(timeout={timeout})', 'p.communicate(timeout=None)')
     output = session / 'runner.py'
     output.write_text(source)
     output.chmod(0o700)

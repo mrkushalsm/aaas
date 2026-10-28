@@ -25,6 +25,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('/aaas_session_logcat', generated)
         self.assertIn('echo RUNNING > /aaas_session_status', generated)
         self.assertIn('p.communicate(timeout=None)', generated)
+        self.assertNotIn('p.communicate(timeout=80)', generated)
         self.assertIn('start_new_session=False', generated)
 
     def test_runner_hash_change_is_rejected(self):
