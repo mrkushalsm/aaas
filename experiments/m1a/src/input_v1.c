@@ -56,7 +56,7 @@ int aaas_input_validate(const aaas_input_msg *m, uint64_t session_id,
     if (m->magic != AAAS_INPUT_MAGIC) return fail(why, why_len, "bad magic");
     if (m->version != AAAS_INPUT_VERSION) return fail(why, why_len, "bad version");
     if (m->length != AAAS_INPUT_MSG_SIZE) return fail(why, why_len, "bad length");
-    if (m->type < AAAS_INPUT_HELLO || m->type > AAAS_INPUT_SHUTDOWN) {
+    if (m->type < AAAS_INPUT_HELLO || m->type > AAAS_INPUT_AXIS_STOP) {
         return fail(why, why_len, "bad type");
     }
     if (m->session_id != session_id) return fail(why, why_len, "stale session");
@@ -64,10 +64,19 @@ int aaas_input_validate(const aaas_input_msg *m, uint64_t session_id,
     if (m->display_id >= AAAS_INPUT_MAX_DISPLAY) {
         return fail(why, why_len, "display out of range");
     }
-    if (m->flags & ~AAAS_INPUT_FLAG_ACK) return fail(why, why_len, "bad flags");
-    if (m->reserved != 0) return fail(why, why_len, "reserved not zero");
+    uint32_t allowed_flags;
+    if (m->type == AAAS_INPUT_SCROLL) {
+        allowed_flags = AAAS_INPUT_FLAG_AXIS_VALUE120 | AAAS_INPUT_FLAG_AXIS_DISCRETE |
+                        AAAS_INPUT_FLAG_AXIS_SMOOTH;
+    } else {
+        allowed_flags = AAAS_INPUT_FLAG_ACK;
+    }
+    if (m->flags & ~allowed_flags) return fail(why, why_len, "bad flags");
     if ((m->flags & AAAS_INPUT_FLAG_ACK) && m->type != AAAS_INPUT_HELLO) {
         return fail(why, why_len, "ack on non-hello");
+    }
+    if (m->reserved != 0 && m->type != AAAS_INPUT_SCROLL) {
+        return fail(why, why_len, "reserved not zero");
     }
 
     if (m->type == AAAS_INPUT_HELLO) {
@@ -112,6 +121,25 @@ int aaas_input_validate(const aaas_input_msg *m, uint64_t session_id,
             m->button != AAAS_INPUT_BUTTON_RIGHT &&
             m->button != AAAS_INPUT_BUTTON_MIDDLE) {
             return fail(why, why_len, "unsupported button");
+        }
+    } else if (m->type == AAAS_INPUT_HOVER) {
+        if (m->state != 0 || m->button != 0) {
+            return fail(why, why_len, "bad hover payload");
+        }
+    } else if (m->type == AAAS_INPUT_SCROLL) {
+        if (m->button > AAAS_INPUT_AXIS_SOURCE_WHEEL_TILT) {
+            return fail(why, why_len, "bad axis source");
+        }
+        if (m->state == 0 && m->reserved == 0) {
+            return fail(why, why_len, "empty scroll");
+        }
+    } else if (m->type == AAAS_INPUT_AXIS_STOP) {
+        if (m->button == 0 || (m->button & ~(AAAS_INPUT_AXIS_VERTICAL |
+                                             AAAS_INPUT_AXIS_HORIZONTAL))) {
+            return fail(why, why_len, "bad axis stop");
+        }
+        if (m->state != 0 || m->flags != 0 || m->reserved != 0) {
+            return fail(why, why_len, "bad axis stop payload");
         }
     }
     return 0;

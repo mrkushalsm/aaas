@@ -1,15 +1,16 @@
 /*
  * AaaS Android pointer input adapter.
  *
- * This is a deliberately small, persistent Android-side daemon.  It accepts
- * only the versioned AaaS pointer protocol on a private SEQPACKET socket and
- * feeds validated press/release/move events to Android's real input system
- * through the platform `cmd input` entry point.  `execv` is used with a fixed
- * argv; no shell, package names, or arbitrary commands are accepted.
+ * Persistent Android-side daemon.  It accepts only the versioned AaaS pointer
+ * protocol on a private SEQPACKET socket and feeds validated press/release/
+ * move/hover/scroll events to Android's real input system.  The default
+ * backend is a persistent native Binder client.  The legacy per-event
+ * `cmd input` path is retained as an explicit diagnostic fallback.
  */
 
 #include "input_v1.h"
 #include "input_state.h"
+#include "inject_binder.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -46,11 +47,19 @@ int *__errno_location(void) {
 static volatile sig_atomic_t g_stop;
 static int g_log_fd = -1;
 
+typedef enum {
+    INPUT_BACKEND_AUTO = 0,
+    INPUT_BACKEND_BINDER,
+    INPUT_BACKEND_CMD,
+} input_backend;
+
+static input_backend g_backend = INPUT_BACKEND_AUTO;
+
 static int ascii_digit(char c, int base) {
     int v;
     if (c >= '0' && c <= '9') v = c - '0';
     else if (c >= 'a' && c <= 'f') v = c - 'a' + 10;
-    else if (c >= 'A' && c <= 'F') v = c - 'A' + 10;
+    else if (c >= 'A' && c <= 'F') v = c - 'a' + 10;
     else return -1;
     return v < base ? v : -1;
 }
@@ -136,7 +145,7 @@ static uint64_t monotonic_ns(void) {
 }
 
 static void adapter_log(const char *event, const char *extra_json) {
-    char line[768];
+    char line[1024];
     int n;
     if (extra_json && extra_json[0]) {
         n = snprintf(line, sizeof(line),
@@ -156,10 +165,18 @@ static void adapter_log(const char *event, const char *extra_json) {
     if (g_log_fd >= 0) {
         ssize_t ignored = write(g_log_fd, line, (size_t)n);
         (void)ignored;
-    } else {
-        ssize_t ignored = write(STDERR_FILENO, line, (size_t)n);
-        (void)ignored;
     }
+    ssize_t ignored2 = write(STDERR_FILENO, line, (size_t)n);
+    (void)ignored2;
+}
+
+static void adapter_logf(const char *event, const char *fmt, ...) {
+    char extra[768];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(extra, sizeof(extra), fmt, ap);
+    va_end(ap);
+    adapter_log(event, extra);
 }
 
 static void handle_signal(int sig) {
@@ -246,12 +263,38 @@ static int wait_for_child(pid_t pid) {
     }
 }
 
-static int inject_event(const char *motion, int32_t x, int32_t y, uint32_t sequence) {
+static const char *action_name(int action) {
+    switch (action) {
+    case AAAS_ACTION_DOWN: return "DOWN";
+    case AAAS_ACTION_UP: return "UP";
+    case AAAS_ACTION_MOVE: return "MOVE";
+    case AAAS_ACTION_BUTTON_PRESS: return "BUTTON_PRESS";
+    case AAAS_ACTION_BUTTON_RELEASE: return "BUTTON_RELEASE";
+    case AAAS_ACTION_SCROLL: return "SCROLL";
+    case AAAS_ACTION_HOVER_MOVE: return "HOVER_MOVE";
+    case AAAS_ACTION_HOVER_ENTER: return "HOVER_ENTER";
+    case AAAS_ACTION_HOVER_EXIT: return "HOVER_EXIT";
+    default: return "UNKNOWN";
+    }
+}
+
+static const char *source_name(uint32_t source) {
+    switch (source) {
+    case AAAS_SOURCE_TOUCHSCREEN: return "TOUCHSCREEN";
+    case AAAS_SOURCE_MOUSE: return "MOUSE";
+    case AAAS_SOURCE_TOUCHPAD: return "TOUCHPAD";
+    default: return "UNKNOWN";
+    }
+}
+
+static int inject_cmd_motion(const char *motion, int32_t x, int32_t y,
+                             uint32_t sequence, int64_t request_ns) {
     char xs[16];
     char ys[16];
     snprintf(xs, sizeof(xs), "%d", x);
     snprintf(ys, sizeof(ys), "%d", y);
 
+    uint64_t start_ns = monotonic_ns();
     pid_t pid = fork();
     if (pid < 0) {
         adapter_log("fork_failed", NULL);
@@ -274,11 +317,94 @@ static int inject_event(const char *motion, int32_t x, int32_t y, uint32_t seque
     }
 
     int rc = wait_for_child(pid);
-    char extra[192];
-    snprintf(extra, sizeof(extra),
-             "\"motion\":\"%s\",\"x\":%d,\"y\":%d,\"sequence\":%u,\"rc\":%d",
-             motion, x, y, sequence, rc);
-    adapter_log(rc == 0 ? "inject" : "inject_failed", extra);
+    uint64_t done_ns = monotonic_ns();
+    adapter_logf(rc == 0 ? "inject_done" : "inject_failed",
+                 "\"backend\":\"cmd\",\"action\":\"%s\",\"x\":%d,\"y\":%d,"
+                 "\"sequence\":%u,\"rc\":%d,\"request_ns\":%llu,"
+                 "\"start_ns\":%llu,\"done_ns\":%llu,\"elapsed_ns\":%llu",
+                 motion, x, y, sequence, rc,
+                 (unsigned long long)request_ns,
+                 (unsigned long long)start_ns,
+                 (unsigned long long)done_ns,
+                 (unsigned long long)(done_ns - start_ns));
+    return rc;
+}
+
+static int inject_event(int action, int32_t x, int32_t y,
+                        uint32_t source, uint32_t tool_type,
+                        uint32_t button_state, uint32_t action_button,
+                        float pressure, float vscroll, float hscroll,
+                        uint32_t sequence, int64_t request_ns) {
+    uint64_t start_ns = monotonic_ns();
+    if (g_backend == INPUT_BACKEND_AUTO &&
+        (action == AAAS_ACTION_DOWN || action == AAAS_ACTION_BUTTON_PRESS ||
+         action == AAAS_ACTION_HOVER_ENTER || action == AAAS_ACTION_HOVER_MOVE ||
+         action == AAAS_ACTION_SCROLL)) {
+        int rc = aaas_binder_inject(action, x, y, source, tool_type,
+                                    button_state, action_button, pressure,
+                                    vscroll, hscroll, (int64_t)start_ns, sequence);
+        if (rc != 0) {
+            adapter_logf("inject_failed", "\"backend\":\"binder_probe\",\"action\":\"%s\","
+                         "\"sequence\":%u,\"rc\":%d",
+                         action_name(action), sequence, rc);
+            return rc;
+        }
+        g_backend = INPUT_BACKEND_BINDER;
+        adapter_logf("backend_selected", "\"backend\":\"binder\",\"probe_rc\":0");
+        adapter_logf("inject_done", "\"backend\":\"binder\",\"action\":\"%s\","
+                     "\"sequence\":%u,\"elapsed_ns\":%llu",
+                     action_name(action), sequence,
+                     (unsigned long long)(monotonic_ns() - start_ns));
+        return 0;
+    }
+    if (g_backend == INPUT_BACKEND_CMD) {
+        switch (action) {
+        case AAAS_ACTION_DOWN:
+            return inject_cmd_motion("DOWN", x, y, sequence, request_ns);
+        case AAAS_ACTION_MOVE:
+            return inject_cmd_motion("MOVE", x, y, sequence, request_ns);
+        case AAAS_ACTION_UP:
+            return inject_cmd_motion("UP", x, y, sequence, request_ns);
+        case AAAS_ACTION_BUTTON_PRESS:
+        case AAAS_ACTION_BUTTON_RELEASE:
+            adapter_log("cmd_backend_extra_mouse_button_unsupported", NULL);
+            return -1;
+        case AAAS_ACTION_SCROLL:
+            /* The legacy `cmd input` path does not understand axis metadata. */
+            adapter_log("scroll_unsupported_backend", NULL);
+            return -1;
+        case AAAS_ACTION_HOVER_MOVE:
+        case AAAS_ACTION_HOVER_ENTER:
+        case AAAS_ACTION_HOVER_EXIT:
+            /* Hover is intentionally not synthesized on the diagnostic path. */
+            return 0;
+        default:
+            return -1;
+        }
+    }
+
+    int rc = aaas_binder_inject(action, x, y, source, tool_type, button_state,
+                               action_button, pressure, vscroll, hscroll,
+                               (int64_t)start_ns, sequence);
+    if (rc != 0 && (action == AAAS_ACTION_UP || action == AAAS_ACTION_BUTTON_RELEASE)) {
+        /* Service failure is uncertain: keep state tracked and retry during cleanup. */
+        adapter_log("up_injection_failed_state_retained", NULL);
+    }
+    uint64_t done_ns = monotonic_ns();
+    adapter_logf(rc == 0 ? "inject_done" : "inject_failed",
+                 "\"backend\":\"binder\",\"action\":\"%s\",\"x\":%d,\"y\":%d,"
+                 "\"source\":\"%s\",\"tool\":%u,\"button_state\":%u,"
+                 "\"action_button\":%u,\"pressure\":%.3f,\"vscroll\":%.3f,"
+                 "\"hscroll\":%.3f,\"sequence\":%u,\"rc\":%d,"
+                 "\"request_ns\":%llu,\"start_ns\":%llu,\"done_ns\":%llu,"
+                 "\"elapsed_ns\":%llu",
+                 action_name(action), x, y, source_name(source), tool_type,
+                 button_state, action_button, pressure, vscroll, hscroll,
+                 sequence, rc,
+                 (unsigned long long)request_ns,
+                 (unsigned long long)start_ns,
+                 (unsigned long long)done_ns,
+                 (unsigned long long)(done_ns - start_ns));
     return rc;
 }
 
@@ -309,31 +435,6 @@ static void send_ack(int fd, const aaas_input_msg *hello, uint64_t session_id) {
     }
 }
 
-static void release_all(int fd, uint32_t *pressed, int32_t x, int32_t y,
-                        uint32_t sequence, const char *reason) {
-    (void)fd;
-    static const uint32_t buttons[] = {
-        AAAS_INPUT_BUTTON_LEFT,
-        AAAS_INPUT_BUTTON_RIGHT,
-        AAAS_INPUT_BUTTON_MIDDLE,
-    };
-    uint32_t mask = *pressed;
-    if (!mask) {
-        return;
-    }
-    for (unsigned i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
-        if (mask & button_mask(buttons[i])) {
-            if (inject_event("UP", x, y, sequence) == 0) {
-                *pressed &= ~button_mask(buttons[i]);
-            }
-        }
-    }
-    char extra[128];
-    snprintf(extra, sizeof(extra), "\"reason\":\"%s\",\"remaining\":%u",
-             reason, *pressed);
-    adapter_log("buttons_released", extra);
-}
-
 typedef struct {
     aaas_input_state order;
     uint32_t pressed_buttons;
@@ -341,105 +442,240 @@ typedef struct {
     int32_t last_x;
     int32_t last_y;
     unsigned invalid_messages;
+    input_backend selected_backend;
 } adapter_state;
+
+static int inject_request(adapter_state *st, int action, int32_t x, int32_t y,
+                          uint32_t source, uint32_t tool_type,
+                          uint32_t button_state, uint32_t action_button,
+                          float pressure, float vscroll, float hscroll,
+                          uint32_t sequence, int64_t request_ns) {
+    (void)st;
+    return inject_event(action, x, y, source, tool_type, button_state,
+                        action_button, pressure, vscroll, hscroll,
+                        sequence, request_ns);
+}
+
+static void release_all(adapter_state *st, int32_t x, int32_t y,
+                        uint32_t sequence, const char *reason) {
+    static const uint32_t buttons[] = {
+        AAAS_INPUT_BUTTON_LEFT,
+        AAAS_INPUT_BUTTON_RIGHT,
+        AAAS_INPUT_BUTTON_MIDDLE,
+    };
+    uint32_t mask = st->pressed_buttons;
+    if (!mask) {
+        return;
+    }
+    for (unsigned i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
+        uint32_t bit = button_mask(buttons[i]);
+        if (!(mask & bit)) {
+            continue;
+        }
+        uint32_t remaining = st->pressed_buttons & ~bit;
+        const uint32_t android_remaining =
+                (remaining & (1u << 0) ? AAAS_BUTTON_PRIMARY : 0) |
+                (remaining & (1u << 1) ? AAAS_BUTTON_SECONDARY : 0) |
+                (remaining & (1u << 2) ? AAAS_BUTTON_TERTIARY : 0);
+        uint32_t android_button = bit == (1u << 0) ? AAAS_BUTTON_PRIMARY
+                : bit == (1u << 1) ? AAAS_BUTTON_SECONDARY : AAAS_BUTTON_TERTIARY;
+        int action = remaining == 0 ? AAAS_ACTION_UP : AAAS_ACTION_BUTTON_RELEASE;
+        int rc = inject_request(st, action, x, y, AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE,
+                                android_remaining, android_button, 0.0f, 0.0f, 0.0f,
+                                sequence, (int64_t)monotonic_ns());
+        if (rc != 0) {
+            adapter_log("release_reconciliation_failed", NULL);
+            break;
+        }
+        st->pressed_buttons = remaining;
+    }
+    adapter_logf("buttons_released", "\"reason\":\"%s\",\"remaining\":%u",
+                 reason, st->pressed_buttons);
+}
 
 static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire) {
     aaas_input_msg m;
     aaas_input_from_wire(&m, wire);
+    int64_t request_ns = (int64_t)m.timestamp_ns;
+    int64_t recv_ns = (int64_t)monotonic_ns();
 
     char why[64] = {0};
     if (!aaas_input_state_accept(&st->order, &m, why, sizeof(why))) {
         st->invalid_messages++;
-        char extra[128];
-        snprintf(extra, sizeof(extra), "\"reason\":\"%s\",\"count\":%u",
-                 why, st->invalid_messages);
-        adapter_log("invalid_message", extra);
+        adapter_logf("invalid_message", "\"reason\":\"%s\",\"count\":%u",
+                     why, st->invalid_messages);
         return st->invalid_messages >= 8 ? 1 : 0;
     }
 
-    if (m.type == AAAS_INPUT_HELLO) {
+    switch (m.type) {
+    case AAAS_INPUT_HELLO: {
         send_ack(fd, &m, st->order.session_id);
         st->last_x = 0;
         st->last_y = 0;
         st->focused = 0;
-        char extra[128];
-        snprintf(extra, sizeof(extra),
-                 "\"display_generation\":%u,\"width\":%d,\"height\":%d,\"sequence\":%u",
-                 st->order.display_generation, m.x, m.y, st->order.sequence);
-        adapter_log("hello", extra);
+        adapter_logf("hello",
+                     "\"display_generation\":%u,\"width\":%d,\"height\":%d,"
+                     "\"sequence\":%u,\"request_ns\":%llu,\"recv_ns\":%llu",
+                     st->order.display_generation, m.x, m.y,
+                     st->order.sequence,
+                     (unsigned long long)request_ns,
+                     (unsigned long long)recv_ns);
         return 0;
     }
-
-    if (m.type == AAAS_INPUT_FOCUS) {
+    case AAAS_INPUT_FOCUS: {
         st->last_x = m.x;
         st->last_y = m.y;
         if (m.state == AAAS_INPUT_FOCUS_ENTER) {
             st->focused = 1;
-            adapter_log("focus_enter", NULL);
+            if (!st->pressed_buttons) {
+                inject_request(st, AAAS_ACTION_HOVER_ENTER, m.x, m.y,
+                               AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE, 0, 0,
+                               0.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
+            }
+            adapter_logf("focus_enter", "\"sequence\":%u,\"request_ns\":%llu,\"recv_ns\":%llu",
+                         st->order.sequence,
+                         (unsigned long long)request_ns,
+                         (unsigned long long)recv_ns);
         } else {
-            release_all(fd, &st->pressed_buttons, st->last_x, st->last_y,
-                        st->order.sequence, "focus_leave");
+            release_all(st, st->last_x, st->last_y, st->order.sequence,
+                        "focus_leave");
+            if (!st->pressed_buttons) {
+                inject_request(st, AAAS_ACTION_HOVER_EXIT, m.x, m.y,
+                               AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE, 0, 0,
+                               0.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
+            }
             st->focused = 0;
-            adapter_log("focus_leave", NULL);
+            adapter_logf("focus_leave", "\"sequence\":%u,\"request_ns\":%llu,\"recv_ns\":%llu",
+                         st->order.sequence,
+                         (unsigned long long)request_ns,
+                         (unsigned long long)recv_ns);
         }
         return 0;
     }
-
-    if (m.type == AAAS_INPUT_SHUTDOWN) {
-        release_all(fd, &st->pressed_buttons, st->last_x, st->last_y,
-                    st->order.sequence, "shutdown");
-        adapter_log("shutdown_received", NULL);
+    case AAAS_INPUT_SHUTDOWN: {
+        release_all(st, st->last_x, st->last_y, st->order.sequence,
+                    "shutdown");
+        adapter_logf("shutdown_received", "\"sequence\":%u,\"request_ns\":%llu,\"recv_ns\":%llu",
+                     st->order.sequence,
+                     (unsigned long long)request_ns,
+                     (unsigned long long)recv_ns);
         return 1;
     }
-
-    if (!st->focused) {
-        adapter_log("unfocused_event_rejected", NULL);
-        return 0;
-    }
-
-    if (m.type == AAAS_INPUT_MOTION) {
+    case AAAS_INPUT_MOTION: {
         st->last_x = m.x;
         st->last_y = m.y;
-        char extra[128];
-        snprintf(extra, sizeof(extra), "\"x\":%d,\"y\":%d,\"pressed\":%u",
-                 m.x, m.y, st->pressed_buttons);
-        adapter_log("motion", extra);
+        if (!st->focused) {
+            return 0;
+        }
         if (st->pressed_buttons) {
-            inject_event("MOVE", m.x, m.y, st->order.sequence);
+            inject_request(st, AAAS_ACTION_MOVE, m.x, m.y, AAAS_SOURCE_MOUSE,
+                           AAAS_TOOL_MOUSE, st->pressed_buttons, 0,
+                           1.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
+        } else {
+            inject_request(st, AAAS_ACTION_HOVER_MOVE, m.x, m.y,
+                           AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE, 0, 0,
+                           0.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
         }
         return 0;
     }
-
-    if (m.type == AAAS_INPUT_BUTTON) {
-        uint32_t mask = button_mask(m.button);
-        if (!mask) {
+    case AAAS_INPUT_HOVER: {
+        st->last_x = m.x;
+        st->last_y = m.y;
+        if (!st->pressed_buttons) {
+            inject_request(st, AAAS_ACTION_HOVER_MOVE, m.x, m.y,
+                           AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE, 0, 0,
+                           0.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
+        }
+        return 0;
+    }
+    case AAAS_INPUT_SCROLL: {
+        if (!st->focused) {
+            adapter_log("unfocused_scroll_rejected", NULL);
+            return 0;
+        }
+        st->last_x = m.x;
+        st->last_y = m.y;
+        uint32_t source = AAAS_SOURCE_MOUSE;
+        uint32_t tool_type = AAAS_TOOL_MOUSE;
+        switch (m.button) {
+        case AAAS_INPUT_AXIS_SOURCE_FINGER:
+        case AAAS_INPUT_AXIS_SOURCE_CONTINUOUS:
+            source = AAAS_SOURCE_TOUCHPAD;
+            tool_type = AAAS_TOOL_FINGER;
+            break;
+        case AAAS_INPUT_AXIS_SOURCE_WHEEL:
+        case AAAS_INPUT_AXIS_SOURCE_WHEEL_TILT:
+            break;
+        default:
+            adapter_log("scroll_bad_axis_source", NULL);
+            return 0;
+        }
+        float v = (float)(int32_t)m.state / 120.0f;
+        float h = (float)(int32_t)m.reserved / 120.0f;
+        inject_request(st, AAAS_ACTION_SCROLL, m.x, m.y, source, tool_type,
+                       0, 0, 0.0f, v, h, st->order.sequence, request_ns);
+        return 0;
+    }
+    case AAAS_INPUT_AXIS_STOP: {
+        st->last_x = m.x;
+        st->last_y = m.y;
+        adapter_logf("axis_stop", "\"mask\":%u,\"sequence\":%u,\"request_ns\":%llu,\"recv_ns\":%llu",
+                     m.button, st->order.sequence,
+                     (unsigned long long)request_ns,
+                     (unsigned long long)recv_ns);
+        return 0;
+    }
+    case AAAS_INPUT_BUTTON: {
+        uint32_t bit = button_mask(m.button);
+        if (!bit) {
             adapter_log("unsupported_button", NULL);
             return 0;
         }
         st->last_x = m.x;
         st->last_y = m.y;
         if (m.state == AAAS_INPUT_BUTTON_PRESSED) {
-            if (st->pressed_buttons & mask) {
+            if (st->pressed_buttons & bit) {
                 adapter_log("duplicate_press", NULL);
                 return 0;
             }
-            inject_event("MOVE", m.x, m.y, st->order.sequence);
-            if (inject_event("DOWN", m.x, m.y, st->order.sequence) == 0) {
-                st->pressed_buttons |= mask;
+            uint32_t new_mask = st->pressed_buttons | bit;
+            const uint32_t android_mask =
+                    (new_mask & (1u << 0) ? AAAS_BUTTON_PRIMARY : 0) |
+                    (new_mask & (1u << 1) ? AAAS_BUTTON_SECONDARY : 0) |
+                    (new_mask & (1u << 2) ? AAAS_BUTTON_TERTIARY : 0);
+            uint32_t android_button = bit == (1u << 0) ? AAAS_BUTTON_PRIMARY
+                    : bit == (1u << 1) ? AAAS_BUTTON_SECONDARY : AAAS_BUTTON_TERTIARY;
+            int action = android_button == AAAS_BUTTON_PRIMARY && st->pressed_buttons == 0
+                    ? AAAS_ACTION_DOWN : AAAS_ACTION_BUTTON_PRESS;
+            if (inject_request(st, action, m.x, m.y, AAAS_SOURCE_MOUSE,
+                               AAAS_TOOL_MOUSE, android_mask, android_button, 1.0f, 0.0f, 0.0f,
+                               st->order.sequence, request_ns) == 0) {
+                st->pressed_buttons = new_mask;
             }
         } else {
-            if (!(st->pressed_buttons & mask)) {
+            if (!(st->pressed_buttons & bit)) {
                 adapter_log("release_without_press", NULL);
                 return 0;
             }
-            if (inject_event("UP", m.x, m.y, st->order.sequence) == 0) {
-                st->pressed_buttons &= ~mask;
+            uint32_t remaining = st->pressed_buttons & ~bit;
+            const uint32_t android_remaining =
+                    (remaining & (1u << 0) ? AAAS_BUTTON_PRIMARY : 0) |
+                    (remaining & (1u << 1) ? AAAS_BUTTON_SECONDARY : 0) |
+                    (remaining & (1u << 2) ? AAAS_BUTTON_TERTIARY : 0);
+            uint32_t android_button = bit == (1u << 0) ? AAAS_BUTTON_PRIMARY
+                    : bit == (1u << 1) ? AAAS_BUTTON_SECONDARY : AAAS_BUTTON_TERTIARY;
+            int action = remaining == 0 ? AAAS_ACTION_UP : AAAS_ACTION_BUTTON_RELEASE;
+            if (inject_request(st, action, m.x, m.y, AAAS_SOURCE_MOUSE,
+                               AAAS_TOOL_MOUSE, android_remaining, android_button, 0.0f, 0.0f, 0.0f,
+                               st->order.sequence, request_ns) == 0) {
+                st->pressed_buttons = remaining;
             }
         }
         return 0;
     }
-
-    return 0;
+    default:
+        return 0;
+    }
 }
 
 static void usage(const char *prog) {
@@ -449,6 +685,7 @@ static void usage(const char *prog) {
             "  --session-file <path>  session token file (default: " DEFAULT_SESSION_FILE ")\n"
             "  --log <path>           JSON log path (default: " DEFAULT_LOG ")\n"
             "  --display <id>         Android display id (default: 0)\n"
+            "  --backend <auto|binder|cmd> input backend (default: auto)\n"
             "  --help                 show this help\n",
             prog);
 }
@@ -457,6 +694,7 @@ int main(int argc, char **argv) {
     const char *socket_path = DEFAULT_SOCKET;
     const char *session_file = DEFAULT_SESSION_FILE;
     const char *log_path = DEFAULT_LOG;
+    const char *backend_arg = NULL;
     int display_id = 0;
 
     for (int i = 1; i < argc; i++) {
@@ -473,6 +711,8 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Invalid display id: %s\n", argv[i]);
                 return 1;
             }
+        } else if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {
+            backend_arg = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -485,6 +725,22 @@ int main(int argc, char **argv) {
     if (display_id != 0) {
         fprintf(stderr, "This adapter only supports the AaaS display 0\n");
         return 1;
+    }
+
+    if (!backend_arg) {
+        backend_arg = getenv("AAAS_INPUT_BACKEND");
+    }
+    if (backend_arg) {
+        if (strcmp(backend_arg, "binder") == 0) {
+            g_backend = INPUT_BACKEND_BINDER;
+        } else if (strcmp(backend_arg, "cmd") == 0) {
+            g_backend = INPUT_BACKEND_CMD;
+        } else if (strcmp(backend_arg, "auto") == 0) {
+            g_backend = INPUT_BACKEND_AUTO;
+        } else {
+            fprintf(stderr, "Invalid backend: %s\n", backend_arg);
+            return 1;
+        }
     }
 
     signal(SIGINT, handle_signal);
@@ -504,11 +760,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    char start_extra[192];
-    snprintf(start_extra, sizeof(start_extra),
-             "\"pid\":%ld,\"socket\":\"%s\",\"session\":\"%016llx\",\"display\":%d",
-             (long)getpid(), socket_path, (unsigned long long)session_id, display_id);
-    adapter_log("start", start_extra);
+    adapter_logf("start",
+                 "\"pid\":%ld,\"socket\":\"%s\",\"session\":\"%016llx\","
+                 "\"display\":%d,\"backend\":\"%s\"",
+                 (long)getpid(), socket_path,
+                 (unsigned long long)session_id, display_id,
+                 g_backend == INPUT_BACKEND_BINDER ? "binder"
+                     : g_backend == INPUT_BACKEND_CMD ? "cmd" : "auto");
 
     int fd = connect_input_socket(socket_path);
     if (fd < 0) {
@@ -521,6 +779,7 @@ int main(int argc, char **argv) {
     adapter_state st;
     memset(&st, 0, sizeof(st));
     aaas_input_state_init(&st.order, session_id);
+    st.selected_backend = g_backend;
 
     while (!g_stop) {
         struct pollfd p = { .fd = fd, .events = POLLIN, .revents = 0 };
@@ -554,8 +813,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    release_all(fd, &st.pressed_buttons, st.last_x, st.last_y,
-                st.order.sequence, "adapter_exit");
+    release_all(&st, st.last_x, st.last_y, st.order.sequence, "adapter_exit");
+    aaas_binder_shutdown();
     adapter_log("stop", NULL);
     close(fd);
     if (g_log_fd >= 0) close(g_log_fd);

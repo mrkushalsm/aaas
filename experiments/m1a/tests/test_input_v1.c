@@ -73,6 +73,33 @@ int main(void) {
     m.button = 0x999;
     expect_valid("button-unsupported", &m, 0);
 
+    m = base(AAAS_INPUT_HOVER);
+    expect_valid("hover", &m, 1);
+    m.state = 1;
+    expect_valid("hover-with-state", &m, 0);
+
+    m = base(AAAS_INPUT_SCROLL);
+    m.state = 60;
+    expect_valid("scroll-smooth", &m, 1);
+    m.flags = AAAS_INPUT_FLAG_AXIS_VALUE120;
+    expect_valid("scroll-value120", &m, 1);
+    m.reserved = 0xffff;
+    expect_valid("scroll-horizontal", &m, 1);
+    m.button = 4;
+    expect_valid("scroll-bad-source", &m, 0);
+
+    m = base(AAAS_INPUT_SCROLL);
+    expect_valid("scroll-empty", &m, 0);
+
+    m = base(AAAS_INPUT_AXIS_STOP);
+    m.button = AAAS_INPUT_AXIS_VERTICAL | AAAS_INPUT_AXIS_HORIZONTAL;
+    expect_valid("axis-stop", &m, 1);
+    m.button = 5;
+    expect_valid("axis-stop-bad-mask", &m, 0);
+    m = base(AAAS_INPUT_AXIS_STOP);
+    m.state = 1;
+    expect_valid("axis-stop-with-state", &m, 0);
+
     m = base(AAAS_INPUT_SHUTDOWN);
     expect_valid("shutdown", &m, 1);
 

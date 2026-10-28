@@ -28,11 +28,28 @@ enum {
     AAAS_INPUT_MOTION = 3,
     AAAS_INPUT_BUTTON = 4,
     AAAS_INPUT_SHUTDOWN = 5,
+    AAAS_INPUT_HOVER = 6,
+    AAAS_INPUT_SCROLL = 7,
+    AAAS_INPUT_AXIS_STOP = 8,
 };
 
 enum {
     AAAS_INPUT_FOCUS_LEAVE = 0,
     AAAS_INPUT_FOCUS_ENTER = 1,
+};
+
+/* Wayland wl_pointer.axis_source values. */
+enum {
+    AAAS_INPUT_AXIS_SOURCE_WHEEL = 0,
+    AAAS_INPUT_AXIS_SOURCE_FINGER = 1,
+    AAAS_INPUT_AXIS_SOURCE_CONTINUOUS = 2,
+    AAAS_INPUT_AXIS_SOURCE_WHEEL_TILT = 3,
+};
+
+/* Logical bitmask used by AXIS_STOP. */
+enum {
+    AAAS_INPUT_AXIS_VERTICAL = 1u << 0,
+    AAAS_INPUT_AXIS_HORIZONTAL = 1u << 1,
 };
 
 enum {
@@ -42,6 +59,12 @@ enum {
 
 enum {
     AAAS_INPUT_FLAG_ACK = 1u << 0,
+    /* Present when a scroll carries latched axis_value120 data. */
+    AAAS_INPUT_FLAG_AXIS_VALUE120 = 1u << 1,
+    /* Present when a scroll carries latched axis_discrete data. */
+    AAAS_INPUT_FLAG_AXIS_DISCRETE = 1u << 2,
+    /* Present when a scroll was synthesized from smooth axis motion. */
+    AAAS_INPUT_FLAG_AXIS_SMOOTH = 1u << 3,
 };
 
 typedef struct {
@@ -60,7 +83,7 @@ typedef struct {
     uint32_t state;             /* focus/button state */
     uint32_t focus_generation;  /* incremented on enter/leave */
     uint32_t flags;             /* AAAS_INPUT_FLAG_* */
-    uint32_t reserved;          /* must be zero */
+    uint32_t reserved;          /* must be zero except SCROLL uses horizontal value120 */
 } __attribute__((packed)) aaas_input_msg;
 
 #define AAAS_INPUT_MSG_SIZE ((uint32_t)sizeof(aaas_input_msg))
