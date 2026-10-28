@@ -1,8 +1,8 @@
 # M1C.1 — Binder-backed pointer and scroll input
 
-Status: **PASS for input transport and Android injection**
+Status: **PARTIAL — pointer and Android scroll delivery work; physical scroll visibility not fully confirmed**
 Date: 2026-10-29
-Implementation commit: `556d3d0` (`feat(input): preserve pointer and scroll semantics on Android`)
+Implementation commits: `556d3d0` (`feat(input): preserve pointer and scroll semantics on Android`), with the scroll correction described below
 Live session: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_yert8z49`
 Evidence: `results/m1c1/live/`
 
@@ -12,14 +12,26 @@ Evidence: `results/m1c1/live/`
 | --- | --- | --- |
 | Private input adapter startup and HELLO | PASS | Presenter recorded adapter connected/ready; adapter validated HELLO and selected the Binder backend. |
 | Host pointer click reaches Android | PASS | Disposable host uinput click generated Wayland button press/release; adapter recorded Binder DOWN and UP, each with `rc=0`. |
-| Vertical wheel reaches Android | PASS | Host `REL_WHEEL` probe; adapter recorded Binder SCROLL with `vscroll=1.0`, `hscroll=0.0`, `rc=0`. |
-| Horizontal wheel reaches Android | PASS | Host `REL_HWHEEL` probe; adapter recorded Binder SCROLL with `vscroll=0.0`, `hscroll=1.0`, `rc=0`. |
+| Vertical scroll transport | PASS | Wayland presenter emits axis values in input protocol v1; Android adapter receives and validates the packet. |
+| Android view scroll via hand-built Binder parcel | FAIL | Binder returned success, but Android Settings screencaps were pixel-identical before and after the event. This corrects the previous report, which treated Binder success as functional scrolling. |
+| Android Settings scroll via framework event builder | PASS | Adapter now routes `ACTION_SCROLL` through `/system/bin/cmd input <mouse|touchpad> scroll ...`; an input-socket integration event moved the actual Settings homepage. `socket-before.png` and `socket-after.png` differ in 135,837 pixels (bbox `(42,315)-(1238,720)`). |
+| Physical mouse-wheel visual movement after fix | NOT VERIFIED | Live host events reached the adapter and used the new `cmd` backend, but the captured samples were upward values while the page was already at its upper edge. They did not prove a visible movement for a downward physical wheel gesture. |
+| Horizontal UI movement | NOT VERIFIED | The Settings homepage has no horizontally scrollable content in the tested view. Horizontal axis transport is supported by the protocol, but a visible Android horizontal-scroll target was not exercised. |
+| Physical touchpad scrolling | NOT VERIFIED | The host reports an ITE5570 touchpad, but no physical finger gesture was available during the captured run. |
 | Presenter/frame and cleanup | PASS | Presenter summary: 395 frames presented, 0 rejected, 18 input packets sent, 0 input drops. Adapter disconnected on presenter shutdown; delegated cgroup policy cleanup reported `removed=true` and no failures. |
 
-The click and both wheel directions were exercised twice during the same live
-Android session. The scroll claims are limited to successful Android Binder
-`IInputManager` injection (transaction returned success); a visible change in a
-scrollable Settings view was not separately asserted.
+The native Binder parcel reader was compared with Android 16 `MotionEvent` parcel
+serialization and its field ordering is structurally valid. Nevertheless, the
+live Binder scroll was accepted without changing the target view. The focused
+correction uses Android's own `InputShellCommand` builder for scroll events,
+while leaving the existing native Binder path in place for clicks, hover, and
+drag. The Settings pixels changed through the Android adapter after the
+framework-built scroll. A post-fix physical downward wheel movement and a
+physical touchpad gesture still require separate verification before the full
+M1C.1 scrolling requirement can be marked complete.
+
+See `results/m1c1/live/scroll-regression/scroll-fix.json` for live evidence and
+the before/after capture hashes.
 
 ## Evidence files
 

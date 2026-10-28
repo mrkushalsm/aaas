@@ -330,12 +330,70 @@ static int inject_cmd_motion(const char *motion, int32_t x, int32_t y,
     return rc;
 }
 
+static int inject_cmd_scroll(int32_t x, int32_t y, uint32_t source,
+                             float vscroll, float hscroll,
+                             uint32_t sequence, int64_t request_ns) {
+    const char *input_source = source == AAAS_SOURCE_TOUCHPAD ? "touchpad" : "mouse";
+    char xs[16], ys[16], vs[48], hs[48];
+    snprintf(xs, sizeof(xs), "%d", x);
+    snprintf(ys, sizeof(ys), "%d", y);
+    snprintf(vs, sizeof(vs), "VSCROLL,%.6g", (double)vscroll);
+    snprintf(hs, sizeof(hs), "HSCROLL,%.6g", (double)hscroll);
+
+    uint64_t start_ns = monotonic_ns();
+    pid_t pid = fork();
+    if (pid < 0) {
+        adapter_log("fork_failed", "\"action\":\"SCROLL\"");
+        return -1;
+    }
+    if (pid == 0) {
+        char *argv[12];
+        int n = 0;
+        argv[n++] = (char *)"cmd";
+        argv[n++] = (char *)"input";
+        argv[n++] = (char *)input_source;
+        argv[n++] = (char *)"scroll";
+        argv[n++] = xs;
+        argv[n++] = ys;
+        if (vscroll != 0.0f) {
+            argv[n++] = (char *)"--axis";
+            argv[n++] = vs;
+        }
+        if (hscroll != 0.0f) {
+            argv[n++] = (char *)"--axis";
+            argv[n++] = hs;
+        }
+        argv[n] = NULL;
+        execv(CMD_PATH, argv);
+        _exit(127);
+    }
+
+    int rc = wait_for_child(pid);
+    uint64_t done_ns = monotonic_ns();
+    adapter_logf(rc == 0 ? "inject_done" : "inject_failed",
+                 "\"backend\":\"cmd\",\"action\":\"SCROLL\","
+                 "\"source\":\"%s\",\"x\":%d,\"y\":%d,"
+                 "\"vscroll\":%.6g,\"hscroll\":%.6g,\"sequence\":%u,"
+                 "\"rc\":%d,\"request_ns\":%llu,\"start_ns\":%llu,"
+                 "\"done_ns\":%llu,\"elapsed_ns\":%llu",
+                 input_source, x, y, (double)vscroll, (double)hscroll,
+                 sequence, rc, (unsigned long long)request_ns,
+                 (unsigned long long)start_ns, (unsigned long long)done_ns,
+                 (unsigned long long)(done_ns - start_ns));
+    return rc;
+}
+
 static int inject_event(int action, int32_t x, int32_t y,
                         uint32_t source, uint32_t tool_type,
                         uint32_t button_state, uint32_t action_button,
                         float pressure, float vscroll, float hscroll,
                         uint32_t sequence, int64_t request_ns) {
     uint64_t start_ns = monotonic_ns();
+    /* Android's MotionEvent.obtain path is the validated scroll serializer. */
+    if (action == AAAS_ACTION_SCROLL) {
+        return inject_cmd_scroll(x, y, source, vscroll, hscroll,
+                                 sequence, request_ns);
+    }
     if (g_backend == INPUT_BACKEND_AUTO &&
         (action == AAAS_ACTION_DOWN || action == AAAS_ACTION_BUTTON_PRESS ||
          action == AAAS_ACTION_HOVER_ENTER || action == AAAS_ACTION_HOVER_MOVE ||
@@ -368,10 +426,6 @@ static int inject_event(int action, int32_t x, int32_t y,
         case AAAS_ACTION_BUTTON_PRESS:
         case AAAS_ACTION_BUTTON_RELEASE:
             adapter_log("cmd_backend_extra_mouse_button_unsupported", NULL);
-            return -1;
-        case AAAS_ACTION_SCROLL:
-            /* The legacy `cmd input` path does not understand axis metadata. */
-            adapter_log("scroll_unsupported_backend", NULL);
             return -1;
         case AAAS_ACTION_HOVER_MOVE:
         case AAAS_ACTION_HOVER_ENTER:
