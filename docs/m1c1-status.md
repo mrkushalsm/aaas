@@ -69,3 +69,28 @@ and middle mouse buttons; it does not implement touch or multi-touch.
 
 Earlier runs of the suite had overlapped the live launcher; this verification
 was run after both live sessions had shut down cleanly.
+
+## Hover/flicker follow-up (2026-10-29)
+
+On the `e32185f` scroll baseline, rapid host pointer motion was still forwarded
+as Android `HOVER_ENTER`, `HOVER_MOVE`, and `HOVER_EXIT` events using a synthetic
+pointer with no stable Android device identity. Earlier logcat evidence showed
+InputDispatcher rejecting repeated hover transitions for that pointer. The
+input adapter now tracks focus locally and leaves unpressed pointer motion in
+Wayland; Android still receives button events, drag `MOVE`, and scroll events.
+This removes the invalid hover stream without changing scroll or frame-buffer
+synchronization.
+
+The rebuilt adapter was exercised in live Android session
+`m1b84_session_rfdmpx_b`. It delivered 126 successful mouse scroll injections,
+submitted 617 frames (589 presented, 28 discarded), and shut down cleanly.
+That run's logcat contained no `HOVER_MOVE`, `HOVER_ENTER`, `HOVER_EXIT`,
+`Invalid HOVER_ENTER`, Scudo error, or fatal-signal records. These results
+validate the input-stream correction. They do **not** prove that all perceived
+flicker is fixed: the capture was not a video of the AaaS window, and the boot
+and activity-transition presentation path still needs direct visual
+verification. The presenter already uses multiple in-flight buffers and
+Wayland explicit-sync release points; adding another buffer layer without a
+reproduced missing/partial frame would add latency without evidence it helps.
+
+Structured run evidence: `results/m1c1/live/hover-flicker-rfdmpx_b.json`.

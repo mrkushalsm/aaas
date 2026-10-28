@@ -21,6 +21,20 @@ class M1CScrollRoutingTests(unittest.TestCase):
         self.assertIn('const char *input_source = "mouse";', self.adapter)
         self.assertIn('origin_source = source == AAAS_SOURCE_TOUCHPAD ? "touchpad" : "mouse"', self.adapter)
 
+    def test_unpressed_host_motion_does_not_inject_android_hover_stream(self):
+        motion_start = self.adapter.index("case AAAS_INPUT_MOTION: {")
+        hover_start = self.adapter.index("case AAAS_INPUT_HOVER: {")
+        scroll_start = self.adapter.index("case AAAS_INPUT_SCROLL: {")
+        motion = self.adapter[motion_start:hover_start]
+        hover = self.adapter[hover_start:scroll_start]
+        focus_start = self.adapter.index("case AAAS_INPUT_FOCUS: {")
+        shutdown_start = self.adapter.index("case AAAS_INPUT_SHUTDOWN: {")
+        focus = self.adapter[focus_start:shutdown_start]
+        self.assertIn("if (st->pressed_buttons)", motion)
+        self.assertNotIn("AAAS_ACTION_HOVER_", motion)
+        self.assertNotIn("inject_request", hover)
+        self.assertNotIn("AAAS_ACTION_HOVER_", focus)
+
     def test_touchpad_scroll_is_normalized_and_adjacent_deltas_are_bounded(self):
         burst_start = self.adapter.index("static int handle_touchpad_scroll_burst(")
         burst_end = self.adapter.index("static int inject_request(", burst_start)

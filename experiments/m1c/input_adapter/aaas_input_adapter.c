@@ -681,11 +681,8 @@ static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire)
         st->last_y = m.y;
         if (m.state == AAAS_INPUT_FOCUS_ENTER) {
             st->focused = 1;
-            if (!st->pressed_buttons) {
-                inject_request(st, AAAS_ACTION_HOVER_ENTER, m.x, m.y,
-                               AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE, 0, 0,
-                               0.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
-            }
+            /* Host focus is tracked locally. Android's injected host pointer
+             * has no stable device identity and can retain stale hover state. */
             adapter_logf("focus_enter", "\"sequence\":%u,\"request_ns\":%llu,\"recv_ns\":%llu",
                          st->order.sequence,
                          (unsigned long long)request_ns,
@@ -693,11 +690,6 @@ static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire)
         } else {
             release_all(st, st->last_x, st->last_y, st->order.sequence,
                         "focus_leave");
-            if (!st->pressed_buttons) {
-                inject_request(st, AAAS_ACTION_HOVER_EXIT, m.x, m.y,
-                               AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE, 0, 0,
-                               0.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
-            }
             st->focused = 0;
             adapter_logf("focus_leave", "\"sequence\":%u,\"request_ns\":%llu,\"recv_ns\":%llu",
                          st->order.sequence,
@@ -725,21 +717,14 @@ static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire)
             inject_request(st, AAAS_ACTION_MOVE, m.x, m.y, AAAS_SOURCE_MOUSE,
                            AAAS_TOOL_MOUSE, st->pressed_buttons, 0,
                            1.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
-        } else {
-            inject_request(st, AAAS_ACTION_HOVER_MOVE, m.x, m.y,
-                           AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE, 0, 0,
-                           0.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
         }
         return 0;
     }
     case AAAS_INPUT_HOVER: {
         st->last_x = m.x;
         st->last_y = m.y;
-        if (!st->pressed_buttons) {
-            inject_request(st, AAAS_ACTION_HOVER_MOVE, m.x, m.y,
-                           AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE, 0, 0,
-                           0.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
-        }
+        /* Keep hover motion in the host Wayland surface. Android receives
+         * pointer movement only during a held-button drag. */
         return 0;
     }
     case AAAS_INPUT_SCROLL: {
