@@ -242,7 +242,17 @@ static void input_queue_flush(presenter_app *a) {
             return;
         }
         a->input_sent++;
-        if(send_key) { a->keyboard_queue_head=(a->keyboard_queue_head+1)%128; a->keyboard_queue_count--; }
+        if(send_key) {
+            aaas_input_keyboard_msg sent;
+            aaas_input_keyboard_from_wire(&sent, ki);
+            char extra[128];
+            snprintf(extra, sizeof(extra),
+                     "\"type\":%u,\"state\":%u,\"repeat_count\":%u",
+                     sent.type, sent.state, sent.repeat_count);
+            log_presenter_event("keyboard_packet_sent", a->gen, sent.sequence, extra);
+            a->keyboard_queue_head=(a->keyboard_queue_head+1)%128;
+            a->keyboard_queue_count--;
+        }
         else { a->input_queue_head=(a->input_queue_head+1)%INPUT_QUEUE_CAP; a->input_queue_count--; }
     }
 }
@@ -771,15 +781,22 @@ static void keyboard_leave(void *data, struct wl_keyboard *kbd, uint32_t serial,
 }
 static void keyboard_key(void *data, struct wl_keyboard *kbd, uint32_t serial,
                          uint32_t time, uint32_t key, uint32_t state) {
-    (void)kbd;(void)serial;(void)time;
+    (void)kbd;
     presenter_app *a=data;
     if(!a->keyboard_focus || !a->xkb_state || key>=768) return;
+    char received[96];
+    snprintf(received, sizeof(received), "\"state\":%u,\"serial\":%u,\"time_ms\":%u",
+             state, serial, time);
+    log_presenter_event("keyboard_key_received", a->gen, 0, received);
     xkb_keycode_t xkey=key+8;
     xkb_state_update_key(a->xkb_state,xkey,state==WL_KEYBOARD_KEY_STATE_PRESSED
         ? XKB_KEY_DOWN : XKB_KEY_UP);
     xkb_keysym_t sym=xkb_state_key_get_one_sym(a->xkb_state,xkey);
     uint32_t code=aaas_android_keycode_from_keysym(sym);
-    if(!code) return;
+    if(!code) {
+        log_presenter_event("keyboard_key_unmapped", a->gen, 0, NULL);
+        return;
+    }
     uint32_t meta=aaas_android_meta_state(a->xkb_state);
     uint32_t unicode=xkb_state_key_get_utf32(a->xkb_state,xkey);
     if(state==WL_KEYBOARD_KEY_STATE_PRESSED) {
@@ -806,6 +823,10 @@ static void keyboard_key(void *data, struct wl_keyboard *kbd, uint32_t serial,
         a->pressed_keys[key]=0;
         if(a->repeat_key==key) { a->repeat_key=UINT32_MAX; a->repeat_count=0; }
     }
+    char translated[96];
+    snprintf(translated, sizeof(translated), "\"state\":%u,\"repeat_count\":%u",
+             state, a->repeat_count);
+    log_presenter_event("keyboard_key_translated", a->gen, 0, translated);
 }
 static void keyboard_modifiers(void *data, struct wl_keyboard *kbd, uint32_t serial,
                                uint32_t dep, uint32_t lat, uint32_t lock, uint32_t group) {

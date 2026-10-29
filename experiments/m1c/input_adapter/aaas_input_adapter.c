@@ -517,9 +517,11 @@ static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_
     if(aaas_input_keyboard_validate(&m,st->order.session_id,0,why,sizeof(why))!=0 ||
        m.display_generation<st->order.display_generation || m.sequence==0 ||
        m.sequence<=st->order.sequence || m.focus_generation<st->order.focus_generation) {
-        adapter_log("keyboard_packet_rejected",NULL);
+        adapter_logf("keyboard_packet_rejected", "\"reason\":\"%s\"", why[0]?why:"stale ordering");
         return 0;
     }
+    adapter_logf("keyboard_packet_validated", "\"sequence\":%u,\"type\":%u,\"state\":%u",
+                 m.sequence,m.type,m.state);
     st->order.sequence=m.sequence;
     st->order.display_generation=m.display_generation;
     st->order.focus_generation=m.focus_generation;
@@ -553,8 +555,8 @@ static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_
         st->pressed_keys[k]?st->key_down_ns[k]:(int64_t)m.timestamp_ns,0);
     if(rc==0 && m.state==AAAS_INPUT_KEY_RELEASED) st->pressed_keys[k]=0;
     adapter_logf(rc==0?"key_injected":"key_injection_failed",
-        "\"state\":%u,\"rc\":%d,\"elapsed_ns\":%llu",
-        m.state,rc,(unsigned long long)(monotonic_ns()-(uint64_t)now));
+        "\"sequence\":%u,\"state\":%u,\"rc\":%d,\"elapsed_ns\":%llu",
+        m.sequence,m.state,rc,(unsigned long long)(monotonic_ns()-(uint64_t)now));
     return 0;
 }
 
