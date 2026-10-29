@@ -224,6 +224,18 @@ class RealHierarchyTests(unittest.TestCase):
         self.assertFalse(session.session_dir.exists())
         self.assertIn('/' + str(probe.relative_to(POLICY.CGROUP_MOUNT)), POLICY.read_process_identity(process.pid).cgroup)
 
+    def test_shutdown_retries_transient_restore_readback_mismatch(self):
+        from unittest.mock import patch
+
+        session = self.make_session()
+        mismatch = {123: 'restore failed: /session/cached != /original/pid_123'}
+        with patch.object(session, 'restore_all',
+                          side_effect=[mismatch, mismatch, {}]) as restore:
+            result = session.shutdown()
+        self.assertEqual(restore.call_count, 3)
+        self.assertTrue(result['removed'], result)
+        self.assertEqual(result['failures'], {})
+
     def test_anchor_is_protected_in_place(self):
         session = self.make_session()
         probe = self.make_probe()

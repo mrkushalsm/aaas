@@ -625,10 +625,22 @@ class CgroupSession:
     def shutdown(self) -> dict:
         self._shutdown = True
         failures = {}
-        try:
-            failures.update(self.restore_all())
-        except Exception as exc:  # cleanup must never mask the session result
-            failures['restore'] = f'{type(exc).__name__}: {exc}'
+        for attempt in range(3):
+            try:
+                failures = self.restore_all()
+            except Exception as exc:  # cleanup must never mask the session result
+                failures = {'restore': f'{type(exc).__name__}: {exc}'}
+                break
+            if not failures or not all(
+                    error.startswith('restore failed:')
+                    for error in failures.values()):
+                break
+            if attempt < 2:
+                # Android app processes may still be exiting after the
+                # namespace init is stopped. Retry only a verified cgroup
+                # read-back mismatch; permissions and missing-path errors
+                # remain immediately visible to the caller.
+                time.sleep(0.05)
         try:
             final_state = self.state()
         except Exception as exc:
