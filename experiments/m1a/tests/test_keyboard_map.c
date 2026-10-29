@@ -15,6 +15,7 @@ int main(void) {
     failed+=check("shifted-number",aaas_android_keycode_from_keysym(XKB_KEY_exclam),8);
     failed+=check("punctuation",aaas_android_keycode_from_keysym(XKB_KEY_quotedbl),75);
     failed+=check("back-mapping",aaas_android_keycode_from_keysym(XKB_KEY_Escape),4);
+    failed+=check("tab-mapping",aaas_android_keycode_from_keysym(XKB_KEY_Tab),61);
     failed+=check("delete-mapping",aaas_android_keycode_from_keysym(XKB_KEY_Delete),112);
     failed+=check("unsupported-symbol",aaas_android_keycode_from_keysym(XKB_KEY_F35),0);
 
@@ -28,6 +29,19 @@ int main(void) {
     failed+=check("shift-meta",aaas_android_meta_state(state)&1u,1u);
     xkb_state_update_key(state,50,XKB_KEY_UP);
     failed+=check("shift-release-meta",aaas_android_meta_state(state)&1u,0u);
+    xkb_state_update_key(state,37,XKB_KEY_DOWN); /* evdev KEY_LEFTCTRL + XKB offset */
+    failed+=check("ctrl-meta",aaas_android_meta_state(state)&0x1000u,0x1000u);
+    xkb_state_update_key(state,64,XKB_KEY_DOWN); /* evdev KEY_LEFTALT + XKB offset */
+    failed+=check("ctrl-alt-meta",aaas_android_meta_state(state)&0x1002u,0x1002u);
+    xkb_state_update_key(state,64,XKB_KEY_UP);
+    xkb_state_update_key(state,37,XKB_KEY_UP);
+    failed+=check("ctrl-alt-release-meta",aaas_android_meta_state(state)&0x1002u,0u);
+    xkb_state_update_key(state,66,XKB_KEY_DOWN); /* evdev KEY_CAPSLOCK + XKB offset */
+    failed+=check("caps-lock-meta",aaas_android_meta_state(state)&0x100000u,0x100000u);
+    xkb_state_update_key(state,66,XKB_KEY_UP);
+    xkb_state_update_key(state,66,XKB_KEY_DOWN);
+    xkb_state_update_key(state,66,XKB_KEY_UP);
+    failed+=check("caps-unlock-meta",aaas_android_meta_state(state)&0x100000u,0u);
     xkb_state_unref(state); xkb_keymap_unref(map); xkb_context_unref(ctx);
     if(failed) return 1;
     puts("all keyboard mapping tests passed");
