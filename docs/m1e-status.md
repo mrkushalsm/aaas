@@ -1,104 +1,88 @@
 # M1E status
 
-Status: **PARTIAL — package-selected launch added; display/window integration remains unimplemented**
+Status: **PARTIAL — one trusted secondary display and independent Wayland output validated**
 Date: 2026-10-30
-Initial commit: `73dd794d3a265df869b774abc8b02cfda7620c8c`
-Preservation record: `results/m1e/preservation_manifest.json`
-Live display probe: `results/m1e/live/display_task_probe.json`
+Baseline: `162321b` (`docs(m1e): align gate labels with verified evidence`)
 
-## Completed this turn
+## Delivered prototype
 
-- Confirmed a clean `master` worktree at M1D closure and no configured Git
-  remote. The external NTFS3 workspace is mounted from `/dev/sda2`, using
-  22,067,859,968 bytes against the 80 GiB ceiling, with the 20 GiB reserve
-  intact.
-- Recorded hashes for the launcher, runner, presenter, protocol, Composer3,
-  input adapter, and active graphics/runtime overlays.
-- Reproduced the default session twice. Both reached `RUNNING`; both reached
-  `STOPPED` on Ctrl+C. The display-inspection run presented 250 submissions,
-  247 frames, released 249, rejected 0, and discarded 3. No new screenshot was
-  taken, so this is runtime evidence, not a new visual claim.
-- Captured a bounded Android `dumpsys display`, `dumpsys window displays`, and
-  `dumpsys activity activities` probe in the external workspace.
-- Evaluated per-app virtual displays, task-level SurfaceControl, and a hybrid
-  task-on-virtual-display model. Candidate C is recommended provisionally; a
-  trusted virtual-display/Composer output prototype remains mandatory.
-- Added `--app <package>` to resolve an installed package's `MAIN`/`LAUNCHER`
-  Activity through Android PackageManager. The package ID is syntax-validated
-  before being embedded in the generated runner; a missing resolved component
-  fails startup. The default remains `com.android.settings`.
-- Live-tested `python3 scripts/run_aaas.py --app com.android.settings` through
-  `RUNNING` and clean Ctrl+C shutdown. Android logcat records the Settings
-  ActivityTaskManager launch and `Displayed`/`Fully drawn` events. This is a
-  package-selected launch check, not proof of arbitrary-package compatibility.
-  The current foreground-liveness check expects the Android process name to
-  match the package ID; apps declaring a custom main process need task-based
-  liveness before this option is considered generally compatible.
-- Ran the enhanced source-LMKD/cgroup session to `RUNNING`; Ctrl+C stopped the
-  session and removed its delegated hierarchy. Its summary recorded nine
-  monitor ticks, zero errors, and no OOM/high events in this bounded run.
-- Captured a live Android shell capability probe. `cmd activity help` exposes
-  moving a stack to an existing display, while `cmd display help` provides no
-  create-display interface. A trusted display therefore needs a scoped Android
-  system-side broker.
-- Fresh regression checks passed: 134 Python tests, M1A tests, presenter
-  build/tests, input-adapter rebuild, and external workspace guard.
+- `--experimental-virtual-display` starts a system-UID Android display broker,
+  creates a real private/trusted/own-content Android virtual display, and
+  launches the selected Settings task on it. The normal primary-display path
+  remains available and is unchanged in behavior.
+- Android assigned display ID 2, unique ID
+  `virtual:android,1000,AaaS application output,0`, at 720×1280 and 240 dpi.
+  DisplayManager reports `FLAG_PRIVATE`, `FLAG_TRUSTED`,
+  `FLAG_OWN_CONTENT_ONLY`, and `canHostTasks=true`. The broker requests the
+  display using system-owned DisplayManager APIs; it does not expose Binder to
+  host clients.
+- Settings task 8 and its SubSettings Activity were observed on display 2.
+  WMS reports full-display app/task bounds with no non-decor Insets. The
+  display-specific InputDispatcher window list contains Settings with a
+  full-display touch region; StatusBar and Taskbar input windows remain on
+  diagnostic display 0.
+- Composer reports one virtual HWC display (ID 100) only when its dedicated
+  virtual-output Wayland endpoint is connected. It retains output-buffer slots
+  separately from client-target slots, waits both acquire fences, routes
+  frames through a second transport/presenter, and returns the host release
+  fence to Android. The primary output continues using wire protocol v2 and its
+  original presenter.
+- In the instrumented live run, the virtual presenter recorded 180 imports and
+  submissions, 179 releases, 176 presentations, 4 discards, and zero rejects.
+  These counts are not treated as proof that all frames were displayed.
+- A controlled host `/dev/uinput` pointer click was delivered to Android
+  display 2 and opened Settings' Network & internet page. The captured
+  screenshot is real Android content from that output; its path and hash are
+  in `results/m1e/live/trusted_virtual_display.json`.
+- Shutdown requests the broker to release its `VirtualDisplay` and
+  `ImageReader`, waits for the display ID to clear, then stops the one-shot
+  init service. SurfaceFlinger and DisplayManager logged display removal and
+  Composer logged virtual display destruction.
+- The launcher now uses ActivityManager task/activity state for selected-app
+  liveness rather than assuming the Android process name equals the package.
+  This avoids premature session termination for apps with custom process
+  names; exact task-ID ownership is still future work.
 
-## Current state established by the live probe
+## Output-buffer ownership caveat
 
-- Android reports one logical display, ID 0, 720×1280, trusted, task-hosting.
-- Settings is the top-resumed Activity in task 8 on display 0.
-- Android starts HOME/setup activities while booting, then AaaS resolves and
-  launches the selected package. The HOME task is invisible once Settings is
-  foreground, but this does not prove the home surface was never presented.
-- WindowManager lists StatusBar and Taskbar. Taskbar is the navigation-bar
-  Insets source at y=1154..1280 (126 pixels). Thus M1E's no-system-decoration
-  and full touch-region requirements are **not met** on the current display.
-- The current Composer3 returns zero virtual displays and `EX_UNSUPPORTED` from
-  its virtual-display creation method. It uses one fixed transport endpoint.
-- Pinned Android 16 `VirtualDisplaySurface` sends the output-surface buffer
-  through Composer `setOutputBuffer`; an optional client target is distinct.
-  Current AaaS only transports client targets, so virtual displays need
-  independent output-buffer slots, fences, stream identity, and release
-  handling.
-- Current protocol v2 has no output-stream/window target. Input currently
-  targets display 0. There are no independent Android app outputs or Wayland
-  toplevels.
+The output buffer and client target are distinct Composer API roles and have
+separate slot records. In the captured Settings run, both handles referred to
+the same DMA-BUF inode (`alias=1`), so Composer correctly waited both acquire
+fences and forwarded the allocation without a self-copy. The different-backing
+copy path is implemented but was not independently exercised in this run.
+Therefore this prototype does **not** establish that SurfaceFlinger always
+provides physically separate allocations, nor does it establish concurrent
+multi-display ownership. Keep the primary output as a diagnostic baseline.
 
-## Gate summary
+## Remaining M1E work
 
-| Gate | Status | Evidence boundary |
-|---|---|---|
-| G1 M1D baseline preserved | PASS | Commit and hash manifest; default live sessions reached RUNNING/STOPPED. Full M1D suite was not rerun in this audit. |
-| G2 Android 16 architecture assessed | PASS (audit) | `docs/m1e-architecture.md`, pinned source links, live display/task/window probe, current Composer source. Prototype not yet validated. |
-| G3 Direct selected-app launch | PARTIAL | `--app` resolves and starts Settings live; a second package and no-launcher failure are not live-tested. |
-| G4 Home presentation removed | PARTIAL | Launcher task is invisible while Settings is active; no app-completion/Home-fallback behavior tested. |
-| G5 Global decorations removed | FAIL | WMS currently has StatusBar and Taskbar windows on display 0. |
-| G6 Insets/touch regions correct | FAIL | Existing Taskbar has 126-pixel bottom Insets; M1E full-bounds requirement not met. |
-| G7 Native Wayland app identity | NOT TESTED | Generic presenter title; no Android app label/app ID association. |
-| G8 Window lifecycle | PARTIAL | Single-window close shuts down runtime; task-specific close/minimize behavior not implemented. |
-| G9 Resize integration | FAIL | Current presenter reports configure size to a single Composer stream; actual Android display reconfiguration is not implemented. |
-| G10 Keyboard/pointer routing | PARTIAL | M1D accepted behavior is preserved on the current single display; app-window display routing is absent. |
-| G11 Two independent windows | NOT TESTED | One logical display/output only. |
-| G12 Independent focus | NOT TESTED | No per-window Android display/task mapping. |
-| G13 Independent teardown | NOT TESTED | No multi-output lifecycle. |
-| G14 Graphics integrity | PASS (bounded baseline) | 250 imports/submissions; 247 presented; 249 released; zero rejects; full M1D stress not rerun. |
-| G15 Memory integration | PARTIAL | Default and enhanced runtime reached RUNNING; enhanced cgroup was removed on shutdown with zero monitor errors. No induced pressure experiment was run in this milestone audit. |
-| G16 Reproducibility | PARTIAL | Pinned source refs, source hashes, build IDs, launch code, and live logs are recorded; no M1E native display build exists. |
-| G17 Automated tests | PASS (baseline + launch option) | 134 Python tests; M1A; presenter build/tests; input-adapter rebuild; workspace guard. These do not verify a new output/display implementation. |
-| G18 Live UI acceptance | PARTIAL | Real Settings runtime observed in live sessions, but no app-first/no-decoration/multi-window acceptance. |
+- Only the installed Settings application has been exercised on the secondary
+  display. General package compatibility and launch-failure cases remain
+  untested.
+- The experiment creates one secondary display and one independent Wayland
+  toplevel in addition to the diagnostic primary window. It does not yet
+  support two independently managed application tasks/windows.
+- Android display resizing, native app title/app ID, minimize/unmap behavior,
+  task-specific close, and independent output teardown while another app
+  continues are not implemented or verified.
+- The primary diagnostic display still has SystemUI StatusBar/Taskbar windows.
+  The secondary display has no corresponding active input windows or Insets
+  sources in the captured WMS/InputDispatcher state. No broad SystemUI removal
+  is claimed.
+- No induced memory-pressure experiment was run in this continuation. The
+  default and source-LMKD/cgroup smoke sessions reached RUNNING and stopped
+  cleanly; the enhanced session removed its delegated cgroup.
 
-Overall M1E remains **PARTIAL**. The package-selection path is implemented,
-but Android HOME/setup activities can start during framework boot and the live
-default display still owns StatusBar/Taskbar windows. No system-decoration,
-Insets, independent resize, or multi-window behavior is claimed. Next work is
-the privileged one-secondary-display prototype described in
-`docs/m1e-plan.md` and `docs/m1e-architecture.md`.
+## Verification
 
-## Preserved artifacts and limitations
+The final regression run is recorded in `results/m1e/acceptance.json`. It
+covers Python tests, M1A, presenter build/tests, input-adapter rebuild, the
+workspace guard, plus live default, enhanced, and experimental virtual-display
+session evidence. M1D keyboard and desktop-IME behavior remain the established
+baseline; this prototype additionally verified display-targeted pointer
+delivery, but did not repeat every M1D manual keyboard test.
 
-The Android image, M1D input/graphics source, and prior diagnostic overlays were
-not changed. `scripts/run_aaas.py` and its focused tests are the only runtime
-source changes so far. Raw probe data and logs remain in the external workspace.
-Development-only SELinux and Keystore compatibility remain non-production
-security boundaries. No M1E feature commit was created in this audit.
+Overall M1E remains **PARTIAL**. This continuation passes the first trusted
+secondary-display/output experiment. It is not full M1E acceptance until two
+independent Android app windows, real resize/configuration updates, and their
+independent input, lifecycle, and buffer cleanup are demonstrated.

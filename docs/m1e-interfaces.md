@@ -1,82 +1,117 @@
-# M1E proposed interfaces and identity model
+# M1E interfaces and identity model
 
-Status: **design contract; not implemented**
+Status: **single virtual-display output prototype implemented; multi-window
+session protocol remains future work**
+
+## Current single-output prototype
+
+The default path is still the established primary display. The opt-in
+`--experimental-virtual-display` path adds one output without changing primary
+wire protocol v2:
+
+1. A session-local init service runs the AaaS display broker as Android system
+   UID. It creates one trusted, private, own-content Android `VirtualDisplay`
+   with a broker-owned `ImageReader` surface.
+2. Android assigns the display ID; the broker publishes it only to the private
+   session files. The launcher starts the selected resolved Activity on that
+   display. The input adapter for the experimental endpoint is configured
+   with that display ID.
+3. SurfaceFlinger creates one Composer virtual display. Composer records its
+   output-buffer slots separately from per-display client-target slots and
+   submits output on a separate local transport socket.
+4. A second instance of the existing Wayland presenter owns the secondary
+   toplevel and its private input endpoint. The Android display ID is never
+   used as a host-window ID.
+5. On shutdown, the host asks the broker to release its `VirtualDisplay` and
+   `ImageReader`, waits for removal and acknowledgement, and then stops the
+   one-shot init service and the output pipeline.
+
+The broker is not a host-callable Binder proxy. It has fixed bounded display
+dimensions/density and a single trusted display per experimental session.
+The feature is opt-in; default sessions do not set its display-content-mode
+property or start this service.
 
 ## Identity mapping
 
-These identifiers have different owners and must remain separate:
+These identifiers have distinct owners and lifetimes:
 
-| Identifier | Owner | Scope / lifetime |
+| Identifier | Owner | Current prototype use |
 |---|---|---|
-| AaaS session ID | host launcher | random, private to one runtime session |
-| AaaS host-window ID | host session manager | stable within the session; one `xdg_toplevel` |
-| Android display ID | Android DisplayManager | runtime-assigned; may be reused after display removal, so pair with generation |
-| Android task ID | ActivityTaskManager | Android task lifecycle; not the same as an Activity or display ID |
-| Activity token/component | ActivityTaskManager/PackageManager | one Activity instance or component identity |
-| buffer ID + generation | Composer transport | one buffer ownership epoch |
-| Wayland configure generation | host presenter | one toplevel geometry epoch |
-| input focus generation | host presenter/input adapter | invalidates stale events after focus or window lifecycle changes |
+| AaaS session ID | host launcher | private runtime-session identity |
+| Android display ID | DisplayManager | runtime assigned; prototype display 2, scoped to session |
+| Composer display ID | Composer HAL | runtime assigned; prototype HAL display 100 |
+| Android task ID | ActivityTaskManager | task 8 was observed on display 2 |
+| Activity token/component | ActivityTaskManager/PackageManager | Settings and SubSettings instances |
+| transport socket | session launcher | dedicated virtual-output stream, distinct from primary socket |
+| buffer slot/generation | Composer transport | output and client-target records are separate per display |
+| Wayland toplevel | host presenter/KWin | separate virtual-output window; no stable host-window ID yet |
+| input focus generation | presenter/input adapter | existing stale-event rejection; secondary adapter targets display 2 |
 
-The intended relationship is `host_window_id -> (android_display_id,
-display_generation) -> task_id`, with Activity records remaining Android-owned.
-The relationship is not assumed one-to-one: an Android task may host several
-Activities. Independent task/window mappings require live ActivityTaskManager
-and WindowManager verification.
+The intended later relationship is
+`host_window_id -> (android_display_id, display_generation) -> task_id`.
+Current evidence proves one task on one secondary display, not a general
+session-manager mapping or multiple simultaneous secondary displays.
 
-## Host-to-Android launch/control channel
+## Trusted display broker boundary
 
-The launcher now accepts a validated `--app <package>` request and asks the
-Android PackageManager shell resolver for a `MAIN`/`LAUNCHER` component. This
-is still a single-window diagnostic path, not the future multi-window broker.
-The broker interface should accept only structured fields:
+The system-owned broker uses Android 16 `DisplayManager` and
+`VirtualDisplayConfig`; Android assigns the ID and reports the unique ID,
+flags, and `canHostTasks`. It creates a `PRIVATE | TRUSTED |
+OWN_CONTENT_ONLY` display, disables Home support for that display, and owns the
+surface and release lifecycle. Inputs are local session files and bounded
+constants, not arbitrary Binder transactions. The host cannot request general
+privileged display operations.
 
-- session token;
-- request sequence and operation (`CREATE_APP_WINDOW`, `CLOSE_APP_WINDOW`,
-  `SET_WINDOW_SIZE`, `FOCUS_WINDOW`, `BACK`, `QUERY_STATE`);
-- package name or explicit component (never a shell command string);
-- requested content width, height, and density bounds;
-- host-window ID and expected display generation for operations after create.
+This is a development prototype using the existing diagnostic SELinux
+compatibility environment. It is not a production security boundary.
 
-The broker resolves the package's launcher Activity through PackageManager,
-checks user-unlocked and launchability, and asks the supported Android task and
-display services to launch. It reports a typed result containing task ID,
-display ID, display generation, resolved component, current lifecycle state,
-and a bounded error code. It does not expose general Binder transactions or
-arbitrary command execution to the host.
+## Composer and transport
 
-## Frame transport
+Composer virtual-display creation is enabled only in the separately built
+experimental Composer and only if its dedicated endpoint is connected. It
+advertises a maximum of one virtual display. Its slots distinguish the
+`virtualDisplayOutputBuffer` from `clientTarget`; each keeps its own duplicated
+DMA-BUF and acquire fence, dimensions, format, and generation. Buffers are
+validated before use, acquire fences are waited, and host release fences are
+returned as the present fence. The virtual stream uses a separate instance of
+the existing frame protocol, leaving primary wire protocol v2 unchanged.
 
-Existing wire protocol v2 is a single output stream. Its message has generation
-and buffer identity but no host-window or Android-display target. Preserve v2
-semantics. M1E must either:
+In the verified run, SurfaceFlinger supplied matching DMA-BUF inodes for the
+output and client target. The code detected this and avoided a self-copy. A
+copy is performed only for distinct backing. The copy path was not proven by
+the live Settings run, and two-display concurrency is not yet supported.
 
-1. Negotiate a new frame protocol version with an explicit stream/window ID and
-   display generation, or
-2. Keep one authenticated `SOCK_SEQPACKET` stream per host window, with a
-   session-level manager associating socket path and window ID.
-
-Both options must preserve FD transfer, acquire fences, delayed release fences,
-buffer ID uniqueness per stream, stale-generation rejection, bounded buffers,
-and teardown acknowledgements. A display ID must never be reused as a host
-window ID implicitly.
+Future multi-window work must explicitly negotiate a session-authenticated
+stream/window ID and display generation, or retain one authenticated socket
+per output under a session manager. It must reject stale generations and
+cross-output buffer reuse, preserve acquire/release fences, bound buffering,
+and acknowledge teardown. Do not reinterpret v2 fields.
 
 ## Input routing
 
-Pointer v1 and keyboard v2 currently target Android display 0. Keep those
-messages intact. New multi-window routing must explicitly bind the authenticated
-session, host-window ID, Android display ID, display generation, focus
-generation, and monotonic input sequence. Focus enter/leave must release held
-buttons and keys before changing target. A destroyed display invalidates every
-queued event for its generation. No global host input capture is introduced.
+The primary presenter and input adapter continue to target Android display 0.
+The virtual presenter reads the Android-assigned display ID from a
+session-private file and places it in pointer and keyboard packets. Its
+dedicated adapter validates the configured ID and injects events to that
+display through the existing Binder input manager path. A controlled pointer
+click was observed opening a Settings subpage on display 2. Keyboard
+interaction on display 2 and cross-window focus routing remain unverified.
 
-## Resize and lifecycle
+Multi-window input will bind session, host-window ID, Android display ID and
+generation, focus generation, and sequence. Focus loss must release held
+buttons/keys before target changes. Existing M1C/M1D packets and semantics
+remain unchanged.
 
-Wayland configure sizes are surface logical pixels. Android display dimensions
-are content pixels and depend on scale/density policy. A resize transaction
-must report the chosen content dimensions and density; successful Android
-configuration update is acknowledged before pointer coordinates use the new
-generation. Merely scaling the old image is not accepted as Android resize.
+## Lifecycle and resize boundary
 
-Minimize/unmap should pause or rate-limit output while Android lifecycle remains
-correct. Host close should finish the exposed task or close the session only
-when it is the last app window; that policy is pending the M1E.1 prototype.
+The broker creates and releases one display and its surface. The experimental
+launcher starts and stops the output presenter and adapter with the Android
+session. This proves display cleanup on session shutdown, but not
+task-specific close, app-finish behavior, minimize/unmap, or preserving another
+task while one output is removed.
+
+Wayland configure sizes are not yet applied to Android display configuration.
+Scaling an old frame is not accepted as resize support. A future resize must
+choose content dimensions and density, update the Android virtual display,
+wait for the configuration generation, then update pointer mapping and
+buffers atomically.
