@@ -1,8 +1,8 @@
 # M1C.1 — Binder-backed pointer and scroll input
 
-Status: **PARTIAL — mouse and physical touchpad scrolling work; user-reported flicker remains unclassified**
+Status: **PASS / CLOSED**
 Date: 2026-10-29
-Implementation commits: `556d3d0` (`feat(input): preserve pointer and scroll semantics on Android`), with the scroll correction described below
+Implementation commits: `556d3d0`, `d25a142`, `e32185f`, `de4dc98`, `7c6e897`, `73e3f80`, and `6513f5e`.
 Live session: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_yert8z49`
 Evidence: `results/m1c1/live/`
 
@@ -13,14 +13,17 @@ Evidence: `results/m1c1/live/`
 | Private input adapter startup and HELLO | PASS | Presenter recorded adapter connected/ready; adapter validated HELLO and selected the Binder backend. |
 | Host pointer click reaches Android | PASS | Disposable host uinput click generated Wayland button press/release; adapter recorded Binder DOWN and UP, each with `rc=0`. |
 | Vertical scroll transport | PASS | Wayland presenter emits axis values in input protocol v1; Android adapter receives and validates the packet. |
-| Android view scroll via hand-built Binder parcel | FAIL | Binder returned success, but Android Settings screencaps were pixel-identical before and after the event. This corrects the previous report, which treated Binder success as functional scrolling. |
+| Android view scroll via hand-built Binder parcel | Diagnostic path rejected | Binder returned success, but Android Settings screencaps were pixel-identical before and after the event. The implementation uses Android's framework-built event path instead, which moves the actual view. |
 | Android Settings scroll via framework event builder | PASS | Adapter now routes `ACTION_SCROLL` through `/system/bin/cmd input <mouse|touchpad> scroll ...`; an input-socket integration event moved the actual Settings homepage. `socket-before.png` and `socket-after.png` differ in 135,837 pixels (bbox `(42,315)-(1238,720)`). |
 | Physical mouse-wheel scrolling | PASS | User confirms mouse-wheel scrolling works; the live adapter records mouse-source events through Android's framework-built event path. |
-| Horizontal UI movement | NOT VERIFIED | The Settings homepage has no horizontally scrollable content in the tested view. Horizontal axis transport is supported by the protocol, but a visible Android horizontal-scroll target was not exercised. |
+| Horizontal UI movement | PASS — user confirmed | User confirmed horizontal scrolling in the final portrait session. Earlier automated Settings captures did not exercise a horizontal-scroll target. |
 | Physical touchpad scrolling | PASS | A live session delivered 312 Wayland `axis_source=finger` packets as 222 Android injections. Correlated Android client-target captures show the Settings list moving to lower rows. |
 | Touchpad event backlog | IMPROVED | Matching adjacent touchpad deltas are coalesced. A 16-packet burst became two Android injections (1 + 15); both succeeded. The child wait polling interval is 1 ms instead of 5 ms. |
 | Settings back-button mapping | PASS | A host click at surface `(84.91,143.24)` on `1280x720` mapped 1:1 to Android `(84,143)` and returned from Network & internet to the homepage. |
-| Display flicker | NOT REPRODUCED AS CORRUPTION | Sampled Android frames are complete and show expected Settings content. One run reported 776 presented and 39 discarded feedback events from 815 submissions (4.8%). This can contribute to stutter but does not establish visible flicker; the captures showed no blank or torn frames. |
+| Display flicker and tearing | PASS — user confirmed | User confirmed the release-timeline fix in `6513f5e` removed the previously visible flicker and tearing during boot and Settings navigation. The fix holds each source buffer until its explicit Wayland release timeline point completes. |
+| Portrait Android display | PASS — user confirmed and runtime recorded | Default session profile is 720×1280. The Composer reports the same dimensions and the Wayland presenter accepted portrait frames without format rejection. |
+| Input readiness before Settings launch | PASS — user confirmed and runtime ordering tested | The adapter starts before the Settings activity command; the foreground launcher reports adapter HELLO readiness independently, so input is available before the later process-ready message. |
+| Subpage scrolling and button responsiveness | PASS — user confirmed | User confirmed scrolling and button response across Settings navigation in portrait mode. The screencast evidence also shows movement on the Display page and main list; its Internet page had only one row and was not scrollable. |
 | Presenter/frame and cleanup | PASS | Presenter summary: 395 frames presented, 0 rejected, 18 input packets sent, 0 input drops. Adapter disconnected on presenter shutdown; delegated cgroup policy cleanup reported `removed=true` and no failures. |
 
 The native Binder parcel reader was compared with Android 16 `MotionEvent` parcel
@@ -154,9 +157,59 @@ explicit release points signaled, and all 22 subsequently released. The latest
 Settings capture and machine-readable counts are retained under
 `results/m1c1/live/release-timeline-gating-20261029.json`. It shut down cleanly.
 
-The final rebuilt run `m1b84_session_n6j8anv8` is currently open for review. It
+The final rebuilt run `m1b84_session_n6j8anv8` was left open for review. It
 recorded 269 commits, 269 presentation feedback events, 268 releases, no
 discarded feedback events, no rejected frames, and six early release
 notifications deferred until the explicit timeline completed (all six
 resolved). Its binary hash/build ID and Settings screenshot are in the
-structured result JSON. No commit has been made.
+structured result JSON.
+
+## Final M1C.1 closure (2026-10-29)
+
+The user has personally verified mouse clicks, dragging, mouse-wheel and
+touchpad scrolling, horizontal scrolling, Settings subpage navigation and
+button responsiveness, portrait rendering, input-bridge readiness, and stable
+display without flicker or tearing. These are recorded as user-confirmed
+acceptance, not as automated measurements. No new screenshot or event count is
+claimed for those manual checks.
+
+Portrait mode is the default for `python3 scripts/run_aaas.py` and uses a
+720×1280 Composer configuration. `--orientation landscape` retains the
+1280×720 profile. The launcher checks the portrait Composer binary checksum
+before starting. The Android input adapter is started before the Settings
+activity launch request; its HELLO is reported as “AaaS input bridge ready”
+without waiting for the later process-ready message.
+
+The final portrait smoke session was
+`/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_hb9g11y9`. Its
+presenter recorded 468 submissions, 451 presentation-feedback events, 467
+transport releases, 17 discarded presentation-feedback events, zero rejected
+buffers, and zero dropped input packets. The session entered RUNNING, then the
+window close caused the launcher to stop Android and reach STOPPED. Its
+structured summary is `results/m1c1/live/final-portrait-session-20261029.json`.
+This smoke
+run verifies portrait frame acceptance and window-close cleanup; its input
+counter contains focus events and is not used as proof of the manual clicks or
+scrolls.
+
+Final checks:
+
+- `python3 -m unittest discover -s tests -v` — PASS, 119 tests.
+- `make -C experiments/m1a test` — PASS.
+- `make -B -C experiments/m1c/input_adapter all` — PASS with `-Wall -Wextra -Werror`.
+- Portrait Composer build (`AAAS_DISPLAY_WIDTH=720 AAAS_DISPLAY_HEIGHT=1280`) — PASS.
+- `make -B -C experiments/m1a build/wayland-host-presenter` — PASS.
+- Android workspace check — PASS; see `results/m1c1/workspace-check-final.json`.
+
+Structured final acceptance is in `results/m1c1/acceptance.json`. Detailed
+test output is retained in `results/m1c1/test-results-final.txt`. Earlier
+diagnostic caveats above remain historical descriptions of what those runs
+alone established; the final PASS incorporates the user's subsequent manual
+visual and interaction verification.
+
+Implementation closure commits:
+
+- `de4dc98` — `feat(display): support portrait Android rendering`
+- `7c6e897` — `fix(runtime): start portrait Settings sessions with input ready`
+- `73e3f80` — `fix(input): coalesce adjacent scroll event bursts`
+- `6513f5e` — `fix(graphics): acknowledge safe client target copies`
