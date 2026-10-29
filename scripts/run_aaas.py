@@ -29,15 +29,43 @@ PRESENTER = ROOT / 'experiments/m1a/build/wayland-host-presenter'
 INPUT_ADAPTER = ROOT / 'experiments/m1c/input_adapter/build/aaas-input-adapter'
 COMPOSER_PORTRAIT = TMP / 'm1b84_composer_portrait_720x1280'
 COMPOSER_LANDSCAPE = TMP / 'android.hardware.graphics.composer3-service.aaas'
+VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
 RUNNER_SHA256 = '63987b632cfc28f15eaa406f8b6fedc2f80f0c7c63fa2d8a751558d02267e396'
 VULKAN_SHA256 = '1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181'
 LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd'
 LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce'
 COMPOSER_PORTRAIT_SHA256 = 'cd55e7418a469e84c839bfec287b1bce238a43daa28f50900acf3174c17e3a46'
+VDC_OVERLAY_SHA256 = 'b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764'
 
 
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def terminate_process_group(process, timeout=8):
+    if process is None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=timeout)
+        return
+
+    # Android init is PID 1 in the private namespace and ignores default
+    # termination signals. The runner can exit while init remains, so reap any
+    # surviving members of this unique session group after the bounded wait.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 def replace_once(source, old, new):
@@ -51,6 +79,24 @@ def make_session_runner(session):
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     timeout = '140'
     source = RUNNER.read_text()
+    source = replace_once(
+        source,
+        '    ipc_dir = tmp_dir / "aaas_ipc"',
+        '    vdc_overlay = Path(os.environ["AAAS_VDC_OVERLAY"])\n'
+        '    vdc_bind = f\'  --ro-bind "{vdc_overlay}" /system/bin/vdc \' + chr(92) + "\\n"\n'
+        '    ipc_dir = tmp_dir / "aaas_ipc"',
+    )
+    source = replace_once(
+        source,
+        "  sh -c '\n    sleep() {{ /system/bin/toybox sleep \"$@\"; }}\n"
+        "    /system/bin/init second_stage &\n    INIT_PID=$!\n",
+        "  sh -c '\n    (\n    sleep() {{ /system/bin/toybox sleep \"$@\"; }}\n",
+    )
+    source = replace_once(
+        source,
+        '    kill -9 $INIT_PID 2>/dev/null\n  \'\n"""',
+        '    :\n    ) &\n    exec /system/bin/init second_stage\n  \'\n"""',
+    )
     source = replace_once(source, '    ipc_dir = tmp_dir / "aaas_ipc"',
                           '    ipc_dir = Path(os.environ["AAAS_SESSION_IPC"])')
     source = replace_once(source, '    ipc_dir.chmod(0o777)', '    ipc_dir.chmod(0o711)')
@@ -78,7 +124,7 @@ def make_session_runner(session):
     source = replace_once(
         source,
         '{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
-        '{lmkd_bind}{status_bind}{logcat_bind}{input_adapter_bind}'
+        '{vdc_bind}{lmkd_bind}{status_bind}{logcat_bind}{input_adapter_bind}'
         '{input_adapter_log_bind}{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
     )
     logcat_anchor = '    /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true'
@@ -152,6 +198,7 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait'):
               file=sys.stderr)
     lmkd_overlay_entry = select_lmkd_overlay(use_source_lmkd)
     required = {
+        'AAAS_VDC_OVERLAY': ('m1d_vdc_overlay/vdc', VDC_OVERLAY_SHA256),
         'AAAS_VULKAN_OVERLAY': ('m1b83_sampling_lock_vulkan.so', VULKAN_SHA256),
         'AAAS_LMKD_OVERLAY': lmkd_overlay_entry,
         'AAAS_RANGING_JAR_OVERLAY': ('m1b8_service-ranging.rebuilt2.jar', None),
@@ -339,20 +386,7 @@ def main():
         if policy_monitor is not None:
             policy_monitor.stop(timeout=12)
         for process in (android, presenter):
-            if process is None:
-                continue
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=8)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait(timeout=8)
+            terminate_process_group(process)
         if policy is not None:
             summary = policy_monitor.summary() if policy_monitor is not None else {}
             try:
