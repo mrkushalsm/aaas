@@ -41,12 +41,12 @@ launcher architecture was replaced.
 
 The host presenter and keyboard-map tests build with `libxkbcommon`; the
 Android-native adapter builds against the existing Android 16/Bionic source
-and toolchain. The recorded artifacts are:
+and toolchain. The current diagnostic-instrumented artifacts (logging only; no input semantics changed) are:
 
 | Component | SHA-256 | ELF build ID |
 |---|---|---|
-| Wayland presenter | `c229bc8030c21f1ef339671b1771f94e40021abc8681e54eb801a56f65055a2d` | `9ce42dba8058e94d5904d5ec7700079910b0043b` |
-| Android input adapter | `86f25415596326619ff6f2759e1541d50ca82b2204adc54b01a9fe40ee417418` | `1445c6eb2222614d18c27d42c2a590f6a0d84dc6` |
+| Wayland presenter | `df0c3d53591061e88b35e48778a17b8bb5d4c3c9bbe6e6f1c9a5786df239a083` | `59bc5cdd8bfa3b1d4e563cf1da2fed4d1dc3ab04` |
+| Android input adapter | `51be2c01219f1e2ff3224648eaeb8d90cdceddd3ca2ff8a7de066aac11ce83db` | `53e1adbb3dcd51270891d3df557e4965ada3924e` |
 
 Verified commands:
 
@@ -65,74 +65,81 @@ text behavior.
 
 ## Live runtime evidence
 
-Two post-implementation sessions completed the launcher's normal state sequence
-through `RUNNING` and exited through `STOPPING` → `STOPPED`:
+The initial default and enhanced smoke sessions reached `RUNNING`, negotiated
+`keyboard_v2`, and shut down cleanly, but **generated zero key packets**. That
+was an absence of test input, not evidence of a failed Binder path.
 
-- Default: `python3 scripts/run_aaas.py`, session `m1b84_session_0_c4yw84`.
-- Enhanced: `python3 scripts/run_aaas.py --use-source-lmkd --memory-policy=cgroup`,
-  session `m1b84_session_ctvu_yf2`.
+A later controlled probe used a Linux `/dev/uinput` virtual keyboard (not a
+physical-keyboard test). In session `m1b84_session_zoezwqyv`, a test `KEY_A`
+down/up produced two `wl_keyboard.key` events, two XKB-translated events,
+presenter packets 9/10, adapter validation for both packets, and successful
+`IInputManager.injectInputEvent` replies (`rc=0`). Binder transaction elapsed
+time was 1.240 ms for DOWN and 0.524 ms for UP. This proves event transport and
+Binder acceptance only; it does not establish delivery to a focused editor.
 
-Both presenter logs show pointer and keyboard seat capabilities, keyboard bind,
-Wayland repeat information, an accepted XKB keymap, and negotiated
-`keyboard_v2:true`. Both adapter logs show keyboard focus enter and clean stop.
-The presenters streamed Android frames (468 and 472 submissions respectively)
-with zero rejected frames and zero dropped input packets. Raw logs remain on
-the external workspace at:
+In session `m1b84_session_ix6_tqny`, a synthetic five-character lowercase
+fixture produced ten Wayland events and packets 14–23. The adapter validated
+each and Binder returned `rc=0` for all ten. The test also submitted a
+pointer click at Android display `(360, 178)` with a positive Binder result.
+The after-capture still shows the Settings homepage's “Search Settings”
+placeholder and no typed characters. The search editor's focus was not verified,
+so this does not isolate a key-injection defect from a focus/tap problem. The
+captured negative result is retained at
+[`settings_after_synthetic_key_probe.png`](../results/m1d/evidence/settings_after_synthetic_key_probe.png).
 
-```text
-/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_0_c4yw84/
-/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_ctvu_yf2/
-```
+A subsequent default session contained three key-down and three key-up events
+that reached Binder, although the test process did not create a keyboard uinput
+device during that run. Wayland `wl_keyboard` does not identify the originating
+Linux input device, so these events cannot be confidently attributed to a
+physical keyboard. No screenshot tied to those events is available.
 
-The enhanced cgroup run emitted a memory-policy cleanup warning while
-restoring one PID's cgroup placement; the session hierarchy was removed and no
-launcher, adapter, or presenter process remained afterward. This warning is
-recorded in `results/m1d/runtime_smoke.json` and is not treated as evidence of
-perfect cgroup cleanup.
+Diagnostics record event stage, sequence, state, Binder result, and elapsed
+time, but do not log keycodes, Unicode, or typed text. For the ten-event
+synthetic fixture, Binder transaction latency had a 0.639 ms median and 1.048
+ms maximum. These are adapter Binder timings, not end-to-end Android frame or
+visible-text latency. Raw traces and checksums are listed in
+`results/m1d/key_delivery_probe.json`.
 
-### Evidence boundary
+The foreground runner was stopped with Ctrl+C and reached `STOPPED`. One
+regression-test invocation while it held the single-instance lock failed the
+lock test as expected; the complete Python suite was rerun after shutdown and
+passed 123 tests. The enhanced source-LMKD/cgroup path remains supported by
+prior startup/shutdown smoke evidence, including its recorded cgroup cleanup
+warning.
 
-These live runs established Wayland keyboard capability/keymap discovery,
-protocol negotiation, keyboard focus delivery, and Android runtime stability.
-They did **not** exercise a key-down/key-up packet. The adapter logs contain no
-`key_injected` event, no physical keystrokes were recorded, and no Settings
-search text was verified. No screenshot of typed text was captured. Therefore
-we have not established that Android accepts the serialized KeyEvent or that
-typing, editing, modifiers, navigation, repeat, and focus isolation work in a
-real Settings field.
+## Evidence boundary
 
-The packet includes an XKB Unicode scalar for diagnostics/translation context,
-but the current Android injection path does not implement a committed-text or
-IME composition channel. Dead keys, arbitrary Unicode, and composed text are
-not supported or verified. Do not treat host XKB text resolution as Android
-text-entry proof.
+The first disappearing stage from the controlled key probe was **not** the
+presenter or Binder: Wayland key events were translated, serialized into the
+versioned keyboard packet, validated by the adapter, and accepted by Android's
+`IInputManager`. The next required proof is that an Android Settings text
+editor actually owns focus and changes visibly from those events. Binder's
+positive injection reply does not prove InputDispatcher delivered the event to
+the intended view. No fix to the keyboard implementation is justified by the current evidence;
+the UI attempt had an unverified editor focus state.
+
+Still unverified live: physical keyboard text entry, Backspace/Delete/caret
+editing, Enter/Escape navigation, modifiers, repeat, host focus isolation,
+held-key cleanup under focus loss, IME composition, and a controlled screenshot
+showing changed text. The latest visual capture remains unchanged Settings
+content, and M1D is therefore **PARTIAL**.
 
 ## Acceptance gates
 
-The machine-readable status is `results/m1d/acceptance.json`. Current outcomes:
-
-- **PASS:** G1 preservation; G2 Wayland keyboard discovery; G3 keymap parsing
-  and common mapping; G17 automated builds/tests.
-- **PARTIAL:** G4 negotiated keyboard packet transport; G5 Binder injector
-  build/parcel inspection; G11 cleanup implementation; G12 repeat path;
-  G13 composition boundary; G15 default/enhanced runtime startup and shutdown;
-  G18 reproducibility.
-- **NOT TESTED:** real Android text entry/editing/navigation, focus isolation
-  with another host window, physical key repeat, M1C pointer/scroll live
-  regression during these runs, and keyboard latency.
-
-M1D is **not closed**. The next required experiment is a controlled live key
-press/release into a focused Settings search field, with adapter injection
-result, Android-side text-field state, and before/after Android frame evidence.
-Then validate editing, modifiers, navigation, focus loss, held-key cleanup,
-and composition limits before marking the milestone complete.
+The machine-readable gate results are in `results/m1d/acceptance.json`.
+Wayland discovery and XKB mapping pass; controlled versioned packets reached
+the adapter; and Android's `IInputManager` accepted synthetic KeyEvent DOWN/UP
+requests. Those stages do not satisfy the user-facing text-input requirement.
+Basic Settings text entry is still partial, while editing, navigation, physical
+keyboard attribution, repeat, focus isolation, and visible app response remain
+unverified. The milestone is **PARTIAL**, not closed.
 
 ## Commits
 
 - `c72c41a` — keyboard transport, XKB mapping, and persistent Android KeyEvent
   injection implementation with focused tests.
-- Documentation/evidence closure is committed separately after this report
-  and the machine-readable results are finalized.
+- `c1ddd3f` — initial M1D partial status.
+- Live diagnostics and evidence updates are committed separately.
 
 ## Reproducibility and security
 
