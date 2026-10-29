@@ -1,8 +1,65 @@
 # M1D — Native keyboard input and Android text entry
 
-Status: **PARTIAL — desktop IME suppression and synthetic Settings editing verified; independent physical-key attribution and advanced composition remain open**
+Status: **PASS / CLOSED — keyboard, focus, and desktop IME acceptance met; advanced Unicode composition deferred**
 Baseline: M1C.1 commit `3b2eb73`
 Runtime: Android 16 x86_64, rootless container, KWin Wayland, portrait 720×1280
+
+
+## Final acceptance: 2026-10-30 — PASS / CLOSED
+
+The user manually confirmed that a physical Linux keyboard types into Android
+text fields, focus returns after switching between Linux windows, Caps Lock and
+Tab work, and mouse/touchpad interactions remain functional. This is recorded
+as `USER_MANUAL_VERIFIED`; no hardware identifiers or logs were generated for
+that manual test. The user pressed Ctrl and Alt but did not establish an
+observable application action, so that portion remains bounded rather than
+being claimed as fully user-verified.
+
+A controlled live modifier probe supplemented that report. With the real
+Settings Search editor focused, synthetic Ctrl+A visibly selected the complete
+query. Android `dumpsys input` recorded Ctrl as `META_CTRL_ON` (`0x1000`) on the
+Ctrl and A events. A separate Alt+A sequence reached Android with
+`META_ALT_ON` (`0x2`); no app-level Alt shortcut or clipboard behavior is
+claimed. XKB native regression tests now cover Tab translation and Ctrl, Alt,
+combined Ctrl+Alt, and Caps Lock state transitions. The controlled screenshot
+and session trace hashes are in
+[`final_acceptance_followup.json`](../results/m1d/final_acceptance_followup.json);
+[`ctrl_a_selection.png`](../results/m1d/evidence/ctrl_a_selection.png) shows the
+Android editor selection.
+
+The final direct default launch (`python3 scripts/run_aaas.py`) and enhanced
+source-LMKD/cgroup launch both reached `RUNNING` and then `STOPPED` on Ctrl+C.
+Both logs show normal user-0 `RUNNING_UNLOCKED` progression and Settings
+startup. The enhanced run reported removal of its delegated cgroup. The
+software-keyboard escape hatch continues to restore LatinIME. Desktop mode
+continues to preserve the live `InputConnection`, suppress the IME surface and
+Insets, and avoid IME-driven app resizing.
+
+The Taskbar is a distinct SystemUI overlay at the bottom 126 pixels; it is not
+an IME surface or an editor-focus reservation. A Settings result at Android
+y=950 remained clickable while the IME was suppressed. The Taskbar's own
+bottom region and content behind it were not tested. This did not prevent the
+verified Settings search/control workflow; the overlay is separate from the
+IME. No Taskbar hiding or SystemUI removal was made. Add an application-first
+system-navigation policy to the future app-first runtime milestone.
+
+M1D is **PASS / CLOSED** under the agreed acceptance boundary: basic physical
+keyboard entry and focus restoration are user-confirmed; editing, navigation,
+repeat, focus-loss isolation, Android IME suppression, and both runtime modes
+have execution evidence. Ctrl is additionally verified by an Android-visible
+selection action. Alt delivery is verified at Android meta-state, while any
+specific application shortcut remains unclaimed. General Unicode, dead-key,
+Compose, and IME text composition are not implemented by the current
+KeyEvent-only adapter and remain a separately bounded text-input integration
+item. The keyboard packet carries a Unicode scalar, but the adapter injects a
+KeyEvent with null character payload; unsupported keysyms are not converted
+into fabricated text.
+
+Final verification: 132 Python tests passed; M1A, presenter build/tests,
+input-adapter rebuild, and workspace checks passed. The enhanced cgroup smoke
+reported clean removal, and process inspection found no AaaS runtime processes
+left after shutdown. See [`acceptance.json`](../results/m1d/acceptance.json) for
+the gate-by-gate evidence classification.
 
 
 ## 2026-10-30 follow-up: desktop-native software keyboard policy
@@ -64,8 +121,8 @@ were left unchanged. Focus restoration after returning from another host
 window, Caps Lock/Ctrl/Alt/Tab combinations, Unicode/dead-key composition, and
 a full M1C physical pointer/touchpad regression during this final policy run,
 and content interaction underneath the existing bottom Taskbar remain
-unverified. M1D therefore remains **PARTIAL** despite the desktop IME
-suppression subgoal passing.
+unverified. At that checkpoint M1D remained **PARTIAL**. The later manual acceptance and
+final closure section above supersedes that intermediate status.
 
 ## 2026-10-30 follow-up: user unlock and Settings text entry
 
@@ -119,9 +176,9 @@ build/tests, Android input-adapter rebuild, and workspace budget check all
 passed. The workspace was mounted from `/dev/sda2` as NTFS3 with 21.41 GB used,
 below the 80 GiB ceiling and preserving the 20 GiB reserve.
 
-M1D remains **PARTIAL**. Physical keyboard attribution, repeat, focus
-isolation, held-key cleanup on abrupt focus loss, and Unicode/dead-key
-composition still need live verification. See the updated acceptance matrix.
+At this intermediate checkpoint M1D remained **PARTIAL**; later user manual
+acceptance and live focus/repeat evidence are recorded in the final closure
+section above.
 
 Implementation checkpoint: `c72c41a` (`feat(input): add Wayland keyboard transport and Android KeyEvents`).
 The M1D status and evidence are recorded in a separate documentation commit.
@@ -314,7 +371,8 @@ Shift, Enter, Escape, repeat, and controlled focus-loss isolation are verified
 with `/dev/uinput`; desktop IME suppression preserves the live editor and full
 app bounds. Physical keyboard hardware, Caps Lock/Ctrl/Alt/Tab combinations,
 focus restoration after returning to AaaS, and advanced text composition remain
-unverified. M1D therefore remains **PARTIAL**, not PASS.
+unverified. At that checkpoint M1D remained **PARTIAL**; the later final acceptance above
+records the user's physical keyboard and focus-restoration confirmation.
 
 ## Commits
 
@@ -327,7 +385,9 @@ unverified. M1D therefore remains **PARTIAL**, not PASS.
 - `a81e478` — retry transient cgroup process-placement cleanup races.
 - `083ea4a` — suppress Android's soft keyboard in desktop mode while retaining
   the editor connection.
-- Desktop IME runtime evidence and final status are recorded in the current
+- `ace6607` — desktop IME runtime evidence and acceptance.
+- `e755349` — cover Tab, Ctrl, Alt, combined modifiers, and Caps Lock states.
+- Final user-confirmed keyboard acceptance is recorded in the current
   documentation/evidence commit.
 
 ## Reproducibility and security
