@@ -94,3 +94,69 @@ Wayland explicit-sync release points; adding another buffer layer without a
 reproduced missing/partial frame would add latency without evidence it helps.
 
 Structured run evidence: `results/m1c1/live/hover-flicker-rfdmpx_b.json`.
+
+## Pointer-motion load follow-up (2026-10-29)
+
+The presenter still sent every unpressed `wl_pointer.motion` sample over the
+private Android input socket even though the Android adapter deliberately
+ignored unpressed `AAAS_INPUT_MOTION`. The presenter now keeps those samples in
+the Wayland cursor path and sends Android motion only during a held-button
+drag. This removes unnecessary socket traffic and cannot reduce rendering
+throughput; coordinates and focus tracking are still updated locally. A
+regression test covers the forwarding guard.
+
+In the live run `m1b84_session_ob22u_6u`, 1,200 unpressed pointer samples were
+generated during five seconds; the session stayed RUNNING and shut down
+cleanly. It submitted 891 frames, presented 867, released 890, discarded 24,
+and rejected none. The adapter remained connected. This verifies runtime
+survival and transport cleanup, but it does not prove that visible flicker is
+gone. Android client-target samples remain complete; sampled changes during
+Settings navigation correspond to the pressed ripple and page transition.
+No direct recording of the Wayland window was obtained, so the flicker remains
+unverified and this change is a targeted input-load reduction rather than a
+claimed visual fix.
+
+## Wayland release-timeline gating follow-up (2026-10-29)
+
+The supplied screencast contains a diagonally split/corrupt presentation frame
+during the Settings launch transition, with another brief corruption during a
+subpage transition. The host presenter previously sent the transport release
+as soon as it received `wl_buffer.release`, even when the explicit DRM
+syncobj release point was still pending. AaaS treats that transport message as
+slot availability, so this allowed the producer to recycle backing memory
+before KWin's GPU read was complete. The presenter now defers transport
+release until the per-buffer release timeline point signals, while retaining
+the existing zero-copy DMA-BUF path and leaving frame submission frequency
+unchanged. The full window is also declared opaque because each incoming
+buffer is a complete Android display composition; this prevents transparent
+startup pixels from revealing the desktop.
+
+The rebuilt live run `m1b84_session_757yk26g` booted to the real Settings
+homepage. During observation it recorded 265 commits, 263 presentation
+feedback events, 264 transport releases, 2 discarded feedback events, and 0
+rejected buffers. Ten early `wl_buffer.release` events were deferred pending
+their explicit release timeline; all ten later received a transport release.
+Every final release record asserts the release timeline was signaled. A fresh
+active-window capture showed the Settings homepage. The run remained live for
+manual interaction and had no presenter or Android runtime failure at capture.
+
+This is a verified ownership/synchronization correction that directly matches
+the tear mechanism visible in the supplied recording. Full visual flicker
+elimination still requires observing subpage transitions and pointer movement
+in the user's display; do not claim the flicker is fully resolved until that
+review confirms it.
+
+After rebuilding the final source state, a second clean Settings boot ran as
+`m1b84_session_vnmdm9b8`. It recorded 269 commits, 268 presentation feedback
+events, 268 transport releases, one discarded feedback event, and no rejected
+buffers. Twenty-two `wl_buffer.release` notifications were held until their
+explicit release points signaled, and all 22 subsequently released. The latest
+Settings capture and machine-readable counts are retained under
+`results/m1c1/live/release-timeline-gating-20261029.json`. It shut down cleanly.
+
+The final rebuilt run `m1b84_session_n6j8anv8` is currently open for review. It
+recorded 269 commits, 269 presentation feedback events, 268 releases, no
+discarded feedback events, no rejected frames, and six early release
+notifications deferred until the explicit timeline completed (all six
+resolved). Its binary hash/build ID and Settings screenshot are in the
+structured result JSON. No commit has been made.

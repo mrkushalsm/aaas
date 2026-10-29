@@ -427,7 +427,12 @@ static void pointer_motion(void *data, struct wl_pointer *pointer, uint32_t time
         }
         a->last_input_x = p.x;
         a->last_input_y = p.y;
-        input_send_packet(a, AAAS_INPUT_MOTION, p.x, p.y, 0, 0, 0, 0);
+        /* Unpressed motion is only for the native Wayland cursor. The Android
+         * adapter intentionally ignores it; forwarding every pointer sample
+         * adds socket and polling work without changing Android UI state. */
+        if (a->pressed_buttons) {
+            input_send_packet(a, AAAS_INPUT_MOTION, p.x, p.y, 0, 0, 0, 0);
+        }
     } else if (a->content_focus) {
         if (a->pressed_buttons) {
             input_release_buttons(a, "content_leave");
@@ -785,6 +790,18 @@ static const struct xdg_wm_base_listener wm_base_listener = {
     .ping = xdg_wm_ping
 };
 
+static void set_surface_opaque_region(presenter_app *a, uint32_t width,
+                                      uint32_t height) {
+    struct wl_region *region = wl_compositor_create_region(a->compositor);
+    if (!region) {
+        log_presenter_event("opaque_region_create_failed", a->gen, 0, NULL);
+        return;
+    }
+    wl_region_add(region, 0, 0, (int32_t)width, (int32_t)height);
+    wl_surface_set_opaque_region(a->surface, region);
+    wl_region_destroy(region);
+}
+
 static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t serial) {
     presenter_app *a = data;
     xdg_surface_ack_configure(xs, serial);
@@ -796,6 +813,9 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
     if (h > 1080) h = 1080;
     a->w = w;
     a->h = h;
+    /* AaaS frames are complete Android display compositions, not translucent
+     * overlays. Keep uninitialized startup alpha from exposing desktop pixels. */
+    set_surface_opaque_region(a, w, h);
 
     bool initial = !a->configured;
     a->configured = 1;
@@ -844,15 +864,14 @@ static const struct xdg_toplevel_listener toplevel_listener = {
     .close = toplevel_close
 };
 
-static void buffer_released(void *data, struct wl_buffer *buf) {
-    presenter_slot *s = data;
+static void finalize_buffer_release(presenter_slot *s, bool release_point_signaled) {
     presenter_app *a = s->app;
 
     int release_fence_fd = -1;
     uint32_t flags = 0;
 
     if (s->explicit_sync_used && s->release_timeline_handle) {
-        // Export release point from the slot's timeline to a sync_file FD!
+        /* Reaching this function means the explicit release point is complete. */
         int r = syncobj_timeline_export_sync_file(a->drm_fd,
                                                   s->release_timeline_handle,
                                                   s->release_point,
@@ -880,20 +899,49 @@ static void buffer_released(void *data, struct wl_buffer *buf) {
         close(release_fence_fd);
     }
 
-    char extra[64];
-    snprintf(extra, sizeof(extra), "\"fence\":%s,\"point\":%llu",
+    char extra[96];
+    snprintf(extra, sizeof(extra), "\"fence\":%s,\"point\":%llu,\"timeline_signaled\":%s",
              (flags & AAAS_V2_FLAG_RELEASE_FENCE) ? "\"exported\"" : "\"none\"",
-             (unsigned long long)s->release_point);
+             (unsigned long long)s->release_point,
+             release_point_signaled ? "true" : "false");
     log_presenter_event("buffer_release", s->gen, s->id, extra);
 
     a->released++;
-    wl_buffer_destroy(buf);
     if (s->staging_bo) {
         gbm_bo_destroy(s->staging_bo);
         s->staging_bo = NULL;
     }
     s->wl = NULL;
     s->active = 0;
+    s->explicit_sync_used = false;
+}
+
+static void buffer_released(void *data, struct wl_buffer *buf) {
+    presenter_slot *s = data;
+    if (!s->active || s->wl != buf) {
+        return;
+    }
+
+    if (s->explicit_sync_used && s->release_timeline_handle &&
+        syncobj_timeline_wait(s->app->drm_fd, s->release_timeline_handle,
+                              s->release_point, 0) != 0) {
+        /* wl_buffer.release retires the protocol object, but with explicit
+         * sync it does not prove the compositor's GPU read has completed.
+         * Keep the transport slot in flight until the release point signals. */
+        s->wl = NULL;
+        wl_buffer_destroy(buf);
+        char extra[80];
+        snprintf(extra, sizeof(extra), "\"point\":%llu",
+                 (unsigned long long)s->release_point);
+        log_presenter_event("buffer_release_waiting_for_timeline", s->gen,
+                            s->id, extra);
+        return;
+    }
+
+    wl_buffer_destroy(buf);
+    s->wl = NULL;
+    finalize_buffer_release(s, s->explicit_sync_used &&
+                               s->release_timeline_handle != 0);
 }
 
 static const struct wl_buffer_listener buffer_listener = {
@@ -906,7 +954,11 @@ static void check_release_timelines(presenter_app *a) {
         presenter_slot *s = &a->slots[i];
         if (s->active && s->explicit_sync_used && s->release_timeline_handle) {
             if (syncobj_timeline_wait(a->drm_fd, s->release_timeline_handle, s->release_point, 0) == 0) {
-                buffer_released(s, s->wl);
+                if (s->wl) {
+                    wl_buffer_destroy(s->wl);
+                    s->wl = NULL;
+                }
+                finalize_buffer_release(s, true);
             }
         }
     }
@@ -1128,6 +1180,51 @@ static void handle_incoming_buffer(presenter_app *a) {
                 fprintf(stderr, "[AaaS Presenter] Dumped frame %u to %s\n", m.id, ppm_path);
             }
             munmap(map_ptr, map_sz);
+        }
+    }
+
+    /* Opt-in alpha-plane probe for diagnosing transparent/partial client
+     * targets. It is disabled in normal runs and does not write frame data. */
+    const char *alpha_trace = getenv("AAAS_FRAME_ALPHA_TRACE");
+    if (alpha_trace && alpha_trace[0] == '1') {
+        if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
+            close(dma_fd);
+            close(acquire_fence_fd);
+            if (stage_bo) gbm_bo_destroy(stage_bo);
+            zwp_linux_buffer_params_v1_destroy(params);
+            a->rejected++;
+            log_presenter_event("alpha_trace_acquire_timeout", m.generation, m.id, NULL);
+            return;
+        }
+        size_t map_sz = (size_t)m.stride[0] * m.height;
+        const uint8_t *map_ptr = mmap(NULL, map_sz, PROT_READ, MAP_SHARED, dma_fd, 0);
+        if (map_ptr != MAP_FAILED) {
+            uint8_t alpha_min = 255, alpha_max = 0;
+            uint64_t alpha_zero = 0, alpha_partial = 0;
+            for (uint32_t y = 0; y < m.height; y++) {
+                const uint8_t *row = map_ptr + (size_t)y * m.stride[0];
+                for (uint32_t x = 0; x < m.width; x++) {
+                    uint8_t alpha = row[(size_t)x * 4 + 3];
+                    if (alpha < alpha_min) alpha_min = alpha;
+                    if (alpha > alpha_max) alpha_max = alpha;
+                    if (alpha == 0) alpha_zero++;
+                    else if (alpha != 255) alpha_partial++;
+                }
+            }
+            char alpha_json[224];
+            snprintf(alpha_json, sizeof(alpha_json),
+                     "\"width\":%u,\"height\":%u,\"stride_bytes\":%u,"
+                     "\"format\":%u,\"alpha_min\":%u,\"alpha_max\":%u,"
+                     "\"alpha_zero_pixels\":%llu,\"alpha_partial_pixels\":%llu",
+                     m.width, m.height, m.stride[0], m.format, alpha_min, alpha_max,
+                     (unsigned long long)alpha_zero, (unsigned long long)alpha_partial);
+            log_presenter_event("frame_alpha", m.generation, m.id, alpha_json);
+            munmap((void *)map_ptr, map_sz);
+        } else {
+            char alpha_json[64];
+            snprintf(alpha_json, sizeof(alpha_json), "\"errno\":%d", errno);
+            log_presenter_event("frame_alpha_map_failed", m.generation, m.id,
+                                alpha_json);
         }
     }
 

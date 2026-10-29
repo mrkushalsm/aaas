@@ -35,6 +35,15 @@ class M1CScrollRoutingTests(unittest.TestCase):
         self.assertNotIn("inject_request", hover)
         self.assertNotIn("AAAS_ACTION_HOVER_", focus)
 
+    def test_unpressed_pointer_motion_stays_out_of_android_input_socket(self):
+        presenter = (ROOT / "experiments/m1a/src/gpu_presenter.c").read_text()
+        motion_start = presenter.index("static void pointer_motion(")
+        motion_end = presenter.index("static void pointer_button(", motion_start)
+        motion = presenter[motion_start:motion_end]
+
+        self.assertIn("if (a->pressed_buttons)", motion)
+        self.assertIn("input_send_packet(a, AAAS_INPUT_MOTION", motion)
+
     def test_touchpad_scroll_is_normalized_and_adjacent_deltas_are_bounded(self):
         burst_start = self.adapter.index("static int handle_touchpad_scroll_burst(")
         burst_end = self.adapter.index("static int inject_request(", burst_start)
