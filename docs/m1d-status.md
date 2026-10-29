@@ -87,6 +87,83 @@ so this does not isolate a key-injection defect from a focus/tap problem. The
 captured negative result is retained at
 [`settings_after_synthetic_key_probe.png`](../results/m1d/evidence/settings_after_synthetic_key_probe.png).
 
+## Settings editor focus investigation
+
+On 2026-10-30, a live portrait session reproduced the missing editor focus.
+The Settings search control is visible in the 720×1280 Android frame; its
+observed bounds are approximately `(43,85)-(677,273)`. A host click at global
+Wayland `(960,178)` mapped to Android `(360,178)`. The presenter sent both
+button transitions and the Android adapter injected them through Binder; the
+release returned `rc=0`. No Settings Intelligence activity transition followed.
+The screenshot remains the Settings homepage. An adjacent category click did
+navigate to Network & internet, which confirms that the display coordinate
+mapping and ordinary Settings click path work.
+
+Android focus diagnostics after the search click report:
+
+- WindowManager and InputDispatcher focus remain on
+  `com.android.settings/.Settings`.
+- InputMethodManager serves the root `homepage_container` view, not an editor.
+- `mServedInputConnection` is null and `mInputShown` is false.
+- ActivityTaskManager logs no search activity start after the pointer click.
+
+The immediate boundary is Android user 0, not the keyboard packet path. A live
+`dumpsys user` reports `RUNNING_LOCKED`. LockSettings successfully unwraps the
+synthetic password for this unsecured user and starts CE-storage preparation.
+`dumpsys mount` then lists CE-unlocked users as `[0]`, but the framework user
+state does not advance. Vold logs `Starting restorecon of /data/system_ce/0`
+and never logs its matching completion. The runtime property
+`selinux.restorecon_recursive` remains empty. An additional supported
+`am unlock-user 0` command prints `Success: user unlocked`, but after a further
+bounded observation the user is still `RUNNING_LOCKED` and the property remains
+empty. Thus the unresolved boundary is the init/Vold asynchronous restorecon
+completion handoff during user-data preparation. The evidence does not yet
+identify why init's worker fails to publish completion.
+
+This path matches the Android 16 source contract: Vold clears and sets
+`selinux.restorecon_recursive`, then waits for that property to equal the
+requested path; init handles non-init requests on an asynchronous restorecon
+worker and writes the completion value afterward ([Vold `Utils.cpp`](https://android.googlesource.com/platform/system/vold/+/refs/heads/android16-release/Utils.cpp), [init `property_service.cpp`](https://android.googlesource.com/platform/system/core/+/refs/heads/android16-release/init/property_service.cpp)). The host-side SELinux shim is mapped in Android init, but current evidence does not establish whether the worker is blocked in the restorecon call or whether completion publication fails.
+
+While the user remains locked, the default activity query for
+`android.settings.APP_SEARCH_SETTINGS` returns no activities. A query that
+includes both direct-boot-aware and direct-boot-unaware components lists
+`com.android.settings.intelligence/.search.SearchActivity`.
+
+The pinned Android 16 Settings search provider installs the search-toolbar
+click listener only after `queryIntentActivities()` returns a result; when the
+query is empty it returns without adding the listener. This matches the inert
+visible toolbar and explains why a successful pointer injection did not open
+an editor ([AOSP `SearchFeatureProvider`](https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/main/src/com/android/settings/search/SearchFeatureProvider.java)).
+The search activity is declared exported in the installed SettingsIntelligence
+APK, but the locked-user query and ActivityManager launch both fail in this
+runtime. No KeyEvent construction change is justified until the editor can
+actually be focused.
+
+A diagnostic-only generated-runner experiment assigned Android system
+ownership to `/data/system_ce/0`, `/data/misc_ce/0`, and `/data/misc_de/0`. It
+removed the earlier serial-xattr `EACCES` warnings, but user 0 remained locked
+and the search activity stayed unresolvable. A second, legitimate
+`am unlock-user 0` request and a manual retry of the documented
+`selinux.restorecon_recursive` request did not complete the handoff. These
+diagnostic operations changed no boot property to claim unlock success. Neither
+the ownership change nor a workaround has been applied to repository source.
+The raw focus, user-state, and runtime logs remain on the external workspace;
+paths and hashes are recorded in [`editor_focus_probe.json`](../results/m1d/editor_focus_probe.json).
+
+Screenshots show the unchanged search homepage after the click and a
+successful adjacent category navigation:
+
+- [`settings_search_click_no_transition.png`](../results/m1d/evidence/settings_search_click_no_transition.png)
+- [`settings_category_click_control.png`](../results/m1d/evidence/settings_category_click_control.png)
+
+No synthetic keyboard fixture was sent after this discovery because no
+editable Android view or InputConnection was focused. Text entry, editing,
+Enter/Escape behavior, modifiers, repeat, and focus isolation remain untested.
+M1D remains **PARTIAL**. The next task is to unblock normal user-0 CE storage
+unlock in the isolated runtime, then repeat the search click and only then
+resume KeyEvent-to-view tracing.
+
 A subsequent default session contained three key-down and three key-up events
 that reached Binder, although the test process did not create a keyboard uinput
 device during that run. Wayland `wl_keyboard` does not identify the originating
