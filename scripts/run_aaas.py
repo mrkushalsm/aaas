@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the current Android 16 Settings diagnostic as a foreground session.
+"""Run an Android 16 application as a foreground AaaS session.
 
 The M1B.8 framework runner has inherited, uncommitted experiments. This
 launcher transforms a hash-checked copy rather than editing that runner.
@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -37,6 +38,8 @@ LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a
 COMPOSER_PORTRAIT_SHA256 = 'cd55e7418a469e84c839bfec287b1bce238a43daa28f50900acf3174c17e3a46'
 VDC_OVERLAY_SHA256 = 'b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764'
 FRAMEWORK_IME_SHA256 = '701d2fd4afe62e4b02a3f2da603daab492a4369dea3bd4d3baefe52789623a0b'
+DEFAULT_APP_PACKAGE = 'com.android.settings'
+APP_PACKAGE_PATTERN = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 
 
 def sha256(path):
@@ -75,9 +78,16 @@ def replace_once(source, old, new):
     return source.replace(old, new, 1)
 
 
-def make_session_runner(session, desktop_ime=True):
+def validate_app_package(package):
+    if not isinstance(package, str) or not APP_PACKAGE_PATTERN.fullmatch(package):
+        raise ValueError('app package must be a dotted Android application ID')
+    return package
+
+
+def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKAGE):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
+    app_package = validate_app_package(app_package)
     timeout = '140'
     source = RUNNER.read_text()
     source = replace_once(
@@ -159,17 +169,31 @@ def make_session_runner(session, desktop_ime=True):
     )
     source = replace_once(
         source,
+        '    echo "=== TESTING ACTIVITY LAUNCH (SETTINGS) ==="\n'
+        '    /system/bin/cmd activity start-activity -W -n com.android.settings/.Settings || '
+        '/system/bin/am start -W -n com.android.settings/.Settings',
+        '    echo "=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==="\n'
+        '    APP_COMPONENT=$(/system/bin/cmd package resolve-activity --brief --user 0 '
+        '-a android.intent.action.MAIN -c android.intent.category.LAUNCHER '
+        f'-p {app_package} | /system/bin/toybox tail -n 1)\n'
+        '    case "$APP_COMPONENT" in */*) ;; *) echo "No launchable activity for '
+        f'{app_package}"; exit 1 ;; esac\n'
+        '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
+        '/system/bin/am start -W -n "$APP_COMPONENT"',
+    )
+    source = replace_once(
+        source,
         '    /system/bin/toybox sleep 3\n    if [ "{settings_sigquit}"',
         '    /system/bin/toybox sleep 3\n'
         '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
-        '[ -z "$(/system/bin/toybox pidof com.android.settings)" ]; then\n'
+        f'[ -z "$(/system/bin/toybox pidof {app_package})" ]; then\n'
         '      echo FAILED > /aaas_session_status\n'
         '      exit 1\n'
         '    fi\n'
         '    echo RUNNING > /aaas_session_status\n'
         '    while [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
         '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
-        '[ -n "$(/system/bin/toybox pidof com.android.settings)" ]; do\n'
+        f'[ -n "$(/system/bin/toybox pidof {app_package})" ]; do\n'
         '      /system/bin/toybox sleep 2\n'
         '    done\n'
         '    echo FAILED > /aaas_session_status\n'
@@ -254,11 +278,18 @@ def main():
     parser.add_argument('--orientation', choices=('portrait', 'landscape'),
                         default='portrait',
                         help='Android display profile (default: portrait)')
+    parser.add_argument('--app', default=DEFAULT_APP_PACKAGE,
+                        help='installed package with a MAIN/LAUNCHER activity '
+                             '(default: com.android.settings)')
     parser.add_argument('--software-keyboard', action='store_true',
                         help='Allow Android to show its software keyboard (mobile/accessibility mode)')
     args = parser.parse_args()
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
+    try:
+        validate_app_package(args.app)
+    except ValueError as error:
+        parser.error(str(error))
     paths = verify_requirements(use_source_lmkd=args.use_source_lmkd,
                                 orientation=args.orientation)
     lock_fd = os.open(TMP / '.aaas_session.lock', os.O_CREAT | os.O_RDWR, 0o600)
@@ -304,7 +335,8 @@ def main():
             os.close(lock_fd)
             return 1
         print(f'AaaS: cgroup memory policy at {policy.session_dir}', flush=True)
-    runner = make_session_runner(session, desktop_ime=not args.software_keyboard)
+    runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
+                                 app_package=args.app)
     prefix = f'm1b84_session_{os.getpid()}_'
     env = os.environ.copy()
     env.update(paths)
@@ -353,9 +385,9 @@ def main():
             deadline = time.monotonic() + args.startup_timeout + 20
             while not stop:
                 if presenter.poll() is not None:
-                    raise RuntimeError('presenter exited before Settings became ready')
+                    raise RuntimeError(f'presenter exited before {args.app} became ready')
                 if android.poll() is not None:
-                    raise RuntimeError('Android exited before Settings became ready')
+                    raise RuntimeError(f'Android exited before {args.app} became ready')
                 if not input_ready_reported and INPUT_ADAPTER.is_file():
                     try:
                         size = input_adapter_log.stat().st_size
@@ -374,10 +406,10 @@ def main():
                             policy, policy_log)
                         policy_monitor.start()
                         print('AaaS: tracking Android memory priority classes', flush=True)
-                    print('Settings process started. Close its window or press Ctrl+C to stop.', flush=True)
+                    print(f'{args.app} process started. Close its window or press Ctrl+C to stop.', flush=True)
                     break
                 if status.read_text().strip() == 'FAILED' or time.monotonic() >= deadline:
-                    raise RuntimeError('Android Settings did not become ready')
+                    raise RuntimeError(f'Android app {args.app} did not become ready')
                 time.sleep(.25)
             warned_degraded = False
             while not stop and state == 'RUNNING':

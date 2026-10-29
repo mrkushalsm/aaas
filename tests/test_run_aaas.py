@@ -117,7 +117,22 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('--log /aaas_input_adapter.log', generated)
         self.assertIn('/dev/aaas/input.sock', generated)
         self.assertLess(generated.index('AAAS_INPUT_ADAPTER_STARTED'),
-                        generated.index('=== TESTING ACTIVITY LAUNCH (SETTINGS) ==='))
+                        generated.index('=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==='))
+
+    def test_runner_resolves_the_requested_package_launcher(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), app_package='com.example.reader').read_text()
+        self.assertIn('-p com.example.reader | /system/bin/toybox tail -n 1', generated)
+        self.assertIn('pidof com.example.reader', generated)
+        self.assertIn('No launchable activity for com.example.reader', generated)
+        self.assertNotIn('start-activity -W -n com.android.settings/.Settings', generated)
+
+    def test_app_package_validation_rejects_shell_syntax(self):
+        for package in ('com.example;reboot', 'com.example/app', 'android', '', None):
+            with self.subTest(package=package):
+                with self.assertRaises(ValueError):
+                    SESSION.validate_app_package(package)
 
     def test_runner_enables_desktop_ime_policy_and_binds_framework_overlay(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -129,7 +144,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('settings put secure show_ime_with_hard_keyboard 0', generated)
         self.assertIn('settings put secure aaas_desktop_mode 1', generated)
         self.assertLess(generated.index('settings put secure aaas_desktop_mode 1'),
-                        generated.index('=== TESTING ACTIVITY LAUNCH (SETTINGS) ==='))
+                        generated.index('=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==='))
 
     def test_runner_exposes_mobile_ime_escape_hatch(self):
         with tempfile.TemporaryDirectory() as directory:
