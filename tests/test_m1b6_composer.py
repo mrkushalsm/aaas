@@ -92,8 +92,10 @@ class M1B6ComposerTest(unittest.TestCase):
         self.assertTrue(src_file.exists())
         content = src_file.read_text(encoding="utf-8")
 
-        self.assertIn("cfg.width = 1280", content)
-        self.assertIn("cfg.height = 720", content)
+        self.assertIn("#define AAAS_DISPLAY_WIDTH 1280", content)
+        self.assertIn("#define AAAS_DISPLAY_HEIGHT 720", content)
+        self.assertIn("cfg.width = AAAS_DISPLAY_WIDTH", content)
+        self.assertIn("cfg.height = AAAS_DISPLAY_HEIGHT", content)
         self.assertIn("cfg.vsyncPeriod = 16666666", content)
         self.assertIn("DisplayConnectionType::INTERNAL", content)
 

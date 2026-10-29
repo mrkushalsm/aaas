@@ -1,4 +1,11 @@
 #include "aaas_transport.h"
+
+#ifndef AAAS_DISPLAY_WIDTH
+#define AAAS_DISPLAY_WIDTH 1280
+#endif
+#ifndef AAAS_DISPLAY_HEIGHT
+#define AAAS_DISPLAY_HEIGHT 720
+#endif
 #include "wire_v2.h"
 
 #include <stdio.h>
@@ -63,7 +70,8 @@ AaasTransport& AaasTransport::getInstance() {
 }
 
 AaasTransport::AaasTransport()
-    : mSockFd(-1), mGeneration(0), mWidth(1280), mHeight(720),
+    : mSockFd(-1), mGeneration(0), mWidth(AAAS_DISPLAY_WIDTH),
+      mHeight(AAAS_DISPLAY_HEIGHT),
       mRunning(false), mConnected(false), mCopyCompleteSupported(false) {
     for (int i = 0; i < 64; i++) {
         mReleaseFences[i] = -1;

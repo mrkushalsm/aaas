@@ -813,7 +813,7 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
     uint32_t w = a->w ? a->w : 640;
     uint32_t h = a->h ? a->h : 480;
     if (w > 1920) w = 1920;
-    if (h > 1080) h = 1080;
+    if (h > 1920) h = 1920;
     a->w = w;
     a->h = h;
     /* AaaS frames are complete Android display compositions, not translucent

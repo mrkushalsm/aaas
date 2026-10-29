@@ -41,6 +41,13 @@
 
 #include "aaas_transport.h"
 
+#ifndef AAAS_DISPLAY_WIDTH
+#define AAAS_DISPLAY_WIDTH 1280
+#endif
+#ifndef AAAS_DISPLAY_HEIGHT
+#define AAAS_DISPLAY_HEIGHT 720
+#endif
+
 extern "C" {
     void __libc_init(void* raw_args, void* onexit, int (*main_fn)(int, char**, char**), void* structors);
     int* __errno();
@@ -161,11 +168,12 @@ public:
 
     ::ndk::ScopedAStatus getDisplayConfigurations(int64_t in_display, int32_t in_maxFrameIntervalNs, std::vector<DisplayConfiguration>* _aidl_return) override {
         (void)in_maxFrameIntervalNs;
-        kmsg_log("[AaasComposerClient] getDisplayConfigurations(display=%ld) -> 1280x720@60Hz\n", (long)in_display);
+        kmsg_log("[AaasComposerClient] getDisplayConfigurations(display=%ld) -> %dx%d@60Hz\n",
+                 (long)in_display, AAAS_DISPLAY_WIDTH, AAAS_DISPLAY_HEIGHT);
         DisplayConfiguration cfg;
         cfg.configId = 1;
-        cfg.width = 1280;
-        cfg.height = 720;
+        cfg.width = AAAS_DISPLAY_WIDTH;
+        cfg.height = AAAS_DISPLAY_HEIGHT;
         cfg.vsyncPeriod = 16666666;
         _aidl_return->push_back(cfg);
         return ::ndk::ScopedAStatus::ok();
@@ -366,9 +374,9 @@ public:
                             mSlots[slot].stride = (uint32_t)nh.ints[3];
                             mSlots[slot].format = (uint32_t)nh.ints[4];
                         } else {
-                            mSlots[slot].width = 1280;
-                            mSlots[slot].height = 720;
-                            mSlots[slot].stride = 1280;
+                            mSlots[slot].width = AAAS_DISPLAY_WIDTH;
+                            mSlots[slot].height = AAAS_DISPLAY_HEIGHT;
+                            mSlots[slot].stride = AAAS_DISPLAY_WIDTH;
                             mSlots[slot].format = 1;
                         }
                     }
