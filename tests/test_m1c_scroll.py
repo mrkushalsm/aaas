@@ -44,16 +44,19 @@ class M1CScrollRoutingTests(unittest.TestCase):
         self.assertIn("if (a->pressed_buttons)", motion)
         self.assertIn("input_send_packet(a, AAAS_INPUT_MOTION", motion)
 
-    def test_touchpad_scroll_is_normalized_and_adjacent_deltas_are_bounded(self):
-        burst_start = self.adapter.index("static int handle_touchpad_scroll_burst(")
+    def test_adjacent_scroll_sources_are_coalesced_without_reordering(self):
+        burst_start = self.adapter.index("static int handle_scroll_burst(")
         burst_end = self.adapter.index("static int inject_request(", burst_start)
         burst = self.adapter[burst_start:burst_end]
         self.assertIn("AAAS_INPUT_AXIS_SOURCE_FINGER", burst)
         self.assertIn("AAAS_INPUT_AXIS_SOURCE_CONTINUOUS", burst)
+        self.assertIn("AAAS_INPUT_AXIS_SOURCE_WHEEL_TILT", burst)
+        self.assertIn("peek.button != source", burst)
         self.assertIn("peek.display_generation != generation", burst)
         self.assertIn("peek.focus_generation != focus_generation", burst)
         self.assertIn("while (count < 128)", burst)
-        self.assertIn("inject_cmd_scroll(x, y, AAAS_SOURCE_TOUCHPAD", burst)
+        self.assertIn("touchpad ? AAAS_SOURCE_TOUCHPAD : AAAS_SOURCE_MOUSE", burst)
+        self.assertIn("message.type == AAAS_INPUT_SCROLL", self.adapter)
         self.assertIn("usleep(1000)", self.adapter)
 
     def test_wayland_axis_sources_are_coalesced_without_double_counting(self):
