@@ -28,6 +28,7 @@
 #include <aidl/android/hardware/graphics/composer3/IComposerCallback.h>
 #include <aidl/android/hardware/graphics/composer3/PresentOrValidate.h>
 #include <aidl/android/hardware/graphics/composer3/PresentFence.h>
+#include <aidl/android/hardware/graphics/composer3/CommandError.h>
 #include <aidl/android/hardware/graphics/composer3/ReleaseFences.h>
 #include <aidl/android/hardware/graphics/composer3/ChangedCompositionTypes.h>
 #include <aidl/android/hardware/graphics/composer3/ChangedCompositionLayer.h>
@@ -299,6 +300,7 @@ public:
 
     ::ndk::ScopedAStatus executeCommands(const std::vector<DisplayCommand>& in_commands, std::vector<CommandResultPayload>* _aidl_return) override {
         kmsg_log("[AaasComposerClient] executeCommands: count=%zu\n", in_commands.size());
+        size_t command_index = 0;
         for (const auto& cmd : in_commands) {
             kmsg_log("  [cmd] display=%lld val=%d accept=%d pres=%d presOrVal=%d ct=%d layers=%zu\n",
                      (long long)cmd.display, cmd.validateDisplay, cmd.acceptDisplayChanges,
@@ -341,9 +343,6 @@ public:
                 int acq_fence = ct.buffer.fence.get();
 
                 if (slot >= 0 && slot < 64) {
-                    // Backpressure: ensure slot is released by host before proceeding
-                    AaasTransport::getInstance().waitForSlotRelease((uint32_t)slot, 40);
-
                     if (mSlots[slot].acquire_fence >= 0) {
                         close(mSlots[slot].acquire_fence);
                         mSlots[slot].acquire_fence = -1;
@@ -386,9 +385,6 @@ public:
             }
 
             if (cmd.validateDisplay) {
-                // Backpressure: if both buffers in double-buffered pool are in flight, wait
-                AaasTransport::getInstance().waitForAnyRelease(40);
-
                 ChangedCompositionTypes cct;
                 cct.display = cmd.display;
                 {
@@ -408,9 +404,6 @@ public:
                 _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
                 mNeedsValidation = false;
             } else if (cmd.presentOrValidateDisplay) {
-                // Backpressure: if both buffers in double-buffered pool are in flight, wait
-                AaasTransport::getInstance().waitForAnyRelease(40);
-
                 PresentOrValidate pv;
                 pv.display = cmd.display;
                 pv.result = PresentOrValidate::Result::Validated;
@@ -435,8 +428,15 @@ public:
                 _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
                 mNeedsValidation = false;
             } else if (cmd.presentDisplay) {
-                presentCurrentFrame(cmd.display, _aidl_return);
+                if (!presentCurrentFrame(cmd.display, command_index, _aidl_return)) {
+                    CommandError error;
+                    error.commandIndex = static_cast<int32_t>(command_index);
+                    error.errorCode = IComposerClient::EX_NO_RESOURCES;
+                    _aidl_return->push_back(
+                        CommandResultPayload::make<CommandResultPayload::Tag::error>(error));
+                }
             }
+            command_index++;
         }
         return ::ndk::ScopedAStatus::ok();
     }
@@ -493,7 +493,8 @@ private:
         return -1;
     }
 
-    void presentCurrentFrame(int64_t display, std::vector<CommandResultPayload>* _aidl_return) {
+    bool presentCurrentFrame(int64_t display, size_t command_index,
+                             std::vector<CommandResultPayload>* _aidl_return) {
         int slot = mCurrentClientTargetSlot;
         int release_fence = -1;
 
@@ -533,13 +534,24 @@ private:
                 munmap(ct_ptr, ct_sz);
             }
 
-            // Wait for any previous submission of this slot to be released by host
-            AaasTransport::getInstance().waitForSlotRelease((uint32_t)slot, 40);
+            int submit_result = AaasTransport::getInstance().submitFrame(frame);
+            if (submit_result != 0) {
+                kmsg_log("[AaasComposerClient] presentDisplay rejected for command %zu: transport submit rc=%d\n",
+                         command_index, submit_result);
+                return false;
+            }
 
-            // Retrieve the genuine release fence exported by the host for this slot
+            /* New presenters acknowledge once the source has been copied to
+             * presenter-owned storage. Older peers complete this same wait at
+             * their ordinary Wayland buffer release. */
+            if (!AaasTransport::getInstance().waitForSlotRelease(
+                    (uint32_t)slot, 250) ||
+                !AaasTransport::getInstance().isConnected()) {
+                kmsg_log("[AaasComposerClient] presentDisplay timed out waiting for safe source release on slot %d\n",
+                         slot);
+                return false;
+            }
             release_fence = AaasTransport::getInstance().takeReleaseFence(slot);
-
-            AaasTransport::getInstance().submitFrame(frame);
 
             if (mSlots[slot].acquire_fence >= 0) {
                 close(mSlots[slot].acquire_fence);
@@ -568,6 +580,7 @@ private:
             }
         }
         _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::releaseFences>(std::move(rf)));
+        return true;
     }
 
     void vsyncLoop() {

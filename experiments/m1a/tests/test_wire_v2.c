@@ -33,6 +33,37 @@ static void test_hello_roundtrip(int s[2]) {
     printf("  [PASS] test_hello_roundtrip\n");
 }
 
+static void test_copy_complete_roundtrip(int s[2]) {
+    aaas_v2_msg m = {
+        .magic = AAAS_V2_MAGIC,
+        .version = AAAS_V2_VERSION,
+        .type = AAAS_V2_COPY_COMPLETE,
+        .generation = 7,
+        .id = 123,
+    };
+    assert(aaas_v2_send(s[0], &m, NULL, 0) == 0);
+
+    aaas_v2_msg out = {0};
+    int fds[AAAS_V2_MAX_FDS];
+    unsigned nfds = 0;
+    assert(aaas_v2_recv(s[1], &out, fds, &nfds) == 1);
+    assert(out.type == AAAS_V2_COPY_COMPLETE);
+    assert(out.generation == m.generation && out.id == m.id);
+    assert(nfds == 0);
+
+    m.id = 0;
+    assert(aaas_v2_send(s[0], &m, NULL, 0) == -1);
+    assert(errno == EINVAL);
+    m.id = 123;
+    int pipefds[2];
+    assert(pipe(pipefds) == 0);
+    assert(aaas_v2_send(s[0], &m, &pipefds[0], 1) == -1);
+    assert(errno == EINVAL);
+    close(pipefds[0]);
+    close(pipefds[1]);
+    printf("  [PASS] test_copy_complete_roundtrip\n");
+}
+
 static void test_resize_validation(int s[2]) {
     aaas_v2_msg m = {
         .magic = AAAS_V2_MAGIC,
@@ -198,6 +229,7 @@ int main(void) {
     assert(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, s) == 0);
 
     test_hello_roundtrip(s);
+    test_copy_complete_roundtrip(s);
     test_resize_validation(s);
     test_invalid_version_rejection(s);
     test_buffer_transfer_with_sync(s);

@@ -22,7 +22,9 @@
 #include <time.h>
 #include <sys/resource.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <linux/dma-buf.h>
 #include <math.h>
 
 #define MAX_SLOTS 32
@@ -52,6 +54,7 @@ struct presenter_app {
     uint32_t w, h, gen;
     int configured;
     int closed;
+    int copy_complete_enabled;
 
     int drm_fd;
     struct gbm_device *gbm;
@@ -1014,10 +1017,13 @@ static void handle_incoming_buffer(presenter_app *a) {
     }
 
     if (m.type == AAAS_V2_HELLO) {
+        a->copy_complete_enabled =
+            (m.flags & AAAS_V2_FLAG_COPY_COMPLETE) != 0 && a->gbm != NULL;
         aaas_v2_msg resp = {
             .magic = AAAS_V2_MAGIC,
             .version = AAAS_V2_VERSION,
             .type = AAAS_V2_RESIZE,
+            .flags = a->copy_complete_enabled ? AAAS_V2_FLAG_COPY_COMPLETE : 0,
             .generation = a->gen ? a->gen : 1,
             .width = a->w ? a->w : 1280,
             .height = a->h ? a->h : 720,
@@ -1090,7 +1096,7 @@ static void handle_incoming_buffer(presenter_app *a) {
     ssize_t llen = readlink(path, link, sizeof(link) - 1);
     bool is_memfd = (llen > 0 && strncmp(link, "/memfd:", 7) == 0);
 
-    if (is_memfd && a->gbm) {
+    if ((is_memfd || a->copy_complete_enabled) && a->gbm) {
         if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
             for (unsigned i = 0; i < nfds; i++) close(fds[i]);
             a->rejected++;
@@ -1100,39 +1106,110 @@ static void handle_incoming_buffer(presenter_app *a) {
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
 
-        stage_bo = gbm_bo_create(a->gbm, m.width, m.height, m.format, GBM_BO_USE_LINEAR);
-        if (stage_bo) {
-            uint32_t stage_stride = gbm_bo_get_stride(stage_bo);
-            size_t src_size = (size_t)m.stride[0] * m.height;
-            void *src_map = mmap(NULL, src_size, PROT_READ, MAP_SHARED, dma_fd, 0);
-            if (src_map != MAP_FAILED) {
-                uint32_t map_stride = 0;
-                void *map_data = NULL;
-                void *dst_map = gbm_bo_map(stage_bo, 0, 0, m.width, m.height,
-                                           GBM_BO_TRANSFER_WRITE, &map_stride, &map_data);
-                if (dst_map) {
-                    for (uint32_t y = 0; y < m.height; y++) {
-                        memcpy((char*)dst_map + y * map_stride,
-                               (char*)src_map + y * m.stride[0],
-                               m.width * 4);
-                    }
-                    gbm_bo_unmap(stage_bo, map_data);
+        uint64_t src_size64 = (uint64_t)m.stride[0] * m.height;
+        bool source_sync_started = false;
+        bool copied = false;
+        void *src_map = MAP_FAILED;
+        uint32_t stage_stride = 0;
+        uint32_t map_stride = 0;
+        void *map_data = NULL;
+        void *dst_map = NULL;
+        if (m.stride[0] >= m.width * 4 && src_size64 > 0 &&
+            src_size64 <= SIZE_MAX) {
+            stage_bo = gbm_bo_create(a->gbm, m.width, m.height, m.format,
+                                     GBM_BO_USE_LINEAR);
+            if (stage_bo) {
+                stage_stride = gbm_bo_get_stride(stage_bo);
+                if (is_memfd) {
+                    source_sync_started = true;
+                } else {
+                    struct dma_buf_sync sync = {
+                        .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ,
+                    };
+                    source_sync_started = ioctl(dma_fd, DMA_BUF_IOCTL_SYNC,
+                                                &sync) == 0;
                 }
-                munmap(src_map, src_size);
+                if (source_sync_started) {
+                    src_map = mmap(NULL, (size_t)src_size64, PROT_READ,
+                                   MAP_SHARED, dma_fd, 0);
+                }
+                if (src_map != MAP_FAILED) {
+                    dst_map = gbm_bo_map(stage_bo, 0, 0, m.width, m.height,
+                                         GBM_BO_TRANSFER_WRITE,
+                                         &map_stride, &map_data);
+                    if (dst_map && map_stride >= m.width * 4) {
+                        for (uint32_t y = 0; y < m.height; y++) {
+                            memcpy((char*)dst_map + (size_t)y * map_stride,
+                                   (char*)src_map + (size_t)y * m.stride[0],
+                                   (size_t)m.width * 4);
+                        }
+                        copied = true;
+                    }
+                    if (dst_map) gbm_bo_unmap(stage_bo, map_data);
+                    munmap(src_map, (size_t)src_size64);
+                }
+                if (!is_memfd && source_sync_started) {
+                    struct dma_buf_sync sync = {
+                        .flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ,
+                    };
+                    if (ioctl(dma_fd, DMA_BUF_IOCTL_SYNC, &sync) != 0) {
+                        copied = false;
+                    }
+                }
             }
+        }
+
+        int stage_fd = copied ? gbm_bo_get_fd(stage_bo) : -1;
+        if (stage_fd >= 0) {
             close(dma_fd);
-            dma_fd = gbm_bo_get_fd(stage_bo);
+            dma_fd = stage_fd;
             m.stride[0] = stage_stride;
             m.modifier = gbm_bo_get_modifier(stage_bo);
+            if (acquire_fence_fd >= 0) {
+                close(acquire_fence_fd);
+                acquire_fence_fd = -1;
+                m.flags &= ~AAAS_V2_FLAG_EXPLICIT_SYNC;
+            }
 
             clock_gettime(CLOCK_MONOTONIC, &t1);
-            uint64_t copy_us = ((uint64_t)(t1.tv_sec - t0.tv_sec) * 1000000ULL +
-                                (t1.tv_nsec - t0.tv_nsec) / 1000ULL);
+            int64_t copy_ns =
+                ((int64_t)t1.tv_sec - (int64_t)t0.tv_sec) * 1000000000LL +
+                ((int64_t)t1.tv_nsec - (int64_t)t0.tv_nsec);
+            uint64_t copy_us = copy_ns > 0 ? (uint64_t)copy_ns / 1000ULL : 0;
             char copy_json[128];
             snprintf(copy_json, sizeof(copy_json),
                      "\"fallback\":\"cpu_staging_copy\",\"overhead_us\":%llu",
                      (unsigned long long)copy_us);
             log_presenter_event("staging_copy", m.generation, m.id, copy_json);
+
+            if (a->copy_complete_enabled) {
+                aaas_v2_msg copied_msg = {
+                    .magic = AAAS_V2_MAGIC,
+                    .version = AAAS_V2_VERSION,
+                    .type = AAAS_V2_COPY_COMPLETE,
+                    .generation = m.generation,
+                    .id = m.id,
+                };
+                if (aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
+                    close(dma_fd);
+                    gbm_bo_destroy(stage_bo);
+                    a->closed = 1;
+                    a->rejected++;
+                    log_presenter_event("copy_complete_send_failed", m.generation,
+                                        m.id, NULL);
+                    return;
+                }
+                log_presenter_event("source_copy_complete", m.generation, m.id, NULL);
+            }
+        } else {
+            if (stage_bo) {
+                gbm_bo_destroy(stage_bo);
+                stage_bo = NULL;
+            }
+            char copy_json[96];
+            snprintf(copy_json, sizeof(copy_json), "\"errno\":%d", errno);
+            log_presenter_event("staging_copy_unavailable", m.generation, m.id,
+                                copy_json);
         }
     }
 

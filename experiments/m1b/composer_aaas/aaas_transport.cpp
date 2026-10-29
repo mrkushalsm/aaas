@@ -64,7 +64,7 @@ AaasTransport& AaasTransport::getInstance() {
 
 AaasTransport::AaasTransport()
     : mSockFd(-1), mGeneration(0), mWidth(1280), mHeight(720),
-      mRunning(false), mConnected(false) {
+      mRunning(false), mConnected(false), mCopyCompleteSupported(false) {
     for (int i = 0; i < 64; i++) {
         mReleaseFences[i] = -1;
     }
@@ -112,6 +112,9 @@ void AaasTransport::shutdown() {
     }
     mInFlightSlots.clear();
     mInFlightBackingInos.clear();
+    mIdToSlot.clear();
+    mIdToBackingIno.clear();
+    mSourceReleasedIds.clear();
     mReleaseCv.notify_all();
 }
 
@@ -152,6 +155,7 @@ bool AaasTransport::connectSocket() {
     hello.magic = AAAS_V2_MAGIC;
     hello.version = AAAS_V2_VERSION;
     hello.type = AAAS_V2_HELLO;
+    hello.flags = AAAS_V2_FLAG_COPY_COMPLETE;
     if (aaas_v2_send(mSockFd, &hello, nullptr, 0) != 0) {
         transport_log("[AaasTransport] Failed to send HELLO: %s\n", strerror(errno));
         close(mSockFd);
@@ -215,34 +219,73 @@ void AaasTransport::transportThreadLoop() {
                 mGeneration.store(msg.generation);
                 mWidth.store(msg.width);
                 mHeight.store(msg.height);
+                mCopyCompleteSupported.store(
+                    (msg.flags & AAAS_V2_FLAG_COPY_COMPLETE) != 0);
                 transport_log("[AaasTransport] Received RESIZE: %dx%d (generation=%u)\n",
                               msg.width, msg.height, msg.generation);
-            } else if (msg.type == AAAS_V2_RELEASE) {
+            } else if (msg.type == AAAS_V2_COPY_COMPLETE ||
+                       msg.type == AAAS_V2_RELEASE) {
                 int fence_fd = (nfds > 0 && fds[0] >= 0) ? fds[0] : -1;
                 std::lock_guard<std::mutex> lock(mLock);
                 auto it = mIdToSlot.find(msg.id);
                 if (it != mIdToSlot.end()) {
                     uint32_t slot_idx = it->second;
-                    mIdToSlot.erase(it);
-                    mInFlightSlots.erase(slot_idx);
-                    auto ino_it = mSlotToBackingIno.find(slot_idx);
-                    if (ino_it != mSlotToBackingIno.end()) {
-                        mInFlightBackingInos.erase(ino_it->second);
-                    }
-                    transport_log("[AaasTransport] Received RELEASE for slot %u (id=%u, fence_fd=%d, remaining_in_flight=%zu)\n",
-                                  slot_idx, msg.id, fence_fd, mInFlightSlots.size());
-                    if (slot_idx < 64) {
-                        if (mReleaseFences[slot_idx] >= 0) {
-                            close(mReleaseFences[slot_idx]);
+                    const bool source_released =
+                        mSourceReleasedIds.find(msg.id) != mSourceReleasedIds.end();
+                    if (msg.type == AAAS_V2_COPY_COMPLETE) {
+                        if (!source_released) {
+                            auto id_ino = mIdToBackingIno.find(msg.id);
+                            if (id_ino != mIdToBackingIno.end()) {
+                                mInFlightBackingInos.erase(id_ino->second);
+                                auto slot_ino = mSlotToBackingIno.find(slot_idx);
+                                if (slot_ino != mSlotToBackingIno.end() &&
+                                    slot_ino->second == id_ino->second) {
+                                    mSlotToBackingIno.erase(slot_ino);
+                                }
+                            }
+                            mInFlightSlots.erase(slot_idx);
+                            mSourceReleasedIds.insert(msg.id);
                         }
-                        mReleaseFences[slot_idx] = fence_fd;
-                    } else if (fence_fd >= 0) {
-                        close(fence_fd);
+                        transport_log("[AaasTransport] Source copy complete for slot %u id=%u\n",
+                                      slot_idx, msg.id);
+                        mReleaseCv.notify_all();
+                    } else {
+                        mIdToSlot.erase(it);
+                        if (!source_released) {
+                            mInFlightSlots.erase(slot_idx);
+                            auto id_ino = mIdToBackingIno.find(msg.id);
+                            if (id_ino != mIdToBackingIno.end()) {
+                                mInFlightBackingInos.erase(id_ino->second);
+                                auto slot_ino = mSlotToBackingIno.find(slot_idx);
+                                if (slot_ino != mSlotToBackingIno.end() &&
+                                    slot_ino->second == id_ino->second) {
+                                    mSlotToBackingIno.erase(slot_ino);
+                                }
+                            }
+                            if (slot_idx < 64) {
+                                if (mReleaseFences[slot_idx] >= 0) {
+                                    close(mReleaseFences[slot_idx]);
+                                }
+                                mReleaseFences[slot_idx] = fence_fd;
+                                fence_fd = -1;
+                            }
+                        }
+                        mIdToBackingIno.erase(msg.id);
+                        mSourceReleasedIds.erase(msg.id);
+                        transport_log("[AaasTransport] Received RELEASE for slot %u (id=%u, source_released=%d, remaining_in_flight=%zu)\n",
+                                      slot_idx, msg.id, source_released,
+                                      mInFlightSlots.size());
+                        mReleaseCv.notify_all();
                     }
-                    mReleaseCv.notify_all();
-                } else {
-                    transport_log("[AaasTransport] Received RELEASE for unknown id=%u\n", msg.id);
                     if (fence_fd >= 0) close(fence_fd);
+                } else {
+                    transport_log("[AaasTransport] Received %s for unknown id=%u\n",
+                                  msg.type == AAAS_V2_COPY_COMPLETE ? "COPY_COMPLETE" : "RELEASE",
+                                  msg.id);
+                    if (fence_fd >= 0) close(fence_fd);
+                }
+                for (unsigned i = 1; i < nfds; ++i) {
+                    if (fds[i] >= 0) close(fds[i]);
                 }
             } else if (msg.type == AAAS_V2_CLOSE) {
                 transport_log("[AaasTransport] Received CLOSE from host presenter\n");
@@ -307,13 +350,28 @@ size_t AaasTransport::getInFlightCount() {
 }
 
 int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
-    // Before acquiring mLock, wait if this slot is already in flight
-    waitForSlotRelease(frame.slot, 40);
+    if (frame.slot >= 64 || frame.dma_fd < 0) return -EINVAL;
 
     std::lock_guard<std::mutex> lock(mLock);
     if (!mConnected || mSockFd < 0) {
         transport_log("[AaasTransport] Cannot submitFrame: not connected\n");
         return -1;
+    }
+    if (mInFlightSlots.find(frame.slot) != mInFlightSlots.end()) {
+        transport_log("[AaasTransport] Rejecting in-flight source slot %u\n", frame.slot);
+        return -EBUSY;
+    }
+
+    struct stat backing = {};
+    if (fstat(frame.dma_fd, &backing) != 0) {
+        transport_log("[AaasTransport] fstat(dma_fd=%d) failed: %s\n",
+                      frame.dma_fd, strerror(errno));
+        return -errno;
+    }
+    if (mInFlightBackingInos.find(backing.st_ino) != mInFlightBackingInos.end()) {
+        transport_log("[AaasTransport] Rejecting backing inode %llu while its source is in flight\n",
+                      (unsigned long long)backing.st_ino);
+        return -EBUSY;
     }
 
     uint32_t gen = mGeneration.load();
@@ -321,14 +379,8 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
 
     uint32_t frame_id = mNextId++;
     mIdToSlot[frame_id] = frame.slot;
+    mIdToBackingIno[frame_id] = backing.st_ino;
     mInFlightSlots.insert(frame.slot);
-
-    struct stat backing = {};
-    fstat(frame.dma_fd, &backing);
-    if (mInFlightBackingInos.find(backing.st_ino) != mInFlightBackingInos.end()) {
-        transport_log("[AaasTransport] VIOLATION WARNING: Backing ino %llu submitted while still recorded in flight!\n",
-                      (unsigned long long)backing.st_ino);
-    }
     mSlotToBackingIno[frame.slot] = backing.st_ino;
     mInFlightBackingInos.insert(backing.st_ino);
 
@@ -360,6 +412,9 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
         transport_log("[AaasTransport] dup(dma_fd=%d) failed: %s\n", frame.dma_fd, strerror(errno));
         mInFlightSlots.erase(frame.slot);
         mInFlightBackingInos.erase(backing.st_ino);
+        mSlotToBackingIno.erase(frame.slot);
+        mIdToSlot.erase(frame_id);
+        mIdToBackingIno.erase(frame_id);
         return -1;
     }
     send_fds[0] = dma_dup;
@@ -370,7 +425,13 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
             send_fds[1] = acq_dup;
             nfds = 2;
         } else {
-            m.flags &= ~AAAS_V2_FLAG_EXPLICIT_SYNC;
+            close(send_fds[0]);
+            mInFlightSlots.erase(frame.slot);
+            mInFlightBackingInos.erase(backing.st_ino);
+            mSlotToBackingIno.erase(frame.slot);
+            mIdToSlot.erase(frame_id);
+            mIdToBackingIno.erase(frame_id);
+            return -errno;
         }
     }
 
@@ -388,6 +449,9 @@ int AaasTransport::submitFrame(const AaasBufferSlot& frame) {
         transport_log("[AaasTransport] aaas_v2_send failed: %s (errno=%d)\n", strerror(errno), errno);
         mInFlightSlots.erase(frame.slot);
         mInFlightBackingInos.erase(backing.st_ino);
+        mSlotToBackingIno.erase(frame.slot);
+        mIdToSlot.erase(frame_id);
+        mIdToBackingIno.erase(frame_id);
         return -1;
     }
 

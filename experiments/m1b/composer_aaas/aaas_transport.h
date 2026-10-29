@@ -69,12 +69,15 @@ private:
     std::atomic<uint32_t> mHeight;
     std::atomic<bool> mRunning;
     std::atomic<bool> mConnected;
+    std::atomic<bool> mCopyCompleteSupported;
     std::mutex mLock;
     std::condition_variable mReleaseCv;
     std::thread mThread;
 
     int mReleaseFences[64];
     std::unordered_map<uint32_t, uint32_t> mIdToSlot;
+    std::unordered_map<uint32_t, uint64_t> mIdToBackingIno;
+    std::unordered_set<uint32_t> mSourceReleasedIds;
     std::unordered_set<uint32_t> mInFlightSlots;
     std::unordered_map<uint32_t, uint64_t> mSlotToBackingIno;
     std::unordered_set<uint64_t> mInFlightBackingInos;

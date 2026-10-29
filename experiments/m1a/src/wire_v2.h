@@ -16,12 +16,16 @@ enum {
     AAAS_V2_BUFFER  = 3,
     AAAS_V2_RELEASE = 4,
     AAAS_V2_CLOSE   = 5,
+    /* Producer may reuse its source after the presenter has copied it into
+     * presenter-owned storage; the Wayland buffer remains in flight. */
+    AAAS_V2_COPY_COMPLETE = 6,
 };
 
 enum {
     AAAS_V2_FLAG_EXPLICIT_SYNC = (1 << 0), /* Buffer has acquire fence FD attached */
     AAAS_V2_FLAG_RELEASE_FENCE = (1 << 1), /* Release message has release fence FD attached */
     AAAS_V2_FLAG_LINEAR        = (1 << 2), /* Buffer uses linear memory layout */
+    AAAS_V2_FLAG_COPY_COMPLETE = (1 << 3), /* HELLO/RESIZE capability */
 };
 
 typedef struct {

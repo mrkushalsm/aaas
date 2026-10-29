@@ -33,7 +33,7 @@ static int validate_v2(const aaas_v2_msg *m, unsigned nfds) {
     if (m->reserved[0] != 0 || m->reserved[1] != 0) {
         return 0;
     }
-    if (m->type < AAAS_V2_HELLO || m->type > AAAS_V2_CLOSE) {
+    if (m->type < AAAS_V2_HELLO || m->type > AAAS_V2_COPY_COMPLETE) {
         return 0;
     }
 
@@ -68,6 +68,9 @@ static int validate_v2(const aaas_v2_msg *m, unsigned nfds) {
         }
         return nfds == 0;
     }
+
+    case AAAS_V2_COPY_COMPLETE:
+        return nfds == 0 && m->generation && m->id;
 
     case AAAS_V2_CLOSE:
         return nfds == 0;
