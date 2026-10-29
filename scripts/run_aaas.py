@@ -36,6 +36,7 @@ LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d
 LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce'
 COMPOSER_PORTRAIT_SHA256 = 'cd55e7418a469e84c839bfec287b1bce238a43daa28f50900acf3174c17e3a46'
 VDC_OVERLAY_SHA256 = 'b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764'
+FRAMEWORK_IME_SHA256 = '701d2fd4afe62e4b02a3f2da603daab492a4369dea3bd4d3baefe52789623a0b'
 
 
 def sha256(path):
@@ -74,7 +75,7 @@ def replace_once(source, old, new):
     return source.replace(old, new, 1)
 
 
-def make_session_runner(session):
+def make_session_runner(session, desktop_ime=True):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     timeout = '140'
@@ -84,6 +85,8 @@ def make_session_runner(session):
         '    ipc_dir = tmp_dir / "aaas_ipc"',
         '    vdc_overlay = Path(os.environ["AAAS_VDC_OVERLAY"])\n'
         '    vdc_bind = f\'  --ro-bind "{vdc_overlay}" /system/bin/vdc \' + chr(92) + "\\n"\n'
+        '    framework_ime_overlay = Path(os.environ["AAAS_FRAMEWORK_JAR_OVERLAY"])\n'
+        '    framework_ime_bind = f\'  --ro-bind "{framework_ime_overlay}" /system/framework/framework.jar \' + chr(92) + "\\n"\n'
         '    ipc_dir = tmp_dir / "aaas_ipc"',
     )
     source = replace_once(
@@ -124,7 +127,7 @@ def make_session_runner(session):
     source = replace_once(
         source,
         '{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
-        '{vdc_bind}{lmkd_bind}{status_bind}{logcat_bind}{input_adapter_bind}'
+        '{vdc_bind}{framework_ime_bind}{lmkd_bind}{status_bind}{logcat_bind}{input_adapter_bind}'
         '{input_adapter_log_bind}{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
     )
     logcat_anchor = '    /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true'
@@ -132,6 +135,16 @@ def make_session_runner(session):
         source, logcat_anchor,
         '    /system/bin/logcat -b all -v threadtime > /aaas_session_logcat 2>&1 &\n'
         + logcat_anchor,
+    )
+    source = replace_once(
+        source,
+        '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
+        '    /system/bin/settings put secure show_ime_with_hard_keyboard '
+        + ('0' if desktop_ime else '1') + '\n'
+        + ('    /system/bin/settings put secure aaas_desktop_mode 1\n'
+           if desktop_ime else
+           '    /system/bin/settings delete secure aaas_desktop_mode\n')
+        + '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
     )
     source = replace_once(
         source,
@@ -199,6 +212,7 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait'):
     lmkd_overlay_entry = select_lmkd_overlay(use_source_lmkd)
     required = {
         'AAAS_VDC_OVERLAY': ('m1d_vdc_overlay/vdc', VDC_OVERLAY_SHA256),
+        'AAAS_FRAMEWORK_JAR_OVERLAY': ('m1d_framework_desktop_ime.jar', FRAMEWORK_IME_SHA256),
         'AAAS_VULKAN_OVERLAY': ('m1b83_sampling_lock_vulkan.so', VULKAN_SHA256),
         'AAAS_LMKD_OVERLAY': lmkd_overlay_entry,
         'AAAS_RANGING_JAR_OVERLAY': ('m1b8_service-ranging.rebuilt2.jar', None),
@@ -240,6 +254,8 @@ def main():
     parser.add_argument('--orientation', choices=('portrait', 'landscape'),
                         default='portrait',
                         help='Android display profile (default: portrait)')
+    parser.add_argument('--software-keyboard', action='store_true',
+                        help='Allow Android to show its software keyboard (mobile/accessibility mode)')
     args = parser.parse_args()
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
@@ -288,7 +304,7 @@ def main():
             os.close(lock_fd)
             return 1
         print(f'AaaS: cgroup memory policy at {policy.session_dir}', flush=True)
-    runner = make_session_runner(session)
+    runner = make_session_runner(session, desktop_ime=not args.software_keyboard)
     prefix = f'm1b84_session_{os.getpid()}_'
     env = os.environ.copy()
     env.update(paths)

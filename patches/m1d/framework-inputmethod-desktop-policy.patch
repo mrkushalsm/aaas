@@ -1,0 +1,15 @@
+--- a/core/java/android/inputmethodservice/InputMethodService.java
++++ b/core/java/android/inputmethodservice/InputMethodService.java
+@@ -2473,6 +2473,12 @@
+      */
+     @CallSuper
+     public boolean onEvaluateInputViewShown() {
++        // AaaS desktop sessions inject host keys through the existing InputManager
++        // adapter but intentionally do not expose raw host event nodes in Android.
++        // Keep the IME service and InputConnection active without its soft window.
++        if (Settings.Secure.getInt(getContentResolver(), "aaas_desktop_mode", 0) != 0) {
++            return false;
++        }
+         if (mSettingsObserver == null) {
+             Log.w(TAG, "onEvaluateInputViewShown: mSettingsObserver must not be null here.");
+             return false;

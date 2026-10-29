@@ -75,7 +75,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('ipc_dir.chmod(0o711)', generated)
         self.assertIn('vdc_overlay = Path(os.environ["AAAS_VDC_OVERLAY"])', generated)
         self.assertIn('--ro-bind "{vdc_overlay}" /system/bin/vdc', generated)
-        self.assertIn('{vdc_bind}{lmkd_bind}', generated)
+        self.assertIn('{vdc_bind}{framework_ime_bind}{lmkd_bind}', generated)
         self.assertIn('lmkd_bind', generated)
         self.assertIn('/aaas_session_logcat', generated)
         self.assertIn('echo RUNNING > /aaas_session_status', generated)
@@ -118,6 +118,24 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('/dev/aaas/input.sock', generated)
         self.assertLess(generated.index('AAAS_INPUT_ADAPTER_STARTED'),
                         generated.index('=== TESTING ACTIVITY LAUNCH (SETTINGS) ==='))
+
+    def test_runner_enables_desktop_ime_policy_and_binds_framework_overlay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(Path(directory)).read_text()
+        self.assertIn('framework_ime_overlay = Path(os.environ["AAAS_FRAMEWORK_JAR_OVERLAY"])',
+                      generated)
+        self.assertIn('--ro-bind "{framework_ime_overlay}" /system/framework/framework.jar',
+                      generated)
+        self.assertIn('settings put secure show_ime_with_hard_keyboard 0', generated)
+        self.assertIn('settings put secure aaas_desktop_mode 1', generated)
+        self.assertLess(generated.index('settings put secure aaas_desktop_mode 1'),
+                        generated.index('=== TESTING ACTIVITY LAUNCH (SETTINGS) ==='))
+
+    def test_runner_exposes_mobile_ime_escape_hatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(Path(directory), desktop_ime=False).read_text()
+        self.assertIn('settings put secure show_ime_with_hard_keyboard 1', generated)
+        self.assertIn('settings delete secure aaas_desktop_mode', generated)
 
     def test_single_instance_lock_rejection(self):
         import fcntl
