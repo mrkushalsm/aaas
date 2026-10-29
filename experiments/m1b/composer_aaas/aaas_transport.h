@@ -29,6 +29,11 @@ class AaasTransport {
 public:
     static AaasTransport& getInstance();
 
+    // Independent outputs use their own transport object and socket. The
+    // process-wide primary display continues to use getInstance().
+    AaasTransport();
+    ~AaasTransport();
+
     bool initialize(const std::string& socket_path);
     void shutdown();
     bool isConnected() const { return mConnected.load(); }
@@ -56,9 +61,6 @@ public:
     uint32_t getGeneration() const { return mGeneration.load(); }
 
 private:
-    AaasTransport();
-    ~AaasTransport();
-
     void transportThreadLoop();
     bool connectSocket();
 

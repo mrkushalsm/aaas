@@ -1,0 +1,8 @@
+service aaas-display-broker /system/bin/app_process64 /system/bin --nice-name=aaas-display-broker com.aaas.display.AaasDisplayBroker 720 1280 240 /dev/aaas/vdisplay_id /dev/aaas/display_broker.log /dev/aaas/display_broker_shutdown
+    class late_start
+    user system
+    group system graphics
+    disabled
+    oneshot
+    setenv CLASSPATH /system/framework/aaas-display-broker.dex
+    setenv LD_PRELOAD /system/lib64/libselinux_shim.so

@@ -10,15 +10,17 @@ static int reject(char *why, size_t why_len, const char *reason) {
     return 0;
 }
 
-void aaas_input_state_init(aaas_input_state *state, uint64_t session_id) {
+void aaas_input_state_init(aaas_input_state *state, uint64_t session_id,
+                           uint32_t display_id) {
     memset(state, 0, sizeof(*state));
     state->session_id = session_id;
+    state->display_id = display_id;
 }
 
 int aaas_input_state_accept(aaas_input_state *state, const aaas_input_msg *msg,
                             char *why, size_t why_len) {
     char local_why[64] = {0};
-    if (aaas_input_validate(msg, state->session_id, 0,
+    if (aaas_input_validate(msg, state->session_id, state->display_id,
                             local_why, sizeof(local_why)) != 0) {
         return reject(why, why_len, local_why);
     }

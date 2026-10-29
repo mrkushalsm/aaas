@@ -18,6 +18,8 @@ typedef struct {
     /* Optional private input channel.  -1 disables pointer forwarding. */
     int input_listen_fd;
     uint64_t input_session_id;
+    /* Optional file containing the Android display ID for this private output. */
+    const char *input_display_id_file;
 } aaas_presenter_config;
 
 /**

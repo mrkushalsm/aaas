@@ -7,6 +7,7 @@ OUT_DIR ?= $(WORKSPACE_ROOT)/tmp
 BIN ?= $(OUT_DIR)/android.hardware.graphics.composer3-service.aaas
 AAAS_DISPLAY_WIDTH ?= 1280
 AAAS_DISPLAY_HEIGHT ?= 720
+AAAS_ENABLE_VIRTUAL_DISPLAY ?= 0
 
 SRCS := composer_service.cpp aaas_transport.cpp ../../m1a/src/wire_v2.c
 
@@ -18,6 +19,11 @@ CXXFLAGS := -target $(TARGET) -std=c++17 -nostdlib -nostdinc++ -fno-rtti \
   -I include \
   -I include/aidl \
   -I ../../m1a/src
+
+ifeq ($(AAAS_ENABLE_VIRTUAL_DISPLAY),1)
+CXXFLAGS += -DAAAS_ENABLE_VIRTUAL_DISPLAY=1 \
+  -DAAAS_VIRTUAL_DISPLAY_SOCKET=\"/dev/aaas/wayland-vdisplay.sock\"
+endif
 
 LDFLAGS := -L $(ROOTFS)/system/lib64 \
   -L $(ROOTFS)/system/lib64/bootstrap \

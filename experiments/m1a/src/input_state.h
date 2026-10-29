@@ -15,13 +15,15 @@
  */
 typedef struct {
     uint64_t session_id;
+    uint32_t display_id;
     uint32_t display_generation;
     uint32_t focus_generation;
     uint32_t sequence;
     int initialized;
 } aaas_input_state;
 
-void aaas_input_state_init(aaas_input_state *state, uint64_t session_id);
+void aaas_input_state_init(aaas_input_state *state, uint64_t session_id,
+                           uint32_t display_id);
 
 /* Returns 1 when the message is acceptable and updates state, 0 otherwise. */
 int aaas_input_state_accept(aaas_input_state *state, const aaas_input_msg *msg,

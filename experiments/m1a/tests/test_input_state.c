@@ -42,7 +42,7 @@ static void expect(const char *name, aaas_input_state *state,
 
 int main(void) {
     aaas_input_state state;
-    aaas_input_state_init(&state, 0x1122334455667788ULL);
+    aaas_input_state_init(&state, 0x1122334455667788ULL, 0);
 
     aaas_input_msg hello = base(AAAS_INPUT_HELLO, 1, 3, 1);
     expect("hello", &state, &hello, 1, "");
@@ -82,18 +82,29 @@ int main(void) {
     expect("unexpected-hello-ack", &state, &m, 0, "unexpected_hello_ack");
 
     aaas_input_state fresh;
-    aaas_input_state_init(&fresh, 0x1122334455667788ULL);
+    aaas_input_state_init(&fresh, 0x1122334455667788ULL, 0);
     m = base(AAAS_INPUT_MOTION, 1, 3, 1);
     expect("not-initialized", &fresh, &m, 0, "not_initialized");
 
     aaas_input_state reconnected;
-    aaas_input_state_init(&reconnected, 0x1122334455667788ULL);
+    aaas_input_state_init(&reconnected, 0x1122334455667788ULL, 0);
     hello = base(AAAS_INPUT_HELLO, 10, 5, 4);
     expect("reconnect-hello", &reconnected, &hello, 1, "");
     m = base(AAAS_INPUT_MOTION, 1, 5, 4);
     expect("reconnect-sequence-reset", &reconnected, &m, 0, "stale_sequence");
     m = base(AAAS_INPUT_MOTION, 11, 5, 4);
     expect("reconnect-motion", &reconnected, &m, 1, "");
+
+    aaas_input_state vdisplay;
+    aaas_input_state_init(&vdisplay, 0x1122334455667788ULL, 2);
+    hello = base(AAAS_INPUT_HELLO, 1, 1, 0);
+    hello.display_id = 2;
+    expect("virtual-display-hello", &vdisplay, &hello, 1, "");
+    m = base(AAAS_INPUT_MOTION, 2, 1, 0);
+    m.display_id = 2;
+    expect("virtual-display-motion", &vdisplay, &m, 1, "");
+    m.display_id = 0;
+    expect("virtual-display-rejects-primary", &vdisplay, &m, 0, "wrong display");
 
     if (failures) {
         fprintf(stderr, "%d input state test(s) failed\n", failures);

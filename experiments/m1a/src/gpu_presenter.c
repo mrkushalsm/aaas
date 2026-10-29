@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
 #include <sys/resource.h>
@@ -135,6 +136,8 @@ struct presenter_app {
     int input_listen_fd;
     int input_fd;
     uint64_t input_session_id;
+    const char *input_display_id_file;
+    uint32_t input_display_id;
     uint32_t input_sequence;
     uint64_t input_sent;
     uint64_t input_dropped;
@@ -273,7 +276,7 @@ static void input_send_packet(presenter_app *a, uint16_t type, int32_t x, int32_
         .type = type,
         .length = AAAS_INPUT_MSG_SIZE,
         .sequence = ++a->input_sequence,
-        .display_id = 0,
+        .display_id = a->input_display_id,
         .display_generation = a->gen ? a->gen : 1,
         .timestamp_ns = monotonic_ns(),
         .session_id = a->input_session_id,
@@ -364,7 +367,7 @@ static void input_send_keyboard(presenter_app *a, uint16_t type, uint32_t evdev,
     aaas_input_keyboard_msg h = {
         .magic=AAAS_INPUT_MAGIC, .version=AAAS_INPUT_KEYBOARD_VERSION, .type=type,
         .length=AAAS_INPUT_KEYBOARD_MSG_SIZE, .sequence=++a->input_sequence,
-        .display_id=0, .display_generation=a->gen ? a->gen : 1,
+        .display_id=a->input_display_id, .display_generation=a->gen ? a->gen : 1,
         .timestamp_ns=monotonic_ns(), .session_id=a->input_session_id,
         .focus_generation=a->focus_generation, .evdev_key=evdev,
         .android_keycode=keycode, .state=state, .meta_state=meta,
@@ -1633,6 +1636,21 @@ static void input_adapter_accept(presenter_app *a) {
         a->input_fd = -1;
         log_presenter_event("input_adapter_replaced", a->gen, 0, NULL);
     }
+    a->input_display_id = 0;
+    if (a->input_display_id_file) {
+        FILE *display_file = fopen(a->input_display_id_file, "r");
+        unsigned long parsed = 0;
+        char trailing = '\0';
+        if (!display_file || fscanf(display_file, "%lu %c", &parsed, &trailing) != 1 ||
+            parsed == 0 || parsed >= AAAS_INPUT_MAX_DISPLAY) {
+            if (display_file) fclose(display_file);
+            close(fd);
+            log_presenter_event("input_display_id_unavailable", a->gen, 0, NULL);
+            return;
+        }
+        fclose(display_file);
+        a->input_display_id = (uint32_t)parsed;
+    }
     a->input_fd = fd;
     a->keyboard_v2_enabled=0;
     a->keyboard_queue_head=0; a->keyboard_queue_count=0;
@@ -1671,7 +1689,8 @@ static void input_adapter_read(presenter_app *a) {
     aaas_input_msg host;
     aaas_input_from_wire(&host, &wire);
     char why[64] = {0};
-    if (aaas_input_validate(&host, a->input_session_id, 0, why, sizeof(why)) != 0) {
+    if (aaas_input_validate(&host, a->input_session_id, a->input_display_id,
+                            why, sizeof(why)) != 0) {
         char extra[128];
         snprintf(extra, sizeof(extra), "\"reason\":\"%s\"", why);
         log_presenter_event("input_invalid_adapter_message", a->gen, 0, extra);
@@ -1719,6 +1738,8 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         .input_listen_fd = config->input_listen_fd,
         .input_fd = -1,
         .input_session_id = config->input_session_id,
+        .input_display_id_file = config->input_display_id_file,
+        .input_display_id = 0,
         .repeat_key = UINT32_MAX,
     };
 

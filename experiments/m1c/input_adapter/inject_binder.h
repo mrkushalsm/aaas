@@ -52,7 +52,7 @@ int aaas_binder_inject(int action, int32_t x, int32_t y,
                        uint32_t source, uint32_t tool_type,
                        uint32_t button_state, uint32_t action_button,
                        float pressure, float vscroll, float hscroll,
-                       int64_t event_ns, uint32_t event_id);
+                       int64_t event_ns, uint32_t event_id, int32_t display_id);
 
 /* Best effort cleanup; safe to call without a successful inject(). */
 void aaas_binder_shutdown(void);

@@ -8,6 +8,8 @@
 #include <stdarg.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <poll.h>
 
 #include <atomic>
 #include <chrono>
@@ -17,6 +19,7 @@
 #include <vector>
 #include <set>
 #include <mutex>
+#include <unordered_map>
 
 #include <android/binder_ibinder.h>
 #include <android/binder_manager.h>
@@ -126,11 +129,41 @@ struct ClientTargetSlot {
     bool has_handle = false;
 };
 
+struct VirtualBufferSlot {
+    int dma_fd = -1;
+    int acquire_fence = -1;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t stride = 0;
+    uint32_t format = 0;
+    uint32_t allocation_size = 0;
+    uint64_t generation = 0;
+};
+
+struct VirtualDisplayState {
+    int32_t width = 0;
+    int32_t height = 0;
+    PixelFormat format = PixelFormat::UNSPECIFIED;
+    std::vector<VirtualBufferSlot> output_slots;
+    VirtualBufferSlot client_target[64];
+    int current_output_slot = -1;
+    int current_client_slot = -1;
+    uint32_t ownership_diagnostics = 0;
+    uint32_t empty_frame_diagnostics = 0;
+};
+
 class AaasComposerClient : public IComposerClientDefault {
 public:
     AaasComposerClient()
         : mNextLayerId(1), mCurrentClientTargetSlot(-1),
           mNeedsValidation(true), mVsyncEnabled(false), mRunning(true) {
+#ifdef AAAS_ENABLE_VIRTUAL_DISPLAY
+        mVirtualOutputAvailable = mVirtualTransport.initialize(AAAS_VIRTUAL_DISPLAY_SOCKET);
+        // Do not advertise HWC virtual displays unless their isolated Wayland
+        // endpoint is already listening. Primary output stays independent.
+        for (int i = 0; i < 100 && !mVirtualTransport.isConnected(); ++i) usleep(10000);
+        mVirtualOutputAvailable = mVirtualOutputAvailable && mVirtualTransport.isConnected();
+#endif
         kmsg_log("[AaasComposerClient] Instance created (M1B.7)\n");
     }
 
@@ -140,6 +173,8 @@ public:
         if (mVsyncThread.joinable()) {
             mVsyncThread.join();
         }
+        for (auto& entry : mVirtualDisplays) closeVirtualDisplayState(entry.second);
+        mVirtualTransport.shutdown();
     }
 
     ::ndk::ScopedAStatus registerCallback(const std::shared_ptr<IComposerCallback>& in_callback) override {
@@ -282,11 +317,11 @@ public:
     }
 
     ::ndk::ScopedAStatus createLayer(int64_t in_display, int32_t in_bufferSlotCount, int64_t* _aidl_return) override {
-        (void)in_display; (void)in_bufferSlotCount;
+        (void)in_bufferSlotCount;
         int64_t layerId = mNextLayerId++;
         {
             std::lock_guard<std::mutex> lock(mLayerLock);
-            mActiveLayers.insert(layerId);
+            mLayerDisplays.emplace(layerId, in_display);
         }
         mNeedsValidation = true;
         kmsg_log("[AaasComposerClient] createLayer(display=%ld, slotCount=%d) -> layerId=%ld\n",
@@ -296,10 +331,12 @@ public:
     }
 
     ::ndk::ScopedAStatus destroyLayer(int64_t in_display, int64_t in_layer) override {
-        (void)in_display;
         {
             std::lock_guard<std::mutex> lock(mLayerLock);
-            mActiveLayers.erase(in_layer);
+            auto it = mLayerDisplays.find(in_layer);
+            if (it != mLayerDisplays.end() && it->second == in_display) {
+                mLayerDisplays.erase(it);
+            }
         }
         mNeedsValidation = true;
         kmsg_log("[AaasComposerClient] destroyLayer(display=%ld, layerId=%ld)\n", (long)in_display, (long)in_layer);
@@ -385,6 +422,35 @@ public:
                              slot, mSlots[slot].width, mSlots[slot].height, mSlots[slot].stride,
                              mSlots[slot].format, mSlots[slot].dma_fd, mSlots[slot].acquire_fence);
                 }
+                {
+                    std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+                    auto it = mVirtualDisplays.find(cmd.display);
+                    if (it != mVirtualDisplays.end()) {
+                        updateVirtualBuffer(it->second.client_target, 64,
+                                            ct.buffer, it->second.width,
+                                            it->second.height);
+                        if (slot >= 0 && slot < 64) {
+                            it->second.current_client_slot = slot;
+                        }
+                    }
+                }
+            }
+
+            if (cmd.virtualDisplayOutputBuffer.has_value()) {
+                std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+                auto it = mVirtualDisplays.find(cmd.display);
+                if (it != mVirtualDisplays.end()) {
+                    if (!updateVirtualBuffer(it->second.output_slots.data(),
+                                             it->second.output_slots.size(),
+                                             *cmd.virtualDisplayOutputBuffer,
+                                             it->second.width, it->second.height)) {
+                        kmsg_log("[AaasComposerClient] invalid virtual output buffer display=%lld slot=%d\n",
+                                 (long long)cmd.display,
+                                 cmd.virtualDisplayOutputBuffer->slot);
+                    } else {
+                        it->second.current_output_slot = cmd.virtualDisplayOutputBuffer->slot;
+                    }
+                }
             }
 
             // 2. Handle composition negotiation and validation
@@ -397,7 +463,8 @@ public:
                 cct.display = cmd.display;
                 {
                     std::lock_guard<std::mutex> lock(mLayerLock);
-                    for (int64_t layerId : mActiveLayers) {
+                    for (const auto& [layerId, ownerDisplay] : mLayerDisplays) {
+                        if (ownerDisplay != cmd.display) continue;
                         ChangedCompositionLayer ccl;
                         ccl.layer = layerId;
                         ccl.composition = Composition::CLIENT;
@@ -421,7 +488,8 @@ public:
                 cct.display = cmd.display;
                 {
                     std::lock_guard<std::mutex> lock(mLayerLock);
-                    for (int64_t layerId : mActiveLayers) {
+                    for (const auto& [layerId, ownerDisplay] : mLayerDisplays) {
+                        if (ownerDisplay != cmd.display) continue;
                         ChangedCompositionLayer ccl;
                         ccl.layer = layerId;
                         ccl.composition = Composition::CLIENT;
@@ -436,7 +504,18 @@ public:
                 _aidl_return->push_back(CommandResultPayload::make<CommandResultPayload::Tag::displayRequest>(dr));
                 mNeedsValidation = false;
             } else if (cmd.presentDisplay) {
-                if (!presentCurrentFrame(cmd.display, command_index, _aidl_return)) {
+                bool presented = false;
+                {
+                    std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+                    auto it = mVirtualDisplays.find(cmd.display);
+                    if (it != mVirtualDisplays.end()) {
+                        presented = presentVirtualDisplayFrame(cmd.display, it->second,
+                                                               command_index, _aidl_return);
+                    } else {
+                        presented = presentCurrentFrame(cmd.display, command_index, _aidl_return);
+                    }
+                }
+                if (!presented) {
                     CommandError error;
                     error.commandIndex = static_cast<int32_t>(command_index);
                     error.errorCode = IComposerClient::EX_NO_RESOURCES;
@@ -450,12 +529,46 @@ public:
     }
 
     ::ndk::ScopedAStatus createVirtualDisplay(int32_t in_width, int32_t in_height, PixelFormat in_formatHint, int32_t in_outputBufferSlotCount, VirtualDisplay* _aidl_return) override {
-        (void)in_width; (void)in_height; (void)in_formatHint; (void)in_outputBufferSlotCount; (void)_aidl_return;
-        return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_UNSUPPORTED);
+        if (!mVirtualOutputAvailable) {
+            return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_UNSUPPORTED);
+        }
+        if (in_width <= 0 || in_height <= 0 || in_width > 4096 || in_height > 4096 ||
+            // Android 16 SurfaceFlinger currently requests one HAL output
+            // buffer slot for each virtual display (AidlComposer.cpp).
+            in_outputBufferSlotCount < 1 || in_outputBufferSlotCount > 64 ||
+            (in_formatHint != PixelFormat::RGBA_8888 &&
+             in_formatHint != PixelFormat::BGRA_8888 &&
+             in_formatHint != PixelFormat::IMPLEMENTATION_DEFINED)) {
+            return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_UNSUPPORTED);
+        }
+        std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+        if (!mVirtualDisplays.empty()) {
+            return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_NO_RESOURCES);
+        }
+        const int64_t id = mNextVirtualDisplayId++;
+        VirtualDisplayState state;
+        state.width = in_width;
+        state.height = in_height;
+        state.format = in_formatHint;
+        state.output_slots.resize(static_cast<size_t>(in_outputBufferSlotCount));
+        mVirtualDisplays.emplace(id, std::move(state));
+        _aidl_return->display = id;
+        _aidl_return->format = in_formatHint;
+        kmsg_log("[AaasComposerClient] createVirtualDisplay id=%lld size=%dx%d slots=%d format=%d\n",
+                 (long long)id, in_width, in_height, in_outputBufferSlotCount,
+                 static_cast<int>(in_formatHint));
+        return ::ndk::ScopedAStatus::ok();
     }
 
     ::ndk::ScopedAStatus destroyVirtualDisplay(int64_t in_display) override {
-        (void)in_display;
+        std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+        auto it = mVirtualDisplays.find(in_display);
+        if (it == mVirtualDisplays.end()) {
+            return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_BAD_DISPLAY);
+        }
+        closeVirtualDisplayState(it->second);
+        mVirtualDisplays.erase(it);
+        kmsg_log("[AaasComposerClient] destroyVirtualDisplay id=%lld\n", (long long)in_display);
         return ::ndk::ScopedAStatus::ok();
     }
 
@@ -465,11 +578,206 @@ public:
     }
 
     ::ndk::ScopedAStatus getMaxVirtualDisplayCount(int32_t* _aidl_return) override {
-        *_aidl_return = 0;
+        *_aidl_return = mVirtualOutputAvailable ? 1 : 0;
+        kmsg_log("[AaasComposerClient] getMaxVirtualDisplayCount -> %d (transport=%s)\n",
+                 *_aidl_return, mVirtualOutputAvailable ? "ready" : "unavailable");
         return ::ndk::ScopedAStatus::ok();
     }
 
 private:
+    static void closeVirtualSlot(VirtualBufferSlot& slot) {
+        if (slot.dma_fd >= 0) close(slot.dma_fd);
+        if (slot.acquire_fence >= 0) close(slot.acquire_fence);
+        slot = VirtualBufferSlot{};
+    }
+
+    static void closeVirtualDisplayState(VirtualDisplayState& state) {
+        for (auto& slot : state.output_slots) closeVirtualSlot(slot);
+        for (auto& slot : state.client_target) closeVirtualSlot(slot);
+        state.current_output_slot = -1;
+        state.current_client_slot = -1;
+    }
+
+    static bool updateVirtualBuffer(VirtualBufferSlot* slots, size_t slot_count,
+                                    const Buffer& buffer, int32_t width,
+                                    int32_t height) {
+        if (buffer.slot < 0 || static_cast<size_t>(buffer.slot) >= slot_count) return false;
+        auto& slot = slots[buffer.slot];
+        int new_fence = buffer.fence.get() >= 0 ? dup(buffer.fence.get()) : -1;
+        if (buffer.fence.get() >= 0 && new_fence < 0) return false;
+
+        if (buffer.handle.has_value()) {
+            const auto& handle = *buffer.handle;
+            if (handle.fds.empty() || handle.ints.size() < 8 ||
+                handle.fds[0].get() < 0 ||
+                static_cast<uint32_t>(handle.ints[0]) != 0x61616173) {
+                if (new_fence >= 0) close(new_fence);
+                return false;
+            }
+            const uint32_t handle_width = static_cast<uint32_t>(handle.ints[1]);
+            const uint32_t handle_height = static_cast<uint32_t>(handle.ints[2]);
+            const uint32_t handle_stride = static_cast<uint32_t>(handle.ints[3]);
+            const uint32_t handle_format = static_cast<uint32_t>(handle.ints[4]);
+            if (handle_width != static_cast<uint32_t>(width) ||
+                handle_height != static_cast<uint32_t>(height) ||
+                handle_stride < handle_width || handle.ints[7] <= 0) {
+                if (new_fence >= 0) close(new_fence);
+                return false;
+            }
+            int new_dma = dup(handle.fds[0].get());
+            if (new_dma < 0) {
+                if (new_fence >= 0) close(new_fence);
+                return false;
+            }
+            if (slot.dma_fd >= 0) close(slot.dma_fd);
+            slot.dma_fd = new_dma;
+            slot.width = handle_width;
+            slot.height = handle_height;
+            slot.stride = handle_stride;
+            slot.format = handle_format;
+            slot.allocation_size = static_cast<uint32_t>(handle.ints[7]);
+            ++slot.generation;
+        } else if (slot.dma_fd < 0) {
+            if (new_fence >= 0) close(new_fence);
+            return false;
+        }
+        if (slot.acquire_fence >= 0) close(slot.acquire_fence);
+        slot.acquire_fence = new_fence;
+        return true;
+    }
+
+    static bool waitAcquireFence(int fd, int timeout_ms) {
+        if (fd < 0) return true;
+        struct pollfd pfd = {fd, POLLIN, 0};
+        int result;
+        do { result = poll(&pfd, 1, timeout_ms); } while (result < 0 && errno == EINTR);
+        return result > 0 && (pfd.revents & POLLIN) != 0;
+    }
+
+    bool presentVirtualDisplayFrame(int64_t display, VirtualDisplayState& state,
+                                    size_t command_index,
+                                    std::vector<CommandResultPayload>* results) {
+        if (state.current_output_slot < 0 || state.current_client_slot < 0 ||
+            static_cast<size_t>(state.current_output_slot) >= state.output_slots.size()) {
+            if (state.empty_frame_diagnostics++ < 3) {
+                kmsg_log("[AaasComposerClient] virtual display %lld has no output/client target yet\n",
+                         (long long)display);
+            }
+            return false;
+        }
+        auto& output = state.output_slots[state.current_output_slot];
+        auto& source = state.client_target[state.current_client_slot];
+        if (output.dma_fd < 0 || source.dma_fd < 0 || output.width != source.width ||
+            output.height != source.height || output.width != static_cast<uint32_t>(state.width) ||
+            output.height != static_cast<uint32_t>(state.height) || output.format != source.format) {
+            kmsg_log("[AaasComposerClient] virtual display %lld incompatible buffers out=%dx%d fmt=%u src=%dx%d fmt=%u\n",
+                     (long long)display, output.width, output.height, output.format,
+                     source.width, source.height, source.format);
+            return false;
+        }
+        struct stat out_stat = {}, source_stat = {};
+        const int out_stat_rc = fstat(output.dma_fd, &out_stat);
+        const int source_stat_rc = fstat(source.dma_fd, &source_stat);
+        const bool aliases = out_stat_rc == 0 && source_stat_rc == 0 &&
+                             out_stat.st_dev == source_stat.st_dev &&
+                             out_stat.st_ino == source_stat.st_ino;
+        if (state.ownership_diagnostics++ < 4) {
+            kmsg_log("[AaasComposerClient] vdisplay ownership display=%lld out_slot=%d out_fd=%d out_stat=%d:%llu src_slot=%d src_fd=%d src_stat=%d:%llu alias=%d\n",
+                     (long long)display, state.current_output_slot, output.dma_fd,
+                     out_stat_rc == 0 ? (int)out_stat.st_dev : -1,
+                     (unsigned long long)(out_stat_rc == 0 ? out_stat.st_ino : 0),
+                     state.current_client_slot, source.dma_fd,
+                     source_stat_rc == 0 ? (int)source_stat.st_dev : -1,
+                     (unsigned long long)(source_stat_rc == 0 ? source_stat.st_ino : 0),
+                     aliases ? 1 : 0);
+        }
+        if (out_stat_rc != 0 || source_stat_rc != 0) {
+            kmsg_log("[AaasComposerClient] virtual display %lld dma-buf fstat failed output=%d source=%d errno=%d\n",
+                     (long long)display, out_stat_rc, source_stat_rc, errno);
+            return false;
+        }
+        if (aliases && output.stride != source.stride) {
+            kmsg_log("[AaasComposerClient] virtual display %lld aliased buffers disagree on stride\n",
+                     (long long)display);
+            return false;
+        }
+        if (!waitAcquireFence(source.acquire_fence, 1000) ||
+            !waitAcquireFence(output.acquire_fence, 1000)) {
+            kmsg_log("[AaasComposerClient] virtual display %lld acquire fence timeout\n",
+                     (long long)display);
+            return false;
+        }
+
+        const size_t source_size = static_cast<size_t>(source.stride) * source.height * 4;
+        const size_t output_size = static_cast<size_t>(output.stride) * output.height * 4;
+        if (source_size == 0 || source_size > source.allocation_size ||
+            output_size == 0 || output_size > output.allocation_size) return false;
+        // SurfaceFlinger can provide the same allocation in both AIDL fields.
+        // This Composer reports every layer as CLIENT, so the client target is
+        // already the complete composition in that case. Keep the output and
+        // client-target slot records separate, wait both acquire fences, and
+        // forward the output allocation without an overlapping self-copy.
+        if (!aliases) {
+            void* src = mmap(nullptr, source_size, PROT_READ, MAP_SHARED, source.dma_fd, 0);
+            if (src == MAP_FAILED) return false;
+            void* dst = mmap(nullptr, output_size, PROT_WRITE, MAP_SHARED, output.dma_fd, 0);
+            if (dst == MAP_FAILED) {
+                munmap(src, source_size);
+                return false;
+            }
+            const size_t row_bytes = static_cast<size_t>(state.width) * 4;
+            for (int32_t y = 0; y < state.height; ++y) {
+                memcpy(static_cast<uint8_t*>(dst) + static_cast<size_t>(y) * output.stride * 4,
+                       static_cast<const uint8_t*>(src) + static_cast<size_t>(y) * source.stride * 4,
+                       row_bytes);
+            }
+            munmap(dst, output_size);
+            munmap(src, source_size);
+        }
+
+        AaasBufferSlot frame = {};
+        frame.slot = static_cast<uint32_t>(state.current_output_slot);
+        frame.id = frame.slot + 1;
+        frame.dma_fd = output.dma_fd;
+        frame.width = output.width;
+        frame.height = output.height;
+        frame.stride = output.stride;
+        frame.format = output.format == static_cast<uint32_t>(PixelFormat::BGRA_8888)
+                           ? 0x34325241 : 0x34324241;
+        frame.modifier = 0;
+        frame.is_linear = true;
+        if (mVirtualTransport.submitFrame(frame) != 0 ||
+            !mVirtualTransport.waitForSlotRelease(frame.slot, 250) ||
+            !mVirtualTransport.isConnected()) {
+            kmsg_log("[AaasComposerClient] virtual display %lld transport release timeout\n",
+                     (long long)display);
+            return false;
+        }
+        int release_fence = mVirtualTransport.takeReleaseFence(frame.slot);
+        if (output.acquire_fence >= 0) {
+            close(output.acquire_fence);
+            output.acquire_fence = -1;
+        }
+        if (source.acquire_fence >= 0) {
+            close(source.acquire_fence);
+            source.acquire_fence = -1;
+        }
+        if (release_fence < 0) release_fence = create_signaled_fence();
+        PresentFence present;
+        present.display = display;
+        present.fence = ::ndk::ScopedFileDescriptor(release_fence);
+        results->push_back(CommandResultPayload::make<CommandResultPayload::Tag::presentFence>(
+            std::move(present)));
+        ReleaseFences releases;
+        releases.display = display;
+        results->push_back(CommandResultPayload::make<CommandResultPayload::Tag::releaseFences>(
+            std::move(releases)));
+        kmsg_log("[AaasComposerClient] virtual output frame display=%lld slot=%u generation=%llu command=%zu\n",
+                 (long long)display, frame.slot,
+                 (unsigned long long)output.generation, command_index);
+        return true;
+    }
+
     static int create_signaled_fence() {
         int drm_fd = open("/dev/dri/renderD129", O_RDWR | O_CLOEXEC);
         if (drm_fd < 0) return -1;
@@ -580,7 +888,8 @@ private:
         rf.display = display;
         {
             std::lock_guard<std::mutex> lock(mLayerLock);
-            for (int64_t layerId : mActiveLayers) {
+            for (const auto& [layerId, ownerDisplay] : mLayerDisplays) {
+                if (ownerDisplay != display) continue;
                 ReleaseFences::Layer l;
                 l.layer = layerId;
                 l.fence = ::ndk::ScopedFileDescriptor(create_signaled_fence());
@@ -608,9 +917,14 @@ private:
     std::shared_ptr<IComposerCallback> mCallback;
     std::atomic<int64_t> mNextLayerId;
     std::mutex mLayerLock;
-    std::set<int64_t> mActiveLayers;
+    std::unordered_map<int64_t, int64_t> mLayerDisplays;
 
     ClientTargetSlot mSlots[64];
+    std::mutex mVirtualDisplayLock;
+    std::unordered_map<int64_t, VirtualDisplayState> mVirtualDisplays;
+    int64_t mNextVirtualDisplayId = 100;
+    AaasTransport mVirtualTransport;
+    bool mVirtualOutputAvailable = false;
     int mCurrentClientTargetSlot;
     bool mNeedsValidation;
 

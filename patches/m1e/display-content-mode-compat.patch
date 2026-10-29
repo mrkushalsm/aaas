@@ -1,0 +1,13 @@
+--- a/services/core/java/com/android/server/display/feature/DisplayManagerFlags.java
++++ b/services/core/java/com/android/server/display/feature/DisplayManagerFlags.java
+@@ -573,3 +573,9 @@
+     public boolean isDisplayContentModeManagementEnabled() {
+-        return mEnableDisplayContentModeManagementFlagState.isEnabled();
++        // The SDK image used by the rootless AaaS runtime predates this flag in
++        // its Aconfig registry. Permit the feature only when the isolated
++        // virtual-display experiment explicitly opts in; normal Android
++        // sessions retain the platform flag's default behavior.
++        return SystemProperties.getBoolean(
++                "debug.aaas.display_content_mode_management", false)
++                || mEnableDisplayContentModeManagementFlagState.isEnabled();
+     }

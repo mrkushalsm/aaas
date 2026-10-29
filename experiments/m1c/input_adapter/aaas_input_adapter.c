@@ -46,6 +46,8 @@ int *__errno_location(void) {
 
 static volatile sig_atomic_t g_stop;
 static int g_log_fd = -1;
+/* Each private presenter socket is bound to one trusted Android display. */
+static int32_t g_android_display_id;
 
 typedef enum {
     INPUT_BACKEND_AUTO = 0,
@@ -291,10 +293,11 @@ static const char *source_name(uint32_t source) {
 
 static int inject_cmd_motion(const char *motion, int32_t x, int32_t y,
                              uint32_t sequence, int64_t request_ns) {
-    char xs[16];
+    char xs[16], display[16];
     char ys[16];
     snprintf(xs, sizeof(xs), "%d", x);
     snprintf(ys, sizeof(ys), "%d", y);
+    snprintf(display, sizeof(display), "%d", g_android_display_id);
 
     uint64_t start_ns = monotonic_ns();
     pid_t pid = fork();
@@ -307,7 +310,7 @@ static int inject_cmd_motion(const char *motion, int32_t x, int32_t y,
             (char *)"cmd",
             (char *)"input",
             (char *)"-d",
-            (char *)"0",
+            display,
             (char *)"motionevent",
             (char *)motion,
             xs,
@@ -342,10 +345,12 @@ static int inject_cmd_scroll(int32_t x, int32_t y, uint32_t source,
     const char *input_source = "mouse";
     const char *origin_source = source == AAAS_SOURCE_TOUCHPAD ? "touchpad" : "mouse";
     char xs[16], ys[16], vs[48], hs[48];
+    char display[16];
     snprintf(xs, sizeof(xs), "%d", x);
     snprintf(ys, sizeof(ys), "%d", y);
     snprintf(vs, sizeof(vs), "VSCROLL,%.6g", (double)vscroll);
     snprintf(hs, sizeof(hs), "HSCROLL,%.6g", (double)hscroll);
+    snprintf(display, sizeof(display), "%d", g_android_display_id);
 
     uint64_t start_ns = monotonic_ns();
     pid_t pid = fork();
@@ -354,10 +359,12 @@ static int inject_cmd_scroll(int32_t x, int32_t y, uint32_t source,
         return -1;
     }
     if (pid == 0) {
-        char *argv[12];
+        char *argv[16];
         int n = 0;
         argv[n++] = (char *)"cmd";
         argv[n++] = (char *)"input";
+        argv[n++] = (char *)"-d";
+        argv[n++] = display;
         argv[n++] = (char *)input_source;
         argv[n++] = (char *)"scroll";
         argv[n++] = xs;
@@ -407,7 +414,8 @@ static int inject_event(int action, int32_t x, int32_t y,
          action == AAAS_ACTION_SCROLL)) {
         int rc = aaas_binder_inject(action, x, y, source, tool_type,
                                     button_state, action_button, pressure,
-                                    vscroll, hscroll, (int64_t)start_ns, sequence);
+                                    vscroll, hscroll, (int64_t)start_ns, sequence,
+                                    g_android_display_id);
         if (rc != 0) {
             adapter_logf("inject_failed", "\"backend\":\"binder_probe\",\"action\":\"%s\","
                          "\"sequence\":%u,\"rc\":%d",
@@ -446,7 +454,7 @@ static int inject_event(int action, int32_t x, int32_t y,
 
     int rc = aaas_binder_inject(action, x, y, source, tool_type, button_state,
                                action_button, pressure, vscroll, hscroll,
-                               (int64_t)start_ns, sequence);
+                               (int64_t)start_ns, sequence, g_android_display_id);
     if (rc != 0 && (action == AAAS_ACTION_UP || action == AAAS_ACTION_BUTTON_RELEASE)) {
         /* Service failure is uncertain: keep state tracked and retry during cleanup. */
         adapter_log("up_injection_failed_state_retained", NULL);
@@ -476,7 +484,7 @@ static void send_ack(int fd, const aaas_input_msg *hello, uint64_t session_id) {
         .type = AAAS_INPUT_HELLO,
         .length = AAAS_INPUT_MSG_SIZE,
         .sequence = 0,
-        .display_id = 0,
+        .display_id = hello->display_id,
         .display_generation = hello->display_generation,
         .timestamp_ns = monotonic_ns(),
         .session_id = session_id,
@@ -498,6 +506,7 @@ static void send_ack(int fd, const aaas_input_msg *hello, uint64_t session_id) {
 
 typedef struct {
     aaas_input_state order;
+    uint32_t android_display_id;
     uint32_t pressed_buttons;
     int focused;
     int32_t last_x;
@@ -514,7 +523,8 @@ static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_
     aaas_input_keyboard_msg m;
     aaas_input_keyboard_from_wire(&m,wire);
     char why[64]={0};
-    if(aaas_input_keyboard_validate(&m,st->order.session_id,0,why,sizeof(why))!=0 ||
+    if(aaas_input_keyboard_validate(&m,st->order.session_id,
+                                    st->android_display_id,why,sizeof(why))!=0 ||
        m.display_generation<st->order.display_generation || m.sequence==0 ||
        m.sequence<=st->order.sequence || m.focus_generation<st->order.focus_generation) {
         adapter_logf("keyboard_packet_rejected", "\"reason\":\"%s\"", why[0]?why:"stale ordering");
@@ -531,7 +541,7 @@ static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_
             uint32_t released=0;
             for(uint32_t k=0;k<768;k++) if(st->pressed_keys[k]) {
                 int rc=aaas_binder_inject_key(1,(int32_t)st->pressed_keycodes[k],
-                    (int32_t)k,0,0,now,st->key_down_ns[k],0);
+                    (int32_t)k,0,0,now,st->key_down_ns[k],g_android_display_id);
                 if(rc==0) { st->pressed_keys[k]=0; released++; }
             }
             adapter_logf("keyboard_focus_leave","\"released\":%u",released);
@@ -552,7 +562,8 @@ static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_
     int rc=aaas_binder_inject_key(m.state==AAAS_INPUT_KEY_PRESSED?0:1,
         (int32_t)m.android_keycode,(int32_t)k,
         (int32_t)m.meta_state,(int32_t)m.repeat_count,(int64_t)m.timestamp_ns,
-        st->pressed_keys[k]?st->key_down_ns[k]:(int64_t)m.timestamp_ns,0);
+        st->pressed_keys[k]?st->key_down_ns[k]:(int64_t)m.timestamp_ns,
+        g_android_display_id);
     if(rc==0 && m.state==AAAS_INPUT_KEY_RELEASED) st->pressed_keys[k]=0;
     adapter_logf(rc==0?"key_injected":"key_injection_failed",
         "\"sequence\":%u,\"state\":%u,\"rc\":%d,\"elapsed_ns\":%llu",
@@ -571,6 +582,13 @@ static int accept_message(adapter_state *st, const aaas_input_msg *wire,
     *recv_ns = (int64_t)monotonic_ns();
 
     char why[64] = {0};
+    if (aaas_input_validate(m, st->order.session_id, st->android_display_id,
+                            why, sizeof(why)) != 0) {
+        st->invalid_messages++;
+        adapter_logf("invalid_message", "\"reason\":\"%s\",\"count\":%u",
+                     why, st->invalid_messages);
+        return st->invalid_messages >= 8 ? -1 : 0;
+    }
     if (!aaas_input_state_accept(&st->order, m, why, sizeof(why))) {
         st->invalid_messages++;
         adapter_logf("invalid_message", "\"reason\":\"%s\",\"count\":%u",
@@ -764,7 +782,8 @@ static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire)
         uint64_t now=monotonic_ns();
         for(uint32_t k=0;k<768;k++) if(st->pressed_keys[k]) {
             if(aaas_binder_inject_key(1,(int32_t)st->pressed_keycodes[k],(int32_t)k,
-               0,0,(int64_t)now,st->key_down_ns[k],0)==0) st->pressed_keys[k]=0;
+               0,0,(int64_t)now,st->key_down_ns[k],g_android_display_id)==0)
+                st->pressed_keys[k]=0;
         }
         st->keyboard_focused=0;
         release_all(st, st->last_x, st->last_y, st->order.sequence,
@@ -891,7 +910,7 @@ static void usage(const char *prog) {
             "  --socket <path>        input SEQPACKET socket (default: " DEFAULT_SOCKET ")\n"
             "  --session-file <path>  session token file (default: " DEFAULT_SESSION_FILE ")\n"
             "  --log <path>           JSON log path (default: " DEFAULT_LOG ")\n"
-            "  --display <id>         Android display id (default: 0)\n"
+            "  --display <id>         Android target display id (default: 0)\n"
             "  --backend <auto|binder|cmd> input backend (default: auto)\n"
             "  --help                 show this help\n",
             prog);
@@ -929,10 +948,11 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
-    if (display_id != 0) {
-        fprintf(stderr, "This adapter only supports the AaaS display 0\n");
+    if (display_id < 0) {
+        fprintf(stderr, "Android display id must be non-negative\n");
         return 1;
     }
+    g_android_display_id = display_id;
 
     if (!backend_arg) {
         backend_arg = getenv("AAAS_INPUT_BACKEND");
@@ -985,7 +1005,8 @@ int main(int argc, char **argv) {
 
     adapter_state st;
     memset(&st, 0, sizeof(st));
-    aaas_input_state_init(&st.order, session_id);
+    aaas_input_state_init(&st.order, session_id, (uint32_t)display_id);
+    st.android_display_id = (uint32_t)display_id;
     st.selected_backend = g_backend;
 
     while (!g_stop) {
@@ -1031,7 +1052,7 @@ int main(int argc, char **argv) {
 
     for(uint32_t k=0;k<768;k++) if(st.pressed_keys[k])
         (void)aaas_binder_inject_key(1,(int32_t)st.pressed_keycodes[k],(int32_t)k,
-             0,0,(int64_t)monotonic_ns(),st.key_down_ns[k],0);
+             0,0,(int64_t)monotonic_ns(),st.key_down_ns[k],g_android_display_id);
     release_all(&st, st.last_x, st.last_y, st.order.sequence, "adapter_exit");
     aaas_binder_shutdown();
     adapter_log("stop", NULL);

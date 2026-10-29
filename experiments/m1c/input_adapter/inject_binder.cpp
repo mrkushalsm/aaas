@@ -47,13 +47,14 @@ void write_motion_event(Parcel &p, int action, int32_t x, int32_t y,
                         uint32_t source, uint32_t tool_type,
                         uint32_t button_state, uint32_t action_button,
                         float pressure, float vscroll, float hscroll,
-                        int64_t down_time_ns, int64_t event_ns, uint32_t event_id) {
+                        int64_t down_time_ns, int64_t event_ns, uint32_t event_id,
+                        int32_t display_id) {
     p.writeInt32(1);       /* pointerCount */
     p.writeInt32(1);       /* sampleCount */
     p.writeInt32((int32_t)(0xc0000000u | (event_id & 0x3fffffffu)));
     p.writeInt32(0);       /* deviceId */
     p.writeUint32(source);
-    p.writeInt32(0);       /* displayId */
+    p.writeInt32(display_id);
     std::vector<uint8_t> hmac(32, 0); /* INVALID_HMAC: never claim hardware authentication. */
     p.writeByteVector(hmac);
     const bool button_action = action == AAAS_ACTION_BUTTON_PRESS ||
@@ -101,7 +102,8 @@ static int binder_transact_event(int action, int32_t x, int32_t y,
                                  uint32_t source, uint32_t tool_type,
                                  uint32_t button_state, uint32_t action_button,
                                  float pressure, float vscroll, float hscroll,
-                                 int64_t event_ns, uint32_t event_id) {
+                                 int64_t event_ns, uint32_t event_id,
+                                 int32_t display_id) {
     if (!g_input_binder) {
         g_input_binder = new sp<IBinder>();
     }
@@ -146,7 +148,7 @@ static int binder_transact_event(int action, int32_t x, int32_t y,
     data.writeInt32(1); /* MotionEvent parcel token. */
     write_motion_event(data, action, x, y, source, tool_type, button_state,
                        action_button, pressure, vscroll, hscroll, down_time_ns,
-                       event_ns, event_id);
+                       event_ns, event_id, display_id);
     data.writeInt32(kInjectInputEventModeWaitForResult);
 
     status_t status = (*g_input_binder)->transact(
@@ -173,7 +175,7 @@ int aaas_binder_inject(int action, int32_t x, int32_t y,
                        uint32_t source, uint32_t tool_type,
                        uint32_t button_state, uint32_t action_button,
                        float pressure, float vscroll, float hscroll,
-                       int64_t event_ns, uint32_t event_id) {
+                       int64_t event_ns, uint32_t event_id, int32_t display_id) {
     const bool hover_transition = action == AAAS_ACTION_HOVER_ENTER ||
             action == AAAS_ACTION_HOVER_MOVE || action == AAAS_ACTION_HOVER_EXIT;
     if (action == AAAS_ACTION_HOVER_EXIT && !g_hovering) {
@@ -184,22 +186,24 @@ int aaas_binder_inject(int action, int32_t x, int32_t y,
     if (action == AAAS_ACTION_DOWN && g_hovering) {
         int rc = binder_transact_event(AAAS_ACTION_HOVER_EXIT, x, y, source,
                                        tool_type, 0, 0, 0.0f, 0.0f, 0.0f,
-                                       event_ns, base_event_id);
+                                       event_ns, base_event_id, display_id);
         if (rc != 0) return rc;
         g_hovering = false;
     }
     if (action == AAAS_ACTION_DOWN) {
         int rc = binder_transact_event(action, x, y, source, tool_type,
                                        button_state, action_button, pressure,
-                                       vscroll, hscroll, event_ns, base_event_id + 1);
+                                       vscroll, hscroll, event_ns, base_event_id + 1,
+                                       display_id);
         if (rc != 0) return rc;
         rc = binder_transact_event(AAAS_ACTION_BUTTON_PRESS, x, y, source,
                                    tool_type, button_state, action_button,
-                                   pressure, 0.0f, 0.0f, event_ns, base_event_id + 2);
+                                   pressure, 0.0f, 0.0f, event_ns, base_event_id + 2,
+                                   display_id);
         if (rc != 0) {
             binder_transact_event(AAAS_ACTION_UP, x, y, source, tool_type,
                                   0, action_button, 0.0f, 0.0f, 0.0f,
-                                  event_ns, base_event_id + 3);
+                                  event_ns, base_event_id + 3, display_id);
             return rc;
         }
         return 0;
@@ -208,18 +212,21 @@ int aaas_binder_inject(int action, int32_t x, int32_t y,
         const uint32_t remaining_buttons = button_state & ~action_button;
         int rc = binder_transact_event(AAAS_ACTION_BUTTON_RELEASE, x, y, source,
                                        tool_type, remaining_buttons, action_button,
-                                       0.0f, 0.0f, 0.0f, event_ns, base_event_id + 1);
+                                       0.0f, 0.0f, 0.0f, event_ns, base_event_id + 1,
+                                       display_id);
         if (rc != 0) return rc;
         rc = binder_transact_event(action, x, y, source, tool_type,
                                    0, action_button, pressure,
-                                   vscroll, hscroll, event_ns, base_event_id + 2);
+                                   vscroll, hscroll, event_ns, base_event_id + 2,
+                                   display_id);
         if (rc == 0) g_hovering = false;
         return rc;
     }
 
     int rc = binder_transact_event(action, x, y, source, tool_type,
                                    button_state, action_button, pressure,
-                                   vscroll, hscroll, event_ns, base_event_id);
+                                   vscroll, hscroll, event_ns, base_event_id,
+                                   display_id);
     if (rc == 0 && hover_transition) {
         if (action == AAAS_ACTION_HOVER_ENTER) {
             g_hovering = true;

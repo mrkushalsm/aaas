@@ -123,8 +123,12 @@ class ForegroundRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             generated = SESSION.make_session_runner(
                 Path(directory), app_package='com.example.reader').read_text()
-        self.assertIn('-p com.example.reader | /system/bin/toybox tail -n 1', generated)
-        self.assertIn('pidof com.example.reader', generated)
+        self.assertIn('-p com.example.reader', generated)
+        self.assertIn('/system/bin/toybox tail -n 1', generated)
+        self.assertIn('APP_PACKAGE=com.example.reader', generated)
+        self.assertIn('aaas_app_task_alive()', generated)
+        self.assertIn('grep -F "u0 $APP_PACKAGE/"', generated)
+        self.assertNotIn('pidof com.example.reader', generated)
         self.assertIn('No launchable activity for com.example.reader', generated)
         self.assertNotIn('start-activity -W -n com.android.settings/.Settings', generated)
 
@@ -151,6 +155,64 @@ class ForegroundRunnerTests(unittest.TestCase):
             generated = SESSION.make_session_runner(Path(directory), desktop_ime=False).read_text()
         self.assertIn('settings put secure show_ime_with_hard_keyboard 1', generated)
         self.assertIn('settings delete secure aaas_desktop_mode', generated)
+
+    def test_virtual_display_runner_enables_hwc_path_before_surfaceflinger(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True).read_text()
+        property_line = 'setprop debug.sf.enable_hwc_vds 1'
+        self.assertIn(property_line, generated)
+        self.assertLess(generated.index(property_line),
+                        generated.index('/system/bin/surfaceflinger &'))
+        content_mode_property = (
+            'setprop debug.aaas.display_content_mode_management 1')
+        self.assertIn(content_mode_property, generated)
+        self.assertLess(generated.index(content_mode_property),
+                        generated.index('exec /system/bin/init second_stage'))
+        self.assertNotIn('/metadata/aconfig', generated)
+        self.assertIn('aflags list', generated)
+        self.assertIn('debug.aaas.display_content_mode_management 1', generated)
+        self.assertNotIn('aflags enable', generated)
+        self.assertLess(generated.index('AAAS_DISPLAY_CONTENT_FLAG_UNAVAILABLE'),
+                        generated.index('exec /system/bin/init second_stage'))
+
+    def test_default_runner_does_not_enable_hwc_virtual_displays(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(Path(directory)).read_text()
+        self.assertNotIn('debug.sf.enable_hwc_vds', generated)
+
+    def test_virtual_display_has_private_input_route_to_android_display(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True).read_text()
+        launcher = SCRIPT.read_text()
+        self.assertIn('input-vdisplay.sock', generated)
+        self.assertIn('--socket /dev/aaas/input-vdisplay.sock', generated)
+        self.assertIn('--display "$VD_ID"', generated)
+        self.assertIn('grep -Fq hello', generated)
+        self.assertIn('AAAS_VDISPLAY_INPUT_ADAPTER_NOT_READY', generated)
+        self.assertIn('dumpsys activity activities', generated)
+        self.assertIn('dumpsys window displays', generated)
+        self.assertIn('dumpsys input', generated)
+        self.assertIn('debuggerd -b "$BROKER_PID"', generated)
+        self.assertIn('display_broker_shutdown', generated)
+        self.assertIn('echo stop > /dev/aaas/display_broker_shutdown', generated)
+        self.assertIn('AAAS_DISPLAY_BROKER_STOP_FAILED', generated)
+        self.assertIn('!= released', generated)
+        self.assertIn('!= "STOPPING"', generated)
+        self.assertIn("'--input-display-id-file', str(ipc / 'vdisplay_id')", launcher)
+        self.assertIn("'--input-socket', str(ipc / 'input-vdisplay.sock')", launcher)
+        self.assertIn("status.write_text('STOPPING\\n')", launcher)
+
+    def test_virtual_display_broker_releases_owned_display_before_ack(self):
+        broker = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
+        service = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/aaas-display-broker.rc').read_text()
+        self.assertIn('call(ownedDisplay, "release"', broker)
+        self.assertIn('call(ownedReader, "close"', broker)
+        self.assertLess(broker.index('call(ownedDisplay, "release"'),
+                        broker.index('output.write("released'))
+        self.assertIn('new FileOutputStream(ownedIdPath, false)', broker)
+        self.assertIn('oneshot', service)
 
     def test_single_instance_lock_rejection(self):
         import fcntl

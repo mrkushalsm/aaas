@@ -30,6 +30,7 @@ static void print_usage(const char *prog) {
             "  --exit-on-close     Exit after the first client window closes\n"
             "  --input-socket <p>  Private pointer input socket (SEQPACKET)\n"
             "  --input-session <id> 64-bit input session identity\n"
+            "  --input-display-id-file <p> Android target display ID file\n"
             "  --help              Show this help message\n",
             prog);
 }
@@ -49,6 +50,7 @@ int main(int argc, char **argv) {
     bool exit_on_close = false;
     const char *input_socket_path = NULL;
     uint64_t input_session_id = 0;
+    const char *input_display_id_file = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) {
@@ -71,6 +73,8 @@ int main(int argc, char **argv) {
             input_socket_path = argv[++i];
         } else if (strcmp(argv[i], "--input-session") == 0 && i + 1 < argc) {
             input_session_id = strtoull(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--input-display-id-file") == 0 && i + 1 < argc) {
+            input_display_id_file = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -184,6 +188,7 @@ int main(int argc, char **argv) {
             .running = &g_running,
             .input_listen_fd = input_server_sock,
             .input_session_id = input_session_id,
+            .input_display_id_file = input_display_id_file,
         };
 
         int ret = aaas_run_gpu_presenter(&cfg);

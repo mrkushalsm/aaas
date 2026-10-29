@@ -53,6 +53,23 @@ class M1DKeyboardSourceContractTests(unittest.TestCase):
         self.assertIn("keyboard_focus_leave", adapter)
         self.assertIn("for(uint32_t k=0;k<768;k++)", adapter)
 
+    def test_android_event_target_display_is_adapter_scoped(self):
+        adapter = (ROOT / "experiments/m1c/input_adapter/aaas_input_adapter.c").read_text()
+        binder = (ROOT / "experiments/m1c/input_adapter/inject_binder.cpp").read_text()
+        self.assertIn("g_android_display_id = display_id", adapter)
+        self.assertNotIn("This adapter only supports the AaaS display 0", adapter)
+        self.assertIn("g_android_display_id);", adapter)
+        self.assertIn("p.writeInt32(display_id);", binder)
+        self.assertIn('argv[n++] = (char *)"-d"', adapter)
+
+    def test_presenter_negotiates_android_display_from_broker_file(self):
+        cli = (ROOT / "experiments/m1a/src/wayland_host_presenter.c").read_text()
+        presenter = (ROOT / "experiments/m1a/src/gpu_presenter.c").read_text()
+        self.assertIn("--input-display-id-file", cli)
+        self.assertIn("fopen(a->input_display_id_file", presenter)
+        self.assertIn(".display_id = a->input_display_id", presenter)
+        self.assertIn("a->input_session_id, a->input_display_id", presenter)
+
 
 if __name__ == "__main__":
     unittest.main()
