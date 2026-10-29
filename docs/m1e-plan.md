@@ -1,0 +1,84 @@
+# M1E plan: app-first Android windows on Wayland
+
+Status: **IN PROGRESS — package-selected launch implemented; display/window implementation pending**
+Baseline: `73dd794d3a265df869b774abc8b02cfda7620c8c` (`master`)
+Preservation record: `results/m1e/preservation_manifest.json`
+
+## Product boundary
+
+Android remains the application runtime. KWin owns desktop placement, focus,
+decoration, and window lifecycle. AaaS supplies an Android output for each
+Android task group that the product chooses to expose. Android Home and global
+SystemUI surfaces are not part of normal app presentation. Framework services
+remain installed and running where Android applications depend on them.
+
+## Phases
+
+1. **M1E.0 — app-first launch and decoration policy.** Launch a selected,
+   installed package directly; select a display policy before the application
+   is shown; verify that no Home, status, navigation, Taskbar, or invisible
+   system window reserves or intercepts application content.
+2. **M1E.1 — task identity and lifecycle.** Maintain an explicit mapping
+   between Android task/display identity and the AaaS host window; implement
+   Back, close, foreground, background, and failure behavior.
+3. **M1E.2 — native window semantics.** Set an application title and app ID;
+   make configure/resize, focus, minimize, unmap, and close update Android
+   configuration and input mapping rather than stretching an old frame.
+4. **M1E.3 — independent windows.** Run two unrelated Android tasks on two
+   independently focusable and closable Wayland toplevels in one Android
+   runtime. Closing one must preserve the other.
+5. **M1E.4 — regression and closure.** Verify M1D, pointer, graphics, memory,
+   resource, lifecycle, and evidence requirements. M1E is not PASS until M1E.3
+   is demonstrated live.
+
+## Implementation order
+
+1. Keep the M1D single-window runtime as the rollback baseline.
+2. `scripts/run_aaas.py --app <package>` now resolves a package's Android
+   `MAIN`/`LAUNCHER` Activity and directly starts it. The Settings case is live
+   verified; a second package has not yet been tested.
+3. Use the documented architecture decision and exact Android 16 source
+   references to build a no-UI virtual-display prototype. First verify trusted
+   launch permissions, Home behavior, decoration policy, output buffers, and
+   input focus on one secondary display.
+4. Add stable host-window identity after the display owner and task-launch
+   boundary are known.
+5. Add display-scoped Composer output and a presenter/session manager. Keep
+   `wire_v2` and existing input message meanings intact; negotiate a new
+   version or use isolated per-output sockets.
+6. Add a second application/task, then test independent focus and teardown.
+7. Run existing suites and both normal and cgroup/LMKD modes.
+
+## Current verified baseline
+
+- Repository clean at the preservation commit; no M1D source or runtime overlay
+  was changed for this audit.
+- Default launcher reached `RUNNING`, presented Android Settings through the
+  current presenter, and reached `STOPPED` on Ctrl+C.
+- Runtime probe showed a single Android logical display (ID 0, 720×1280), one
+  foreground Settings task, and an existing hidden Launcher home task.
+- WindowManager listed StatusBar and Taskbar windows. The Taskbar is a
+  navigation-bar Insets source with a 126-pixel bottom inset. Therefore the
+  current primary-display window does not satisfy app-first decoration or full
+  touch-region acceptance.
+- The current Composer3 reports no virtual displays and returns unsupported
+  for virtual display creation.
+- The live shell command probe found no `cmd display` creation command; a
+  system-owned trusted-display broker is required for the candidate prototype.
+- Pinned SurfaceFlinger source shows virtual-display output buffers travel via
+  Composer `setOutputBuffer`, separate from client-target buffers. Output
+  stream and release ownership must be added independently.
+- Existing pointer/keyboard event routing and frame protocol are single-display
+  today. No independent app window was tested or claimed.
+
+## Safety and evidence rules
+
+- Keep the rootfs immutable and deploy checksum-guarded overlays only.
+- Do not hide system windows by cropping, transparency, or input overlays.
+- Do not uninstall Home/SystemUI packages to make a screenshot look app-first.
+- Do not grant launch permissions globally. Any trusted virtual-device/display
+  owner must be a narrowly scoped AaaS platform component.
+- Do not call Android Binder return success an application interaction result.
+- Each acceptance entry identifies automated, live-runtime, or manual evidence.
+- Maintain the existing workspace ceiling and reserve; run the workspace check
+  before large artifacts or builds.
