@@ -27,10 +27,13 @@ TMP = WORKSPACE / 'tmp'
 RUNNER = ROOT / 'scripts/aaas_session_runner_base.py'
 PRESENTER = ROOT / 'experiments/m1a/build/wayland-host-presenter'
 INPUT_ADAPTER = ROOT / 'experiments/m1c/input_adapter/build/aaas-input-adapter'
+COMPOSER_PORTRAIT = TMP / 'm1b84_composer_portrait_720x1280'
+COMPOSER_LANDSCAPE = TMP / 'android.hardware.graphics.composer3-service.aaas'
 RUNNER_SHA256 = '63987b632cfc28f15eaa406f8b6fedc2f80f0c7c63fa2d8a751558d02267e396'
 VULKAN_SHA256 = '1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181'
 LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd'
 LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce'
+COMPOSER_PORTRAIT_SHA256 = 'cd55e7418a469e84c839bfec287b1bce238a43daa28f50900acf3174c17e3a46'
 
 
 def sha256(path):
@@ -86,14 +89,19 @@ def make_session_runner(session):
     )
     source = replace_once(
         source,
-        '    /system/bin/toybox sleep 3\n    if [ "{settings_sigquit}"',
-        '    /system/bin/toybox sleep 3\n'
+        '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
         '    if [ -x /system/bin/aaas-input-adapter ]; then\n'
         '      /system/bin/aaas-input-adapter --socket /dev/aaas/input.sock '
         '--session-file /dev/aaas/input_session --log /aaas_input_adapter.log &\n'
         '      INPUT_ADAPTER_PID=$!\n'
         '      echo "AAAS_INPUT_ADAPTER_STARTED $INPUT_ADAPTER_PID"\n'
         '    fi\n'
+        '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
+    )
+    source = replace_once(
+        source,
+        '    /system/bin/toybox sleep 3\n    if [ "{settings_sigquit}"',
+        '    /system/bin/toybox sleep 3\n'
         '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
         '[ -z "$(/system/bin/toybox pidof com.android.settings)" ]; then\n'
         '      echo FAILED > /aaas_session_status\n'
@@ -126,7 +134,7 @@ def select_lmkd_overlay(use_source_lmkd):
     )
 
 
-def verify_requirements(use_source_lmkd=False):
+def verify_requirements(use_source_lmkd=False, orientation='portrait'):
     check = subprocess.run(
         [sys.executable, str(ROOT / 'scripts/android_workspace.py'),
          '--workspace', str(WORKSPACE), 'check'],
@@ -161,6 +169,17 @@ def verify_requirements(use_source_lmkd=False):
         if expected_hash and sha256(path) != expected_hash:
             raise RuntimeError(f'overlay checksum changed: {path}')
         paths[key] = str(path)
+    if orientation == 'portrait':
+        composer = COMPOSER_PORTRAIT
+        expected_composer_hash = COMPOSER_PORTRAIT_SHA256
+    else:
+        composer = COMPOSER_LANDSCAPE
+        expected_composer_hash = None
+    if not composer.is_file():
+        raise RuntimeError(f'build the {orientation} Composer overlay first: {composer}')
+    if expected_composer_hash and sha256(composer) != expected_composer_hash:
+        raise RuntimeError(f'Composer overlay checksum changed: {composer}')
+    paths['AAAS_COMPOSER_OVERLAY'] = str(composer)
     return paths
 
 
@@ -171,10 +190,14 @@ def main():
                         help='Use the source-built Android 16 LMKD binary instead of diagnostic overlay')
     parser.add_argument('--memory-policy', choices=('none', 'cgroup'), default='none',
                         help='Apply a rootless delegated cgroup v2 memory policy')
+    parser.add_argument('--orientation', choices=('portrait', 'landscape'),
+                        default='portrait',
+                        help='Android display profile (default: portrait)')
     args = parser.parse_args()
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
-    paths = verify_requirements(use_source_lmkd=args.use_source_lmkd)
+    paths = verify_requirements(use_source_lmkd=args.use_source_lmkd,
+                                orientation=args.orientation)
     lock_fd = os.open(TMP / '.aaas_session.lock', os.O_CREAT | os.O_RDWR, 0o600)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -222,6 +245,8 @@ def main():
     prefix = f'm1b84_session_{os.getpid()}_'
     env = os.environ.copy()
     env.update(paths)
+    presenter_size = (('720', '1280') if args.orientation == 'portrait'
+                      else ('1280', '720'))
     env.update(AAAS_LOG_PREFIX=prefix, AAAS_BOOTANIM='0',
                AAAS_BOOT_WAIT=str(args.startup_timeout),
                AAAS_SESSION_IPC=str(ipc), AAAS_SESSION_STATUS=str(status),
@@ -230,6 +255,7 @@ def main():
                AAAS_INPUT_ADAPTER_LOG=str(input_adapter_log))
     presenter = android = None
     state = 'CREATED'
+    input_ready_reported = False
 
     def transition(new_state):
         nonlocal state
@@ -244,6 +270,7 @@ def main():
             transition('STARTING_PRESENTER')
             presenter = subprocess.Popen(
                 [str(PRESENTER), '--socket', str(ipc / 'wayland.sock'),
+                 '--width', presenter_size[0], '--height', presenter_size[1],
                  '--input-socket', str(ipc / 'input.sock'),
                  '--input-session', f'0x{input_session:016x}',
                  '--exit-on-close'],
@@ -266,6 +293,17 @@ def main():
                     raise RuntimeError('presenter exited before Settings became ready')
                 if android.poll() is not None:
                     raise RuntimeError('Android exited before Settings became ready')
+                if not input_ready_reported and INPUT_ADAPTER.is_file():
+                    try:
+                        size = input_adapter_log.stat().st_size
+                        with input_adapter_log.open('rb') as stream:
+                            stream.seek(max(0, size - 8192))
+                            input_ready_reported = b'"event":"hello"' in stream.read()
+                    except OSError:
+                        pass
+                    if input_ready_reported:
+                        print('AaaS input bridge ready; mouse and scroll can be used.',
+                              flush=True)
                 if status.read_text().strip() == 'RUNNING':
                     transition('RUNNING')
                     if policy is not None:

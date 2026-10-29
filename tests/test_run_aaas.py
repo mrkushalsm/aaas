@@ -58,6 +58,8 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('--session-file /dev/aaas/input_session', generated)
         self.assertIn('--log /aaas_input_adapter.log', generated)
         self.assertIn('/dev/aaas/input.sock', generated)
+        self.assertLess(generated.index('AAAS_INPUT_ADAPTER_STARTED'),
+                        generated.index('=== TESTING ACTIVITY LAUNCH (SETTINGS) ==='))
 
     def test_single_instance_lock_rejection(self):
         import fcntl
