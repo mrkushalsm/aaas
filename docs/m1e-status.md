@@ -78,12 +78,12 @@ Live display probe: `results/m1e/live/display_task_probe.json`
 | G7 Native Wayland app identity | NOT TESTED | Generic presenter title; no Android app label/app ID association. |
 | G8 Window lifecycle | PARTIAL | Single-window close shuts down runtime; task-specific close/minimize behavior not implemented. |
 | G9 Resize integration | FAIL | Current presenter reports configure size to a single Composer stream; actual Android display reconfiguration is not implemented. |
-| G10 Keyboard/pointer routing | PASS (baseline only) | M1D accepted behavior preserved; multi-window routing remains absent. |
+| G10 Keyboard/pointer routing | PARTIAL | M1D accepted behavior is preserved on the current single display; app-window display routing is absent. |
 | G11 Two independent windows | NOT TESTED | One logical display/output only. |
 | G12 Independent focus | NOT TESTED | No per-window Android display/task mapping. |
 | G13 Independent teardown | NOT TESTED | No multi-output lifecycle. |
 | G14 Graphics integrity | PASS (bounded baseline) | 250 imports/submissions; 247 presented; 249 released; zero rejects; full M1D stress not rerun. |
-| G15 Memory integration | PASS (bounded smoke) | Default and enhanced runtime reached RUNNING; enhanced cgroup was removed on shutdown with zero monitor errors. No induced pressure experiment was run. |
+| G15 Memory integration | PARTIAL | Default and enhanced runtime reached RUNNING; enhanced cgroup was removed on shutdown with zero monitor errors. No induced pressure experiment was run in this milestone audit. |
 | G16 Reproducibility | PARTIAL | Pinned source refs, source hashes, build IDs, launch code, and live logs are recorded; no M1E native display build exists. |
 | G17 Automated tests | PASS (baseline + launch option) | 134 Python tests; M1A; presenter build/tests; input-adapter rebuild; workspace guard. These do not verify a new output/display implementation. |
 | G18 Live UI acceptance | PARTIAL | Real Settings runtime observed in live sessions, but no app-first/no-decoration/multi-window acceptance. |
