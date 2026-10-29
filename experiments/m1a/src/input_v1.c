@@ -5,6 +5,63 @@
 #include <string.h>
 
 _Static_assert(sizeof(aaas_input_msg) == 68, "unexpected aaas_input_msg size");
+_Static_assert(sizeof(aaas_input_keyboard_msg) == 72, "unexpected keyboard packet size");
+static int fail(char *why, size_t why_len, const char *reason);
+
+void aaas_input_keyboard_to_wire(aaas_input_keyboard_msg *w,
+                                const aaas_input_keyboard_msg *h) {
+    w->magic=htole32(h->magic); w->version=htole16(h->version); w->type=htole16(h->type);
+    w->length=htole32(h->length); w->sequence=htole32(h->sequence);
+    w->display_id=htole32(h->display_id); w->display_generation=htole32(h->display_generation);
+    w->timestamp_ns=htole64(h->timestamp_ns); w->session_id=htole64(h->session_id);
+    w->focus_generation=htole32(h->focus_generation); w->evdev_key=htole32(h->evdev_key);
+    w->android_keycode=htole32(h->android_keycode); w->state=htole32(h->state);
+    w->meta_state=htole32(h->meta_state); w->repeat_count=htole32(h->repeat_count);
+    w->keysym=htole32(h->keysym); w->unicode_scalar=htole32(h->unicode_scalar);
+}
+
+void aaas_input_keyboard_from_wire(aaas_input_keyboard_msg *h,
+                                   const aaas_input_keyboard_msg *w) {
+    h->magic=le32toh(w->magic); h->version=le16toh(w->version); h->type=le16toh(w->type);
+    h->length=le32toh(w->length); h->sequence=le32toh(w->sequence);
+    h->display_id=le32toh(w->display_id); h->display_generation=le32toh(w->display_generation);
+    h->timestamp_ns=le64toh(w->timestamp_ns); h->session_id=le64toh(w->session_id);
+    h->focus_generation=le32toh(w->focus_generation); h->evdev_key=le32toh(w->evdev_key);
+    h->android_keycode=le32toh(w->android_keycode); h->state=le32toh(w->state);
+    h->meta_state=le32toh(w->meta_state); h->repeat_count=le32toh(w->repeat_count);
+    h->keysym=le32toh(w->keysym); h->unicode_scalar=le32toh(w->unicode_scalar);
+}
+
+int aaas_input_keyboard_validate(const aaas_input_keyboard_msg *m,
+                                uint64_t session_id, uint32_t display_id,
+                                char *why, size_t why_len) {
+    if(m->magic!=AAAS_INPUT_MAGIC) return fail(why,why_len,"bad magic");
+    if(m->version!=AAAS_INPUT_KEYBOARD_VERSION) return fail(why,why_len,"bad keyboard version");
+    if(m->length!=AAAS_INPUT_KEYBOARD_MSG_SIZE) return fail(why,why_len,"bad keyboard length");
+    if(m->session_id!=session_id) return fail(why,why_len,"stale session");
+    if(m->display_id!=display_id || m->display_id>=AAAS_INPUT_MAX_DISPLAY)
+        return fail(why,why_len,"wrong display");
+    if(!m->display_generation) return fail(why,why_len,"missing display generation");
+    if(!m->timestamp_ns) return fail(why,why_len,"missing timestamp");
+    if(m->type!=AAAS_INPUT_KEYBOARD_FOCUS && m->type!=AAAS_INPUT_KEY)
+        return fail(why,why_len,"bad keyboard type");
+    if(m->type==AAAS_INPUT_KEYBOARD_FOCUS) {
+        if(m->state!=AAAS_INPUT_FOCUS_LEAVE && m->state!=AAAS_INPUT_FOCUS_ENTER)
+            return fail(why,why_len,"bad keyboard focus state");
+        if(m->evdev_key || m->android_keycode || m->repeat_count || m->keysym || m->unicode_scalar)
+            return fail(why,why_len,"focus packet contains key data");
+    } else {
+        if(m->evdev_key>=768 || !m->android_keycode || m->android_keycode>300)
+            return fail(why,why_len,"bad key identity");
+        if(m->state!=AAAS_INPUT_KEY_PRESSED && m->state!=AAAS_INPUT_KEY_RELEASED)
+            return fail(why,why_len,"bad key state");
+        if(m->repeat_count>100 || (m->state==AAAS_INPUT_KEY_RELEASED && m->repeat_count))
+            return fail(why,why_len,"bad repeat count");
+        if(m->unicode_scalar>0x10ffff || (m->unicode_scalar>=0xd800 && m->unicode_scalar<=0xdfff))
+            return fail(why,why_len,"bad unicode scalar");
+    }
+    return 0;
+}
 
 void aaas_input_to_wire(aaas_input_msg *wire, const aaas_input_msg *host) {
     wire->magic = htole32(host->magic);
@@ -69,11 +126,15 @@ int aaas_input_validate(const aaas_input_msg *m, uint64_t session_id,
         allowed_flags = AAAS_INPUT_FLAG_AXIS_VALUE120 | AAAS_INPUT_FLAG_AXIS_DISCRETE |
                         AAAS_INPUT_FLAG_AXIS_SMOOTH;
     } else {
-        allowed_flags = AAAS_INPUT_FLAG_ACK;
+        allowed_flags = AAAS_INPUT_FLAG_ACK | AAAS_INPUT_FLAG_KEYBOARD_V2;
     }
     if (m->flags & ~allowed_flags) return fail(why, why_len, "bad flags");
     if ((m->flags & AAAS_INPUT_FLAG_ACK) && m->type != AAAS_INPUT_HELLO) {
         return fail(why, why_len, "ack on non-hello");
+    }
+    if ((m->flags & AAAS_INPUT_FLAG_KEYBOARD_V2) &&
+        (m->type != AAAS_INPUT_HELLO || !(m->flags & AAAS_INPUT_FLAG_ACK))) {
+        return fail(why, why_len, "keyboard capability without ack");
     }
     if (m->reserved != 0 && m->type != AAAS_INPUT_SCROLL) {
         return fail(why, why_len, "reserved not zero");

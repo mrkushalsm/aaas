@@ -485,7 +485,7 @@ static void send_ack(int fd, const aaas_input_msg *hello, uint64_t session_id) {
         .button = 0,
         .state = 1,
         .focus_generation = hello->focus_generation,
-        .flags = AAAS_INPUT_FLAG_ACK,
+        .flags = AAAS_INPUT_FLAG_ACK | AAAS_INPUT_FLAG_KEYBOARD_V2,
         .reserved = 0,
     };
     aaas_input_msg wire;
@@ -504,7 +504,59 @@ typedef struct {
     int32_t last_y;
     unsigned invalid_messages;
     input_backend selected_backend;
+    int keyboard_focused;
+    uint8_t pressed_keys[768];
+    uint32_t pressed_keycodes[768];
+    int64_t key_down_ns[768];
 } adapter_state;
+
+static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_msg *wire) {
+    aaas_input_keyboard_msg m;
+    aaas_input_keyboard_from_wire(&m,wire);
+    char why[64]={0};
+    if(aaas_input_keyboard_validate(&m,st->order.session_id,0,why,sizeof(why))!=0 ||
+       m.display_generation<st->order.display_generation || m.sequence==0 ||
+       m.sequence<=st->order.sequence || m.focus_generation<st->order.focus_generation) {
+        adapter_log("keyboard_packet_rejected",NULL);
+        return 0;
+    }
+    st->order.sequence=m.sequence;
+    st->order.display_generation=m.display_generation;
+    st->order.focus_generation=m.focus_generation;
+    int64_t now=(int64_t)monotonic_ns();
+    if(m.type==AAAS_INPUT_KEYBOARD_FOCUS) {
+        if(m.state==AAAS_INPUT_FOCUS_LEAVE) {
+            uint32_t released=0;
+            for(uint32_t k=0;k<768;k++) if(st->pressed_keys[k]) {
+                int rc=aaas_binder_inject_key(1,(int32_t)st->pressed_keycodes[k],
+                    (int32_t)k,0,0,now,st->key_down_ns[k],0);
+                if(rc==0) { st->pressed_keys[k]=0; released++; }
+            }
+            adapter_logf("keyboard_focus_leave","\"released\":%u",released);
+            st->keyboard_focused=0;
+        } else {
+            st->keyboard_focused=1;
+            adapter_log("keyboard_focus_enter",NULL);
+        }
+        return 0;
+    }
+    if(!st->keyboard_focused) { adapter_log("unfocused_key_rejected",NULL); return 0; }
+    uint32_t k=m.evdev_key;
+    if(m.state==AAAS_INPUT_KEY_PRESSED) {
+        if(!st->pressed_keys[k]) { st->pressed_keys[k]=1; st->pressed_keycodes[k]=m.android_keycode; st->key_down_ns[k]=(int64_t)m.timestamp_ns; }
+    } else if(!st->pressed_keys[k]) {
+        adapter_log("key_release_without_press",NULL); return 0;
+    }
+    int rc=aaas_binder_inject_key(m.state==AAAS_INPUT_KEY_PRESSED?0:1,
+        (int32_t)m.android_keycode,(int32_t)k,
+        (int32_t)m.meta_state,(int32_t)m.repeat_count,(int64_t)m.timestamp_ns,
+        st->pressed_keys[k]?st->key_down_ns[k]:(int64_t)m.timestamp_ns,0);
+    if(rc==0 && m.state==AAAS_INPUT_KEY_RELEASED) st->pressed_keys[k]=0;
+    adapter_logf(rc==0?"key_injected":"key_injection_failed",
+        "\"state\":%u,\"rc\":%d,\"elapsed_ns\":%llu",
+        m.state,rc,(unsigned long long)(monotonic_ns()-(uint64_t)now));
+    return 0;
+}
 
 static int handle_message(int fd, adapter_state *st,
                           const aaas_input_msg *wire);
@@ -707,6 +759,12 @@ static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire)
         return 0;
     }
     case AAAS_INPUT_SHUTDOWN: {
+        uint64_t now=monotonic_ns();
+        for(uint32_t k=0;k<768;k++) if(st->pressed_keys[k]) {
+            if(aaas_binder_inject_key(1,(int32_t)st->pressed_keycodes[k],(int32_t)k,
+               0,0,(int64_t)now,st->key_down_ns[k],0)==0) st->pressed_keys[k]=0;
+        }
+        st->keyboard_focused=0;
         release_all(st, st->last_x, st->last_y, st->order.sequence,
                     "shutdown");
         adapter_logf("shutdown_received", "\"sequence\":%u,\"request_ns\":%llu,\"recv_ns\":%llu",
@@ -940,21 +998,25 @@ int main(int argc, char **argv) {
             continue;
         }
         if (p.revents & POLLIN) {
-            aaas_input_msg wire;
-            ssize_t n = recv(fd, &wire, sizeof(wire), MSG_TRUNC);
+            union { aaas_input_msg pointer; aaas_input_keyboard_msg keyboard; } packet;
+            ssize_t n = recv(fd, &packet, sizeof(packet), MSG_TRUNC);
             if (n <= 0) {
                 adapter_log(n == 0 ? "disconnected" : "recv_failed", NULL);
                 break;
             }
-            if (n != (ssize_t)sizeof(wire)) {
-                adapter_log("invalid_message_length", NULL);
+            int should_stop=0;
+            if(n==(ssize_t)sizeof(aaas_input_msg)) {
+                aaas_input_msg message;
+                aaas_input_from_wire(&message,&packet.pointer);
+                should_stop = message.type == AAAS_INPUT_SCROLL
+                    ? handle_scroll_burst(fd, &st, &packet.pointer)
+                    : handle_message(fd, &st, &packet.pointer);
+            } else if(n==(ssize_t)sizeof(aaas_input_keyboard_msg)) {
+                should_stop=handle_keyboard_message(&st,&packet.keyboard);
+            } else {
+                adapter_log("invalid_message_length",NULL);
                 continue;
             }
-            aaas_input_msg message;
-            aaas_input_from_wire(&message, &wire);
-            int should_stop = message.type == AAAS_INPUT_SCROLL
-                    ? handle_scroll_burst(fd, &st, &wire)
-                    : handle_message(fd, &st, &wire);
             if (should_stop) {
                 break;
             }
@@ -965,6 +1027,9 @@ int main(int argc, char **argv) {
         }
     }
 
+    for(uint32_t k=0;k<768;k++) if(st.pressed_keys[k])
+        (void)aaas_binder_inject_key(1,(int32_t)st.pressed_keycodes[k],(int32_t)k,
+             0,0,(int64_t)monotonic_ns(),st.key_down_ns[k],0);
     release_all(&st, st.last_x, st.last_y, st.order.sequence, "adapter_exit");
     aaas_binder_shutdown();
     adapter_log("stop", NULL);

@@ -3,7 +3,7 @@ CFLAGS += -std=c11 -O2 -g -Wall -Wextra -Werror -D_GNU_SOURCE
 BUILD = build
 XML = /usr/share/qt6/wayland/protocols
 LOCAL_XML = protocols
-PKGS = wayland-client gbm libdrm egl glesv2
+PKGS = wayland-client gbm libdrm egl glesv2 xkbcommon
 CPPFLAGS += -Isrc -I$(BUILD) $(shell pkg-config --cflags $(PKGS))
 LDLIBS += $(shell pkg-config --libs $(PKGS)) -lm
 
@@ -57,8 +57,8 @@ $(BUILD)/aaas-m1a1: src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wir
 	$(CC) $(CFLAGS) $(CPPFLAGS) src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
 
 # Standalone Host Wayland Presenter for Android Container
-$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
-	$(CC) $(CFLAGS) $(CPPFLAGS) src/wayland_host_presenter.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
+$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/keyboard_map.c src/keyboard_map.h src/input_v1.h src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) src/wayland_host_presenter.c src/gpu_presenter.c src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
 
 # Tests
 $(BUILD)/test-wire: tests/wire.c src/wire.c | $(BUILD)
@@ -79,10 +79,13 @@ $(BUILD)/test-input-map: tests/test_input_map.c src/input_map.c | $(BUILD)
 $(BUILD)/test-input-v1: tests/test_input_v1.c src/input_v1.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
 
+$(BUILD)/test-keyboard-map: tests/test_keyboard_map.c src/keyboard_map.c | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@ $(shell pkg-config --libs xkbcommon)
+
 $(BUILD)/test-input-state: tests/test_input_state.c src/input_state.c src/input_v1.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
 
-test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state
+test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map
 	$(BUILD)/test-wire
 	$(BUILD)/test-wire-v2
 	$(BUILD)/test-sync-util
@@ -90,6 +93,7 @@ test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/
 	$(BUILD)/test-input-map
 	$(BUILD)/test-input-v1
 	$(BUILD)/test-input-state
+	$(BUILD)/test-keyboard-map
 
 clean:
 	rm -rf $(BUILD)

@@ -38,7 +38,7 @@ LDFLAGS := -target $(TARGET) -nostdlib -fuse-ld=lld \
 
 all: $(BIN)
 
-$(BIN): $(SRCS)
+$(BIN): $(SRCS) ../../m1a/src/input_v1.h ../../m1a/src/input_state.h inject_binder.h
 	@mkdir -p $(OUT_DIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c aaas_input_adapter.c -o $(OUT_DIR)/adapter.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c ../../m1a/src/input_v1.c -o $(OUT_DIR)/input_v1.o

@@ -1,6 +1,7 @@
 #include "gpu_presenter.h"
 #include "input_map.h"
 #include "input_v1.h"
+#include "keyboard_map.h"
 #include "wire_v2.h"
 #include "sync_util.h"
 
@@ -10,6 +11,7 @@
 #include "linux-drm-syncobj-client-protocol.h"
 
 #include <wayland-client.h>
+#include <xkbcommon/xkbcommon.h>
 #include <drm_fourcc.h>
 #include <gbm.h>
 #include <fcntl.h>
@@ -98,6 +100,22 @@ struct presenter_app {
     /* Wayland pointer input */
     struct wl_seat *seat;
     struct wl_pointer *pointer;
+    struct wl_keyboard *keyboard;
+    struct xkb_context *xkb_context;
+    struct xkb_keymap *xkb_keymap;
+    struct xkb_state *xkb_state;
+    int keyboard_focus;
+    int keyboard_protocol_ready;
+    uint32_t keyboard_repeat_rate;
+    uint32_t keyboard_repeat_delay;
+    uint32_t repeat_key;
+    uint32_t repeat_count;
+    uint64_t repeat_start_ns, repeat_next_ns;
+    uint32_t repeat_android_keycode, repeat_keysym, repeat_unicode;
+    uint8_t pressed_keys[768];
+    uint32_t pressed_android_keycodes[768];
+    aaas_input_keyboard_msg keyboard_queue[128];
+    uint32_t keyboard_queue_head, keyboard_queue_count;
     uint32_t seat_name;
     double pointer_x;
     double pointer_y;
@@ -120,6 +138,7 @@ struct presenter_app {
     uint32_t input_sequence;
     uint64_t input_sent;
     uint64_t input_dropped;
+    int keyboard_v2_enabled;
 
     /*
      * Latched Wayland pointer data for a single wl_pointer.frame.  Keeping the
@@ -188,41 +207,43 @@ static aaas_mapped_point map_surface_point(presenter_app *a, double sx, double s
  * rather than stalling the presenter loop.
  */
 static void input_queue_flush(presenter_app *a) {
-    if (a->input_fd < 0 || a->input_queue_count == 0) {
-        return;
-    }
+    if (a->input_fd < 0) return;
     for (;;) {
-        aaas_input_msg *item = &a->input_queue[a->input_queue_head];
-        ssize_t n = send(a->input_fd, item, sizeof(*item), MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (!a->input_queue_count && !a->keyboard_queue_count) return;
+        aaas_input_msg *pi = a->input_queue_count ? &a->input_queue[a->input_queue_head] : NULL;
+        aaas_input_keyboard_msg *ki = a->keyboard_queue_count
+            ? &a->keyboard_queue[a->keyboard_queue_head] : NULL;
+        uint32_t ps=UINT32_MAX, ks=UINT32_MAX;
+        if(pi) { memcpy(&ps,(const uint8_t*)pi+12,sizeof(ps)); ps=le32toh(ps); }
+        if(ki) { memcpy(&ks,(const uint8_t*)ki+12,sizeof(ks)); ks=le32toh(ks); }
+        bool send_key=ki && (!pi || ks<ps);
+        const void *item=send_key?(const void*)ki:(const void*)pi;
+        size_t item_size=send_key?sizeof(*ki):sizeof(*pi);
+        ssize_t n = send(a->input_fd, item, item_size, MSG_DONTWAIT | MSG_NOSIGNAL);
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
             return;
         }
-        if (n != (ssize_t)sizeof(*item)) {
+        if (n != (ssize_t)item_size) {
             int saved_errno = errno;
-            aaas_input_msg host;
-            aaas_input_from_wire(&host, item);
             a->input_dropped++;
             char extra[96];
+            uint32_t failed_type=AAAS_INPUT_KEY;
+            if(!send_key) { aaas_input_msg failed; aaas_input_from_wire(&failed,pi); failed_type=failed.type; }
             snprintf(extra, sizeof(extra), "\"input_type\":%u,\"errno\":%d",
-                     (unsigned)host.type, saved_errno);
-            log_presenter_event("input_flush_failed", a->gen, host.sequence, extra);
+                     failed_type, saved_errno);
+            log_presenter_event("input_flush_failed", a->gen, 0, extra);
             close(a->input_fd);
             a->input_fd = -1;
             a->input_queue_head = 0;
             a->input_queue_tail = 0;
             a->input_queue_count = 0;
+            a->keyboard_queue_head=0; a->keyboard_queue_count=0;
+            a->keyboard_v2_enabled=0;
             return;
         }
-        a->input_queue_head = (a->input_queue_head + 1) % INPUT_QUEUE_CAP;
-        a->input_queue_count--;
         a->input_sent++;
-        aaas_input_msg sent_host;
-        aaas_input_from_wire(&sent_host, item);
-        char extra[96];
-        snprintf(extra, sizeof(extra), "\"queued\":true,\"sequence\":%u",
-                 sent_host.sequence);
-        log_presenter_event("input_sent", a->gen, 0, extra);
-        if (a->input_queue_count == 0) break;
+        if(send_key) { a->keyboard_queue_head=(a->keyboard_queue_head+1)%128; a->keyboard_queue_count--; }
+        else { a->input_queue_head=(a->input_queue_head+1)%INPUT_QUEUE_CAP; a->input_queue_count--; }
     }
 }
 
@@ -316,6 +337,37 @@ static void input_send_packet(presenter_app *a, uint16_t type, int32_t x, int32_
              (unsigned)type, x, y, button, state, host.display_generation,
              host.focus_generation, host.sequence);
     log_presenter_event("input_sent", a->gen, host.sequence, extra);
+}
+
+static void input_keyboard_flush(presenter_app *a) {
+    input_queue_flush(a);
+}
+
+static void input_send_keyboard(presenter_app *a, uint16_t type, uint32_t evdev,
+                                uint32_t keycode, uint32_t state, uint32_t meta,
+                                uint32_t keysym, uint32_t unicode, uint32_t repeat) {
+    if (!a->keyboard_v2_enabled || a->input_fd < 0 || !a->input_session_id) return;
+    if (a->keyboard_queue_count == 128) {
+        log_presenter_event("keyboard_queue_full", a->gen, 0, NULL);
+        return;
+    }
+    aaas_input_keyboard_msg h = {
+        .magic=AAAS_INPUT_MAGIC, .version=AAAS_INPUT_KEYBOARD_VERSION, .type=type,
+        .length=AAAS_INPUT_KEYBOARD_MSG_SIZE, .sequence=++a->input_sequence,
+        .display_id=0, .display_generation=a->gen ? a->gen : 1,
+        .timestamp_ns=monotonic_ns(), .session_id=a->input_session_id,
+        .focus_generation=a->focus_generation, .evdev_key=evdev,
+        .android_keycode=keycode, .state=state, .meta_state=meta,
+        .repeat_count=repeat, .keysym=keysym, .unicode_scalar=unicode,
+    };
+    uint32_t tail=(a->keyboard_queue_head+a->keyboard_queue_count)%128;
+    aaas_input_keyboard_to_wire(&a->keyboard_queue[tail], &h);
+    a->keyboard_queue_count++;
+    input_keyboard_flush(a);
+    char extra[128];
+    snprintf(extra,sizeof(extra),"\"key_type\":%u,\"key_state\":%u,\"sequence\":%u",
+             type,state,h.sequence);
+    log_presenter_event("keyboard_event_queued",a->gen,h.sequence,extra);
 }
 
 static void input_send_hello(presenter_app *a) {
@@ -654,6 +706,147 @@ static const struct wl_pointer_listener pointer_listener = {
     .axis_value120 = pointer_axis_value120,
 };
 
+static void keyboard_send_focus(presenter_app *a, uint32_t state) {
+    if (state == AAAS_INPUT_FOCUS_LEAVE) {
+        for (uint32_t k=0;k<768;k++) if (a->pressed_keys[k]) {
+            input_send_keyboard(a,AAAS_INPUT_KEY,k,a->pressed_android_keycodes[k],
+                                AAAS_INPUT_KEY_RELEASED,aaas_android_meta_state(a->xkb_state),0,0,0);
+            a->pressed_keys[k]=0;
+            if(a->xkb_state) xkb_state_update_key(a->xkb_state,k+8,XKB_KEY_UP);
+        }
+        a->repeat_key=UINT32_MAX; a->repeat_count=0;
+    }
+    a->focus_generation++;
+    input_send_keyboard(a,AAAS_INPUT_KEYBOARD_FOCUS,0,0,state,aaas_android_meta_state(a->xkb_state),0,0,0);
+    a->keyboard_focus = state == AAAS_INPUT_FOCUS_ENTER;
+}
+
+static void keyboard_keymap(void *data, struct wl_keyboard *keyboard,
+                            uint32_t format, int32_t fd, uint32_t size) {
+    (void)keyboard;
+    presenter_app *a=data;
+    if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 || size == 0 || size > 4*1024*1024) {
+        if(fd>=0) close(fd);
+        log_presenter_event("keyboard_keymap_rejected",a->gen,0,NULL); return;
+    }
+    if(fd<0) { log_presenter_event("keyboard_keymap_bad_fd",a->gen,0,NULL); return; }
+    char *map=mmap(NULL,size,PROT_READ,MAP_PRIVATE,fd,0); close(fd);
+    if(map==MAP_FAILED) { log_presenter_event("keyboard_keymap_mmap_failed",a->gen,0,NULL); return; }
+    if(!memchr(map,'\0',size)) { munmap(map,size); log_presenter_event("keyboard_keymap_unterminated",a->gen,0,NULL); return; }
+    if(!a->xkb_context) a->xkb_context=xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    struct xkb_keymap *km=a->xkb_context ? xkb_keymap_new_from_string(a->xkb_context,map,
+        XKB_KEYMAP_FORMAT_TEXT_V1,XKB_KEYMAP_COMPILE_NO_FLAGS) : NULL;
+    munmap(map,size);
+    if(!km) { log_presenter_event("keyboard_keymap_compile_failed",a->gen,0,NULL); return; }
+    struct xkb_state *xs=xkb_state_new(km);
+    if(!xs) { xkb_keymap_unref(km); log_presenter_event("keyboard_state_create_failed",a->gen,0,NULL); return; }
+    bool refocus=a->keyboard_focus;
+    if(refocus) keyboard_send_focus(a,AAAS_INPUT_FOCUS_LEAVE);
+    if(a->xkb_state) xkb_state_unref(a->xkb_state);
+    if(a->xkb_keymap) xkb_keymap_unref(a->xkb_keymap);
+    a->xkb_keymap=km; a->xkb_state=xs;
+    if(refocus) keyboard_send_focus(a,AAAS_INPUT_FOCUS_ENTER);
+    log_presenter_event("keyboard_keymap_ready",a->gen,0,NULL);
+}
+
+static void keyboard_key(void *data, struct wl_keyboard *kbd, uint32_t serial,
+                         uint32_t time, uint32_t key, uint32_t state);
+
+static void keyboard_enter(void *data, struct wl_keyboard *kbd, uint32_t serial,
+                           struct wl_surface *surface, struct wl_array *keys) {
+    (void)kbd;(void)serial;
+    presenter_app *a=data;
+    if(surface==a->surface && !a->keyboard_focus) {
+        keyboard_send_focus(a,AAAS_INPUT_FOCUS_ENTER);
+        uint32_t *held;
+        wl_array_for_each(held,keys)
+            keyboard_key(data,kbd,serial,0,*held,WL_KEYBOARD_KEY_STATE_PRESSED);
+    }
+}
+static void keyboard_leave(void *data, struct wl_keyboard *kbd, uint32_t serial,
+                           struct wl_surface *surface) {
+    (void)kbd;(void)serial;(void)surface;
+    presenter_app *a=data;
+    if(a->keyboard_focus) keyboard_send_focus(a,AAAS_INPUT_FOCUS_LEAVE);
+}
+static void keyboard_key(void *data, struct wl_keyboard *kbd, uint32_t serial,
+                         uint32_t time, uint32_t key, uint32_t state) {
+    (void)kbd;(void)serial;(void)time;
+    presenter_app *a=data;
+    if(!a->keyboard_focus || !a->xkb_state || key>=768) return;
+    xkb_keycode_t xkey=key+8;
+    xkb_state_update_key(a->xkb_state,xkey,state==WL_KEYBOARD_KEY_STATE_PRESSED
+        ? XKB_KEY_DOWN : XKB_KEY_UP);
+    xkb_keysym_t sym=xkb_state_key_get_one_sym(a->xkb_state,xkey);
+    uint32_t code=aaas_android_keycode_from_keysym(sym);
+    if(!code) return;
+    uint32_t meta=aaas_android_meta_state(a->xkb_state);
+    uint32_t unicode=xkb_state_key_get_utf32(a->xkb_state,xkey);
+    if(state==WL_KEYBOARD_KEY_STATE_PRESSED) {
+        if(a->pressed_keys[key]) {
+            a->repeat_count++;
+            input_send_keyboard(a,AAAS_INPUT_KEY,key,code,AAAS_INPUT_KEY_PRESSED,meta,
+                                (uint32_t)sym,unicode,a->repeat_count);
+        } else {
+            a->pressed_keys[key]=1; a->pressed_android_keycodes[key]=code;
+            input_send_keyboard(a,AAAS_INPUT_KEY,key,code,AAAS_INPUT_KEY_PRESSED,meta,
+                                (uint32_t)sym,unicode,0);
+            if(a->keyboard_repeat_rate && code!=59 && code!=60 && code!=113 && code!=114 &&
+               code!=57 && code!=58 && code!=115) {
+                a->repeat_key=key; a->repeat_count=0;
+                a->repeat_android_keycode=code; a->repeat_keysym=(uint32_t)sym;
+                a->repeat_unicode=unicode;
+                a->repeat_start_ns=monotonic_ns()+(uint64_t)a->keyboard_repeat_delay*1000000ULL;
+                a->repeat_next_ns=a->repeat_start_ns;
+            }
+        }
+    } else if(a->pressed_keys[key]) {
+        input_send_keyboard(a,AAAS_INPUT_KEY,key,a->pressed_android_keycodes[key],
+                            AAAS_INPUT_KEY_RELEASED,meta,(uint32_t)sym,unicode,0);
+        a->pressed_keys[key]=0;
+        if(a->repeat_key==key) { a->repeat_key=UINT32_MAX; a->repeat_count=0; }
+    }
+}
+static void keyboard_modifiers(void *data, struct wl_keyboard *kbd, uint32_t serial,
+                               uint32_t dep, uint32_t lat, uint32_t lock, uint32_t group) {
+    (void)serial; presenter_app *a=data;
+    if(a->xkb_state) xkb_state_update_mask(a->xkb_state,dep,lat,lock,0,0,group);
+    (void)kbd;
+}
+static void keyboard_repeat_info(void *data, struct wl_keyboard *kbd, int32_t rate, int32_t delay) {
+    (void)kbd; presenter_app *a=data;
+    a->keyboard_repeat_rate=rate>0?(uint32_t)rate:0;
+    a->keyboard_repeat_delay=delay>0?(uint32_t)delay:0;
+    if(!a->keyboard_repeat_rate) a->repeat_key=UINT32_MAX;
+    log_presenter_event("keyboard_repeat_info",a->gen,0,NULL);
+}
+static const struct wl_keyboard_listener keyboard_listener = {
+    .keymap=keyboard_keymap,.enter=keyboard_enter,.leave=keyboard_leave,
+    .key=keyboard_key,.modifiers=keyboard_modifiers,.repeat_info=keyboard_repeat_info,
+};
+
+static void keyboard_repeat_tick(presenter_app *a) {
+    if(!a->keyboard_focus || !a->keyboard_repeat_rate || a->repeat_key>=768 ||
+       !a->pressed_keys[a->repeat_key]) return;
+    uint64_t now=monotonic_ns();
+    if(now<a->repeat_next_ns) return;
+    a->repeat_count++;
+    input_send_keyboard(a,AAAS_INPUT_KEY,a->repeat_key,a->repeat_android_keycode,
+        AAAS_INPUT_KEY_PRESSED,aaas_android_meta_state(a->xkb_state),a->repeat_keysym,
+        a->repeat_unicode,a->repeat_count);
+    a->repeat_next_ns=now+1000000000ULL/a->keyboard_repeat_rate;
+}
+
+static void destroy_keyboard(presenter_app *a) {
+    if(a->keyboard) {
+        if(a->keyboard_focus) keyboard_send_focus(a,AAAS_INPUT_FOCUS_LEAVE);
+        if(wl_proxy_get_version((struct wl_proxy*)a->keyboard)>=WL_KEYBOARD_RELEASE_SINCE_VERSION)
+            wl_keyboard_release(a->keyboard);
+        else wl_keyboard_destroy(a->keyboard);
+        a->keyboard=NULL;
+    }
+}
+
 static void destroy_pointer(presenter_app *a) {
     if (!a->pointer) {
         return;
@@ -670,9 +863,10 @@ static void destroy_pointer(presenter_app *a) {
 static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t caps) {
     presenter_app *a = data;
     bool pointer_capable = (caps & WL_SEAT_CAPABILITY_POINTER) != 0;
-    char extra[64];
-    snprintf(extra, sizeof(extra), "\"pointer_capable\":%s",
-             pointer_capable ? "true" : "false");
+    bool keyboard_capable = (caps & WL_SEAT_CAPABILITY_KEYBOARD) != 0;
+    char extra[128];
+    snprintf(extra, sizeof(extra), "\"pointer_capable\":%s,\"keyboard_capable\":%s",
+             pointer_capable ? "true" : "false", keyboard_capable ? "true" : "false");
     log_presenter_event("input_seat_capabilities", a->gen, 0, extra);
 
     if (pointer_capable) {
@@ -692,6 +886,16 @@ static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t caps) {
         a->content_focus = 0;
         destroy_pointer(a);
         log_presenter_event("input_pointer_unbound", a->gen, 0, NULL);
+    }
+    if (keyboard_capable) {
+        if (!a->keyboard) {
+            a->keyboard=wl_seat_get_keyboard(seat);
+            wl_keyboard_add_listener(a->keyboard,&keyboard_listener,a);
+            log_presenter_event("input_keyboard_bound",a->gen,0,NULL);
+        }
+    } else if (a->keyboard) {
+        destroy_keyboard(a);
+        log_presenter_event("input_keyboard_unbound",a->gen,0,NULL);
     }
 }
 
@@ -768,6 +972,7 @@ static void registry_global_remove(void *data, struct wl_registry *r, uint32_t n
         a->content_focus = 0;
         destroy_pointer(a);
     }
+    if (a->keyboard) destroy_keyboard(a);
     if (wl_proxy_get_version((struct wl_proxy *)a->seat) >=
         WL_SEAT_RELEASE_SINCE_VERSION) {
         wl_seat_release(a->seat);
@@ -1408,6 +1613,8 @@ static void input_adapter_accept(presenter_app *a) {
         log_presenter_event("input_adapter_replaced", a->gen, 0, NULL);
     }
     a->input_fd = fd;
+    a->keyboard_v2_enabled=0;
+    a->keyboard_queue_head=0; a->keyboard_queue_count=0;
     a->input_sequence = 0;
     a->input_dropped = 0;
     log_presenter_event("input_adapter_connected", a->gen, 0, NULL);
@@ -1430,6 +1637,8 @@ static void input_adapter_read(presenter_app *a) {
                             a->gen, 0, NULL);
         close(a->input_fd);
         a->input_fd = -1;
+        a->keyboard_v2_enabled=0;
+        a->keyboard_queue_head=0; a->keyboard_queue_count=0;
         return;
     }
     if (n != (ssize_t)sizeof(wire)) {
@@ -1448,13 +1657,20 @@ static void input_adapter_read(presenter_app *a) {
         return;
     }
     if (host.type == AAAS_INPUT_HELLO && (host.flags & AAAS_INPUT_FLAG_ACK)) {
-        log_presenter_event("input_adapter_ready", a->gen, 0, NULL);
+        a->keyboard_v2_enabled = (host.flags & AAAS_INPUT_FLAG_KEYBOARD_V2) != 0;
+        char extra[64];
+        snprintf(extra,sizeof(extra),"\"keyboard_v2\":%s",a->keyboard_v2_enabled?"true":"false");
+        log_presenter_event("input_adapter_ready", a->gen, 0, extra);
+        if (a->keyboard_v2_enabled && a->keyboard_focus)
+            keyboard_send_focus(a, AAAS_INPUT_FOCUS_ENTER);
     } else {
         log_presenter_event("input_adapter_message", a->gen, host.sequence, NULL);
     }
 }
 
 static void input_teardown(presenter_app *a) {
+    if (a->keyboard_focus) keyboard_send_focus(a, AAAS_INPUT_FOCUS_LEAVE);
+    input_keyboard_flush(a);
     if (a->pressed_buttons) {
         input_release_buttons(a, "teardown");
     }
@@ -1466,7 +1682,12 @@ static void input_teardown(presenter_app *a) {
                           0, 0, 0, 0);
         close(a->input_fd);
         a->input_fd = -1;
+        a->keyboard_v2_enabled=0;
+        a->keyboard_queue_head=0; a->keyboard_queue_count=0;
     }
+    if (a->xkb_state) xkb_state_unref(a->xkb_state);
+    if (a->xkb_keymap) xkb_keymap_unref(a->xkb_keymap);
+    if (a->xkb_context) xkb_context_unref(a->xkb_context);
 }
 
 int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
@@ -1477,6 +1698,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         .input_listen_fd = config->input_listen_fd,
         .input_fd = -1,
         .input_session_id = config->input_session_id,
+        .repeat_key = UINT32_MAX,
     };
 
     app.display = wl_display_connect(NULL);
@@ -1582,13 +1804,19 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             input_idx = (int)nfds;
             p[nfds].fd = app.input_fd;
             p[nfds].events = POLLIN;
-            if (app.input_queue_count > 0) {
+            if (app.input_queue_count > 0 || app.keyboard_queue_count > 0) {
                 p[nfds].events |= POLLOUT;
             }
             nfds++;
         }
 
-        int r = poll(p, nfds, 200);
+        int timeout_ms=200;
+        if(app.keyboard_repeat_rate && app.repeat_key<768 && app.repeat_next_ns) {
+            uint64_t now=monotonic_ns();
+            int due=now>=app.repeat_next_ns?0:(int)((app.repeat_next_ns-now+999999ULL)/1000000ULL);
+            if(due<timeout_ms) timeout_ms=due;
+        }
+        int r = poll(p, nfds, timeout_ms);
         if (r < 0) {
             wl_display_cancel_read(app.display);
             if (errno == EINTR) continue;
@@ -1616,13 +1844,17 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         if (input_idx >= 0 && app.input_fd >= 0 &&
             (p[input_idx].revents & POLLOUT)) {
             input_queue_flush(&app);
+            input_keyboard_flush(&app);
         }
         if (input_idx >= 0 && app.input_fd >= 0 &&
             (p[input_idx].revents & (POLLHUP | POLLERR))) {
             log_presenter_event("input_adapter_disconnect", app.gen, 0, NULL);
             close(app.input_fd);
             app.input_fd = -1;
+            app.keyboard_v2_enabled=0;
+            app.keyboard_queue_head=0; app.keyboard_queue_count=0;
         }
+        keyboard_repeat_tick(&app);
         if (input_listen_idx >= 0 && (p[input_listen_idx].revents & POLLIN)) {
             input_adapter_accept(&app);
         }

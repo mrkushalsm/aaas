@@ -34,6 +34,13 @@ static void expect_valid(const char *name, const aaas_input_msg *m, int valid) {
     }
 }
 
+static void expect_keyboard_valid(const char *name, const aaas_input_keyboard_msg *m, int valid) {
+    char why[64]={0};
+    int rc=aaas_input_keyboard_validate(m,0x1122334455667788ULL,0,why,sizeof(why));
+    if((rc==0)!=valid) { fprintf(stderr,"FAIL %s: %s\n",name,why); failures++; }
+    else printf("PASS %s: valid=%d\n",name,valid);
+}
+
 int main(void) {
     aaas_input_msg m = base(AAAS_INPUT_HELLO);
     m.x = 1280;
@@ -42,6 +49,10 @@ int main(void) {
 
     m.flags = AAAS_INPUT_FLAG_ACK;
     expect_valid("hello-ack", &m, 1);
+    m.flags = AAAS_INPUT_FLAG_ACK | AAAS_INPUT_FLAG_KEYBOARD_V2;
+    expect_valid("hello-ack-keyboard-v2", &m, 1);
+    m.flags = AAAS_INPUT_FLAG_KEYBOARD_V2;
+    expect_valid("keyboard-capability-without-ack", &m, 0);
 
     aaas_input_msg wire, roundtrip;
     aaas_input_to_wire(&wire, &m);
@@ -52,6 +63,24 @@ int main(void) {
     } else {
         printf("PASS endian roundtrip\n");
     }
+
+    aaas_input_keyboard_msg key={
+        .magic=AAAS_INPUT_MAGIC,.version=AAAS_INPUT_KEYBOARD_VERSION,
+        .type=AAAS_INPUT_KEY,.length=AAAS_INPUT_KEYBOARD_MSG_SIZE,.sequence=8,
+        .display_id=0,.display_generation=3,.timestamp_ns=123456789,
+        .session_id=0x1122334455667788ULL,.focus_generation=3,.evdev_key=30,
+        .android_keycode=29,.state=AAAS_INPUT_KEY_PRESSED,.meta_state=1,
+        .keysym='A',.unicode_scalar='A'};
+    expect_keyboard_valid("keyboard-down",&key,1);
+    aaas_input_keyboard_msg kw,kr;
+    aaas_input_keyboard_to_wire(&kw,&key); aaas_input_keyboard_from_wire(&kr,&kw);
+    if(memcmp(&key,&kr,sizeof(key))) { fprintf(stderr,"FAIL keyboard endian roundtrip\n"); failures++; }
+    else puts("PASS keyboard endian roundtrip");
+    key.unicode_scalar=0xd800; expect_keyboard_valid("keyboard-invalid-surrogate",&key,0);
+    key.unicode_scalar='A'; key.type=AAAS_INPUT_KEYBOARD_FOCUS;
+    key.state=AAAS_INPUT_FOCUS_ENTER; key.evdev_key=0; key.android_keycode=0;
+    key.meta_state=0; key.keysym=0; key.unicode_scalar=0;
+    expect_keyboard_valid("keyboard-focus-enter",&key,1);
 
     m = base(AAAS_INPUT_FOCUS);
     m.state = AAAS_INPUT_FOCUS_ENTER;

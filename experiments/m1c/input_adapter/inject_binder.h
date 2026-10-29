@@ -57,6 +57,10 @@ int aaas_binder_inject(int action, int32_t x, int32_t y,
 /* Best effort cleanup; safe to call without a successful inject(). */
 void aaas_binder_shutdown(void);
 
+int aaas_binder_inject_key(int action, int32_t keycode, int32_t scancode,
+                           int32_t meta_state, int32_t repeat_count,
+                           int64_t event_ns, int64_t down_ns, int32_t display_id);
+
 #ifdef __cplusplus
 }
 #endif

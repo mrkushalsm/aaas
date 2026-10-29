@@ -15,6 +15,7 @@
 
 #define AAAS_INPUT_MAGIC 0x49414141u /* 'AAAI' */
 #define AAAS_INPUT_VERSION 1u
+#define AAAS_INPUT_KEYBOARD_VERSION 2u
 #define AAAS_INPUT_MAX_DISPLAY 16u
 #define AAAS_INPUT_MAX_DIM 8192u
 
@@ -65,7 +66,39 @@ enum {
     AAAS_INPUT_FLAG_AXIS_DISCRETE = 1u << 2,
     /* Present when a scroll was synthesized from smooth axis motion. */
     AAAS_INPUT_FLAG_AXIS_SMOOTH = 1u << 3,
+    /* Negotiated by a v1 HELLO ACK before v2 keyboard packets are sent. */
+    AAAS_INPUT_FLAG_KEYBOARD_V2 = 1u << 4,
 };
+
+enum {
+    AAAS_INPUT_KEYBOARD_FOCUS = 1,
+    AAAS_INPUT_KEY = 2,
+};
+
+enum { AAAS_INPUT_KEY_RELEASED = 0, AAAS_INPUT_KEY_PRESSED = 1 };
+
+/* Version 2 keyboard packet. Pointer packets remain the unchanged 68-byte v1. */
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t type;
+    uint32_t length;
+    uint32_t sequence;
+    uint32_t display_id;
+    uint32_t display_generation;
+    uint64_t timestamp_ns;
+    uint64_t session_id;
+    uint32_t focus_generation;
+    uint32_t evdev_key;
+    uint32_t android_keycode;
+    uint32_t state;
+    uint32_t meta_state;
+    uint32_t repeat_count;
+    uint32_t keysym;
+    uint32_t unicode_scalar;
+} __attribute__((packed)) aaas_input_keyboard_msg;
+
+#define AAAS_INPUT_KEYBOARD_MSG_SIZE ((uint32_t)sizeof(aaas_input_keyboard_msg))
 
 typedef struct {
     uint32_t magic;             /* AAAS_INPUT_MAGIC */
@@ -104,6 +137,14 @@ void aaas_input_from_wire(aaas_input_msg *host, const aaas_input_msg *wire);
  */
 int aaas_input_validate(const aaas_input_msg *msg, uint64_t session_id,
                         uint32_t display_id, char *why, size_t why_len);
+
+void aaas_input_keyboard_to_wire(aaas_input_keyboard_msg *wire,
+                                const aaas_input_keyboard_msg *host);
+void aaas_input_keyboard_from_wire(aaas_input_keyboard_msg *host,
+                                   const aaas_input_keyboard_msg *wire);
+int aaas_input_keyboard_validate(const aaas_input_keyboard_msg *msg,
+                                uint64_t session_id, uint32_t display_id,
+                                char *why, size_t why_len);
 
 #ifdef __cplusplus
 }

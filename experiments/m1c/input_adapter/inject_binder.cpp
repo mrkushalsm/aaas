@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <vector>
 
 #include <binder/IBinder.h>
@@ -227,6 +228,55 @@ int aaas_binder_inject(int action, int32_t x, int32_t y,
         }
     }
     return rc;
+}
+
+/* Android 16 KeyEvent.writeToParcel field order, verified against the
+ * android16-release frameworks/base KeyEvent.java implementation. */
+int aaas_binder_inject_key(int action, int32_t keycode, int32_t scancode,
+                           int32_t meta_state, int32_t repeat_count,
+                           int64_t event_ns, int64_t down_ns, int32_t display_id) {
+    if (!g_input_binder) g_input_binder = new sp<IBinder>();
+    if (!g_input_binder->get()) {
+        sp<IServiceManager> sm = android::defaultServiceManager();
+        if (!sm.get()) return -1;
+        *g_input_binder = sm->checkService(String16("input"));
+        if (!g_input_binder->get()) return -1;
+        if ((*g_input_binder)->getInterfaceDescriptor() !=
+                String16("android.hardware.input.IInputManager")) {
+            g_input_binder->clear();
+            return -4;
+        }
+    }
+    if (action != 0 && action != 1) return -5;
+    if (event_ns <= g_last_event_ns) event_ns = g_last_event_ns + 1;
+    g_last_event_ns = event_ns;
+
+    Parcel data, reply;
+    data.writeInterfaceToken(String16("android.hardware.input.IInputManager"));
+    data.writeInt32(1); /* non-null typed InputEvent */
+    data.writeInt32(2); /* InputEvent.PARCEL_TOKEN_KEY_EVENT */
+    data.writeInt32((int32_t)(g_next_event_id++ & 0x3fffffff)); /* mId */
+    data.writeInt32(-1); /* VIRTUAL_KEYBOARD device id */
+    data.writeInt32(0x00000101); /* SOURCE_KEYBOARD */
+    data.writeInt32(display_id);
+    data.writeInt32(-1); /* null mHmac */
+    data.writeInt32(action);
+    data.writeInt32(keycode);
+    data.writeInt32(repeat_count);
+    data.writeInt32(meta_state);
+    data.writeInt32(scancode);
+    data.writeInt32(0); /* flags */
+    data.writeInt64(down_ns);
+    data.writeInt64(event_ns);
+    data.writeString16(std::optional<String16>{}); /* null mCharacters */
+    data.writeInt32(kInjectInputEventModeWaitForResult);
+    status_t status = (*g_input_binder)->transact(
+            kInjectInputEventTransaction, data, &reply, 0);
+    if (status != android::OK) { g_input_binder->clear(); return -1; }
+    status_t exception = reply.readExceptionCode();
+    if (exception != android::OK) return -2;
+    if (!reply.readBool()) return -3;
+    return 0;
 }
 
 void aaas_binder_shutdown(void) {
