@@ -1,8 +1,64 @@
 # M1D — Native keyboard input and Android text entry
 
-Status: **PARTIAL — implementation built; end-to-end key and text behavior remains unverified**
+Status: **PARTIAL — user unlock and synthetic Settings text entry verified; physical keyboard and focus lifecycle remain open**
 Baseline: M1C.1 commit `3b2eb73`
 Runtime: Android 16 x86_64, rootless container, KWin Wayland, portrait 720×1280
+
+## 2026-10-30 follow-up: user unlock and Settings text entry
+
+The earlier user-0 lock and missing-editor findings below are historical and
+are superseded by this follow-up. The cause was not a stalled init restorecon
+worker: the diagnostic rootfs contained a 24-byte `/system/bin/vdc` shell stub
+that returned success without doing the requested work. Android init's
+`init_user0` built-in calls `/system/bin/vdc --wait cryptfs init_user0` (see
+the pinned `core-android16/init/builtins.cpp`, `ExecVdcRebootOnFailure`). With
+the stub, Vold never ran `fscrypt_init_user0`; the later CE storage setup and
+user-unlock lifecycle were incomplete.
+
+The foreground launcher now requires a checksum-matched copy of the original
+Android 16 image's `vdc` executable and read-only binds it over the stub in
+each private runtime. The rootfs and original image remain unchanged. The
+overlay SHA-256 is
+`b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764` and its
+ELF build ID is `71dd3870bc9d13bc53126c430ae2ae90`. In the default live run,
+Vold logged `fscrypt_init_user0`, preparation of the expected user data,
+completion of restorecon for `/data/system_ce/0`, `/data/vendor_ce/0`, and
+`/data/misc_ce/0`, and ActivityManager advanced user 0 through
+`RUNNING_LOCKED` → `RUNNING_UNLOCKING` → `RUNNING_UNLOCKED`. No user-unlock or
+boot-completed property was forced. The earlier empty restorecon completion
+observation was a downstream symptom of the skipped `vdc` work.
+
+With user 0 unlocked, clicking the Settings search control launched and
+displayed `com.android.settings.intelligence/.search.SearchActivity`; Android
+InputDispatcher logged focus entering its window. The real search editor showed
+a caret and Android IME, and controlled Linux `/dev/uinput` keyboard events
+visibly changed its text. Captures show typing, Shift+A, Backspace, Left then
+Delete, Enter (the Android no-results screen), and Escape (return to Settings).
+This demonstrates a functional Android editor/input connection through the
+existing Wayland → XKB → keyboard-v2 → persistent Binder adapter path. The
+captured diagnostics do not expose a direct InputConnection object snapshot,
+and the keyboard source was synthetic uinput, not physical hardware.
+
+The latest measured Binder injection duration was 20 events, median 0.807 ms,
+maximum 1.800 ms. This excludes end-to-end display latency. Images and
+session/log checksums are listed in
+[`unlock_text_entry_followup.json`](../results/m1d/unlock_text_entry_followup.json).
+
+Default and source-LMKD/cgroup foreground sessions both reached `RUNNING` and
+stopped on Ctrl+C. The enhanced run removed its cgroup hierarchy with no
+cleanup failures or OOM events. Shutdown now escalates only within the
+session's dedicated process group after a bounded TERM wait, so namespace
+init cannot remain orphaned. Cgroup cleanup retries only verified transient
+process-placement read-back mismatches; other failures remain visible.
+
+Verification after these changes: 125 Python tests, M1A tests, presenter
+build/tests, Android input-adapter rebuild, and workspace budget check all
+passed. The workspace was mounted from `/dev/sda2` as NTFS3 with 21.41 GB used,
+below the 80 GiB ceiling and preserving the 20 GiB reserve.
+
+M1D remains **PARTIAL**. Physical keyboard attribution, repeat, focus
+isolation, held-key cleanup on abrupt focus loss, and Unicode/dead-key
+composition still need live verification. See the updated acceptance matrix.
 
 Implementation checkpoint: `c72c41a` (`feat(input): add Wayland keyboard transport and Android KeyEvents`).
 The M1D status and evidence are recorded in a separate documentation commit.
@@ -87,7 +143,7 @@ so this does not isolate a key-injection defect from a focus/tap problem. The
 captured negative result is retained at
 [`settings_after_synthetic_key_probe.png`](../results/m1d/evidence/settings_after_synthetic_key_probe.png).
 
-## Settings editor focus investigation
+## Historical Settings editor focus investigation (before the vdc correction)
 
 On 2026-10-30, a live portrait session reproduced the missing editor focus.
 The Settings search control is visible in the 720×1280 Android frame; its
@@ -157,12 +213,9 @@ successful adjacent category navigation:
 - [`settings_search_click_no_transition.png`](../results/m1d/evidence/settings_search_click_no_transition.png)
 - [`settings_category_click_control.png`](../results/m1d/evidence/settings_category_click_control.png)
 
-No synthetic keyboard fixture was sent after this discovery because no
-editable Android view or InputConnection was focused. Text entry, editing,
-Enter/Escape behavior, modifiers, repeat, and focus isolation remain untested.
-M1D remains **PARTIAL**. The next task is to unblock normal user-0 CE storage
-unlock in the isolated runtime, then repeat the search click and only then
-resume KeyEvent-to-view tracing.
+At the time of this diagnostic, no synthetic keyboard fixture was sent because
+no editable Android view or InputConnection was focused. This blocker was later
+resolved as documented above.
 
 A subsequent default session contained three key-down and three key-up events
 that reached Binder, although the test process did not create a keyboard uinput
@@ -177,39 +230,27 @@ ms maximum. These are adapter Binder timings, not end-to-end Android frame or
 visible-text latency. Raw traces and checksums are listed in
 `results/m1d/key_delivery_probe.json`.
 
-The foreground runner was stopped with Ctrl+C and reached `STOPPED`. One
-regression-test invocation while it held the single-instance lock failed the
-lock test as expected; the complete Python suite was rerun after shutdown and
-passed 123 tests. The enhanced source-LMKD/cgroup path remains supported by
-prior startup/shutdown smoke evidence, including its recorded cgroup cleanup
-warning.
+At that earlier checkpoint, the foreground runner was stopped with Ctrl+C
+and reached `STOPPED`; the complete Python suite then passed 123 tests. The
+enhanced source-LMKD/cgroup path had one transient cleanup warning at that
+checkpoint. The later bounded retry and clean enhanced live rerun are recorded
+in the 2026-10-30 follow-up above.
 
-## Evidence boundary
+## Current evidence boundary and acceptance
 
-The first disappearing stage from the controlled key probe was **not** the
-presenter or Binder: Wayland key events were translated, serialized into the
-versioned keyboard packet, validated by the adapter, and accepted by Android's
-`IInputManager`. The next required proof is that an Android Settings text
-editor actually owns focus and changes visibly from those events. Binder's
-positive injection reply does not prove InputDispatcher delivered the event to
-the intended view. No fix to the keyboard implementation is justified by the current evidence;
-the UI attempt had an unverified editor focus state.
+The previous “Binder accepted the event but no editor was focused” boundary is
+resolved for the controlled synthetic path: the actual Settings Intelligence
+search activity was focused, Android displayed its IME, and the field's visible
+text changed under key input. Binder success alone was not treated as proof;
+the visible Android screenshots and ActivityTaskManager/InputDispatcher logs
+are retained alongside the adapter trace.
 
-Still unverified live: physical keyboard text entry, Backspace/Delete/caret
-editing, Enter/Escape navigation, modifiers, repeat, host focus isolation,
-held-key cleanup under focus loss, IME composition, and a controlled screenshot
-showing changed text. The latest visual capture remains unchanged Settings
-content, and M1D is therefore **PARTIAL**.
-
-## Acceptance gates
-
-The machine-readable gate results are in `results/m1d/acceptance.json`.
-Wayland discovery and XKB mapping pass; controlled versioned packets reached
-the adapter; and Android's `IInputManager` accepted synthetic KeyEvent DOWN/UP
-requests. Those stages do not satisfy the user-facing text-input requirement.
-Basic Settings text entry is still partial, while editing, navigation, physical
-keyboard attribution, repeat, focus isolation, and visible app response remain
-unverified. The milestone is **PARTIAL**, not closed.
+The machine-readable gate results are in
+[`acceptance.json`](../results/m1d/acceptance.json). Basic text entry, editing,
+Shift, Enter, and Escape are verified with `/dev/uinput`. Physical keyboard
+hardware, Ctrl/Alt/Caps Lock combinations, repeat, host focus isolation,
+held-key reconciliation during abrupt focus loss, and advanced text
+composition remain unverified. M1D therefore remains **PARTIAL**, not PASS.
 
 ## Commits
 
@@ -217,6 +258,10 @@ unverified. The milestone is **PARTIAL**, not closed.
   injection implementation with focused tests.
 - `c1ddd3f` — initial M1D partial status.
 - Live diagnostics and evidence updates are committed separately.
+- `5f8591e` — restore Android user initialization with the original `vdc` and
+  clean up its private process group.
+- `a81e478` — retry transient cgroup process-placement cleanup races.
+- This documentation/evidence follow-up is committed separately.
 
 ## Reproducibility and security
 
