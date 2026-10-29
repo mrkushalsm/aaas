@@ -1,8 +1,71 @@
 # M1D — Native keyboard input and Android text entry
 
-Status: **PARTIAL — user unlock and synthetic Settings text entry verified; physical keyboard and focus lifecycle remain open**
+Status: **PARTIAL — desktop IME suppression and synthetic Settings editing verified; independent physical-key attribution and advanced composition remain open**
 Baseline: M1C.1 commit `3b2eb73`
 Runtime: Android 16 x86_64, rootless container, KWin Wayland, portrait 720×1280
+
+
+## 2026-10-30 follow-up: desktop-native software keyboard policy
+
+A focused search editor previously caused Android to show LatinIME because the
+container injects Android `KeyEvent`s over Binder but does not enumerate a
+hardware keyboard. Android reports `KEYBOARD_NOKEYS`; the stock
+`InputMethodService.onEvaluateInputViewShown()` therefore selects a visible
+soft keyboard even when `Settings.Secure.show_ime_with_hard_keyboard=0`.
+Registering a host event node was not suitable: the node is not accessible to
+the unprivileged session, and exposing it would bypass Wayland window focus.
+
+The normal desktop launch is `python3 scripts/run_aaas.py`; it mounts a
+checksum-guarded, read-only `framework.jar` overlay and sets a session-scoped
+`Settings.Secure.aaas_desktop_mode` policy before launching Settings. The narrow Android 16 `InputMethodService` visibility-hook
+adaptation returns false in desktop mode. The IME service remains bound to the
+editor, preserving its `InputConnection`; Android does not show the soft-input
+window. This is not a visual hide or off-screen surface workaround. The
+`--software-keyboard` option disables desktop mode and restores stock LatinIME
+behavior as an accessibility/mobile escape hatch.
+
+The source patch applies exactly to the pinned Android 16 `frameworks/base`
+revision `99b01a65cc4c104933788b3143285ab6bae65827`; source and generated
+framework provenance, hashes, and reproducibility are recorded in
+[`desktop_ime_build_receipt.json`](../results/m1d/desktop_ime_build_receipt.json).
+The original framework JAR remains unchanged. The runtime overlay hash is
+`701d2fd4afe62e4b02a3f2da603daab492a4369dea3bd4d3baefe52789623a0b`.
+
+In the live default desktop-mode session, Android focused the real Settings
+Intelligence `SearchActivity`; `SearchAutoComplete` was served with an active
+`EditableInputConnection`. LatinIME reported its decor/window/input view
+hidden. WindowManager reported the IME window with no surface, off-screen and
+not visible; IME Insets were not visible. The active InputDispatcher per-display
+window list contained the full-screen SearchActivity and no InputMethod window.
+The app bounds remained 720×1280, and the focused app window's touchable region
+covered the display. The Android Taskbar remains a separate SystemUI window over
+the bottom 126 pixels in this image; it is not an IME reservation. Controlled
+synthetic `h`/`i` input appeared in the real field. A search result at Android
+y=950 remained reachable; a separate
+`--software-keyboard` run showed LatinIME with visible IME Insets and reduced
+app bounds of 720×1154. Screenshots and the structured state record are linked
+from [`desktop_ime_policy.json`](../results/m1d/desktop_ime_policy.json).
+
+Desktop-mode regression checks also verified Backspace, Shift+A, Left/Delete,
+Enter and Escape delivery; Escape returned to Settings. A 1.1-second synthetic
+key hold produced visible repeat while the IME remained hidden. In a controlled
+host focus switch to Xterm, AaaS received no new keyboard packets; a held Shift
+release was observed before focus-leave. Binder injection timing for 19
+synthetic events had a median of 1.916 ms and a maximum of 6.408 ms. These
+figures cover Binder injection only, not the visible frame latency. Default and
+source-LMKD/cgroup sessions reached RUNNING and shut down cleanly; the cgroup
+was removed.
+
+The final automated run passed 132 Python tests, M1A tests, presenter build and
+tests, input-adapter rebuild, and the external-workspace guard. The measured
+workspace remains within its 80 GiB ceiling and 20 GiB reserve. The real
+physical keyboard was not independently tested: host event-node permissions
+were left unchanged. Focus restoration after returning from another host
+window, Caps Lock/Ctrl/Alt/Tab combinations, Unicode/dead-key composition, and
+a full M1C physical pointer/touchpad regression during this final policy run,
+and content interaction underneath the existing bottom Taskbar remain
+unverified. M1D therefore remains **PARTIAL** despite the desktop IME
+suppression subgoal passing.
 
 ## 2026-10-30 follow-up: user unlock and Settings text entry
 
@@ -246,11 +309,12 @@ the visible Android screenshots and ActivityTaskManager/InputDispatcher logs
 are retained alongside the adapter trace.
 
 The machine-readable gate results are in
-[`acceptance.json`](../results/m1d/acceptance.json). Basic text entry, editing,
-Shift, Enter, and Escape are verified with `/dev/uinput`. Physical keyboard
-hardware, Ctrl/Alt/Caps Lock combinations, repeat, host focus isolation,
-held-key reconciliation during abrupt focus loss, and advanced text
-composition remain unverified. M1D therefore remains **PARTIAL**, not PASS.
+[`acceptance.json`](../results/m1d/acceptance.json). Text entry, editing,
+Shift, Enter, Escape, repeat, and controlled focus-loss isolation are verified
+with `/dev/uinput`; desktop IME suppression preserves the live editor and full
+app bounds. Physical keyboard hardware, Caps Lock/Ctrl/Alt/Tab combinations,
+focus restoration after returning to AaaS, and advanced text composition remain
+unverified. M1D therefore remains **PARTIAL**, not PASS.
 
 ## Commits
 
@@ -261,7 +325,10 @@ composition remain unverified. M1D therefore remains **PARTIAL**, not PASS.
 - `5f8591e` — restore Android user initialization with the original `vdc` and
   clean up its private process group.
 - `a81e478` — retry transient cgroup process-placement cleanup races.
-- This documentation/evidence follow-up is committed separately.
+- `083ea4a` — suppress Android's soft keyboard in desktop mode while retaining
+  the editor connection.
+- Desktop IME runtime evidence and final status are recorded in the current
+  documentation/evidence commit.
 
 ## Reproducibility and security
 
