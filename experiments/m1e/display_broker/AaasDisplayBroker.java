@@ -263,9 +263,43 @@ public final class AaasDisplayBroker {
         }
     }
 
-    private static void pollDisplayControl(DisplayHandle handle) {
-        if (handle.released) return;
+    private static void pollDisplayControl(DisplayHandle handle, List<DisplayHandle> displays,
+            Object context, Object displayManager, Object handler, Class<?> looperClass,
+            int defaultWidth, int defaultHeight, int defaultDensity) {
         String suffix = Integer.toString(handle.index + 1);
+        String createPath = "/dev/aaas/vdisplay_create_" + suffix;
+        if (handle.released) {
+            String create = readControl(createPath);
+            if (!create.isEmpty()) {
+                String[] fields = create.split("\\s+");
+                try {
+                    if (fields.length != 4) throw new IllegalArgumentException("field_count");
+                    long generation = Long.parseLong(fields[0]);
+                    int width = Integer.parseInt(fields[1]);
+                    int height = Integer.parseInt(fields[2]);
+                    int density = Integer.parseInt(fields[3]);
+                    if (generation <= 0 || width < 64 || height < 64 ||
+                            width > 4096 || height > 4096 || density < 72 || density > 1000) {
+                        throw new IllegalArgumentException("dimensions_or_generation");
+                    }
+                    DisplayHandle created = createDisplay(context, displayManager, handler,
+                            looperClass, handle.index, width, height, density, handle.idPath);
+                    displays.set(handle.index, created);
+                    writeControl("/dev/aaas/vdisplay_create_ack_" + suffix,
+                            "created " + generation + " " + created.displayId);
+                    log("created_after_release index=" + handle.index + " generation="
+                            + generation + " displayId=" + created.displayId);
+                } catch (Exception error) {
+                    writeControl("/dev/aaas/vdisplay_create_ack_" + suffix,
+                            "failed " + fields[0] + " " + error.getClass().getSimpleName());
+                    log("create_after_release_failed index=" + handle.index + " error="
+                            + error.getClass().getSimpleName());
+                } finally {
+                    writeControl(createPath, "");
+                }
+            }
+            return;
+        }
         String closePath = "/dev/aaas/vdisplay_close_" + suffix;
         String resizePath = "/dev/aaas/vdisplay_resize_" + suffix;
         String ackPath = "/dev/aaas/vdisplay_control_ack_" + suffix;
@@ -430,12 +464,24 @@ public final class AaasDisplayBroker {
                 }
                 throw error;
             }
+        } else {
+            // Reserve the second bounded slot in the broker's control table.
+            // It has no Android display until a host launch transaction asks
+            // for one, but can be created after another app closes.
+            DisplayHandle vacant = new DisplayHandle();
+            vacant.index = 1;
+            vacant.idPath = secondIdPath;
+            vacant.released = true;
+            displays.add(vacant);
         }
         log("stage=displays_ready count=" + displays.size());
 
         Runnable shutdownPoll = new Runnable() {
             @Override public void run() {
-                for (DisplayHandle display : displays) pollDisplayControl(display);
+                for (DisplayHandle display : new ArrayList<DisplayHandle>(displays)) {
+                    pollDisplayControl(display, displays, context, displayManager, handler,
+                            looperClass, width, height, density);
+                }
                 boolean requested = false;
                 try (FileInputStream input = new FileInputStream(shutdownPath)) {
                     requested = input.read() == 's';

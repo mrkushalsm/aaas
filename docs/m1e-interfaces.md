@@ -25,10 +25,13 @@ changing primary wire protocol v2:
    `ImageReader`, waits for removal and acknowledgement, and then stops the
    one-shot init service and the output pipeline.
 
-The broker is not a host-callable Binder proxy. It has fixed bounded display
-dimensions/density and creates at most two trusted displays per experimental
-session. The two-app mode is currently a bounded prototype, not arbitrary
-dynamic display management.
+The broker is not a host-callable Binder proxy. It creates at most two trusted
+displays per experimental session. In a capacity-two session, a released slot
+can be recreated through a validated private control file after its presenter
+and old display are released. The broker assigns and publishes the new Android
+display ID. Dynamic launch dimensions are bounded to 64–4096 pixels per side
+and 72–1000 dpi. This is bounded two-slot lifecycle management, not unlimited
+simultaneous windows.
 The feature is opt-in; default sessions do not set its display-content-mode
 property or start this service.
 
@@ -78,8 +81,39 @@ Current live evidence proves Settings task 8/display 2 and DeskClock task
 titles and app IDs and were quick-tiled side by side in a later live run. Per-
 window close was exercised. A later session verified concurrent Android-backed
 resize on both outputs and an independent Settings resize while DeskClock stayed
-unchanged. App reopen, per-output scroll, application-consumed keyboard input on
-DeskClock, and post-resize input mapping remain unverified.
+unchanged. The 2026-10-30 create-after-destroy run also reopened Settings as
+task 10/display 4, then DeskClock as task 11/display 5, without restarting the
+shared Android runtime. Per-output scroll, application-consumed keyboard input
+on DeskClock, and post-resize input mapping remain unverified.
+
+## Runtime app control (bounded prototype)
+
+While a foreground capacity-two session is RUNNING, the launcher listens on
+`<session>/ipc/aaas-control.sock`, mode 0600 inside a mode-0700 session
+directory. `scripts/aaasctl.py` discovers a connectable socket and sends one
+newline-terminated JSON request (maximum 4096 bytes):
+
+| Operation | Request | Result |
+|---|---|---|
+| list | `{"op":"list"}` | Current slot/package/task state and presenter process IDs. |
+| launch | `{"op":"launch","package":"com.example.app"}` | Starts an installed launcher Activity in a released slot, or returns a capacity/package error. |
+| close | `{"op":"close","slot":1}` | Requests closure by terminating that slot's presenter; the supervisor releases Android and graphics resources. |
+| stop | `{"op":"stop"}` | Stops the shared foreground runtime. |
+
+The launcher validates package syntax, rejects duplicate active package
+requests, starts the presenter before the broker display so Composer's existing
+transport can reconnect, waits for the broker-assigned display ID, then writes
+a launch request for the Android session runner. The runner resolves the
+package launcher Activity, starts a display-targeted input adapter, and invokes
+the normal Android shell activity command. The broker validates its own slot
+and display dimensions. A failed host-side launch terminates its attempted
+presenter and requests release of its new display. The two-output capacity
+remains bounded and is reported explicitly.
+
+The control socket does not expose arbitrary shell or Binder commands. It is
+local to the owning runtime user's private session. Task crash/ANR reason
+classification is not yet complete; a task that vanishes is reflected as a
+closed slot, so this is not proof that every close was user-initiated.
 
 The presenter binds `xdg_wm_base` at protocol version 3 and its
 `xdg_toplevel.configure` callback ignores the state array. It has no reliable

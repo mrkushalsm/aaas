@@ -327,6 +327,34 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('echo CLOSED > /dev/aaas/app2_state', generated)
         self.assertIn('! aaas_app_task_alive && ! aaas_app2_task_alive', generated)
 
+    def test_two_output_session_handles_bounded_dynamic_relaunch_requests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True,
+                app_package='com.android.settings', app_package2='com.android.deskclock'
+            ).read_text()
+        self.assertIn('app1_launch_request', generated)
+        self.assertIn('app2_launch_request', generated)
+        self.assertIn('app1_launch_ack', generated)
+        self.assertIn('app2_launch_ack', generated)
+        self.assertIn('start-activity -W --display "$REQ_DISPLAY"', generated)
+        self.assertIn('APP_PACKAGE2="$REQ_PACKAGE"', generated)
+        self.assertIn('vdisplay_create_',
+                      (SCRIPT.parents[1] /
+                       'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text())
+        self.assertIn('created_after_release',
+                      (SCRIPT.parents[1] /
+                       'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text())
+
+    def test_dynamic_manager_has_bounded_control_operations(self):
+        launcher = SCRIPT.read_text()
+        control = (SCRIPT.parent / 'aaasctl.py').read_text()
+        self.assertIn("control_server.bind(str(control_path))", launcher)
+        self.assertIn("'capacity_exhausted'", launcher)
+        self.assertIn("'capacity_requires_two_output_session'", launcher)
+        for command in ('list', 'launch', 'close', 'stop'):
+            self.assertIn(f"add_parser('{command}'", control)
+
     def test_resize_and_close_are_scoped_per_virtual_output(self):
         launcher = SCRIPT.read_text()
         broker = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()

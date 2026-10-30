@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import signal
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
@@ -523,6 +524,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             )
     readiness_and_watch = (
         f'    APP_PACKAGE={app_package}\n'
+        + (f'    APP_PACKAGE2={app_package2}\n' if app_package2 is not None else '')
+        + (
         '    # Track the Android activity/task lifecycle; process names may be custom.\n'
         '    aaas_app_task_alive() {{\n'
         '      /system/bin/dumpsys activity activities | '
@@ -538,6 +541,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         '    while [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
         '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
         'aaas_app_task_alive'
+        )
     )
     if app_package2 is not None:
         readiness_and_watch = readiness_and_watch.replace(
@@ -548,7 +552,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    }}\n'
             '    aaas_app2_task_alive() {{\n'
             '      /system/bin/dumpsys activity activities | '
-            f'/system/bin/toybox grep -F "u0 {app_package2}/" >/dev/null 2>&1\n'
+            '/system/bin/toybox grep -F "u0 $APP_PACKAGE2/" >/dev/null 2>&1\n'
             '    }}\n'
             '    /system/bin/toybox sleep 3\n'
             '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
@@ -562,6 +566,54 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             ' && [ "$(/system/bin/toybox cat /aaas_session_status)" != "STOPPING" ]; do\n'
         )
         if app_package2 is not None:
+            for slot in (1, 2):
+                suffix = '' if slot == 1 else '2'
+                app_variable = 'APP_PACKAGE' + suffix
+                display_variable = 'VD_ID' + suffix
+                adapter_pid_variable = 'VDISPLAY' + ('2' if slot == 2 else '') + '_INPUT_ADAPTER_PID'
+                socket_name = 'input-vdisplay' + ('-2' if slot == 2 else '') + '.sock'
+                log_name = 'aaas_vdisplay' + ('2' if slot == 2 else '') + '_input_adapter.log'
+                focus_name = f'vdisplay_focus_{slot}'
+                focus_ack_name = f'vdisplay_focus_ack_{slot}'
+                readiness_and_watch += (
+                    f'      if [ -s /dev/aaas/app{slot}_launch_request ]; then\n'
+                    f'        read REQ_ID REQ_PACKAGE REQ_DISPLAY < /dev/aaas/app{slot}_launch_request\n'
+                    f'        : > /dev/aaas/app{slot}_launch_request\n'
+                    '        case "$REQ_ID" in ""|*[!0-9a-f]*) REQ_ID=invalid ;; esac\n'
+                    '        case "$REQ_DISPLAY" in ""|*[!0-9]*) REQ_DISPLAY=invalid ;; esac\n'
+                    '        case "$REQ_PACKAGE" in *[!A-Za-z0-9._]*|.*|*..*|*.) '
+                    'echo "failed invalid_package" > /dev/aaas/app'
+                    f'{slot}_launch_ack ;;\n'
+                    '        *)\n'
+                    f'          {app_variable}="$REQ_PACKAGE"\n'
+                    f'          {display_variable}="$REQ_DISPLAY"\n'
+                    '          APP_COMPONENT=$(/system/bin/cmd package resolve-activity --brief '
+                    '--user 0 -a android.intent.action.MAIN '
+                    '-c android.intent.category.LAUNCHER -p "$REQ_PACKAGE" 2>&1 | '
+                    '/system/bin/toybox tail -n 1)\n'
+                    '          case "$APP_COMPONENT" in */*) ;; *) APP_COMPONENT= ;; esac\n'
+                    f'          if [ -n "$APP_COMPONENT" ]; then\n'
+                    f'            if [ -n "${adapter_pid_variable}" ]; then '
+                    f'/system/bin/toybox kill "${adapter_pid_variable}" 2>/dev/null || true; '
+                    f'{adapter_pid_variable}=; fi\n'
+                    '            /system/bin/aaas-input-adapter --socket /dev/aaas/'
+                    f'{socket_name} --session-file /dev/aaas/input_session '
+                    f'--log /{log_name} --focus-request /dev/aaas/{focus_name} '
+                    f'--focus-ack /dev/aaas/{focus_ack_name} '
+                    f'--display "$REQ_DISPLAY" & {adapter_pid_variable}=$!\n'
+                    '          fi\n'
+                    '          if [ -n "$APP_COMPONENT" ] && '
+                    '/system/bin/cmd activity start-activity -W --display "$REQ_DISPLAY" '
+                    '-n "$APP_COMPONENT" >> /aaas_session_commands 2>&1; then\n'
+                    f'            echo "started $REQ_ID $REQ_PACKAGE $REQ_DISPLAY" '
+                    f'> /dev/aaas/app{slot}_launch_ack\n'
+                    '          else\n'
+                    f'            echo "failed $REQ_ID launch" > /dev/aaas/app{slot}_launch_ack\n'
+                    '          fi\n'
+                    '          ;;\n'
+                    '        esac\n'
+                    '      fi\n'
+                )
             readiness_and_watch += (
                 '      if aaas_app_task_alive; then echo RUNNING > /dev/aaas/app1_state; '
                 'else echo CLOSED > /dev/aaas/app1_state; '
@@ -864,7 +916,9 @@ def main():
         for index in (1, 2):
             for name in (f'vdisplay_resize_{index}', f'vdisplay_close_{index}',
                          f'vdisplay_control_ack_{index}', f'app{index}_state',
-                         f'vdisplay_focus_{index}', f'vdisplay_focus_ack_{index}'):
+                         f'vdisplay_focus_{index}', f'vdisplay_focus_ack_{index}',
+                         f'vdisplay_create_{index}', f'vdisplay_create_ack_{index}',
+                         f'app{index}_launch_request', f'app{index}_launch_ack'):
                 path = ipc / name
                 path.write_text('')
                 path.chmod(0o666)
@@ -930,6 +984,179 @@ def main():
     input_ready_reported = False
     running_session = False
     window_close_requested = {1: None, 2: None}
+    slot_packages = {1: args.app, 2: args.app2}
+    slot_lifecycle_generation = {1: 0, 2: 0}
+    control_path = ipc / 'aaas-control.sock'
+    control_server = None
+
+    def atomic_control_write(path, value):
+        temporary = path.with_name(path.name + '.tmp')
+        temporary.write_text(value + '\n')
+        temporary.chmod(0o666)
+        os.replace(temporary, path)
+
+    def start_dynamic_presenter(slot, package):
+        socket_path = ipc / ('wayland-vdisplay.sock' if slot == 1
+                             else 'wayland-vdisplay.sock-2')
+        input_path = ipc / ('input-vdisplay.sock' if slot == 1
+                            else 'input-vdisplay-2.sock')
+        display_path = ipc / f'vdisplay{2 if slot == 2 else ""}_id'
+        resize_path = ipc / f'vdisplay_resize_{slot}'
+        log_path = session / ('virtual-presenter.log' if slot == 1
+                              else 'virtual-presenter2.log')
+        socket_path.unlink(missing_ok=True)
+        with log_path.open('ab') as presenter_log:
+            process = subprocess.Popen(
+                [str(PRESENTER), '--socket', str(socket_path),
+                 '--width', presenter_size[0], '--height', presenter_size[1],
+                 '--input-socket', str(input_path),
+                 '--input-session', f'0x{input_session:016x}',
+                 '--input-display-id-file', str(display_path),
+                 '--resize-request', str(resize_path),
+                 '--title', f'AaaS: {package}', '--app-id',
+                 'org.aaas.' + package.replace('.', '-'), '--exit-on-close'],
+                stdout=presenter_log, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        deadline = time.monotonic() + 10
+        while not socket_path.exists():
+            if process.poll() is not None or time.monotonic() >= deadline:
+                terminate_process_group(process)
+                raise RuntimeError(f'presenter for slot {slot} did not start')
+            time.sleep(.05)
+        return process
+
+    def manager_request(request):
+        nonlocal virtual_presenter, virtual_presenter2, stop
+        if not isinstance(request, dict) or not isinstance(request.get('op'), str):
+            return {'ok': False, 'error': 'invalid_request'}
+        op = request['op']
+        if op == 'list':
+            return {'ok': True, 'state': state,
+                    'windows': [
+                        {'slot': slot, 'package': slot_packages[slot],
+                         'state': (ipc / f'app{slot}_state').read_text().strip(),
+                         'presenter_pid': (proc.pid if proc is not None and
+                                           proc.poll() is None else None)}
+                        for slot, proc in ((1, virtual_presenter),
+                                           (2, virtual_presenter2))
+                        if slot_packages[slot] is not None or proc is not None]}
+        if op == 'stop':
+            stop = True
+            return {'ok': True, 'state': 'STOPPING'}
+        if op == 'close':
+            slot = request.get('slot')
+            if slot not in (1, 2):
+                return {'ok': False, 'error': 'invalid_slot'}
+            process = virtual_presenter if slot == 1 else virtual_presenter2
+            if process is None:
+                return {'ok': False, 'error': 'window_not_running'}
+            terminate_process_group(process)
+            return {'ok': True, 'slot': slot, 'state': 'CLOSING'}
+        if op != 'launch':
+            return {'ok': False, 'error': 'unsupported_operation'}
+        try:
+            package = validate_app_package(request.get('package'))
+        except ValueError:
+            return {'ok': False, 'error': 'invalid_package'}
+        if args.app2 is None:
+            return {'ok': False, 'error': 'capacity_requires_two_output_session'}
+        if any(slot_packages[slot] == package and
+               ((virtual_presenter if slot == 1 else virtual_presenter2) is not None)
+               for slot in (1, 2)):
+            return {'ok': False, 'error': 'package_already_running'}
+        candidates = [slot for slot, proc in ((1, virtual_presenter),
+                                               (2, virtual_presenter2))
+                      if proc is None and
+                      (ipc / f'vdisplay_control_ack_{slot}').read_text().strip().startswith('released')]
+        if not candidates:
+            return {'ok': False, 'error': 'capacity_exhausted'}
+        slot = candidates[0]
+        slot_lifecycle_generation[slot] += 1
+        generation = slot_lifecycle_generation[slot]
+        request_id = f'{os.urandom(8).hex()}'
+        presenter_process = None
+        display_created = False
+        try:
+            (ipc / f'vdisplay_focus_{slot}').write_text('')
+            (ipc / f'vdisplay_focus_ack_{slot}').write_text('')
+            presenter_process = start_dynamic_presenter(slot, package)
+            create_path = ipc / f'vdisplay_create_{slot}'
+            create_ack = ipc / f'vdisplay_create_ack_{slot}'
+            (ipc / f'vdisplay_close_{slot}').write_text('')
+            (ipc / f'vdisplay_control_ack_{slot}').write_text('')
+            create_ack.write_text('')
+            atomic_control_write(create_path,
+                                 f'{generation} {presenter_size[0]} '
+                                 f'{presenter_size[1]} 240')
+            deadline = time.monotonic() + 20
+            response = ''
+            while time.monotonic() < deadline:
+                response = create_ack.read_text().strip()
+                if response.startswith(('created ', 'failed ')):
+                    break
+                if presenter_process.poll() is not None:
+                    raise RuntimeError('presenter exited during display creation')
+                time.sleep(.05)
+            if not response.startswith(f'created {generation} '):
+                raise RuntimeError(f'Android display creation failed: {response or "timeout"}')
+            display_id = int(response.split()[2])
+            display_created = True
+            display_id_path = ipc / f'vdisplay{2 if slot == 2 else ""}_id'
+            if display_id_path.read_text().strip() != str(display_id):
+                raise RuntimeError('broker display ID publication mismatch')
+            launch_path = ipc / f'app{slot}_launch_request'
+            launch_ack = ipc / f'app{slot}_launch_ack'
+            launch_ack.write_text('')
+            atomic_control_write(launch_path,
+                                 f'{request_id} {package} {display_id}')
+            deadline = time.monotonic() + 30
+            response = ''
+            while time.monotonic() < deadline:
+                response = launch_ack.read_text().strip()
+                if response.startswith((f'started {request_id} ',
+                                        f'failed {request_id} ')):
+                    break
+                if presenter_process.poll() is not None:
+                    raise RuntimeError('presenter exited during app launch')
+                time.sleep(.1)
+            if not response.startswith(f'started {request_id} '):
+                raise RuntimeError(f'Android activity launch failed: {response or "timeout"}')
+            state_path = ipc / f'app{slot}_state'
+            deadline = time.monotonic() + 25
+            while time.monotonic() < deadline:
+                if state_path.read_text().strip() == 'RUNNING':
+                    break
+                if presenter_process.poll() is not None:
+                    raise RuntimeError('presenter exited before app became RUNNING')
+                time.sleep(.1)
+            else:
+                raise RuntimeError('Android task did not reach RUNNING')
+            if slot == 1:
+                virtual_presenter = presenter_process
+            else:
+                virtual_presenter2 = presenter_process
+            slot_packages[slot] = package
+            window_close_requested[slot] = None
+            (ipc / f'vdisplay_close_{slot}').write_text('')
+            (ipc / f'vdisplay_control_ack_{slot}').write_text('')
+            return {'ok': True, 'slot': slot, 'package': package,
+                    'display_id': display_id, 'state': 'RUNNING'}
+        except Exception as error:
+            if presenter_process is not None:
+                terminate_process_group(presenter_process)
+            if display_created:
+                write_session_control(ipc / f'vdisplay_close_{slot}', 'close')
+            return {'ok': False, 'error': 'launch_failed',
+                    'detail': str(error)[:240]}
+
+    if args.experimental_virtual_display:
+        control_path.unlink(missing_ok=True)
+        control_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        control_server.bind(str(control_path))
+        control_path.chmod(0o600)
+        control_server.listen(4)
+        control_server.setblocking(False)
 
     def transition(new_state):
         nonlocal state
@@ -1039,12 +1266,46 @@ def main():
                     launched = args.app if not args.app2 else f'{args.app} and {args.app2}'
                     print(f'{launched} task(s) started. Close an app window to end that app; '
                           'press Ctrl+C to stop the shared runtime.', flush=True)
+                    if args.experimental_virtual_display:
+                        print(f'AaaS app control socket: {control_path} '
+                              '(scripts/aaasctl.py list|launch|close|stop)', flush=True)
                     break
                 if status.read_text().strip() == 'FAILED' or time.monotonic() >= deadline:
                     raise RuntimeError(f'Android app {args.app} did not become ready')
                 time.sleep(.25)
             warned_degraded = False
             while not stop and state == 'RUNNING':
+                if control_server is not None:
+                    try:
+                        client, _ = control_server.accept()
+                    except BlockingIOError:
+                        client = None
+                    if client is not None:
+                        with client:
+                            try:
+                                client.settimeout(5)
+                                raw = bytearray()
+                                while b'\n' not in raw and len(raw) <= 4096:
+                                    chunk = client.recv(min(1024, 4097 - len(raw)))
+                                    if not chunk:
+                                        break
+                                    raw.extend(chunk)
+                                if len(raw) > 4096:
+                                    reply = {'ok': False, 'error': 'request_too_large'}
+                                else:
+                                    request = json.loads(bytes(raw).split(b'\n', 1)[0]
+                                                         .decode('utf-8'))
+                                    reply = manager_request(request)
+                            except Exception as error:
+                                reply = {'ok': False, 'error': 'invalid_request',
+                                         'detail': type(error).__name__}
+                            try:
+                                client.settimeout(90)
+                                client.sendall((json.dumps(reply, separators=(',', ':')) + '\n')
+                                               .encode('utf-8'))
+                            except OSError as error:
+                                print(f'AaaS: control client disconnected: {error}',
+                                      file=sys.stderr, flush=True)
                 if presenter is not None and presenter.poll() is not None:
                     print('AaaS: presenter exited; stopping Android', flush=True)
                     break
@@ -1073,6 +1334,11 @@ def main():
                         ack = (ipc / f'vdisplay_control_ack_{index}').read_text().strip()
                         if ack.startswith('failed'):
                             raise RuntimeError(f'Android display {index} release failed: {ack}')
+                        if ack.startswith('released'):
+                            if index == 1 and virtual_presenter is process:
+                                virtual_presenter = None
+                            elif index == 2 and virtual_presenter2 is process:
+                                virtual_presenter2 = None
                         if (not ack.startswith('released') and
                                 time.monotonic() - window_close_requested[index] > 8):
                             raise RuntimeError(f'Android display {index} release timed out')
@@ -1126,6 +1392,9 @@ def main():
                 cleanup_failed = True
                 print(f'AaaS: memory policy monitor cleanup failed: {error}',
                       file=sys.stderr, flush=True)
+        if control_server is not None:
+            control_server.close()
+            control_path.unlink(missing_ok=True)
         try:
             failed_before_cleanup = (state == 'FAILED' or
                                      status.read_text().strip() == 'FAILED')

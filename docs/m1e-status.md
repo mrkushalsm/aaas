@@ -1,6 +1,6 @@
 # M1E status
 
-Status: **PARTIAL — two-app rendering, independent per-output resize, per-window close, and app-mode primary-output suppression are live; full application-level input isolation, reopen, and crash stability remain incomplete**
+Status: **PARTIAL — two-app rendering, independent resize, per-window close, bounded dynamic reopen, and app-mode primary-output suppression are live; complete input isolation and crash stability remain incomplete**
 
 Date: 2026-10-30
 
@@ -116,12 +116,12 @@ historical SwiftShader JIT fault remains unresolved. The clean
 |---|---|---|
 | Two Android tasks, trusted displays, Composer outputs, Wayland toplevels | PASS, bounded live | IDs recorded in the session evidence; IDs are not constants. |
 | Both windows simultaneously visible and independently placed | PASS, bounded live | KWin quick-tile arrangement and genuine screenshot; user-driven repositioning was not separately tested. |
-| Per-window task/display close | PASS, bounded live | Settings closed while DeskClock remained running; then DeskClock closed and runtime stopped. |
+| Per-window task/display close and reopen | PASS, bounded live | Two create-after-destroy cycles reused each slot while the other app remained RUNNING; final stop shut down the shared runtime. |
 | Buffer/fence terminal ownership | PASS, bounded live | Both summaries show imports=submissions=releases, zero invalidated/outstanding. |
 | Single-output Android framebuffer resize | PASS, bounded live | 720×1280 → 960×1156 → 720×1280; Composer and presenter source dimensions/strides matched after each transition. No screenshot or post-resize coordinate test was captured. |
 | Concurrent two-output resize | PASS, bounded live | Settings and DeskClock both transitioned from 720×1280 to matching 960×1156 Android source buffers. Settings then resized independently to 960×578 with a matching source buffer while DeskClock remained at 960×1156 / generation 2. Resize-back-to-original and landscape/burst sequences remain untested. |
 | Keyboard on both outputs, scrolling, focus isolation | PARTIAL, live transport | Synthetic h-i-i visibly updated Settings Search on display 2. After switching focus, Tab/Enter reached the DeskClock display-3 adapter and no further key injection appeared in the Settings adapter. DeskClock has no editor and showed no visible reaction; scrolling isolation remains untested. |
-| Reopen app without restarting runtime | NOT TESTED | No broker create-after-destroy request exists in this experiment. |
+| Reopen app without restarting runtime | PASS, bounded live | Settings reopened as task 10/display 4 and DeskClock as task 11/display 5 in the same session. Third launch returned `capacity_exhausted`. |
 | Minimize/unmap lifecycle | NOT TESTED | `xdg-shell` does not provide a general minimized notification; no visibility policy is claimed. |
 | Hide primary diagnostic presenter in normal app mode | PASS, bounded live | Experimental app sessions with selected apps skip the primary presenter; Android display 0 remains intact. `--show-primary-diagnostic` restores diagnostic presentation. This verifies no primary Wayland output, not removal of internal Android SystemUI. |
 | Distinct DMA-BUF copy on real Mixed composition | NOT TESTED LIVE | GPU-only alias path and component-level stride/copy tests remain as previously documented. |
@@ -132,7 +132,7 @@ historical SwiftShader JIT fault remains unresolved. The clean
 
 The final automated runs for this continuation passed:
 
-- `python3 -m unittest discover -s tests -v`: **165 tests**.
+- `python3 -m unittest discover -s tests -v`: **169 tests** in the latest run.
 - `make -C experiments/m1a test`.
 - `make -C experiments/m1a -B build/wayland-host-presenter test`.
 - `make -C experiments/m1c/input_adapter -B all`.
@@ -152,27 +152,83 @@ and the workspace guard passed again. Default and enhanced two-app app-mode
 sessions reached RUNNING then STOPPED; the enhanced session cgroup was removed.
 The explicit primary diagnostic opt-in also reached RUNNING and stopped cleanly.
 
-## Next verified work
+## Remaining live work
 
-1. Diagnose the unresolved SwiftShader JIT/SF crash and repeat bounded stability runs.
+1. Demonstrate application-consumed keyboard actions and scroll isolation on both outputs.
 2. Verify two-output resize-back, landscape, burst coalescing, and pointer-coordinate mapping.
-3. Demonstrate application-consumed keyboard actions and scroll isolation on both outputs.
-4. Add a broker create-after-destroy lifecycle so apps can reopen without restarting Android.
-5. Define/test minimize behavior only where the Wayland/KWin protocol exposes reliable visibility state.
-6. Repeat expanded two-app resize, close/reopen, input, and shutdown under default and source-LMKD/cgroup modes.
+3. Define/test minimize behavior only where the Wayland/KWin protocol exposes reliable visibility state.
+4. Continue bounded investigation of the unresolved SwiftShader JIT/SF crash.
 
 Overall M1E remains **PARTIAL**. Two live Android apps have been shown side by
 side, resized concurrently to matching native Android buffers, and Settings
 was resized independently while DeskClock remained unchanged. A separate
-single-output run verifies resizing back to 720×1280. Application-level input
-acceptance on DeskClock, per-output scrolling, two-output resize-back/burst and
-landscape cases, reopen/minimize, and the historical SwiftShader JIT crash
-boundary remain open.
+single-output run verifies resizing back to 720×1280. Two app close/reopen
+cycles are now verified in a shared session. Application-level input acceptance
+on DeskClock, per-output scrolling, two-output resize-back/burst and landscape
+cases, minimize/restore, and the historical SwiftShader JIT crash boundary
+remain open.
 
 The minimize limitation is confirmed in the host source: the presenter binds
 `xdg_wm_base` no higher than version 3, and `toplevel_configure()` discards the
 state array. No supported hidden-state signal is consumed, so M1E does not
 claim Android task pause, producer suspension, or frame throttling on minimize.
+
+### Android focus synchronization and dynamic app reopening (2026-10-30)
+
+The earlier Settings InputDispatcher ANR was traced to host-only Wayland focus:
+the presenter changed its local focus state while Android still focused the
+other display/task. Commit `54ac74d` now sends a nonce- and focus-generation-
+tagged request to the system-owned display broker, which activates the task
+through Android 16 `ActivityTaskManager.setFocusedTask()` before the adapter
+accepts keyboard focus. Five live KWin transitions matched Android's focused
+display/window state in the earlier follow-up; this continuation also recorded
+focus acknowledgements for recreated Settings task 10/display 4 and DeskClock
+task 11/display 5. No InputDispatcher ANR signature was present in the new
+session logcat. This does not prove application consumption on every app.
+
+The foreground two-output session now exposes a private, mode-0600 Unix control
+socket and `scripts/aaasctl.py` commands for `list`, `launch PACKAGE`,
+`close SLOT`, and `stop`. A launch uses a free one of the two provisioned output
+slots: the host starts that slot's presenter, the broker creates a new trusted
+Android display, and the Android session runner starts a display-targeted input
+adapter and resolved launcher Activity. The Android-assigned display ID is
+published by the broker; task/display IDs are not reused as constants. Creation
+is bounded to two concurrent outputs. A third launch returns
+`capacity_exhausted`. A session started without `--app2` has only one Composer
+transport and explicitly rejects dynamic launches with
+`capacity_requires_two_output_session`.
+
+The default diagnostic-LMKD live session `m1b84_session_r06sumim` performed two
+create-after-destroy cycles without restarting Android:
+
+1. Settings task 8/display 2 closed; DeskClock task 9/display 3 remained
+   RUNNING. Settings reopened as task 10/display 4 and produced frames.
+2. DeskClock task 9/display 3 closed while Settings remained RUNNING. DeskClock
+   reopened as task 11/display 5 and produced frames.
+3. A third package request returned `capacity_exhausted` without changing the
+   two active windows.
+
+The captured side-by-side screenshot records Settings and DeskClock after the
+first reopen in
+[`dynamic_reopen_two_windows_20261030.png`](../results/m1e/live/dynamic_reopen_two_windows_20261030.png).
+The structured transaction, Android IDs, log hashes, capacity result, and
+ownership summaries are in
+[`dynamic_reopen_control_20261030.json`](../results/m1e/live/dynamic_reopen_control_20261030.json).
+At final shutdown the state journal and status sentinel were both `STOPPED`,
+the broker acknowledged `released`, and presenter summaries showed no
+outstanding or teardown-invalidated buffers. The enhanced source-LMKD/cgroup
+session `m1b84_session_0i1yonse` also reopened Settings as display 4 while
+DeskClock remained active, then stopped cleanly; cgroup `memory.events` had
+zero OOM counters and the delegated hierarchy was removed.
+
+Keyboard behavior remains bounded. The recreated Settings SearchActivity was
+opened on display 4 and the caret appeared, but a nonsensitive `/dev/uinput`
+fixture did not produce a confirmed visible text change in this session.
+DeskClock's tested Clock Activity still has no editable field, so its adapter
+events are not evidence of app consumption. The earlier visible Settings text
+entry remains valid; two-app visible keyboard consumption, per-output scroll,
+and post-resize input are still PARTIAL/NOT TESTED. The historical SwiftShader
+JIT fault remains unexplained.
 
 
 ### Capacity-two retry and low-memory failure (2026-10-30)
@@ -371,15 +427,12 @@ the missing input-isolation or reopen gates. Structured observations and raw
 log hashes are in
 [`continuation_runtime_audit_20261030.json`](../results/m1e/live/continuation_runtime_audit_20261030.json).
 
-The dynamic lifecycle boundary remains in source: the launcher starts and
-supervises only its initial `--app`/`--app2` pair, while the system-UID broker
-creates that fixed display set once at startup. There is no supported
-create-after-destroy request or host operation to attach a new presenter and
-adapter to the running session. This continuation did not add a partial
-control API that could create an Android display without a corresponding
-graphics, input, task, and cleanup owner.
+At the prior checkpoint, the launcher supported only its initial `--app` /
+`--app2` pair. The dated follow-up below adds a coordinated session-local
+two-slot control interface rather than an isolated broker create operation.
 
-The focus-sync follow-up regression run passed 165 Python tests, M1A tests, the forced
+The focus-sync follow-up regression run passed 165 Python tests. The latest
+dynamic lifecycle regression run passed 169 Python tests, M1A tests, the forced
 presenter build/tests, input-adapter build, Composer tests, forced broker
 build, and the workspace guard. The inherited untracked
 `experiments/m1b/composer_aaas/build/` directory remains untouched and is not
