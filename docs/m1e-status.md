@@ -1,123 +1,131 @@
 # M1E status
 
-Status: **PARTIAL — two Android tasks and output streams live; independent window use remains unverified**
+Status: **PARTIAL — two independently placed app windows and per-window close are live; Android-sized frame resize and full input/lifecycle acceptance remain incomplete**
+
 Date: 2026-10-30
-Code baseline before this continuation: `635626f` (`feat(composer): isolate virtual display transports`)
 
-## Multi-output prototype delivered
+## Preserved baseline
 
-The opt-in command now accepts two installed packages:
+M1E continues to use one shared rootless Android 16 runtime, the system-owned
+trusted-display broker, Composer3's separate per-display transports, and the
+existing Wayland presenter/input stack. The default and source-LMKD/cgroup
+paths, M1D keyboard/IME support, primary diagnostic output, and earlier M1B–M1C
+graphics/pointer work were not replaced. The active Composer overlay was
+restored after live testing to its original SHA-256
+`456d2201cb28ccccc8f2b35879ea3ebe8ebf740bf116aac34019c7cf34554894`.
+
+The established two-app invocation remains:
 
 ```sh
 python3 scripts/run_aaas.py --experimental-virtual-display \
   --app com.android.settings --app2 com.android.deskclock --startup-timeout 180
 ```
 
-One shared Android runtime created two system-owned trusted, private,
-own-content displays. Android assigned display IDs 2 and 3; ActivityTaskManager
-placed Settings task 8 and DeskClock task 9 on those displays. Composer assigned
-virtual display IDs 100 and 101 and used independent local transports at
-`/dev/aaas/wayland-vdisplay.sock` and `...sock-2`. Each output had its own
-presenter, input-adapter socket, per-display buffer slots, locks, and generation
-state. Both outputs emitted frames concurrently during the same run.
+## New live results
 
-KWin reported two native xdg toplevels with distinct title/app-ID pairs:
+The continuation session `m1b84_session_8e7pe6lh` created Settings task 8 on
+Android display 2 / Composer display 100 and DeskClock task 9 on Android
+display 3 / Composer display 101. KWin quick-tiled their separate toplevels
+left and right; the real desktop capture shows both live Android applications
+at once in [`two_app_side_by_side_resize_20261030.png`](../results/m1e/live/two_app_side_by_side_resize_20261030.png).
+The temporary KWin script used compositor-managed quick tiling; it did not
+change persistent KWin configuration. Details and raw-log hashes are in
+[`two_app_window_resize_close_20261030.json`](../results/m1e/live/two_app_window_resize_close_20261030.json).
 
-| Android app | Task / Android display / Composer display | Wayland identity |
+### Per-window close and terminal buffer ownership
+
+Closing the Settings toplevel through KWin caused its app state to become
+`CLOSED`; the broker released Android display 2 and Android removed task 8.
+DeskClock task 9 and its presenter remained running. Closing DeskClock then
+released display 3; as the last app window, it caused the shared runtime to
+shut down. The final state journal and status sentinel both read `STOPPED`,
+and the broker shutdown acknowledgement was `released`.
+
+Both presenters reached a terminal ownership state with no active buffers:
+
+| Output | Imports/submissions/releases | Presented/discarded | Teardown invalidated | Outstanding |
+|---|---:|---:|---:|---:|
+| Settings | 146 / 146 / 146 | 141 / 5 | 0 | 0 |
+| DeskClock | 117 / 117 / 117 | 109 / 8 | 0 | 0 |
+
+This is bounded live evidence for closing one output while preserving the
+other task/presenter, followed by last-window shutdown. Reopening an app
+without restarting Android, minimize/unmap policy, and per-output input
+isolation are still unverified.
+
+### Resize boundary
+
+The Wayland `xdg_toplevel` configure path now acknowledges the compositor's
+size and uses the standard Wayland `wp_viewporter` protocol to keep the host
+surface at that size while Android rebuilds its output resources. Broker
+resize generation 2 was acknowledged for both outputs at 960×1156. Android
+DisplayManager reported each virtual display at 960×1156 and 240 dpi, and
+WindowManager transitions changed each task's bounds from 720×1280 to
+960×1156.
+
+The Android frames crossing Composer3 still measured 720×1280 (stride 2944);
+no 960×1156 source frame reached the presenter in this run. The viewporter
+therefore scaled old-sized buffers to fit. This is a real Android display and
+task configuration update, but **not yet accepted native frame resizing**.
+The broker now samples DisplayMetrics after a 500 ms handler delay because an
+immediate read returned stale 720×1280 values. Delayed readings matched the
+new display size.
+
+### Separate crash observation
+
+A previous resize experiment (`m1b84_session_byh_9r3y`) failed when SurfaceFlinger
+pid 186/tid 216 received SIGSEGV at PC `0x12bf` in
+`/memfd:swiftshader_jit (deleted)`, with only one unsymbolicated JIT frame.
+Both output producers disconnected; its broker close handshake timed out.
+That run is excluded from clean lifecycle acceptance and demonstrates that the
+historical SwiftShader JIT fault remains unresolved. The clean
+`8e7pe6lh` lifecycle run completed separately without that crash.
+
+## Acceptance boundaries
+
+| Capability | Result | Evidence limit |
 |---|---|---|
-| Settings | 8 / 2 / 100 | `AaaS: com.android.settings`, `org.aaas.com-android-settings` |
-| DeskClock | 9 / 3 / 101 | `AaaS: com.android.deskclock`, `org.aaas.com-android-deskclock` |
-
-Each real Android surface was captured separately from its active Wayland
-window. The screenshots are [Settings](../results/m1e/live/two_app_settings_wayland.png)
-and [DeskClock](../results/m1e/live/two_app_deskclock_wayland.png). Their hashes,
-logs, task/display identities, frame counters, and test limitations are in
-[`two_app_outputs.json`](../results/m1e/live/two_app_outputs.json).
-
-## Graphics ownership and shutdown boundary
-
-The cap-two Composer binary has build ID
-`ce4508c7312f6b69f8a832bd136738e584273854` and SHA-256
-`4e07db6faead3712512fa0a886e4faf914582164b5a9c15c50302bc2abcee8c0`.
-It owns a separate `AaasTransport` instance per virtual output, with independent
-slot namespaces and per-display generation state. In the final bounded live run, Composer
-created IDs 100 and 101 and submitted 260 and 245 frames respectively. Both
-presenters used explicit synchronization and had zero rejected frames.
-
-The two live runs observed GPU-only output/client-target DMA-BUF aliasing. That
-alias is expected on the GPU-only VirtualDisplaySurface path; the implementation
-does not force distinct allocations or self-copy. The retained stride-aware,
-DMA_BUF_IOCTL_SYNC copy helper remains a separate mixed/distinct-backing path;
-its host component tests pass, but no real distinct DMA-BUF copy was observed.
-
-At shutdown the broker released display 3 then display 2, Android logged both
-display removals and task destruction, the broker acknowledged `released`, and
-the runtime state and status sentinel both reached STOPPED. The Settings presenter reported 260 imports/submissions, 259 releases, and 260
-presentations; DeskClock reported 245 imports/submissions, 244 releases, and 245
-presentations. Each presenter therefore had one final imported frame without a
-matching release at process exit. Full-session cleanup works, but complete
-in-flight drain and independent single-output teardown are not established.
-
-## Important acceptance limits
-
-KWin placed both toplevels at the same geometry `(600,0,720,1280)`. Individual
-active-window captures prove each app rendered; they do not prove that both
-were simultaneously visible without overlap. The Wayland client correctly
-leaves placement to KWin, but this experiment did not establish a usable
-side-by-side or independently arranged desktop presentation.
-
-Controlled `/dev/uinput` clicks changed both Android views: Settings Search
-opened on display 2, and the DeskClock Alarm tab opened on display 3. The
-display-2 adapter logged Binder pointer DOWN/UP. With Search focused, a synthetic
-non-sensitive `hii` fixture traversed Wayland/XKB/keyboard-v2/Binder and appeared
-visibly in the Android editor. KWin focus switching emitted display-2 focus
-leave and display-3 focus enter; the key events were recorded only by display 2.
-This is partial cross-window focus evidence: DeskClock text entry, per-output
-scroll, and complete two-way keyboard isolation remain unverified.
-
-There is no Wayland configure-to-Android VirtualDisplay resize path. The
-launcher treats either app/task or presenter exit as session-level termination;
-closing one output while preserving the other, task-specific minimize, and
-independent teardown are not implemented. Normal mode also continues presenting
-the primary diagnostic output. Source-LMKD/cgroup was not combined with this
-two-app run, although the existing single-app enhanced smoke evidence remains.
+| Two Android tasks, trusted displays, Composer outputs, Wayland toplevels | PASS, bounded live | IDs recorded in the session evidence; IDs are not constants. |
+| Both windows simultaneously visible and independently placed | PASS, bounded live | KWin quick-tile arrangement and genuine screenshot; user-driven repositioning was not separately tested. |
+| Per-window task/display close | PASS, bounded live | Settings closed while DeskClock remained running; then DeskClock closed and runtime stopped. |
+| Buffer/fence terminal ownership | PASS, bounded live | Both summaries show imports=submissions=releases, zero invalidated/outstanding. |
+| Android display/task size update | PARTIAL, live | DisplayManager and WindowManager changed to 960×1156; Composer output remained 720×1280 and was scaled. |
+| Keyboard on both outputs, scrolling, focus isolation | PARTIAL / NOT TESTED here | Prior Settings secondary keyboard evidence remains; this continuation did not type into DeskClock or test scrolling on both outputs. |
+| Reopen app without restarting runtime | NOT TESTED | No broker create-after-destroy request exists in this experiment. |
+| Minimize/unmap lifecycle | NOT TESTED | `xdg-shell` does not provide a general minimized notification; no visibility policy is claimed. |
+| Hide primary diagnostic presenter in normal app mode | NOT IMPLEMENTED | The primary diagnostic presenter still starts; this continuation did not hide it. |
+| Distinct DMA-BUF copy on real Mixed composition | NOT TESTED LIVE | GPU-only alias path and component-level stride/copy tests remain as previously documented. |
+| SwiftShader JIT crash freedom | PARTIAL | One separate live SurfaceFlinger JIT SIGSEGV remains unresolved. |
 
 ## Verification
 
-For the code and live run in this continuation:
+The final automated runs for this continuation passed:
 
-- The two-display broker built from source and was loaded by Android init.
-- Cap-two Composer reported two ready independent endpoints and rendered both
-  outputs concurrently.
-- The two app tasks reached RUNNING on separate Android display IDs.
-- Separate Settings and DeskClock active-window captures show actual Android
-  pixels; each view changed after an output-targeted pointer click. Settings
-  Search visibly displayed the synthetic key fixture.
-- Full-session shutdown removed both displays and reached STOPPED.
-- 147 Python tests, M1A, forced presenter rebuild/tests, input-adapter, Composer
-  component, broker build, and external workspace checks are recorded in
-  `results/m1e/acceptance.json` and `results/m1e/build_receipts/multi_output.json`.
+- `python3 -m unittest discover -s tests -v`: **153 tests**.
+- `make -C experiments/m1a test`.
+- `make -C experiments/m1a -B build/wayland-host-presenter test`.
+- `make -C experiments/m1c/input_adapter -B all`.
+- `make -C experiments/m1b/composer_aaas test`.
+- `make -C experiments/m1e/display_broker -B all`.
+- `python3 scripts/android_workspace.py --workspace /run/media/mrkus/Homework/aaas-workspace check`.
 
-The enhanced two-app smoke also reached RUNNING then STOPPED with source-LMKD/cgroup enabled; its monitor reported 0 errors, degraded=false, and the delegated hierarchy was removed. No memory-pressure experiment was induced.
-
-These are component and bounded live prototype results, not full M1E acceptance.
+The external workspace remained on `/dev/sda2` (NTFS3, UUID
+`A2ACEDF2ACEDC0C1`) at about 22.8 GB used, under its 80 GiB ceiling with the
+20 GiB safety reserve. Build hashes and IDs are in
+[`window_resize_lifecycle_20261030.json`](../results/m1e/build_receipts/window_resize_lifecycle_20261030.json).
 
 ## Next verified work
 
-1. Give KWin a usable independent placement path and capture both application
-   windows visible at once.
-2. Verify keyboard editing in a second app and per-output scroll/focus routing;
-   Settings synthetic typing and pointer changes in both outputs are now live.
-3. Apply Wayland configure dimensions to the Android virtual display and verify
-   Android configuration, rendering, and input coordinate changes.
-4. Add task-specific close/minimize and broker display lifetime controls so one
-   app can close while the other remains alive.
-5. Drain/reconcile in-flight buffers on output teardown; verify no cross-output
-   buffer/fence reuse.
-6. Verify primary diagnostic output suppression in app mode and repeat enhanced
-   LMKD/cgroup with two apps.
+1. Resolve the SwiftShader JIT/SF crash sufficiently to keep multi-app sessions alive under navigation and resizing.
+2. Propagate the Android-resized output allocation through Composer3 so the presenter receives real 960×1156 frames, then verify other sizes and touch mapping.
+3. Verify typing, keyboard focus, scrolling, and event isolation on DeskClock's display.
+4. Add a broker create-after-destroy lifecycle so apps can reopen without restarting Android.
+5. Define/test minimize behavior within the available Wayland visibility signals.
+6. Add an explicit app-mode policy for not showing the primary diagnostic output while retaining a diagnostic option.
+7. Repeat resize, independent close/reopen, input, and clean shutdown under both default and source-LMKD/cgroup modes.
 
-Overall M1E remains **PARTIAL**. Two Android tasks, two trusted displays, two
-Composer output streams, and two native toplevels are demonstrated, but the
-required independent user-visible window behavior and per-window interaction
-lifecycle have not yet passed.
+Overall M1E remains **PARTIAL**. Two live Android apps can be arranged in
+separate side-by-side KWin windows, and one can close without immediately
+closing the other. Native Android frame-size adaptation, full per-window input,
+reopen/minimize behavior, primary diagnostic-output suppression, and the
+SwiftShader crash boundary remain open.

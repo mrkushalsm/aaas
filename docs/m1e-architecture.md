@@ -1,6 +1,6 @@
 # M1E architecture evaluation
 
-Status: **two trusted virtual displays and Composer output streams validated concurrently; independently managed windows remain partial**
+Status: **two app windows can be arranged side by side and closed independently; Android output-frame resizing remains partial**
 Android framework reference: pinned AOSP `frameworks/base` commit
 `99b01a65cc4c104933788b3143285ab6bae65827` from
 `manifests/android16-r1-subset.json`.
@@ -35,9 +35,9 @@ verified WMS/InputDispatcher state recorded below.
 
 | Candidate | Reuse and rendering | Android policy and security | Cost / principal risk | Assessment |
 |---|---|---|---|---|
-| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. A live run created two outputs concurrently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | Independent KWin placement, resize, input, task lifecycle, and per-output teardown remain unverified. | **Two-output prototype passed; independent window acceptance pending.** |
+| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. A live run created two outputs concurrently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | Genuine output-buffer resize, second-display keyboard/scroll, reopen, and minimize remain incomplete. | **Side-by-side placement and per-window close are bounded live passes; overall M1E remains partial.** |
 | **B. Task-level SurfaceControl output** | Android tasks already group an application's Activity stack, which is the right lifecycle unit. But the AaaS host currently receives only the whole-display Composer client target. It cannot obtain a task's independent surface from the current transport. | A task organizer/SurfaceControl bridge would require privileged framework ownership and strict surface/input authorization. Activities, dialogs, transitions, and child windows must remain composed consistently. | Requires task organizer/transaction infrastructure, SurfaceControl capture or reparenting, independent buffer export/release fences, z-order/animation handling, and input routing. Not a direct DMA-BUF stream merely because the Task has a SurfaceControl. | Better long-term if proven capture/export is available, but substantially more invasive and no reuse proof exists. Do not start here. |
-| **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Task ID 8 was observed on display 2. | One-task output is demonstrated; task-aware close, multiple task outputs, resize, and independent two-app operation remain. | **Validated as the M1E prototype direction**, not yet a finished multi-window design. |
+| **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Two distinct tasks and displays were observed concurrently. | Reopen/minimize, Android-sized output buffers, complete input isolation, and crash-free resize remain. | **Validated as the current M1E prototype direction**, not yet a finished multi-window design. |
 
 ## Android 16 source contracts
 
@@ -114,18 +114,18 @@ Continue with **Candidate C as the staged architecture**, using one Android
 virtual display per app task and a dedicated presenter socket/toplevel. Two
 Android tasks, displays, Composer transports, and Wayland toplevels have now
 been exercised concurrently. Do not create a parallel Android container per
-app. The captures show the windows overlap, and M1E is not complete. Before
-claiming full M1E, the remaining work must prove:
+app. A later KWin quick-tile run established simultaneous side-by-side access;
+Android output-buffer resize and full independent input/lifecycle acceptance
+remain incomplete. Before claiming full M1E, the remaining work must prove:
 
 1. Validate additional installed apps and launch failures.
-2. Implement task-specific close/minimize and display restart behavior.
+2. Complete task-specific close/reopen and define minimize behavior.
 3. Preserve the GPU-only aliased output path and validate the synchronized
    distinct-backing copy branch when real mixed composition supplies it.
 4. Implement resize as an Android display/configuration update, not host-only
    scaling.
-5. Make both KWin toplevels simultaneously accessible and verify independent
-   keyboard/pointer/scroll focus and task-specific teardown, including
-   destroying one output while the other continues.
+5. Verify independent keyboard/pointer/scroll focus and task-specific teardown,
+   including destroying one output while the other continues.
 
 The initial trusted-display path passed for Settings, and two-output ownership
 was exercised in a bounded simultaneous run. Keep the primary display as a
@@ -176,15 +176,53 @@ released both during full-session shutdown. The cap-two binary and source hashes
 are recorded in `results/m1e/build_receipts/multi_output.json`. Live task, frame,
 input, window and shutdown facts are in `results/m1e/live/two_app_outputs.json`.
 
-The two Wayland toplevels have distinct title/app-ID pairs, but KWin placed both
-at `(600,0,720,1280)`. Each was captured individually as the active window;
-the screenshots do not establish simultaneous visibility or independent focus.
+In the initial two-output run, the two Wayland toplevels had distinct title/app-ID
+pairs, but KWin placed both at `(600,0,720,1280)`. Each was captured individually
+as the active window; those initial screenshots did not establish simultaneous
+visibility. The later quick-tile experiment below establishes simultaneous
+visibility, without claiming user-driven repositioning was tested.
 Each adapter completed HELLO with its own display ID. Controlled pointer clicks
 visibly changed Settings on display 2 and DeskClock on display 3. Synthetic
 `hii` text visibly appeared in Settings Search on display 2; switching KWin focus
 caused the corresponding input-adapter focus leave/enter, and no typed key packet
 was observed on the unfocused adapter. DeskClock text entry and per-output scroll
-remain untested. Resize, task-specific close, minimize, and one-output teardown
-while the other remains alive are outstanding.
-Each output presenter also exited with one final outstanding imported frame, so
-full drain at teardown remains an explicit ownership item.
+remain untested. In that initial run, resize, task-specific close, minimize,
+and one-output teardown while the other remained alive were outstanding. Each
+presenter also exited with one final outstanding imported frame. The later
+bounded teardown run below drained all submitted buffers with no outstanding
+or invalidated ownership.
+
+### Independent placement, resize, and per-window close (2026-10-30)
+
+The presenter negotiates standard `xdg_toplevel.configure` dimensions and binds
+the standard Wayland `wp_viewporter` protocol. Acknowledged configure sizes are
+sent through private per-output resize request files. The system-UID broker
+creates a replacement `ImageReader` surface, calls `VirtualDisplay.setSurface`
+and `VirtualDisplay.resize`, then logs refreshed metrics after a 500 ms
+Handler delay. KWin quick-tile scripting placed Settings at
+`(0,0,960,1156)` and DeskClock at `(960,0,960,1156)`; the screenshot
+`results/m1e/live/two_app_side_by_side_resize_20261030.png` shows both real
+Android interfaces simultaneously.
+
+Android DisplayManager reported both virtual displays at 960×1156 / 240 dpi,
+and WindowManager transitions changed both task bounds to 960×1156. The
+presenter still received 720×1280 Android source frames, however. `wp_viewporter`
+scaled those old-sized frames to host geometry, so the display/task policy
+changed but true output-buffer resizing is not accepted. The next investigation
+must follow how SurfaceFlinger resizes its `VirtualDisplaySurface` output
+allocation and the Composer virtual display configuration; do not remove the
+viewport scaling until a matching Android frame is observed.
+
+KWin close on Settings removed task 8/display 2 and the broker acknowledged
+`released 2`, while DeskClock task 9/display 3 and its presenter stayed alive.
+Closing DeskClock later acknowledged `released 3`, removed the final task, and
+stopped the shared Android runtime. Both presenter summaries ended with equal
+import, submission, and release counts, with zero teardown-invalidated or
+outstanding buffers. Reopening an app without runtime restart and minimize
+semantics remain untested. The xdg-shell client protocol used here does not
+provide a general minimize/visibility event, so no minimize policy is claimed.
+
+A separate run crashed SurfaceFlinger with SIGSEGV at PC `0x12bf` in a deleted
+`/memfd:swiftshader_jit` mapping. The single JIT frame was not symbolicated and
+no causal relation to resizing has been established; keep the known SwiftShader
+JIT failure as a separate open runtime issue.

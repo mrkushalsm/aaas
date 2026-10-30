@@ -52,8 +52,9 @@ The intended later relationship is
 `host_window_id -> (android_display_id, display_generation) -> task_id`.
 Current live evidence proves Settings task 8/display 2 and DeskClock task
 9/display 3 concurrently, with Composer IDs 100/101. The toplevels had distinct
-titles and app IDs but identical KWin geometry; independent focus, placement,
-resize, and teardown are not yet verified.
+titles and app IDs and were quick-tiled side by side in a later live run. Per-
+window close was exercised; independent keyboard/scroll behavior, reopen, and
+full Android output resize are not yet verified.
 
 ## Trusted display broker boundary
 
@@ -112,18 +113,34 @@ remain unchanged.
 
 ## Lifecycle and resize boundary
 
-The broker creates and releases up to two displays and surfaces. The launcher
-starts and stops both presenters and adapters with the Android session. Full
-session shutdown removed displays 3 and 2 and destroyed tasks 9 and 8. It does
-not yet support task-specific close, minimize/unmap, or preserving another task
-while one output is removed. The launcher currently stops the whole session if
-either task or presenter exits.
+Each app output owns its presenter, transport endpoint, input adapter, display
+request/ack files, and frame generation. The Android process and broker are
+shared. A per-output close causes the host to stop routing that output, asks
+the broker to detach/release its VirtualDisplay and ImageReader, and waits for
+an output-specific `released <displayId>` acknowledgement. A close of the last
+app task transitions the shared runtime to STOPPING. Live KWin close testing
+removed Settings task/display 8/2 while DeskClock task/display 9/3 stayed
+RUNNING, then removed DeskClock and stopped the runtime. Both presenter logs
+reported no outstanding or teardown-invalidated buffers. Reopen-after-close
+and minimize/unmap behavior are not implemented or verified.
 
-Wayland configure sizes are not yet applied to Android display configuration.
-Scaling an old frame is not accepted as resize support. A future resize must
-choose content dimensions and density, update the Android virtual display,
-wait for the configuration generation, then update pointer mapping and
-buffers atomically.
+Each presenter receives the compositor's acknowledged `xdg_toplevel.configure`
+dimensions, increments its local generation, sends the version-2 RESIZE
+message, and publishes a private generation/width/height request for its
+broker-owned display. `wp_viewporter` maintains the host toplevel geometry while
+Android rebuilds its output. The broker replaces the per-display ImageReader
+surface and invokes `VirtualDisplay.setSurface` and `VirtualDisplay.resize`;
+the rollback restores the previous surface and dimensions if either call
+fails. A delayed DisplayMetrics read confirms Android's new logical size.
+
+The resize acceptance boundary remains incomplete: WindowManager task bounds
+and DisplayManager dimensions reached 960×1156, but presenter source frames
+remained 720×1280. The viewport therefore scaled those frames. Do not call this
+native app resize; do not consider the resize generation complete until the
+Composer stream reports a matching-size Android frame and pointer coordinates
+are verified against it. The eventual handshake needs to distinguish request,
+Android display/configuration acknowledgement, and first output frame of the
+new buffer generation.
 
 ## Two-output run state (2026-10-30)
 
@@ -139,7 +156,8 @@ and `(task 9, display 3, Composer 101)` for DeskClock. Their distinct transport
 sockets were `/dev/aaas/wayland-vdisplay.sock` and
 `/dev/aaas/wayland-vdisplay.sock-2`; their input sockets were
 `/dev/aaas/input-vdisplay.sock` and `/dev/aaas/input-vdisplay-2.sock`. The host
-titles/app IDs were distinct. KWin geometry for both was `(600,0,720,1280)`, so
-the actual window presentation still needs independent arrangement; pointer
-and Settings keyboard interaction are now evidenced, while lifecycle/resize and
-full per-window input acceptance remain incomplete. Full run details and screenshot hashes: `results/m1e/live/two_app_outputs.json`.
+titles/app IDs were distinct. A later KWin quick-tile experiment arranged them
+at `(0,0,960,1156)` and `(960,0,960,1156)`, captured together in
+`results/m1e/live/two_app_side_by_side_resize_20261030.png`. Settings closed
+independently while DeskClock remained live. DeskClock keyboard and independent
+scroll behavior remain unverified. Resize and close evidence: `results/m1e/live/two_app_window_resize_close_20261030.json`.
