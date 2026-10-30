@@ -107,6 +107,29 @@ int aaas_v2_send(int sock, const aaas_v2_msg *msg, const int *fds, unsigned nfds
     return r == (ssize_t)sizeof(*msg) ? 0 : -1;
 }
 
+int aaas_v2_send_buffer_rejected(int sock, const aaas_v2_msg *buffer,
+                                 int acquire_fence_fd) {
+    if (!buffer || buffer->type != AAAS_V2_BUFFER || !buffer->generation ||
+        !buffer->id ||
+        (!!(buffer->flags & AAAS_V2_FLAG_EXPLICIT_SYNC) !=
+         (acquire_fence_fd >= 0)) ||
+        (acquire_fence_fd >= 0 && !sync_file_is_valid(acquire_fence_fd))) {
+        errno = EINVAL;
+        return -1;
+    }
+    aaas_v2_msg release = {
+        .magic = AAAS_V2_MAGIC,
+        .version = AAAS_V2_VERSION,
+        .type = AAAS_V2_RELEASE,
+        .flags = acquire_fence_fd >= 0 ? AAAS_V2_FLAG_RELEASE_FENCE : 0,
+        .generation = buffer->generation,
+        .id = buffer->id,
+    };
+    return aaas_v2_send(sock, &release,
+                        acquire_fence_fd >= 0 ? &acquire_fence_fd : NULL,
+                        acquire_fence_fd >= 0 ? 1u : 0u);
+}
+
 int aaas_v2_recv(int sock, aaas_v2_msg *msg, int *fds, unsigned *nfds) {
     *nfds = 0;
     struct iovec iov = {

@@ -1449,6 +1449,22 @@ static int modifier_supported(presenter_app *a, uint64_t mod) {
     return 0;
 }
 
+static void reject_unimported_buffer(presenter_app *a, const aaas_v2_msg *m,
+                                     int *fds, unsigned nfds,
+                                     const char *event) {
+    int acquire_fence_fd =
+        (m->flags & AAAS_V2_FLAG_EXPLICIT_SYNC) && nfds > m->num_planes
+            ? fds[m->num_planes] : -1;
+    int send_result = aaas_v2_send_buffer_rejected(a->sock, m, acquire_fence_fd);
+    for (unsigned i = 0; i < nfds; i++) close(fds[i]);
+    a->rejected++;
+    if (send_result != 0) a->closed = 1;
+    char extra[96];
+    snprintf(extra, sizeof(extra), "\"release_ack\":%s",
+             send_result == 0 ? "true" : "false");
+    log_presenter_event(event, m->generation, m->id, extra);
+}
+
 static void handle_incoming_buffer(presenter_app *a) {
     aaas_v2_msg m;
     int fds[AAAS_V2_MAX_FDS];
@@ -1474,6 +1490,13 @@ static void handle_incoming_buffer(presenter_app *a) {
         };
         aaas_v2_send(a->sock, &resp, NULL, 0);
         log_presenter_event("producer_hello_ack", resp.generation, 0, NULL);
+        return;
+    }
+
+    if (m.type != AAAS_V2_BUFFER) {
+        for (unsigned i = 0; i < nfds; i++) close(fds[i]);
+        a->rejected++;
+        log_presenter_event("unexpected_producer_message", m.generation, m.id, NULL);
         return;
     }
 
@@ -1507,11 +1530,9 @@ static void handle_incoming_buffer(presenter_app *a) {
                    (m.width == a->w && m.height == a->h && m.generation <= a->gen));
     bool dim_ok = (m.width == a->w && m.height == a->h);
 
-    if (m.type != AAAS_V2_BUFFER || !format_ok || !gen_ok || !dim_ok ||
-        !modifier_supported(a, m.modifier)) {
-        for (unsigned i = 0; i < nfds; i++) close(fds[i]);
-        a->rejected++;
-        log_presenter_event("rejected_stale_or_format", m.generation, m.id, NULL);
+    if (!format_ok || !gen_ok || !dim_ok || !modifier_supported(a, m.modifier)) {
+        reject_unimported_buffer(a, &m, fds, nfds,
+                                 "rejected_stale_or_format");
         return;
     }
 
@@ -1534,20 +1555,18 @@ static void handle_incoming_buffer(presenter_app *a) {
         }
     }
     if (!s) {
-        for (unsigned j = 0; j < nfds; j++) close(fds[j]);
-        a->rejected++;
-        log_presenter_event("slot_registry_exhausted", m.generation, m.id, NULL);
+        reject_unimported_buffer(a, &m, fds, nfds,
+                                 "slot_registry_exhausted");
         return;
     }
 
     int dma_fd = fds[0];
+    bool owned_dma_fd = false;
     int acquire_fence_fd = (m.flags & AAAS_V2_FLAG_EXPLICIT_SYNC && nfds > 1) ? fds[1] : -1;
 
     if ((m.flags & AAAS_V2_FLAG_EXPLICIT_SYNC) &&
         (acquire_fence_fd < 0 || !sync_file_is_valid(acquire_fence_fd))) {
-        for (unsigned i = 0; i < nfds; i++) close(fds[i]);
-        a->rejected++;
-        log_presenter_event("invalid_acquire_fence", m.generation, m.id, NULL);
+        reject_unimported_buffer(a, &m, fds, nfds, "invalid_acquire_fence");
         return;
     }
 
@@ -1559,9 +1578,8 @@ static void handle_incoming_buffer(presenter_app *a) {
 
     if ((is_memfd || a->copy_complete_enabled) && a->gbm) {
         if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
-            for (unsigned i = 0; i < nfds; i++) close(fds[i]);
-            a->rejected++;
-            log_presenter_event("acquire_fence_timeout", m.generation, m.id, NULL);
+            reject_unimported_buffer(a, &m, fds, nfds,
+                                     "acquire_fence_timeout");
             return;
         }
         struct timespec t0, t1;
@@ -1622,12 +1640,11 @@ static void handle_incoming_buffer(presenter_app *a) {
 
         int stage_fd = copied ? gbm_bo_get_fd(stage_bo) : -1;
         if (stage_fd >= 0) {
-            close(dma_fd);
             dma_fd = stage_fd;
+            owned_dma_fd = true;
             m.stride[0] = stage_stride;
             m.modifier = gbm_bo_get_modifier(stage_bo);
             if (acquire_fence_fd >= 0) {
-                close(acquire_fence_fd);
                 acquire_fence_fd = -1;
                 m.flags &= ~AAAS_V2_FLAG_EXPLICIT_SYNC;
             }
@@ -1654,6 +1671,7 @@ static void handle_incoming_buffer(presenter_app *a) {
                 if (aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
                     close(dma_fd);
                     gbm_bo_destroy(stage_bo);
+                    for (unsigned i = 0; i < nfds; i++) close(fds[i]);
                     a->closed = 1;
                     a->rejected++;
                     log_presenter_event("copy_complete_send_failed", m.generation,
@@ -1686,12 +1704,11 @@ static void handle_incoming_buffer(presenter_app *a) {
     unsigned dump_every = frame_dump_every ? (unsigned)strtoul(frame_dump_every, NULL, 10) : 1;
     if (frame_dump_dir && frame_dump_dir[0] && dump_every && m.id % dump_every == 0) {
         if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
-            close(dma_fd);
-            close(acquire_fence_fd);
+            if (owned_dma_fd) close(dma_fd);
             if (stage_bo) gbm_bo_destroy(stage_bo);
             zwp_linux_buffer_params_v1_destroy(params);
-            a->rejected++;
-            log_presenter_event("capture_acquire_timeout", m.generation, m.id, NULL);
+            reject_unimported_buffer(a, &m, fds, nfds,
+                                     "capture_acquire_timeout");
             return;
         }
         size_t map_sz = (size_t)m.stride[0] * m.height;
@@ -1726,12 +1743,11 @@ static void handle_incoming_buffer(presenter_app *a) {
     const char *alpha_trace = getenv("AAAS_FRAME_ALPHA_TRACE");
     if (alpha_trace && alpha_trace[0] == '1') {
         if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
-            close(dma_fd);
-            close(acquire_fence_fd);
+            if (owned_dma_fd) close(dma_fd);
             if (stage_bo) gbm_bo_destroy(stage_bo);
             zwp_linux_buffer_params_v1_destroy(params);
-            a->rejected++;
-            log_presenter_event("alpha_trace_acquire_timeout", m.generation, m.id, NULL);
+            reject_unimported_buffer(a, &m, fds, nfds,
+                                     "alpha_trace_acquire_timeout");
             return;
         }
         size_t map_sz = (size_t)m.stride[0] * m.height;
@@ -1766,18 +1782,25 @@ static void handle_incoming_buffer(presenter_app *a) {
         }
     }
 
-    close(dma_fd);
-
     struct wl_buffer *wl_buf =
         zwp_linux_buffer_params_v1_create_immed(params, m.width, m.height, m.format, 0);
     zwp_linux_buffer_params_v1_destroy(params);
 
     if (!wl_buf) {
-        if (acquire_fence_fd >= 0) close(acquire_fence_fd);
+        /* dma_fd is a duplicate or staging-buffer FD; fds[] still owns the
+         * received source descriptors and is used for the release ack. */
+        if (owned_dma_fd) close(dma_fd);
         if (stage_bo) gbm_bo_destroy(stage_bo);
-        a->rejected++;
-        log_presenter_event("dmabuf_import_failed", m.generation, m.id, NULL);
+        reject_unimported_buffer(a, &m, fds, nfds, "dmabuf_import_failed");
         return;
+    }
+
+    if (owned_dma_fd) close(dma_fd);
+    close(fds[0]);
+    fds[0] = -1;
+    if (acquire_fence_fd < 0 && nfds > 1) {
+        close(fds[1]);
+        fds[1] = -1;
     }
 
     s->wl = wl_buf;
@@ -1798,6 +1821,7 @@ static void handle_incoming_buffer(presenter_app *a) {
             syncobj_timeline_import_sync_file(a->drm_fd, a->acquire_timeline_handle,
                                               a->acquire_point, acquire_fence_fd);
             close(acquire_fence_fd);
+            fds[1] = -1;
             acquire_fence_fd = -1;
         } else {
             // Buffer submitted without fence: immediately signal acquire point to satisfy protocol
@@ -1829,6 +1853,7 @@ static void handle_incoming_buffer(presenter_app *a) {
         a->explicit_sync_frames++;
     } else if (acquire_fence_fd >= 0) {
         close(acquire_fence_fd);
+        fds[1] = -1;
     }
 
     // Attach, damage, and commit

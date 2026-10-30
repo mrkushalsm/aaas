@@ -189,10 +189,59 @@ static void test_release_with_fence(int s[2]) {
     assert(sync_file_is_valid(recv_fds[0]) == 1);
 
     close(recv_fds[0]);
+    aaas_v2_msg buffer = {
+        .magic = AAAS_V2_MAGIC,
+        .version = AAAS_V2_VERSION,
+        .type = AAAS_V2_BUFFER,
+        .flags = AAAS_V2_FLAG_EXPLICIT_SYNC,
+        .generation = 3,
+        .id = 91,
+        .width = 64,
+        .height = 64,
+        .format = DRM_FORMAT_XRGB8888,
+        .num_planes = 1,
+        .stride = {256},
+    };
+    assert(aaas_v2_send_buffer_rejected(s[0], &buffer, fence_fd) == 0);
+    assert(fcntl(fence_fd, F_GETFD) >= 0); /* send helper retains caller ownership */
+    assert(aaas_v2_recv(s[1], &out, recv_fds, &nfds) == 1);
+    assert(out.type == AAAS_V2_RELEASE && out.generation == 3 && out.id == 91);
+    assert(out.flags & AAAS_V2_FLAG_RELEASE_FENCE);
+    assert(nfds == 1 && sync_file_is_valid(recv_fds[0]) == 1);
+    close(recv_fds[0]);
+
     close(fence_fd);
     syncobj_destroy(drm_fd, syncobj);
     close(drm_fd);
     printf("  [PASS] test_release_with_fence\n");
+}
+
+static void test_rejected_buffer_release(int s[2]) {
+    aaas_v2_msg buffer = {
+        .magic = AAAS_V2_MAGIC,
+        .version = AAAS_V2_VERSION,
+        .type = AAAS_V2_BUFFER,
+        .generation = 9,
+        .id = 77,
+        .width = 64,
+        .height = 32,
+        .format = DRM_FORMAT_XRGB8888,
+        .num_planes = 1,
+        .stride = {256},
+    };
+
+    assert(aaas_v2_send_buffer_rejected(s[0], &buffer, -1) == 0);
+    aaas_v2_msg out = {0};
+    int fds[AAAS_V2_MAX_FDS];
+    unsigned nfds = 0;
+    assert(aaas_v2_recv(s[1], &out, fds, &nfds) == 1);
+    assert(out.type == AAAS_V2_RELEASE && out.generation == 9 && out.id == 77);
+    assert(!(out.flags & AAAS_V2_FLAG_RELEASE_FENCE) && nfds == 0);
+
+    buffer.id = 0;
+    assert(aaas_v2_send_buffer_rejected(s[0], &buffer, -1) == -1);
+    assert(errno == EINVAL);
+    printf("  [PASS] test_rejected_buffer_release\n");
 }
 
 static void test_bad_fd_cleanup(int s[2]) {
@@ -234,6 +283,7 @@ int main(void) {
     test_invalid_version_rejection(s);
     test_buffer_transfer_with_sync(s);
     test_release_with_fence(s);
+    test_rejected_buffer_release(s);
     test_bad_fd_cleanup(s);
 
     close(s[0]);

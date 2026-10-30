@@ -58,6 +58,15 @@ extern "C" {
 int aaas_v2_send(int sock, const aaas_v2_msg *msg, const int *fds, unsigned nfds);
 
 /**
+ * Acknowledge a valid buffer that was rejected before presenter import/use.
+ * If the producer supplied an acquire fence, it is returned as the release
+ * dependency so the producer retains its synchronization contract. The caller
+ * retains ownership of acquire_fence_fd.
+ */
+int aaas_v2_send_buffer_rejected(int sock, const aaas_v2_msg *buffer,
+                                 int acquire_fence_fd);
+
+/**
  * Receive an aaas_v2_msg and any passed file descriptors.
  * On error, any received file descriptors are closed automatically and *nfds set to 0.
  * On success, the caller takes ownership of *nfds file descriptors in fds[].
