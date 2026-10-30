@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <linux/dma-buf.h>
 #include <poll.h>
 
 #include <atomic>
@@ -43,6 +44,7 @@
 #include <aidl/android/hardware/graphics/composer3/Composition.h>
 
 #include "aaas_transport.h"
+#include "linear_copy.h"
 
 #ifndef AAAS_DISPLAY_WIDTH
 #define AAAS_DISPLAY_WIDTH 1280
@@ -654,6 +656,14 @@ private:
         return result > 0 && (pfd.revents & POLLIN) != 0;
     }
 
+    static bool syncDmaBufCpu(int fd, uint64_t flags) {
+        struct dma_buf_sync sync = {};
+        sync.flags = flags;
+        int result;
+        do { result = ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync); } while (result < 0 && errno == EINTR);
+        return result == 0;
+    }
+
     bool presentVirtualDisplayFrame(int64_t display, VirtualDisplayState& state,
                                     size_t command_index,
                                     std::vector<CommandResultPayload>* results) {
@@ -718,21 +728,46 @@ private:
         // client-target slot records separate, wait both acquire fences, and
         // forward the output allocation without an overlapping self-copy.
         if (!aliases) {
-            void* src = mmap(nullptr, source_size, PROT_READ, MAP_SHARED, source.dma_fd, 0);
-            if (src == MAP_FAILED) return false;
-            void* dst = mmap(nullptr, output_size, PROT_WRITE, MAP_SHARED, output.dma_fd, 0);
-            if (dst == MAP_FAILED) {
-                munmap(src, source_size);
+            if (output.format != static_cast<uint32_t>(PixelFormat::RGBA_8888) &&
+                output.format != static_cast<uint32_t>(PixelFormat::BGRA_8888)) {
+                kmsg_log("[AaasComposerClient] virtual display %lld cannot CPU-copy format=%u\n",
+                         (long long)display, output.format);
                 return false;
             }
-            const size_t row_bytes = static_cast<size_t>(state.width) * 4;
-            for (int32_t y = 0; y < state.height; ++y) {
-                memcpy(static_cast<uint8_t*>(dst) + static_cast<size_t>(y) * output.stride * 4,
-                       static_cast<const uint8_t*>(src) + static_cast<size_t>(y) * source.stride * 4,
-                       row_bytes);
+            if (!syncDmaBufCpu(source.dma_fd, DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ)) {
+                kmsg_log("[AaasComposerClient] virtual display %lld source CPU-read sync failed errno=%d\n",
+                         (long long)display, errno);
+                return false;
             }
-            munmap(dst, output_size);
-            munmap(src, source_size);
+            if (!syncDmaBufCpu(output.dma_fd, DMA_BUF_SYNC_START | DMA_BUF_SYNC_WRITE)) {
+                const int sync_error = errno;
+                syncDmaBufCpu(source.dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+                kmsg_log("[AaasComposerClient] virtual display %lld output CPU-write sync failed errno=%d\n",
+                         (long long)display, sync_error);
+                return false;
+            }
+            void* src = mmap(nullptr, source_size, PROT_READ, MAP_SHARED, source.dma_fd, 0);
+            void* dst = MAP_FAILED;
+            bool copied = false;
+            if (src != MAP_FAILED) {
+                dst = mmap(nullptr, output_size, PROT_WRITE, MAP_SHARED, output.dma_fd, 0);
+                if (dst != MAP_FAILED) {
+                    copied = copyLinearRows(src, source.stride, dst, output.stride,
+                                            state.width, state.height, 4);
+                }
+            }
+            if (dst != MAP_FAILED) munmap(dst, output_size);
+            if (src != MAP_FAILED) munmap(src, source_size);
+            const bool output_sync_ok = syncDmaBufCpu(output.dma_fd,
+                    DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE);
+            const bool source_sync_ok = syncDmaBufCpu(source.dma_fd,
+                    DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+            if (!copied || !output_sync_ok || !source_sync_ok) {
+                kmsg_log("[AaasComposerClient] virtual display %lld distinct-backing copy failed copied=%d out_sync=%d src_sync=%d errno=%d\n",
+                         (long long)display, copied ? 1 : 0,
+                         output_sync_ok ? 1 : 0, source_sync_ok ? 1 : 0, errno);
+                return false;
+            }
         }
 
         AaasBufferSlot frame = {};

@@ -1,4 +1,5 @@
 CXX := clang++
+HOST_CXX ?= c++
 TARGET ?= x86_64-linux-android
 WORKSPACE_ROOT ?= /run/media/mrkus/Homework/aaas-workspace
 ROOTFS ?= $(WORKSPACE_ROOT)/rootfs_m1b1
@@ -10,6 +11,7 @@ AAAS_DISPLAY_HEIGHT ?= 720
 AAAS_ENABLE_VIRTUAL_DISPLAY ?= 0
 
 SRCS := composer_service.cpp aaas_transport.cpp ../../m1a/src/wire_v2.c
+HEADERS := aaas_transport.h linear_copy.h
 
 CXXFLAGS := -target $(TARGET) -std=c++17 -nostdlib -nostdinc++ -fno-rtti \
   -D__BIONIC__ '-D__INTRODUCED_IN(n)=' -D__ANDROID_API__=35 \
@@ -36,11 +38,18 @@ LDFLAGS := -L $(ROOTFS)/system/lib64 \
 
 all: $(BIN)
 
-$(BIN): $(SRCS)
+build/test-linear-copy: tests/test_linear_copy.cpp linear_copy.h
+	@mkdir -p build
+	$(HOST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -I. $< -o $@
+
+test: build/test-linear-copy
+	./build/test-linear-copy
+
+$(BIN): $(SRCS) $(HEADERS)
 	@mkdir -p $(OUT_DIR)
 	$(CXX) $(CXXFLAGS) $(SRCS) $(LDFLAGS) -o $@
 
 clean:
 	rm -f $(BIN)
 
-.PHONY: all clean
+.PHONY: all clean test
