@@ -1,6 +1,6 @@
 # M1E architecture evaluation
 
-Status: **two app windows can be arranged side by side and closed independently; concurrent and one-output-at-a-time Android frame resizing are verified, while application-level input and remaining multi-window lifecycle work are partial**
+Status: **two app windows can be arranged, resized, focused, and closed independently; visible text entry and vertical scrolling are bounded live passes; broader focus/lifecycle and graphics stability remain partial**
 Android framework reference: pinned AOSP `frameworks/base` commit
 `99b01a65cc4c104933788b3143285ab6bae65827` from
 `manifests/android16-r1-subset.json`.
@@ -21,8 +21,8 @@ primary input route remain unchanged. Two tasks, Android displays, Composer
 outputs, and Wayland toplevels have been verified in one runtime. KWin
 quick-tile placement, per-window close, single-output native resize, and a
 two-output resize where one output changed independently have since been
-verified. Complete per-window application input, app reopen, and minimize
-remain unverified.
+verified. Bounded app-consumed keyboard input and create-after-destroy app
+reopen have since been demonstrated. Per-output vertical scroll consumption is now live-verified in both runtime modes. Horizontal/touchpad-specific scroll and Android lifecycle synchronization with host minimize remain unverified.
 
 The live Android probe reported one logical display: ID 0, 720×1280, trusted,
 and able to host tasks. Settings was task 8 and top-resumed. A Launcher HOME
@@ -43,9 +43,9 @@ diagnostic command still presents the primary output.
 
 | Candidate | Reuse and rendering | Android policy and security | Cost / principal risk | Assessment |
 |---|---|---|---|---|
-| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. Two outputs have been resized concurrently and then one independently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | Full two-app keyboard consumption, scroll isolation, resize-back/burst/landscape cycles, reopen, and minimize remain incomplete. | **Side-by-side placement, per-window close, concurrent/independent resize are bounded live passes; overall M1E remains partial.** |
+| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. Two outputs have been resized concurrently and then one independently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | Keyboard/focus edge coverage, resize-back/burst/landscape cycles, and Android minimize lifecycle synchronization remain incomplete; visible vertical scroll is verified. | **Side-by-side placement, per-window close, concurrent/independent resize are bounded live passes; overall M1E remains partial.** |
 | **B. Task-level SurfaceControl output** | Android tasks already group an application's Activity stack, which is the right lifecycle unit. But the AaaS host currently receives only the whole-display Composer client target. It cannot obtain a task's independent surface from the current transport. | A task organizer/SurfaceControl bridge would require privileged framework ownership and strict surface/input authorization. Activities, dialogs, transitions, and child windows must remain composed consistently. | Requires task organizer/transaction infrastructure, SurfaceControl capture or reparenting, independent buffer export/release fences, z-order/animation handling, and input routing. Not a direct DMA-BUF stream merely because the Task has a SurfaceControl. | Better long-term if proven capture/export is available, but substantially more invasive and no reuse proof exists. Do not start here. |
-| **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Two distinct tasks and displays were observed concurrently. Both outputs were resized together to 960×1156, then Settings alone to 960×578 with matching source buffers. | Resize-back/burst/landscape and input mapping, reopen/minimize, complete application-level input isolation, and the historical crash-free stability question remain. | **Validated as the current M1E prototype direction**, not yet a finished multi-window design. |
+| **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Two distinct tasks and displays were observed concurrently. Both outputs were resized together to 960×1156, then Settings alone to 960×578 with matching source buffers. | Resize-back/burst/landscape and full input-coordinate coverage, Android lifecycle synchronization with minimize, and the historical crash-free stability question remain. Bounded app text entry, vertical scroll isolation, create-after-destroy, and host-visible minimize/restore have live evidence. | **Validated as the current M1E prototype direction**, not yet a finished multi-window design. |
 
 ## Android 16 source contracts
 
@@ -193,8 +193,8 @@ Each adapter completed HELLO with its own display ID. Controlled pointer clicks
 visibly changed Settings on display 2 and DeskClock on display 3. Synthetic
 `hii` text visibly appeared in Settings Search on display 2; switching KWin focus
 caused the corresponding input-adapter focus leave/enter, and no typed key packet
-was observed on the unfocused adapter. DeskClock text entry and per-output scroll
-remain untested. In that initial run, resize, task-specific close, minimize,
+was observed on the unfocused adapter. At that initial checkpoint, DeskClock
+text entry and per-output scroll were untested. In that initial run, resize, task-specific close, minimize,
 and one-output teardown while the other remained alive were outstanding. Each
 presenter also exited with one final outstanding imported frame. The later
 bounded teardown run below drained all submitted buffers with no outstanding
@@ -258,6 +258,30 @@ The single-output resize follow-up did not reproduce that SIGSEGV, but SurfaceFl
 logged two `Unexpected onFrameCommitted in Gpu state` transition warnings.
 One bounded non-reproduction does not identify or fix the historical JIT fault.
 The resize ownership change is separate from the unresolved SwiftShader issue.
+
+### Final input/minimize acceptance update (2026-10-31)
+
+The Android Contacts editor was reused as a second ordinary app input target.
+Controlled synthetic typing visibly changed both it and Settings Search after
+KWin focus transfers. Ctrl+A and Escape produced their expected visible
+Settings actions. KWin minimize/restore preserved visible host-window content
+and the remaining app stayed running. Both outputs moved from 720×1280 to real
+950×1100 source buffers (stride 3840); stale transition frames were rejected.
+At shutdown, Settings had 1837/1837 and Contacts 1822/1822
+imports/submissions/releases, with no outstanding buffers. These observations
+are bounded to one default-LMKD run and synthetic input. Scroll injections
+returned rc=0 without a visible list movement, and 13 transient InputDispatcher
+no-focused-window warnings occurred during focus transitions. No ANR or
+SwiftShader JIT crash signature appeared in this session, which does not resolve
+the historical JIT crash. See
+`results/m1e/live/final_input_minimize_acceptance_20261031.json`.
+
+A second, short enhanced source-LMKD/cgroup session showed synthetic `alpha`
+in Settings and `beta` in Contacts and then cleaned both outputs and the
+delegated cgroup. Its first key attempt lost the initial character, while a
+refocused retry succeeded; this is recorded as a remaining focus-entry edge,
+not as a resolved race. No enhanced-mode scroll or lifecycle interaction was
+tested. See `results/m1e/live/enhanced_keyboard_interaction_20261031.json`.
 
 
 ### Capacity-two runtime selection and memory-pressure boundary

@@ -1,8 +1,8 @@
 # M1E status
 
-Status: **PARTIAL — two-app rendering, independent resize, per-window close, bounded dynamic reopen, and app-mode primary-output suppression are live; complete input isolation and crash stability remain incomplete**
+Status: **PARTIAL — two-app rendering, independent resize, visible typing and vertical scrolling in both apps, per-window close/reopen, and app-mode primary-output suppression are live; focus-edge and stability coverage remain incomplete**
 
-Date: 2026-10-30
+Date: 2026-10-31
 
 ## Preserved baseline
 
@@ -76,10 +76,10 @@ Both presenters reached a terminal ownership state with no active buffers:
 | Settings | 146 / 146 / 146 | 141 / 5 | 0 | 0 |
 | DeskClock | 117 / 117 / 117 | 109 / 8 | 0 | 0 |
 
-This is bounded live evidence for closing one output while preserving the
-other task/presenter, followed by last-window shutdown. Reopening an app
-without restarting Android, minimize/unmap policy, and per-output input
-isolation are still unverified.
+This was bounded live evidence for closing one output while preserving the
+other task/presenter, followed by last-window shutdown. Reopening and input
+isolation were verified in later sections; Android minimize lifecycle sync
+remains unverified.
 
 ### Resize boundary
 
@@ -120,9 +120,9 @@ historical SwiftShader JIT fault remains unresolved. The clean
 | Buffer/fence terminal ownership | PASS, bounded live | Both summaries show imports=submissions=releases, zero invalidated/outstanding. |
 | Single-output Android framebuffer resize | PASS, bounded live | 720×1280 → 960×1156 → 720×1280; Composer and presenter source dimensions/strides matched after each transition. No screenshot or post-resize coordinate test was captured. |
 | Concurrent two-output resize | PASS, bounded live | Settings and DeskClock both transitioned from 720×1280 to matching 960×1156 Android source buffers. Settings then resized independently to 960×578 with a matching source buffer while DeskClock remained at 960×1156 / generation 2. Resize-back-to-original and landscape/burst sequences remain untested. |
-| Keyboard on both outputs, scrolling, focus isolation | PARTIAL, live transport | Synthetic h-i-i visibly updated Settings Search on display 2. After switching focus, Tab/Enter reached the DeskClock display-3 adapter and no further key injection appeared in the Settings adapter. DeskClock has no editor and showed no visible reaction; scrolling isolation remains untested. |
+| Keyboard on both outputs, vertical scrolling, focus isolation | PARTIAL, visible synthetic text and vertical scroll in both; focus warnings remain | Settings Search and Contacts editor visibly accepted text in the prior live session. The 2026-10-31 follow-up corrected Android 16 `input` argument order; Settings All apps and Contacts editor then visibly scrolled independently in default and enhanced runs. Each scroll changed only the targeted app rectangle. Transient InputDispatcher no-focused-window warnings and a one-time initial key miss remain documented. See `scroll_routing_fix_20261031.json`. |
 | Reopen app without restarting runtime | PASS, bounded live | Settings reopened as task 10/display 4 and DeskClock as task 11/display 5 in the same session. Third launch returned `capacity_exhausted`. |
-| Minimize/unmap lifecycle | NOT TESTED | `xdg-shell` does not provide a general minimized notification; no visibility policy is claimed. |
+| Minimize/unmap lifecycle | PASS, bounded user-visible restore; Android lifecycle sync NOT TESTED | KWin minimize/restore hid and restored Contacts while Settings remained visible; both runtime slots stayed RUNNING. No Android pause/resume synchronization is claimed because the presenter has no standard minimized-state signal. |
 | Hide primary diagnostic presenter in normal app mode | PASS, bounded live | Experimental app sessions with selected apps skip the primary presenter; Android display 0 remains intact. `--show-primary-diagnostic` restores diagnostic presentation. This verifies no primary Wayland output, not removal of internal Android SystemUI. |
 | Distinct DMA-BUF copy on real Mixed composition | NOT TESTED LIVE | GPU-only alias path and component-level stride/copy tests remain as previously documented. |
 | SwiftShader JIT crash freedom | PARTIAL | One separate live SurfaceFlinger JIT SIGSEGV remains unresolved. |
@@ -132,7 +132,7 @@ historical SwiftShader JIT fault remains unresolved. The clean
 
 The final automated runs for this continuation passed:
 
-- `python3 -m unittest discover -s tests -v`: **169 tests** in the latest run.
+- `python3 -m unittest discover -s tests -v`: **170 tests** in the latest run, including an Android 16 input-shell argument-order regression test.
 - `make -C experiments/m1a test`.
 - `make -C experiments/m1a -B build/wayland-host-presenter test`.
 - `make -C experiments/m1c/input_adapter -B all`.
@@ -154,24 +154,91 @@ The explicit primary diagnostic opt-in also reached RUNNING and stopped cleanly.
 
 ## Remaining live work
 
-1. Demonstrate application-consumed keyboard actions and scroll isolation on both outputs.
-2. Verify two-output resize-back, landscape, burst coalescing, and pointer-coordinate mapping.
-3. Define/test minimize behavior only where the Wayland/KWin protocol exposes reliable visibility state.
+1. Expand input acceptance for horizontal scroll, dedicated touchpad-source routing, and post-resize coordinate corner cases.
+2. Verify two-output resize-back, landscape, and resize-burst coverage.
+3. Keep focus-transition warnings and the one-time first-key miss under observation; bounded sessions had no ANR.
 4. Continue bounded investigation of the unresolved SwiftShader JIT/SF crash.
 
-Overall M1E remains **PARTIAL**. Two live Android apps have been shown side by
-side, resized concurrently to matching native Android buffers, and Settings
-was resized independently while DeskClock remained unchanged. A separate
-single-output run verifies resizing back to 720×1280. Two app close/reopen
-cycles are now verified in a shared session. Application-level input acceptance
-on DeskClock, per-output scrolling, two-output resize-back/burst and landscape
-cases, minimize/restore, and the historical SwiftShader JIT crash boundary
-remain open.
+Overall M1E remains **PARTIAL**. A new bounded live session used Settings and
+the installed Android Contacts editor in separate windows. Controlled
+`/dev/uinput` typing visibly changed both applications, Android focus followed
+the selected window, and no InputDispatcher ANR signature occurred. A KWin
+minimize/restore cycle preserved the other window and restored the Contacts
+editor. Both outputs produced matching native 950×1100 Android buffers after
+resize, and each presenter ended with imports=submissions=releases and zero
+outstanding buffers. The initial scroll attempt was not accepted because it targeted the Settings
+home page rather than a confirmed scrollable view. A later scrollable-list and
+Contacts-editor experiment exposed and fixed Android 16 argument ordering;
+visible independent vertical scrolling then passed in both default and
+enhanced runs. See
+[`scroll_routing_fix_20261031.json`](../results/m1e/live/scroll_routing_fix_20261031.json). Transient InputDispatcher no-focused-window warnings, horizontal/touchpad-specific scroll coverage, full resize matrix, and the historical SwiftShader JIT crash remain open.
 
 The minimize limitation is confirmed in the host source: the presenter binds
 `xdg_wm_base` no higher than version 3, and `toplevel_configure()` discards the
 state array. No supported hidden-state signal is consumed, so M1E does not
 claim Android task pause, producer suspension, or frame throttling on minimize.
+
+### Two-app visible input and minimize follow-up (2026-10-31)
+
+The runtime reused the installed `com.android.contacts/.activities.ContactEditorActivity`
+as an ordinary-app input target; no custom privileged test APK was built. Its
+First name and Last name `EditText` fields provided visible Android-side
+consumption evidence. In one shared session (Settings task 8/display 2 and
+Contacts task 9/display 3), controlled `/dev/uinput` text appeared as `alpha`
+in Settings Search and `beta`/`hii` in Contacts. A later focus sequence
+changed each focused app independently, and Ctrl+A replaced the Settings query
+with `beta` while the Contacts fields stayed unchanged. The screenshots are
+[`input_two_apps_alpha_beta_20261031.png`](../results/m1e/live/input_two_apps_alpha_beta_20261031.png),
+[`input_two_way_focus_20261031.png`](../results/m1e/live/input_two_way_focus_20261031.png),
+and the Ctrl+A capture referenced in the JSON evidence.
+
+KWin minimized and restored the Contacts window using its normal window state.
+Settings remained visible during minimization; both app slots remained RUNNING;
+restoring Contacts showed the editor contents intact. This establishes visible
+host-window restore behavior only, not Android Activity pause/resume semantics.
+Screenshots are linked from the same evidence record.
+
+After KWin resized both toplevels to 950×1100, each presenter first rejected
+one stale 720×1280 transition frame, then imported a matching 950×1100 source
+frame with 3840-byte stride. Synthetic text editing remained visible after
+resize. The run reached STOPPED in both journal and status sentinel. Settings
+ended at 1837/1837 imports/submissions/releases and Contacts at 1822/1822;
+both had zero teardown invalidations and zero outstanding buffers. No
+InputDispatcher ANR or SwiftShader JIT SIGSEGV was found in this session log,
+but 13 transient `Focused display ... does not have a focused window` warnings
+were logged while the other display had focus.
+
+At this earlier checkpoint, scrolling remained unverified: the initial trial
+used the Settings home view and screenshots did not change. Subsequent testing
+confirmed per-output scroll on actual scrollable views and identified the
+argument-order defect; see the current scroll acceptance section below.
+
+
+### Android 16 per-output scroll routing correction (2026-10-31)
+
+Source inspection found that Android 16 `InputShellCommand` parses the
+optional input-source token before the optional `-d DISPLAY_ID`. The per-display
+adapter had emitted `input -d DISPLAY mouse scroll ...`; it now emits
+`input mouse -d DISPLAY scroll ...`. A focused regression test checks this order.
+The adapter rebuilt successfully (SHA-256
+`0c99c919f4d9ef484a70fbe3664a5f17a884ac46748af6476456256e6e692fb1`, build ID
+`85eeab0132a204c0e7b3340fa099652dd99fd018`).
+
+In default mode, a vertical wheel sequence visibly moved Settings' All apps
+list by 132,813 changed pixels while the Contacts output changed zero pixels.
+Scrolling Contacts' new-contact editor changed 232,138 pixels in its output and
+zero in Settings. Enhanced source-LMKD/cgroup mode reproduced both operations
+(132,994 and 232,138 target pixels, zero in the other output for each). Both
+runtime journals and sentinels reached STOPPED; the enhanced delegated cgroup
+was removed. Presenters ended with imports=submissions=releases, zero outstanding
+buffers, and no teardown invalidations. The screenshots and raw session hashes
+are in [`scroll_routing_fix_20261031.json`](../results/m1e/live/scroll_routing_fix_20261031.json).
+
+This accepts bounded vertical mouse-wheel routing/isolation on these two views.
+It does not cover horizontal scrolling, dedicated touchpad gesture-source
+routing, every resize corner, or Android Activity lifecycle synchronization
+with minimize. The broader keyboard/focus matrix and SwiftShader JIT residual
+risk remain open, so M1E stays PARTIAL.
 
 ### Android focus synchronization and dynamic app reopening (2026-10-30)
 
@@ -487,3 +554,18 @@ the tested tasks, but it does not close M1E. Two-way application-consumed
 keyboard input, independent scrolling, app close/reopen without Android restart,
 and other lifecycle gates remain open. The earlier ANR run remains recorded as
 a failed experiment, not an accepted close event.
+
+### Enhanced-mode two-app keyboard follow-up (2026-10-31)
+
+A separate `--use-source-lmkd --memory-policy=cgroup` session showed visible
+synthetic typing in Settings Search and Contacts' First name field. The first
+attempt produced `lpha`, so its first key was missed during the focus-entry
+transition. After explicitly clearing/refocusing the editor, the visible text
+was `alpha`; Contacts showed `beta`. The cause of the first-key miss is not
+isolated. Both apps stayed RUNNING during the test and then shut down cleanly.
+Settings and Contacts presenters ended at 697/697 and 683/683
+imports/submissions/releases, zero outstanding buffers, and zero invalidated
+buffers. The state journal and sentinel matched at STOPPED, and the delegated
+cgroup was removed. This was a short text-entry smoke only; enhanced-mode
+scrolling, minimize, resize, and close/reopen were not repeated. Evidence:
+[`enhanced_keyboard_interaction_20261031.json`](../results/m1e/live/enhanced_keyboard_interaction_20261031.json).

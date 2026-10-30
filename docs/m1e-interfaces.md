@@ -1,7 +1,8 @@
 # M1E interfaces and identity model
 
-Status: **two concurrent virtual-display output streams implemented; per-window
-input and lifecycle protocol remain incomplete**
+Status: **two concurrent virtual-display output streams and bounded app lifecycle
+implemented; visible keyboard input and independent vertical scrolling in two apps
+are live-tested; broader focus/resize acceptance remains incomplete**
 
 ## Current bounded two-output prototype
 
@@ -83,8 +84,9 @@ window close was exercised. A later session verified concurrent Android-backed
 resize on both outputs and an independent Settings resize while DeskClock stayed
 unchanged. The 2026-10-30 create-after-destroy run also reopened Settings as
 task 10/display 4, then DeskClock as task 11/display 5, without restarting the
-shared Android runtime. Per-output scroll, application-consumed keyboard input
-on DeskClock, and post-resize input mapping remain unverified.
+shared Android runtime. Visible vertical scroll is verified on Settings and Contacts in both default and
+enhanced runtime modes. Horizontal/touchpad scroll, expanded keyboard focus
+coverage, and post-resize coordinate corner testing remain unverified.
 
 ## Runtime app control (bounded prototype)
 
@@ -162,19 +164,47 @@ and acknowledge teardown. Do not reinterpret v2 fields.
 The primary presenter and input adapter continue to target Android display 0.
 Each virtual presenter reads its Android-assigned display ID from its own
 session-private file and places it in pointer and keyboard packets. Its
-dedicated adapter validates the configured ID. Both adapters completed HELLO for their own display. Controlled pointer clicks
-visibly changed the Settings view on display 2 and the DeskClock Alarm tab on
-display 3. A synthetic `hii` fixture appeared in Settings Search on display 2
-after Android Binder KeyEvent injection. Selecting the two KWin toplevels caused
-the matching focus leave/enter messages; the Settings key packets were absent
-from the DeskClock adapter. This is partial focus-isolation evidence. DeskClock
-text editing, per-output scrolling, and full application-level two-way keyboard
-isolation remain unverified.
+dedicated adapter validates the configured ID. Both adapters completed HELLO
+for their own display. Controlled pointer clicks visibly changed Settings on
+display 2 and the DeskClock Alarm tab on display 3. An earlier Settings-only
+session showed `hii` in Search and transport-only keyboard evidence on
+DeskClock. The 2026-10-31 Settings+Contacts follow-up then visibly edited
+Settings Search and Contacts' first/last-name fields after focus transfers.
+The first scroll capture was inconclusive; a later argument-order correction
+and live scrollable-view tests visibly moved each app independently in both
+runtime modes. This is recorded in the dated scroll evidence rather than
+inferred from Binder or command status.
 
-Multi-window input will bind session, host-window ID, Android display ID and
-generation, focus generation, and sequence. Focus loss must release held
-buttons/keys before target changes. Existing M1C/M1D packets and semantics
-remain unchanged.
+Multi-window input currently retains the existing private pointer-v1 and
+keyboard-v2 semantics, with one presenter/adapter endpoint per Android output.
+The broker-owned display/task mapping is passed to each adapter, and a
+focus-generation request must receive an Android focus acknowledgement before
+that adapter enables keyboard delivery. A live Settings+Contacts session
+visibly changed each app's editable text after host focus switching and
+Ctrl+A. It also logged transient InputDispatcher warnings during focus changes,
+though no ANR was observed in that bounded run. After correcting the Android 16
+source/display argument order, visible vertical scroll changes were demonstrated
+in both app outputs under default and enhanced modes with no change in the
+non-target output region. Horizontal and dedicated touchpad-source scrolling
+remain open. Physical-keyboard attribution was not tested in those sessions;
+they used `/dev/uinput`.
+
+The 2026-10-31 KWin minimize/restore check showed host-visible content restoring
+with the Contacts fields intact while the other app remained running. It does
+not establish Android Activity pause/resume synchronization. The xdg-shell
+presenter does not consume a reliable minimized-state signal, so it leaves
+minimize behavior to KWin and Android. Details and screenshots are in
+`results/m1e/live/final_input_minimize_acceptance_20261031.json`.
+
+A separate enhanced source-LMKD/cgroup smoke also showed Settings and Contacts
+consuming synthetic text and then shut down with both presenters drained and
+the delegated cgroup removed. One first key was absent in the initial
+focus-entry attempt; a refocused retry succeeded, so focus-entry key-loss risk
+has not been ruled out in that initial enhanced keyboard run. A later separate
+enhanced session verified independent vertical scrolling; neither enhanced
+record establishes Android Activity lifecycle synchronization with minimize.
+See `results/m1e/live/enhanced_keyboard_interaction_20261031.json` and
+`results/m1e/live/scroll_routing_fix_20261031.json`.
 
 ## Lifecycle and resize boundary
 
@@ -186,8 +216,8 @@ an output-specific `released <displayId>` acknowledgement. A close of the last
 app task transitions the shared runtime to STOPPING. Live KWin close testing
 removed Settings task/display 8/2 while DeskClock task/display 9/3 stayed
 RUNNING, then removed DeskClock and stopped the runtime. Both presenter logs
-reported no outstanding or teardown-invalidated buffers. Reopen-after-close
-and minimize/unmap behavior are not implemented or verified.
+reported no outstanding or teardown-invalidated buffers. At that earlier live checkpoint, reopen-after-close and minimize/unmap behavior
+were not verified; later create-after-destroy evidence is documented above.
 
 Each presenter receives the compositor's acknowledged `xdg_toplevel.configure`
 dimensions, increments its local generation, sends the version-2 RESIZE
