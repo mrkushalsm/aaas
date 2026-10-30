@@ -54,6 +54,27 @@ Therefore this prototype does **not** establish that SurfaceFlinger always
 provides physically separate allocations, nor does it establish concurrent
 multi-display ownership. Keep the primary output as a diagnostic baseline.
 
+### 2026-10-30 continuation probe
+
+A bounded live experiment retained one previous `ImageReader` image while
+running the same virtual-display session, to see whether consumer retention
+would make the output and client target use separate allocations. It did not:
+all four sampled pairs still had the same DMA-BUF device/inode. The presenter
+imported, submitted, and presented 65 frames with 64 releases before shutdown,
+zero discards, zero rejects, and 65 explicit-sync frames. Shutdown reached
+`STOPPED`, removed the Android task, and sent presenter `CLOSE`. No screenshot
+was captured in this probe. The temporary broker change was reverted; the
+committed broker behavior and primary display path are unchanged.
+
+The pinned Android source clarifies the result: GPU-only virtual-display
+composition uses the sink/output buffer as the GPU producer buffer, while
+`CompositionType::Mixed` uses a scratch source. Therefore the alias is expected
+for the observed GPU-only path. It does not validate the Composer's
+distinct-backing copy path. Keep the one-display cap until that copy path is
+covered by a distinct-allocation correctness test and multi-display resource
+isolation is implemented. Raw paths and hashes are in
+`results/m1e/live/distinct_backing_probe.json`.
+
 ## Remaining M1E work
 
 - Only the installed Settings application has been exercised on the secondary
@@ -75,10 +96,12 @@ multi-display ownership. Keep the primary output as a diagnostic baseline.
 
 ## Verification
 
-The final regression run is recorded in `results/m1e/acceptance.json`. It
-covers Python tests, M1A, presenter build/tests, input-adapter rebuild, the
-workspace guard, plus live default, enhanced, and experimental virtual-display
-session evidence. M1D keyboard and desktop-IME behavior remain the established
+The prior regression run is recorded in `results/m1e/acceptance.json`. In this
+continuation, 142 Python tests, M1A, presenter build/tests, input-adapter
+rebuild, and the workspace guard passed again. The bounded live
+distinct-backing probe is separately recorded above. Default, enhanced, and
+experimental virtual-display smoke evidence remains in the baseline records.
+M1D keyboard and desktop-IME behavior remain the established
 baseline; this prototype additionally verified display-targeted pointer
 delivery, but did not repeat every M1D manual keyboard test.
 

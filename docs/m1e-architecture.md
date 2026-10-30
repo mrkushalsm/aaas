@@ -77,6 +77,21 @@ backing differs, the implementation copies client composition into the output
 buffer. This validates separate API roles and routing, but does not claim
 physically distinct backing allocations for every observed frame.
 
+The 2026-10-30 continuation tested whether retaining one prior `ImageReader`
+image would force a distinct output allocation. It did not: four live
+output/client-target identity samples still had matching DMA-BUF device/inode,
+and 65 frames were presented with zero presenter rejects. The temporary
+retention experiment was reverted. The pinned source explains this GPU-only
+case: `fbSourceForCompositionType(CompositionType::Gpu)` returns
+`SOURCE_SINK`, and the GPU producer dequeues the sink/output buffer itself
+(`VirtualDisplaySurface.cpp`, lines 670-671 and 388-435). `SOURCE_SCRATCH` is
+selected for `CompositionType::Mixed`. Thus the observed alias is consistent
+with the framework contract; it is not evidence that the separate-backing
+copy path works. That path still needs a focused distinct-allocation test (and
+live integration if a real Mixed composition can be induced) before increasing
+the Composer virtual-display capacity. See
+`results/m1e/live/distinct_backing_probe.json`.
+
 The framework `VirtualDisplayConfig` surface is the output sink supplied at
 display creation. The system-owned broker must own that sink's BufferQueue
 lifetime and ensure that buffer identities, generations, and fences cross the
