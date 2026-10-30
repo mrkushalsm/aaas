@@ -1,6 +1,6 @@
 # M1E status
 
-Status: **PARTIAL — two-app rendering and per-window close are live; app mode now omits the primary diagnostic presenter and bounded resource snapshots are available; multi-output resize, input isolation, reopen, and crash stability remain incomplete**
+Status: **PARTIAL — two-app rendering, independent per-output resize, per-window close, and app-mode primary-output suppression are live; full application-level input isolation, reopen, and crash stability remain incomplete**
 
 Date: 2026-10-30
 
@@ -119,8 +119,8 @@ historical SwiftShader JIT fault remains unresolved. The clean
 | Per-window task/display close | PASS, bounded live | Settings closed while DeskClock remained running; then DeskClock closed and runtime stopped. |
 | Buffer/fence terminal ownership | PASS, bounded live | Both summaries show imports=submissions=releases, zero invalidated/outstanding. |
 | Single-output Android framebuffer resize | PASS, bounded live | 720×1280 → 960×1156 → 720×1280; Composer and presenter source dimensions/strides matched after each transition. No screenshot or post-resize coordinate test was captured. |
-| Concurrent two-output resize | NOT TESTED | No live evidence for resizing one app while the other remains unchanged. |
-| Keyboard on both outputs, scrolling, focus isolation | PARTIAL / NOT TESTED here | Prior Settings secondary keyboard evidence remains; this continuation did not type into DeskClock or test scrolling on both outputs. |
+| Concurrent two-output resize | PASS, bounded live | Settings and DeskClock both transitioned from 720×1280 to matching 960×1156 Android source buffers. Settings then resized independently to 960×578 with a matching source buffer while DeskClock remained at 960×1156 / generation 2. Resize-back-to-original and landscape/burst sequences remain untested. |
+| Keyboard on both outputs, scrolling, focus isolation | PARTIAL, live transport | Synthetic h-i-i visibly updated Settings Search on display 2. After switching focus, Tab/Enter reached the DeskClock display-3 adapter and no further key injection appeared in the Settings adapter. DeskClock has no editor and showed no visible reaction; scrolling isolation remains untested. |
 | Reopen app without restarting runtime | NOT TESTED | No broker create-after-destroy request exists in this experiment. |
 | Minimize/unmap lifecycle | NOT TESTED | `xdg-shell` does not provide a general minimized notification; no visibility policy is claimed. |
 | Hide primary diagnostic presenter in normal app mode | PASS, bounded live | Experimental app sessions with selected apps skip the primary presenter; Android display 0 remains intact. `--show-primary-diagnostic` restores diagnostic presentation. This verifies no primary Wayland output, not removal of internal Android SystemUI. |
@@ -155,18 +155,19 @@ The explicit primary diagnostic opt-in also reached RUNNING and stopped cleanly.
 ## Next verified work
 
 1. Diagnose the unresolved SwiftShader JIT/SF crash and repeat bounded stability runs.
-2. Verify resize bursts, landscape, pointer-coordinate mapping, and resize isolation across two live outputs.
-3. Verify two-way keyboard, scroll, and focus isolation.
+2. Verify two-output resize-back, landscape, burst coalescing, and pointer-coordinate mapping.
+3. Demonstrate application-consumed keyboard actions and scroll isolation on both outputs.
 4. Add a broker create-after-destroy lifecycle so apps can reopen without restarting Android.
 5. Define/test minimize behavior only where the Wayland/KWin protocol exposes reliable visibility state.
 6. Repeat expanded two-app resize, close/reopen, input, and shutdown under default and source-LMKD/cgroup modes.
 
-Overall M1E remains **PARTIAL**. Two live Android apps have previously been
-shown side by side, with independent task close and drained buffers. A later
-single-output run verifies genuine Android-sized buffer changes in both
-directions. Full two-output resize, complete per-window input, reopen/minimize,
-and the historical SwiftShader JIT
-crash boundary remain open.
+Overall M1E remains **PARTIAL**. Two live Android apps have been shown side by
+side, resized concurrently to matching native Android buffers, and Settings
+was resized independently while DeskClock remained unchanged. A separate
+single-output run verifies resizing back to 720×1280. Application-level input
+acceptance on DeskClock, per-output scrolling, two-output resize-back/burst and
+landscape cases, reopen/minimize, and the historical SwiftShader JIT crash
+boundary remain open.
 
 
 ### Capacity-two retry and low-memory failure (2026-10-30)
@@ -283,3 +284,42 @@ allocations may not be represented in process PSS. Both presenters completed
 all submitted-buffer releases with zero outstanding buffers. Full structured
 evidence and session paths are in
 [`app_mode_resource_diagnostics_20261030.json`](../results/m1e/live/app_mode_resource_diagnostics_20261030.json).
+
+### Concurrent virtual-display resize and per-display keyboard routing (2026-10-30)
+
+In `m1b84_session_nltb51xu`, KWin quick-tiled Settings and DeskClock as separate
+native toplevels. Both started at 720×1280, then their configure events caused
+Android displays 2 and 3 to advance independently to resize generation 2 at
+960×1156 / 240 dpi. The broker logged updated DisplayManager metrics for both;
+WindowManager recorded task 8 on display 2 and task 9 on display 3 with
+960×1156 bounds. Composer and both presenters received Android source buffers
+at 960×1156 with 3840-byte stride. The genuine full-desktop screenshot
+[`two_output_native_resize_20261030.png`](../results/m1e/live/two_output_native_resize_20261030.png)
+shows both Android applications simultaneously.
+
+Settings was then resized alone to 960×578. Android WindowManager changed
+display-2/task-8 bounds, broker generation 3 was acknowledged, and its
+presenter received a matching 960×578 source buffer. DeskClock remained on
+display 3 at 960×1156 and generation 2; its presenter logged no new configure
+or source-size transition. This verifies independent native resizing of one
+output while the other remains at its prior dimensions. It does not cover
+resizing both back to 720×1280, landscape, rapid bursts, or post-resize input
+coordinate mapping. At shutdown Settings ended 215/215 imports/submissions/
+releases and DeskClock 197/197, both with zero outstanding buffers.
+
+A separate session `m1b84_session_u6innd8w` verified per-display keyboard
+delivery at the transport boundary. A controlled `/dev/uinput` pointer click
+opened Settings Search; synthetic h-i-i appeared visibly in the display-2
+editor. After focus changed to DeskClock, synthetic Tab/Enter DOWN/UP events
+were injected by the display-3 adapter only. The Settings adapter had logged
+keyboard focus leave and no subsequent key injection. The DeskClock Activity
+has no text editor and no visible application response to those keys was
+established; this remains partial keyboard acceptance. The screenshots
+[`two_app_keyboard_route_20261030.png`](../results/m1e/live/two_app_keyboard_route_20261030.png)
+and the detailed packet/focus/frame evidence are in
+[`two_output_resize_keyboard_20261030.json`](../results/m1e/live/two_output_resize_keyboard_20261030.json).
+
+Both sessions reached `RUNNING` then `STOPPED`; the state journal and sentinel
+matched. The new concurrent-resize and keyboard-routing sessions did not
+reproduce the historical SurfaceFlinger SwiftShader-JIT crash, but the old
+unsymbolicated SIGSEGV remains unexplained and is not considered fixed.

@@ -170,11 +170,25 @@ its virtual output, and presenter source buffers matched each configured size
 176 submissions, 176 releases, and zero outstanding buffers. Evidence:
 `results/m1e/live/native_resize_release_ack_20261030.json`.
 
-This does not establish simultaneous two-output resizing, resize bursts,
-landscape, or pointer-coordinate correctness after resize. `wp_viewporter`
-may cover transitions but is not counted as framebuffer resizing. A new
-resize generation is validated only when a matching-size Android source frame
-arrives; separate pointer remapping acceptance is still required.
+A later two-output session resized Settings and DeskClock concurrently from
+720×1280 to 960×1156. Broker acknowledgements, Android display metrics,
+WindowManager task bounds, and both presenters' source-buffer dimensions
+matched at 960×1156 (stride 3840). Settings was then resized independently to
+960×578; its generation advanced and its source buffers matched, while
+DeskClock remained at 960×1156 without a new configure. Both windows were
+visible together in a genuine desktop capture. At shutdown the presenters
+reported 215/215 and 197/197 imports/submissions/releases, with zero outstanding
+buffers. Evidence:
+`results/m1e/live/two_output_resize_keyboard_20261030.json` and
+`results/m1e/live/two_output_native_resize_20261030.png`.
+
+This establishes bounded concurrent resizing and resizing one output without
+changing the other. Resize-back-to-original on both outputs, landscape, rapid
+bursts, and pointer-coordinate correctness after resize remain untested.
+`wp_viewporter` may cover transitions but is not counted as framebuffer
+resizing. A new resize generation is validated only when a matching-size
+Android source frame arrives; separate post-resize pointer remapping acceptance
+is still required.
 
 ## Two-output run state (2026-10-30)
 
@@ -193,8 +207,20 @@ sockets were `/dev/aaas/wayland-vdisplay.sock` and
 titles/app IDs were distinct. A later KWin quick-tile experiment arranged them
 at `(0,0,960,1156)` and `(960,0,960,1156)`, captured together in
 `results/m1e/live/two_app_side_by_side_resize_20261030.png`. Settings closed
-independently while DeskClock remained live. DeskClock keyboard and independent
-scroll behavior remain unverified. Resize and close evidence: `results/m1e/live/two_app_window_resize_close_20261030.json`.
+independently while DeskClock remained live. In a separate session, synthetic
+`/dev/uinput` h-i-i input visibly appeared in Settings Search on display 2.
+After focus moved to DeskClock, its display-3 adapter received synthetic
+Tab/Enter DOWN/UP events, while the Settings adapter had left keyboard focus and
+logged no subsequent key injections. DeskClock had no text editor in the tested
+Activity and no visible reaction to those keys was established. This confirms
+limited focus/transport routing, not application-level keyboard consumption on
+DeskClock. Per-output scrolling, post-resize input coordinates, and
+physical-keyboard attribution remain open. Evidence:
+`results/m1e/live/two_output_resize_keyboard_20261030.json` and
+`results/m1e/live/two_app_keyboard_route_20261030.png`.
+
+Resize and close evidence:
+`results/m1e/live/two_app_window_resize_close_20261030.json`.
 
 
 ### Capacity-two Composer selection
