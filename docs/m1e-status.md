@@ -600,3 +600,10 @@ section; this is a diagnostic interface, so the focus matrix must be repeated
 and the query contract kept under review. Modifiers, repeated first-key trials,
 post-resize input, scroll variants, and minimize/restore were not covered by
 this session. M1E remains **PARTIAL**.
+
+The same broker and adapter build also reached `RUNNING` in enhanced
+source-LMKD/cgroup mode (session `m1b84_session_3195sxc9`). Both displays
+received focus-ready acknowledgements; shutdown reached `STOPPED`, removed the
+session cgroup, and drained presenter buffers (135/135 and 124/124 releases).
+This run did not switch focus or type into either app, so it is startup/cleanup
+evidence only: [`focus_readiness_enhanced_smoke_20261031.json`](../results/m1e/live/focus_readiness_enhanced_smoke_20261031.json).
