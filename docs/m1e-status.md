@@ -607,3 +607,57 @@ received focus-ready acknowledgements; shutdown reached `STOPPED`, removed the
 session cgroup, and drained presenter buffers (135/135 and 124/124 releases).
 This run did not switch focus or type into either app, so it is startup/cleanup
 evidence only: [`focus_readiness_enhanced_smoke_20261031.json`](../results/m1e/live/focus_readiness_enhanced_smoke_20261031.json).
+
+### Repeated two-window first-key acceptance (2026-10-31)
+
+The focus-readiness path was exercised in two fresh Settings/Contacts sessions,
+one using default diagnostic LMKD and one using source-LMKD with delegated
+cgroup v2. A single persistent synthetic pointer and keyboard remained attached
+through each trial; this avoids the earlier disposable-pointer harness, whose
+device teardown itself caused host focus loss and invalidated those trials.
+
+Each session alternated focus 20 times. Settings Search received markers
+`a01`–`a10`; Contacts' First name field received `b01`–`b10`. The first
+character was visible in every target field, the other field retained its
+previous marker, and no duplicate or cross-window insertion was visible in the
+captured sequence. This is 20/20 visible first-key transitions in default and
+20/20 in enhanced mode. Synthetic `/dev/uinput` evidence only; physical
+keyboard attribution is not claimed. The OCR helper confused some `0` glyphs
+with `o`; the pass count comes from direct screenshot inspection, and OCR text
+is retained as diagnostic metadata rather than used as the acceptance oracle.
+See the genuine screenshot contact sheets
+[`default`](../results/m1e/live/repeated_focus_fields_default_20261031.png) and
+[`enhanced`](../results/m1e/live/repeated_focus_fields_enhanced_20261031.png),
+final simultaneous captures
+[`default`](../results/m1e/live/repeated_first_key_focus_20261031.png) and
+[`enhanced`](../results/m1e/live/repeated_first_key_focus_enhanced_20261031.png),
+and structured per-transition results in
+[`repeated_focus_typing_20261031.json`](../results/m1e/live/repeated_focus_typing_20261031.json).
+
+The broker observed InputDispatcher focused-window matches on the requested
+display before readiness acknowledgements. The observed snapshot-readiness
+query duration was 224–236 ms in the default run and 226–249 ms in enhanced
+mode. Logcat still contains 40 default and 26 enhanced warnings stating that a
+focused display temporarily had no focused window. Neither bounded log has an
+ANR signature, and no visible marker was lost. These are classified as
+recoverable focus-publication/transition warnings for this tested sequence, not
+suppressed; the logs do not correlate every warning individually to a broker
+request, so the broader warning behavior remains a limitation. Both sessions
+ended with journal and sentinel `STOPPED`. Default presenters drained 1566 and
+1560 buffers; enhanced presenters drained 593 and 573. Every import was
+released, with zero outstanding buffers and zero teardown invalidations. The
+enhanced delegated cgroup was removed.
+
+The test covered Ctrl+A replacement and ordinary letters/digits. It did not
+complete the Shift/Caps/Alt/navigation/repeat matrix, rapid adversarial focus
+races, input immediately after resize/minimize/reopen, post-resize corner
+coordinate checks, landscape/resize-burst testing, or horizontal/touchpad
+scroll-source acceptance. The historical SwiftShader JIT SIGSEGV remains
+unexplained. M1E therefore remains **PARTIAL** despite the repeated first-key
+result. Both runtime logs and all individual screenshot hashes are recorded in
+the structured result; raw session logs and full frame sequences remain under
+the external workspace session directories.
+
+The full regression set was rerun after these sessions: 171 Python tests,
+M1A tests, forced presenter build/tests, forced input-adapter build, Composer
+component tests, display-broker build, and workspace guard all passed.
