@@ -165,10 +165,16 @@ def validate_app_package(package):
 
 
 def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKAGE,
-                        experimental_virtual_display=False):
+                        experimental_virtual_display=False, app_package2=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
+    if app_package2 is not None:
+        app_package2 = validate_app_package(app_package2)
+        if app_package2 == app_package:
+            raise ValueError('app2 must differ from app')
+        if not experimental_virtual_display:
+            raise ValueError('app2 requires --experimental-virtual-display')
     timeout = '140'
     source = RUNNER.read_text()
     source = replace_once(
@@ -238,10 +244,27 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '        f\'  --bind "{vdisplay_input_adapter_log}" '
             '/aaas_vdisplay_input_adapter.log \' + chr(92) + "\\n")',
         )
+        if app_package2 is not None:
+            source = replace_once(
+                source,
+                '    vdisplay_input_adapter_log_bind = (\n'
+                '        f\'  --bind "{vdisplay_input_adapter_log}" '
+                '/aaas_vdisplay_input_adapter.log \' + chr(92) + "\\n")',
+                '    vdisplay_input_adapter_log_bind = (\n'
+                '        f\'  --bind "{vdisplay_input_adapter_log}" '
+                '/aaas_vdisplay_input_adapter.log \' + chr(92) + "\\n")\n'
+                '    vdisplay2_input_adapter_log = Path(\n'
+                '        os.environ["AAAS_VDISPLAY2_INPUT_ADAPTER_LOG"])\n'
+                '    vdisplay2_input_adapter_log_bind = (\n'
+                '        f\'  --bind "{vdisplay2_input_adapter_log}" '
+                '/aaas_vdisplay2_input_adapter.log \' + chr(92) + "\\n")',
+            )
     source = replace_once(source, '    ipc_dir.chmod(0o777)', '    ipc_dir.chmod(0o711)')
     input_adapter_log_placeholder = '{input_adapter_log_bind}'
     if experimental_virtual_display:
         input_adapter_log_placeholder += '{vdisplay_input_adapter_log_bind}'
+        if app_package2 is not None:
+            input_adapter_log_placeholder += '{vdisplay2_input_adapter_log_bind}'
     source = replace_once(
         source,
         '    overlay_libvulkan = tmp_dir / "libvulkan.so"',
@@ -425,6 +448,57 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '"displayId=$VD_ID|AaaS application output|com.android.settings|Taskbar|StatusBar" '
             '>> /aaas_session_commands 2>&1',
         )
+        if app_package2 is not None:
+            source = replace_once(
+                source,
+                '    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
+                '>> /aaas_session_commands',
+                '    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
+                '>> /aaas_session_commands\n'
+                '    VD2_WAIT=0\n'
+                '    while [ -z "$(/system/bin/toybox cat /dev/aaas/vdisplay2_id 2>/dev/null)" '
+                '&& [ "$VD2_WAIT" -lt 30 ]; do\n'
+                '      /system/bin/toybox sleep 1\n'
+                '      VD2_WAIT=$((VD2_WAIT + 1))\n'
+                '    done\n'
+                '    VD_ID2=$(/system/bin/toybox cat /dev/aaas/vdisplay2_id 2>/dev/null | '
+                '/system/bin/toybox tr -d "\\r\\n")\n'
+                '    case "$VD_ID2" in ""|*[!0-9]*) echo "second trusted display missing"; '
+                'echo FAILED > /aaas_session_status; exit 1 ;; esac\n'
+                '    /system/bin/aaas-input-adapter --socket /dev/aaas/input-vdisplay-2.sock '
+                '--session-file /dev/aaas/input_session --log /aaas_vdisplay2_input_adapter.log '
+                '--display "$VD_ID2" &\n'
+                '    VDISPLAY2_INPUT_ADAPTER_PID=$!\n'
+                '    echo "AAAS_VDISPLAY2_INPUT_ADAPTER_STARTED=$VDISPLAY2_INPUT_ADAPTER_PID" '
+                '>> /aaas_session_commands\n'
+                '    ADAPTER2_WAIT=0\n'
+                '    while ! /system/bin/toybox grep -Fq hello '
+                '/aaas_vdisplay2_input_adapter.log 2>/dev/null && [ "$ADAPTER2_WAIT" -lt 100 ]; do\n'
+                '      /system/bin/toybox sleep 0.1\n'
+                '      ADAPTER2_WAIT=$((ADAPTER2_WAIT + 1))\n'
+                '    done\n'
+                '    if ! /system/bin/toybox grep -Fq hello '
+                '/aaas_vdisplay2_input_adapter.log 2>/dev/null; then\n'
+                '      echo AAAS_VDISPLAY2_INPUT_ADAPTER_NOT_READY >> /aaas_session_commands\n'
+                '      echo FAILED > /aaas_session_status; exit 1\n'
+                '    fi\n'
+                '    APP_COMPONENT2=$(/system/bin/cmd package resolve-activity --brief --user 0 '
+                '-a android.intent.action.MAIN -c android.intent.category.LAUNCHER '
+                f'-p {app_package2} 2>&1 | /system/bin/toybox tee -a /aaas_session_commands '
+                '| /system/bin/toybox tail -n 1)\n'
+                '    case "$APP_COMPONENT2" in */*) ;; *) echo "No launchable activity for '
+                f'{app_package2}"; echo FAILED > /aaas_session_status; exit 1 ;; esac\n'
+                '    if ! /system/bin/cmd activity start-activity -W --display "$VD_ID2" '
+                '-n "$APP_COMPONENT2" >> /aaas_session_commands 2>&1; then\n'
+                '      if ! /system/bin/am start -W --display "$VD_ID2" -n "$APP_COMPONENT2" '
+                '>> /aaas_session_commands 2>&1; then\n'
+                '        echo "AAAS_ACTIVITY2_LAUNCH_FAILED display=$VD_ID2 component=$APP_COMPONENT2" '
+                '>> /aaas_session_commands; echo FAILED > /aaas_session_status; exit 1\n'
+                '      fi\n'
+                '    fi\n'
+                '    echo "AAAS_ACTIVITY2_LAUNCH_OK display=$VD_ID2 component=$APP_COMPONENT2" '
+                '>> /aaas_session_commands',
+            )
     readiness_and_watch = (
         f'    APP_PACKAGE={app_package}\n'
         '    # Track the Android activity/task lifecycle; process names may be custom.\n'
@@ -443,6 +517,23 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
         'aaas_app_task_alive'
     )
+    if app_package2 is not None:
+        readiness_and_watch = readiness_and_watch.replace(
+            '    }}\n'
+            '    /system/bin/toybox sleep 3\n'
+            '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
+            '! aaas_app_task_alive; then\n',
+            '    }}\n'
+            '    aaas_app2_task_alive() {{\n'
+            '      /system/bin/dumpsys activity activities | '
+            f'/system/bin/toybox grep -F "u0 {app_package2}/" >/dev/null 2>&1\n'
+            '    }}\n'
+            '    /system/bin/toybox sleep 3\n'
+            '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
+            '! aaas_app_task_alive || ! aaas_app2_task_alive; then\n'
+        )
+        readiness_and_watch = readiness_and_watch.replace(
+            '&& aaas_app_task_alive', '&& aaas_app_task_alive && aaas_app2_task_alive')
     if experimental_virtual_display:
         readiness_and_watch += (
             ' && [ "$(/system/bin/toybox cat /aaas_session_status)" != "STOPPING" ]; do\n'
@@ -596,6 +687,9 @@ def main():
     parser.add_argument('--app', default=DEFAULT_APP_PACKAGE,
                         help='installed package with a MAIN/LAUNCHER activity '
                              '(default: com.android.settings)')
+    parser.add_argument('--app2',
+                        help='optional second installed app for the experimental '
+                             'two-display prototype')
     parser.add_argument('--software-keyboard', action='store_true',
                         help='Allow Android to show its software keyboard (mobile/accessibility mode)')
     parser.add_argument('--experimental-virtual-display', action='store_true',
@@ -605,6 +699,12 @@ def main():
         parser.error('startup timeout must be positive')
     try:
         validate_app_package(args.app)
+        if args.app2 is not None:
+            validate_app_package(args.app2)
+            if args.app2 == args.app:
+                raise ValueError('app2 must differ from app')
+            if not args.experimental_virtual_display:
+                raise ValueError('--app2 requires --experimental-virtual-display')
     except ValueError as error:
         parser.error(str(error))
     paths = verify_requirements(use_source_lmkd=args.use_source_lmkd,
@@ -658,15 +758,21 @@ def main():
     input_adapter_log.touch()
     input_adapter_log.chmod(0o666)
     vdisplay_input_adapter_log = session / 'vdisplay-input-adapter.log'
+    vdisplay2_input_adapter_log = session / 'vdisplay2-input-adapter.log'
     if args.experimental_virtual_display:
         vdisplay_input_adapter_log.touch()
         vdisplay_input_adapter_log.chmod(0o666)
+        if args.app2:
+            vdisplay2_input_adapter_log.touch()
+            vdisplay2_input_adapter_log.chmod(0o666)
     input_session = int.from_bytes(os.urandom(8), 'little') or 1
     (ipc / 'input_session').write_text(f'0x{input_session:016x}\n')
     (ipc / 'input_session').chmod(0o600)
     if args.experimental_virtual_display:
         (ipc / 'vdisplay_id').write_text('')
         (ipc / 'vdisplay_id').chmod(0o666)
+        (ipc / 'vdisplay2_id').write_text('enabled\n' if args.app2 else '')
+        (ipc / 'vdisplay2_id').chmod(0o666)
         (ipc / 'display_broker_shutdown').write_text('')
         (ipc / 'display_broker_shutdown').chmod(0o666)
     policy = None
@@ -683,7 +789,8 @@ def main():
         print(f'AaaS: cgroup memory policy at {policy.session_dir}', flush=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
-                                 experimental_virtual_display=args.experimental_virtual_display)
+                                 experimental_virtual_display=args.experimental_virtual_display,
+                                 app_package2=args.app2)
     prefix = f'm1b84_session_{os.getpid()}_'
     env = os.environ.copy()
     env.update(paths)
@@ -702,7 +809,9 @@ def main():
                    AAAS_VDISPLAY_RC=str(VDISPLAY_BROKER_RC),
                    AAAS_SESSION_COMMANDS=str(session_commands),
                    AAAS_VDISPLAY_INPUT_ADAPTER_LOG=str(vdisplay_input_adapter_log))
-    presenter = virtual_presenter = android = None
+        if args.app2:
+            env['AAAS_VDISPLAY2_INPUT_ADAPTER_LOG'] = str(vdisplay2_input_adapter_log)
+    presenter = virtual_presenter = virtual_presenter2 = android = None
     state = 'CREATED'
     input_ready_reported = False
     running_session = False
@@ -741,7 +850,8 @@ def main():
                          '--input-socket', str(ipc / 'input-vdisplay.sock'),
                          '--input-session', f'0x{input_session:016x}',
                          '--input-display-id-file', str(ipc / 'vdisplay_id'),
-                         '--title', f'AaaS virtual output: {args.app}', '--exit-on-close'],
+                         '--title', f'AaaS: {args.app}', '--app-id',
+                         'org.aaas.' + args.app.replace('.', '-'), '--exit-on-close'],
                         stdout=virtual_log, stderr=subprocess.STDOUT,
                         start_new_session=True,
                     )
@@ -750,6 +860,27 @@ def main():
                     if virtual_presenter.poll() is not None or time.monotonic() >= deadline:
                         raise RuntimeError('virtual display presenter did not start')
                     time.sleep(.1)
+                if args.app2:
+                    virtual2_log_path = session / 'virtual-presenter2.log'
+                    with virtual2_log_path.open('wb') as virtual2_log:
+                        virtual_presenter2 = subprocess.Popen(
+                            [str(PRESENTER), '--socket',
+                             str(ipc / 'wayland-vdisplay.sock-2'),
+                             '--width', presenter_size[0], '--height', presenter_size[1],
+                             '--input-socket', str(ipc / 'input-vdisplay-2.sock'),
+                             '--input-session', f'0x{input_session:016x}',
+                             '--input-display-id-file', str(ipc / 'vdisplay2_id'),
+                             '--title', f'AaaS: {args.app2}', '--app-id',
+                             'org.aaas.' + args.app2.replace('.', '-'),
+                             '--exit-on-close'],
+                            stdout=virtual2_log, stderr=subprocess.STDOUT,
+                            start_new_session=True,
+                        )
+                    deadline = time.monotonic() + 10
+                    while not (ipc / 'wayland-vdisplay.sock-2').exists():
+                        if virtual_presenter2.poll() is not None or time.monotonic() >= deadline:
+                            raise RuntimeError('second virtual display presenter did not start')
+                        time.sleep(.1)
             transition('STARTING_ANDROID')
             android = subprocess.Popen([sys.executable, str(runner)], env=env,
                                        stdout=android_log, stderr=subprocess.STDOUT,
@@ -761,6 +892,8 @@ def main():
                     raise RuntimeError(f'presenter exited before {args.app} became ready')
                 if virtual_presenter is not None and virtual_presenter.poll() is not None:
                     raise RuntimeError('virtual display presenter exited before Android startup')
+                if virtual_presenter2 is not None and virtual_presenter2.poll() is not None:
+                    raise RuntimeError('second virtual display presenter exited before Android startup')
                 if android.poll() is not None:
                     raise RuntimeError(f'Android exited before {args.app} became ready')
                 if not input_ready_reported and INPUT_ADAPTER.is_file():
@@ -782,7 +915,8 @@ def main():
                             policy, policy_log)
                         policy_monitor.start()
                         print('AaaS: tracking Android memory priority classes', flush=True)
-                    print(f'{args.app} process started. Close its window or press Ctrl+C to stop.', flush=True)
+                    launched = args.app if not args.app2 else f'{args.app} and {args.app2}'
+                    print(f'{launched} task(s) started. Close a window or press Ctrl+C to stop.', flush=True)
                     break
                 if status.read_text().strip() == 'FAILED' or time.monotonic() >= deadline:
                     raise RuntimeError(f'Android app {args.app} did not become ready')
@@ -794,6 +928,8 @@ def main():
                     break
                 if virtual_presenter is not None and virtual_presenter.poll() is not None:
                     raise RuntimeError('virtual display presenter exited')
+                if virtual_presenter2 is not None and virtual_presenter2.poll() is not None:
+                    raise RuntimeError('second virtual display presenter exited')
                 if android.poll() is not None or status.read_text().strip() == 'FAILED':
                     raise RuntimeError('Android runtime failed')
                 if (policy_monitor is not None and policy_monitor.degraded
@@ -844,7 +980,7 @@ def main():
                 print('AaaS: virtual display shutdown handshake timed out',
                       file=sys.stderr, flush=True)
                 cleanup_failed = True
-        for process in (android, virtual_presenter, presenter):
+        for process in (android, virtual_presenter2, virtual_presenter, presenter):
             try:
                 terminate_process_group(process)
             except Exception as error:

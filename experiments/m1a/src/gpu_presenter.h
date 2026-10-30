@@ -8,6 +8,7 @@
 typedef struct {
     int sock;
     const char *title;
+    const char *app_id;
     uint32_t initial_width;
     uint32_t initial_height;
     const char *drm_node;

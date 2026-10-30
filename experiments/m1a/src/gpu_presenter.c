@@ -1790,6 +1790,8 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     app.toplevel = xdg_surface_get_toplevel(app.xdg_surf);
     xdg_toplevel_add_listener(app.toplevel, &toplevel_listener, &app);
     xdg_toplevel_set_title(app.toplevel, config->title ? config->title : "AaaS M1A.1 GPU Presenter");
+    if (config->app_id && config->app_id[0])
+        xdg_toplevel_set_app_id(app.toplevel, config->app_id);
 
     // Initialize explicit sync surface and acquire timeline
     if (explicit_sync_available) {

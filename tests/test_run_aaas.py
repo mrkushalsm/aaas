@@ -227,12 +227,46 @@ class ForegroundRunnerTests(unittest.TestCase):
     def test_virtual_display_broker_releases_owned_display_before_ack(self):
         broker = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
         service = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/aaas-display-broker.rc').read_text()
-        self.assertIn('call(ownedDisplay, "release"', broker)
-        self.assertIn('call(ownedReader, "close"', broker)
-        self.assertLess(broker.index('call(ownedDisplay, "release"'),
-                        broker.index('output.write("released'))
-        self.assertIn('new FileOutputStream(ownedIdPath, false)', broker)
+        self.assertIn('call(handle.virtualDisplay, "release"', broker)
+        self.assertIn('call(handle.reader, "close"', broker)
+        self.assertLess(broker.index('call(handle.virtualDisplay, "release"'),
+                        broker.index('output.write((success ? "released'))
+        self.assertIn('new FileOutputStream(handle.idPath, false)', broker)
+        self.assertIn('createSecondDisplay', broker)
+        self.assertIn('vdisplay2_id', service)
         self.assertIn('oneshot', service)
+
+    def test_two_app_runner_creates_two_displays_and_task_routes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True,
+                app_package='com.android.settings', app_package2='com.android.deskclock'
+            ).read_text()
+        self.assertIn('vdisplay2_id', generated)
+        self.assertIn('--socket /dev/aaas/input-vdisplay-2.sock', generated)
+        self.assertIn('--log /aaas_vdisplay2_input_adapter.log', generated)
+        self.assertIn('--bind "{vdisplay2_input_adapter_log}" '
+                      '/aaas_vdisplay2_input_adapter.log', generated)
+        self.assertIn('APP_COMPONENT2=', generated)
+        self.assertIn('-p com.android.deskclock', generated)
+        self.assertIn('start-activity -W --display "$VD_ID2"', generated)
+        self.assertIn('aaas_app2_task_alive', generated)
+
+    def test_presenter_exposes_per_window_wayland_app_identity(self):
+        host = (SCRIPT.parents[1] / 'experiments/m1a/src/wayland_host_presenter.c').read_text()
+        gpu = (SCRIPT.parents[1] / 'experiments/m1a/src/gpu_presenter.c').read_text()
+        self.assertIn('--app-id', host)
+        self.assertIn('xdg_toplevel_set_app_id(app.toplevel, config->app_id)', gpu)
+
+    def test_second_app_requires_a_distinct_package_and_virtual_display_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'differ'):
+                SESSION.make_session_runner(
+                    Path(directory), app_package='com.android.settings',
+                    app_package2='com.android.settings', experimental_virtual_display=True)
+            with self.assertRaisesRegex(ValueError, 'requires'):
+                SESSION.make_session_runner(
+                    Path(directory), app_package2='com.android.deskclock')
 
     def test_single_instance_lock_rejection(self):
         import fcntl

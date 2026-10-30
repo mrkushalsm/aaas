@@ -22,6 +22,7 @@ static void print_usage(const char *prog) {
             "Options:\n"
             "  --socket <path>     UNIX domain socket path (default: /run/media/mrkus/Homework/aaas-workspace/tmp/aaas_wayland.sock)\n"
             "  --title <title>     Wayland window title (default: 'AaaS Android 16 Desktop')\n"
+            "  --app-id <id>       Wayland toplevel application identity\n"
             "  --width <w>         Initial window width (default: 1280)\n"
             "  --height <h>        Initial window height (default: 720)\n"
             "  --node <path>       DRM render node path (default: /dev/dri/renderD129)\n"
@@ -42,6 +43,7 @@ int main(int argc, char **argv) {
 
     const char *socket_path = "/run/media/mrkus/Homework/aaas-workspace/tmp/aaas_ipc/wayland.sock";
     const char *title = "AaaS Android 16 Desktop";
+    const char *app_id = "org.aaas.android";
     uint32_t width = 1280;
     uint32_t height = 720;
     const char *drm_node = "/dev/dri/renderD129";
@@ -57,6 +59,8 @@ int main(int argc, char **argv) {
             socket_path = argv[++i];
         } else if (strcmp(argv[i], "--title") == 0 && i + 1 < argc) {
             title = argv[++i];
+        } else if (strcmp(argv[i], "--app-id") == 0 && i + 1 < argc) {
+            app_id = argv[++i];
         } else if (strcmp(argv[i], "--width") == 0 && i + 1 < argc) {
             width = (uint32_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--height") == 0 && i + 1 < argc) {
@@ -180,6 +184,7 @@ int main(int argc, char **argv) {
         aaas_presenter_config cfg = {
             .sock = client_sock,
             .title = title,
+            .app_id = app_id,
             .initial_width = width,
             .initial_height = height,
             .drm_node = drm_node,
