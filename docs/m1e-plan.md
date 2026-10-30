@@ -1,6 +1,6 @@
 # M1E plan: app-first Android windows on Wayland
 
-Status: **IN PROGRESS — one trusted secondary-display output validated; multi-window work pending**
+Status: **IN PROGRESS — two app tasks/displays/output streams are live; independent window management remains pending**
 Baseline for this continuation: `162321b` (`master`)
 Preservation record: `results/m1e/preservation_manifest.json`
 
@@ -37,18 +37,17 @@ remain installed and running where Android applications depend on them.
 2. `scripts/run_aaas.py --app <package>` resolves a package's Android
    `MAIN`/`LAUNCHER` Activity and uses ActivityManager task state for liveness.
    Settings is the verified package; general compatibility remains untested.
-3. The opt-in `--experimental-virtual-display` prototype creates one genuine
-   system-owned trusted display, launches Settings task 8 on it, and sends
-   Composer virtual output through a second presenter/socket. Android display,
+3. The opt-in `--experimental-virtual-display` prototype creates one or two genuine
+   system-owned trusted displays, launches selected tasks on them, and sends
+   each Composer virtual output through an independent presenter/socket. Android display,
    task, Insets, touch region, rendered screen, input click, and shutdown
    removal have live evidence. Buffer roles are distinct, but their DMA-BUF
    backing aliased in the captured run.
-4. Add stable host-window identity after the display owner and task-launch
-   boundary are known.
-5. Extend output/session management for multiple displays and tasks. Keep
-   `wire_v2` and existing input message meanings intact; negotiate a new
-   version or use isolated per-output sockets.
-6. Add a second application/task, then test independent focus and teardown.
+4. Two tasks on displays 2/3 and Composer outputs 100/101 now reach two
+   toplevels with separate titles and app IDs. Their KWin geometry overlaps.
+5. Complete visible placement, display-targeted input, Android resize, and
+   task-specific close/minimize/teardown. Keep `wire_v2` semantics intact and
+   use isolated per-output sockets.
 7. Run existing suites and both normal and cgroup/LMKD modes.
 
 ## Current verified baseline

@@ -1,6 +1,6 @@
 # M1E architecture evaluation
 
-Status: **one-display trusted virtual-output prototype validated; multi-window architecture remains partial**
+Status: **two trusted virtual displays and Composer output streams validated concurrently; independently managed windows remain partial**
 Android framework reference: pinned AOSP `frameworks/base` commit
 `99b01a65cc4c104933788b3143285ab6bae65827` from
 `manifests/android16-r1-subset.json`.
@@ -13,11 +13,14 @@ The launcher now accepts `--app <package>` (defaulting to
 `com.android.settings`), resolves that package's `MAIN`/`LAUNCHER` component
 through Android PackageManager, and starts the resolved component. The normal
 path keeps the diagnostic primary display. The experimental
-`--experimental-virtual-display` path creates one system-owned trusted Android
-virtual display, starts Settings on its Android display ID, and uses a second
-Composer transport socket and Wayland toplevel. The primary display, wire
-protocol v2, and primary input route remain unchanged. This proves one
-secondary output; it is not yet a general multi-window session manager.
+`--experimental-virtual-display` path creates a system-owned trusted Android
+virtual display for each requested app (`--app` and optional `--app2`), routes
+each task to its Android display ID, and uses one Composer transport socket
+and Wayland toplevel per output. The primary display, wire
+protocol v2, and primary input route remain unchanged. A two-app live run proved two tasks, Android displays, Composer outputs, and
+Wayland toplevels in one runtime. It is still not a complete multi-window
+session manager: KWin placed both windows at the same geometry, and per-window
+input, resize, close, and independent teardown remain unverified.
 
 The live Android probe reported one logical display: ID 0, 720×1280, trusted,
 and able to host tasks. Settings was task 8 and top-resumed. A Launcher HOME
@@ -32,7 +35,7 @@ verified WMS/InputDispatcher state recorded below.
 
 | Candidate | Reuse and rendering | Android policy and security | Cost / principal risk | Assessment |
 |---|---|---|---|---|
-| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 now allocates one virtual output and the prototype transports it over a dedicated socket. | The scoped system-UID broker creates a trusted, private, own-content display. The installed Settings app launches successfully on it. This is a privileged prototype, not an unrestricted host Binder interface. | Multi-display scalability, resize, secondary app compatibility, and concurrent buffer ownership remain unverified. | **Single-display prototype passed; scale-out pending.** |
+| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. A live run created two outputs concurrently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | Independent KWin placement, resize, input, task lifecycle, and per-output teardown remain unverified. | **Two-output prototype passed; independent window acceptance pending.** |
 | **B. Task-level SurfaceControl output** | Android tasks already group an application's Activity stack, which is the right lifecycle unit. But the AaaS host currently receives only the whole-display Composer client target. It cannot obtain a task's independent surface from the current transport. | A task organizer/SurfaceControl bridge would require privileged framework ownership and strict surface/input authorization. Activities, dialogs, transitions, and child windows must remain composed consistently. | Requires task organizer/transaction infrastructure, SurfaceControl capture or reparenting, independent buffer export/release fences, z-order/animation handling, and input routing. Not a direct DMA-BUF stream merely because the Task has a SurfaceControl. | Better long-term if proven capture/export is available, but substantially more invasive and no reuse proof exists. Do not start here. |
 | **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Task ID 8 was observed on display 2. | One-task output is demonstrated; task-aware close, multiple task outputs, resize, and independent two-app operation remain. | **Validated as the M1E prototype direction**, not yet a finished multi-window design. |
 
@@ -92,8 +95,9 @@ the CPU mapping with DMA-BUF read/write START/END synchronization, and uses a
 stride-aware row-copy helper. A host component test confirms distinct backing,
 pixel bytes, stride handling, and padding preservation. It uses memfd rather
 than DMA-BUF, so cache-coherency and real Mixed-composition behavior remain
-unverified. Do not increase Composer virtual-display capacity until the
-distinct DMA-BUF path and concurrent per-display ownership are validated. See
+unverified. The cap-two build now validates concurrent per-display ownership
+for the observed GPU-alias path; the real distinct DMA-BUF copy path remains
+unverified and is not forced in GPU-only operation. See
 `results/m1e/live/distinct_backing_probe.json` and
 `results/m1e/live/distinct_copy_component.json`.
 
@@ -107,23 +111,26 @@ cannot create this Android output endpoint.
 ## Recommendation and prototype exit criteria
 
 Continue with **Candidate C as the staged architecture**, using one Android
-virtual display per app task and a dedicated presenter socket/toplevel. The
-first display and frame path are live-tested. Do not create a parallel Android
-container per app. Before claiming full M1E, the remaining work must prove:
+virtual display per app task and a dedicated presenter socket/toplevel. Two
+Android tasks, displays, Composer transports, and Wayland toplevels have now
+been exercised concurrently. Do not create a parallel Android container per
+app. The captures show the windows overlap, and M1E is not complete. Before
+claiming full M1E, the remaining work must prove:
 
 1. Validate additional installed apps and launch failures.
 2. Implement task-specific close/minimize and display restart behavior.
-3. Verify Composer output/client-target ownership with both aliased and distinct
-   backing allocations.
+3. Preserve the GPU-only aliased output path and validate the synchronized
+   distinct-backing copy branch when real mixed composition supplies it.
 4. Implement resize as an Android display/configuration update, not host-only
    scaling.
-5. Demonstrate two tasks in independent Wayland toplevels and independently
-   destroy one output while the other continues.
+5. Make both KWin toplevels simultaneously accessible and verify independent
+   keyboard/pointer/scroll focus and task-specific teardown, including
+   destroying one output while the other continues.
 
-The initial trusted-display and output-path gate passed for one Settings task.
-Keep the primary display as a diagnostic baseline until multi-output ownership
-and teardown are proven. Do not fall back to pretending virtual outputs are
-physical displays. The Android shell exposes no trusted-display creation
+The initial trusted-display path passed for Settings, and two-output ownership
+was exercised in a bounded simultaneous run. Keep the primary display as a
+diagnostic baseline until per-window teardown is independently proven. Do not
+fall back to pretending virtual outputs are physical displays. The Android shell exposes no trusted-display creation
 command; the system-owned local broker is required for this prototype.
 
 The launcher now checks ActivityManager's activity/task snapshot for the
@@ -154,7 +161,30 @@ diagnostic display 0. SurfaceFlinger and DisplayManager logged virtual display
 removal, Composer logged `destroyVirtualDisplay id=100`, the broker cleared the
 published ID, and init stopped its one-shot service during shutdown.
 
-Machine-readable details and raw log paths are in
-`results/m1e/live/trusted_virtual_display.json`. M1E remains **PARTIAL**: no
-second app/window, Android resize integration, or task-specific close policy
-has been demonstrated.
+This earlier one-app baseline is retained for comparison; it predates the
+concurrent Settings/DeskClock experiment below. Its machine-readable details
+and raw log paths remain in `results/m1e/live/trusted_virtual_display.json`.
+
+### Concurrent two-output evidence (2026-10-30)
+
+The two-display extension used separate `AaasTransport` instances, virtual
+display states, output/client-target slots, locks, and generations. Runtime
+created Composer IDs 100 and 101 and sent frames on both independent sockets.
+Android assigned displays 2 and 3; Settings task 8 and DeskClock task 9 were
+observed on them. The broker used one ImageReader/VirtualDisplay per output and
+released both during full-session shutdown. The cap-two binary and source hashes
+are recorded in `results/m1e/build_receipts/multi_output.json`. Live task, frame,
+input, window and shutdown facts are in `results/m1e/live/two_app_outputs.json`.
+
+The two Wayland toplevels have distinct title/app-ID pairs, but KWin placed both
+at `(600,0,720,1280)`. Each was captured individually as the active window;
+the screenshots do not establish simultaneous visibility or independent focus.
+Each adapter completed HELLO with its own display ID. Controlled pointer clicks
+visibly changed Settings on display 2 and DeskClock on display 3. Synthetic
+`hii` text visibly appeared in Settings Search on display 2; switching KWin focus
+caused the corresponding input-adapter focus leave/enter, and no typed key packet
+was observed on the unfocused adapter. DeskClock text entry and per-output scroll
+remain untested. Resize, task-specific close, minimize, and one-output teardown
+while the other remains alive are outstanding.
+Each output presenter also exited with one final outstanding imported frame, so
+full drain at teardown remains an explicit ownership item.
