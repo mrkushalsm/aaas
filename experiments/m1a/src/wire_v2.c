@@ -121,7 +121,8 @@ int aaas_v2_send_buffer_rejected(int sock, const aaas_v2_msg *buffer,
         .magic = AAAS_V2_MAGIC,
         .version = AAAS_V2_VERSION,
         .type = AAAS_V2_RELEASE,
-        .flags = acquire_fence_fd >= 0 ? AAAS_V2_FLAG_RELEASE_FENCE : 0,
+        .flags = acquire_fence_fd >= 0
+                     ? (uint32_t)AAAS_V2_FLAG_RELEASE_FENCE : 0u,
         .generation = buffer->generation,
         .id = buffer->id,
     };
