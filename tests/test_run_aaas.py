@@ -34,6 +34,20 @@ class ForegroundRunnerTests(unittest.TestCase):
             self.assertEqual(SESSION.finalize_status_sentinel(status, failed=True), 'FAILED')
             self.assertEqual(status.read_text(), 'FAILED\n')
 
+    def test_terminal_state_journal_and_android_sentinel_match(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory)
+            status = session / 'status'
+            status.write_text('RUNNING\n')
+            SESSION.write_session_state(session, status, 'STOPPING')
+            SESSION.write_session_state(session, status, 'STOPPED')
+            states = [json.loads(line)['state'] for line in
+                      (session / 'state.jsonl').read_text().splitlines()]
+            self.assertEqual(states, ['STOPPING', 'STOPPED'])
+            self.assertEqual(status.read_text(), states[-1] + '\n')
+
     def test_process_group_cleanup_kills_namespace_pid1_survivors(self):
         import os
         import subprocess
@@ -251,6 +265,36 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('-p com.android.deskclock', generated)
         self.assertIn('start-activity -W --display "$VD_ID2"', generated)
         self.assertIn('aaas_app2_task_alive', generated)
+
+    def test_two_app_watch_keeps_shared_runtime_when_one_task_closes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True,
+                app_package='com.android.settings', app_package2='com.android.deskclock'
+            ).read_text()
+        self.assertIn('(aaas_app_task_alive || aaas_app2_task_alive)', generated)
+        self.assertIn('echo CLOSED > /dev/aaas/app1_state', generated)
+        self.assertIn('echo CLOSED > /dev/aaas/app2_state', generated)
+        self.assertIn('! aaas_app_task_alive && ! aaas_app2_task_alive', generated)
+
+    def test_resize_and_close_are_scoped_per_virtual_output(self):
+        launcher = SCRIPT.read_text()
+        broker = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
+        presenter = (SCRIPT.parents[1] / 'experiments/m1a/src/gpu_presenter.c').read_text()
+        composer = (SCRIPT.parents[1] / 'experiments/m1b/composer_aaas/composer_service.cpp').read_text()
+        self.assertIn("'--resize-request', str(ipc / 'vdisplay_resize_1')", launcher)
+        self.assertIn("'--resize-request', str(ipc / 'vdisplay_resize_2')", launcher)
+        self.assertIn('vdisplay_close_', broker)
+        self.assertIn('call(handle.virtualDisplay, "resize"', broker)
+        self.assertIn('call(handle.virtualDisplay, "setSurface"', broker)
+        self.assertIn('oldWidth, oldHeight, handle.density', broker)
+        self.assertIn('resize_rollback_failed', broker)
+        self.assertIn('reportResizedMetrics', broker)
+        self.assertIn('invoke(handle.handler, reportResizedMetrics, 500L)', broker)
+        self.assertIn('requested=" + handle.width + "x"', broker)
+        self.assertIn('a->pending_w = (uint32_t)w', presenter)
+        self.assertIn('write_android_resize_request(a, w, h)', presenter)
+        self.assertIn('virtual display resize observed', composer)
 
     def test_presenter_exposes_per_window_wayland_app_identity(self):
         host = (SCRIPT.parents[1] / 'experiments/m1a/src/wayland_host_presenter.c').read_text()

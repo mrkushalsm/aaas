@@ -26,10 +26,18 @@ public final class AaasDisplayBroker {
 
     private static final class DisplayHandle {
         Object reader;
+        Object surface;
+        Object listener;
         Object virtualDisplay;
         Object handler;
         Class<?> listenerClass;
+        int index;
         int displayId;
+        int width;
+        int height;
+        int density;
+        long resizeGeneration;
+        boolean released;
         String uniqueId;
         String idPath;
     }
@@ -63,17 +71,14 @@ public final class AaasDisplayBroker {
             Object handler, Class<?> looperClass, int index, int width, int height, int density,
             String idPath) throws Exception {
         DisplayHandle handle = new DisplayHandle();
+        handle.index = index;
         handle.handler = handler;
         handle.idPath = idPath;
-        Class<?> imageReaderClass = Class.forName("android.media.ImageReader");
-        handle.reader = imageReaderClass.getMethod("newInstance", int.class, int.class,
-                int.class, int.class).invoke(null, width, height, 1, 3);
-        handle.listenerClass = Class.forName("android.media.ImageReader$OnImageAvailableListener");
-        Object listener = Proxy.newProxyInstance(handle.listenerClass.getClassLoader(),
-                new Class<?>[] {handle.listenerClass}, new ImageDrain());
-        imageReaderClass.getMethod("setOnImageAvailableListener", handle.listenerClass,
-                Class.forName("android.os.Handler")).invoke(handle.reader, listener, handler);
-        Object surface = call(handle.reader, "getSurface", new Class<?>[0]);
+        handle.width = width;
+        handle.height = height;
+        handle.density = density;
+        createReader(handle, width, height);
+        Object surface = handle.surface;
 
         Class<?> displayManagerClass = Class.forName("android.hardware.display.DisplayManager");
         int trusted = displayManagerClass.getField("VIRTUAL_DISPLAY_FLAG_TRUSTED").getInt(null);
@@ -124,7 +129,176 @@ public final class AaasDisplayBroker {
         return handle;
     }
 
+    private static void createReader(DisplayHandle handle, int width, int height)
+            throws Exception {
+        Class<?> imageReaderClass = Class.forName("android.media.ImageReader");
+        Object reader = imageReaderClass.getMethod("newInstance", int.class, int.class,
+                int.class, int.class).invoke(null, width, height, 1, 3);
+        Class<?> listenerClass = Class.forName(
+                "android.media.ImageReader$OnImageAvailableListener");
+        Object listener = Proxy.newProxyInstance(listenerClass.getClassLoader(),
+                new Class<?>[] {listenerClass}, new ImageDrain());
+        imageReaderClass.getMethod("setOnImageAvailableListener", listenerClass,
+                Class.forName("android.os.Handler")).invoke(reader, listener, handle.handler);
+        handle.reader = reader;
+        handle.listenerClass = listenerClass;
+        handle.listener = listener;
+        handle.surface = call(reader, "getSurface", new Class<?>[0]);
+    }
+
+    private static void resizeDisplay(DisplayHandle handle, int width, int height,
+            long generation) throws Exception {
+        if (handle.released || width < 64 || height < 64 || width > 4096 || height > 4096) {
+            throw new IllegalArgumentException("invalid resize request");
+        }
+        Object oldReader = handle.reader;
+        Object oldSurface = handle.surface;
+        Object oldListener = handle.listener;
+        Class<?> oldListenerClass = handle.listenerClass;
+        int oldWidth = handle.width;
+        int oldHeight = handle.height;
+        createReader(handle, width, height);
+        try {
+            call(handle.virtualDisplay, "setSurface",
+                    new Class<?>[] {Class.forName("android.view.Surface")}, handle.surface);
+            call(handle.virtualDisplay, "resize",
+                    new Class<?>[] {int.class, int.class, int.class},
+                    width, height, handle.density);
+        } catch (Exception error) {
+            try {
+                call(handle.virtualDisplay, "setSurface",
+                        new Class<?>[] {Class.forName("android.view.Surface")}, oldSurface);
+                call(handle.virtualDisplay, "resize",
+                        new Class<?>[] {int.class, int.class, int.class},
+                        oldWidth, oldHeight, handle.density);
+            } catch (Exception rollbackError) {
+                log("resize_rollback_failed index=" + handle.index + " displayId="
+                        + handle.displayId + " error="
+                        + rollbackError.getClass().getSimpleName());
+            }
+            try {
+                call(handle.reader, "setOnImageAvailableListener",
+                        new Class<?>[] {handle.listenerClass,
+                                Class.forName("android.os.Handler")}, null, null);
+                call(handle.reader, "close", new Class<?>[0]);
+                call(handle.surface, "release", new Class<?>[0]);
+            } catch (Exception ignored) { }
+            handle.reader = oldReader;
+            handle.surface = oldSurface;
+            handle.listener = oldListener;
+            handle.listenerClass = oldListenerClass;
+            throw error;
+        }
+        try {
+            call(oldReader, "setOnImageAvailableListener",
+                    new Class<?>[] {oldListenerClass, Class.forName("android.os.Handler")},
+                    null, null);
+        } catch (Exception ignored) { }
+        call(oldReader, "close", new Class<?>[0]);
+        call(oldSurface, "release", new Class<?>[0]);
+        handle.width = width;
+        handle.height = height;
+        handle.resizeGeneration = generation;
+        log("resized index=" + handle.index + " displayId=" + handle.displayId
+                + " generation=" + generation + " size=" + width + "x" + height
+                + " density=" + handle.density);
+        final long expectedGeneration = generation;
+        Runnable reportResizedMetrics = new Runnable() {
+            @Override public void run() {
+                if (!handle.released && handle.resizeGeneration == expectedGeneration) {
+                    logDisplayMetrics(handle, expectedGeneration);
+                }
+            }
+        };
+        try {
+            handle.handler.getClass().getMethod("postDelayed", Runnable.class, long.class)
+                    .invoke(handle.handler, reportResizedMetrics, 500L);
+        } catch (Exception error) {
+            log("display_metrics_schedule_failed index=" + handle.index + " displayId="
+                    + handle.displayId + " generation=" + generation + " error="
+                    + error.getClass().getSimpleName());
+        }
+    }
+
+    private static void logDisplayMetrics(DisplayHandle handle, long generation) {
+        try {
+            Object display = call(handle.virtualDisplay, "getDisplay", new Class<?>[0]);
+            Class<?> metricsClass = Class.forName("android.util.DisplayMetrics");
+            Object metrics = metricsClass.getConstructor().newInstance();
+            call(display, "getRealMetrics", new Class<?>[] {metricsClass}, metrics);
+            log("display_metrics index=" + handle.index + " displayId=" + handle.displayId
+                    + " generation=" + generation + " requested=" + handle.width + "x"
+                    + handle.height
+                    + " widthPixels=" + metricsClass.getField("widthPixels").getInt(metrics)
+                    + " heightPixels=" + metricsClass.getField("heightPixels").getInt(metrics)
+                    + " densityDpi=" + metricsClass.getField("densityDpi").getInt(metrics));
+        } catch (Exception error) {
+            log("display_metrics_unavailable index=" + handle.index + " displayId="
+                    + handle.displayId + " error=" + error.getClass().getSimpleName());
+        }
+    }
+
+    private static String readControl(String path) {
+        try (FileInputStream input = new FileInputStream(path)) {
+            byte[] bytes = new byte[128];
+            int n = input.read(bytes);
+            return n <= 0 ? "" : new String(bytes, 0, n, "US-ASCII").trim();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static void writeControl(String path, String value) {
+        try (FileOutputStream output = new FileOutputStream(path, false)) {
+            output.write((value + "\n").getBytes("US-ASCII"));
+            output.flush();
+        } catch (Exception error) {
+            log("control_write_failed path=" + path + " error="
+                    + error.getClass().getSimpleName());
+        }
+    }
+
+    private static void pollDisplayControl(DisplayHandle handle) {
+        if (handle.released) return;
+        String suffix = Integer.toString(handle.index + 1);
+        String closePath = "/dev/aaas/vdisplay_close_" + suffix;
+        String resizePath = "/dev/aaas/vdisplay_resize_" + suffix;
+        String ackPath = "/dev/aaas/vdisplay_control_ack_" + suffix;
+        String close = readControl(closePath);
+        if (close.startsWith("close")) {
+            try {
+                releaseDisplay(handle);
+                handle.released = true;
+                writeControl(ackPath, "released " + handle.displayId);
+            } catch (Exception error) {
+                writeControl(ackPath, "failed " + handle.displayId);
+                log("release_failed displayId=" + handle.displayId + " error="
+                        + error.getClass().getSimpleName());
+            }
+            return;
+        }
+        String request = readControl(resizePath);
+        if (request.isEmpty()) return;
+        String[] fields = request.split("\\s+");
+        try {
+            if (fields.length != 3) throw new IllegalArgumentException("field_count");
+            long generation = Long.parseLong(fields[0]);
+            int width = Integer.parseInt(fields[1]);
+            int height = Integer.parseInt(fields[2]);
+            if (generation <= handle.resizeGeneration) return;
+            resizeDisplay(handle, width, height, generation);
+            writeControl(ackPath, "resized " + generation + " " + width + " " + height);
+        } catch (Exception error) {
+            writeControl(ackPath, "resize_failed " + fields[0] + " "
+                    + error.getClass().getSimpleName());
+            log("resize_failed index=" + handle.index + " displayId=" + handle.displayId
+                    + " request=" + request.replace(' ', '_') + " error="
+                    + error.getClass().getSimpleName());
+        }
+    }
+
     private static void releaseDisplay(DisplayHandle handle) throws Exception {
+        if (handle.released) return;
         Exception failure = null;
         try {
             handle.reader.getClass().getMethod("setOnImageAvailableListener",
@@ -132,16 +306,24 @@ public final class AaasDisplayBroker {
                     .invoke(handle.reader, null, null);
         } catch (Exception error) { failure = error; }
         try {
+            call(handle.virtualDisplay, "setSurface",
+                    new Class<?>[] {Class.forName("android.view.Surface")}, new Object[] {null});
+        } catch (Exception error) { if (failure == null) failure = error; }
+        try {
             call(handle.virtualDisplay, "release", new Class<?>[0]);
         } catch (Exception error) { if (failure == null) failure = error; }
         try {
             call(handle.reader, "close", new Class<?>[0]);
         } catch (Exception error) { if (failure == null) failure = error; }
+        try {
+            call(handle.surface, "release", new Class<?>[0]);
+        } catch (Exception error) { if (failure == null) failure = error; }
         try (FileOutputStream output = new FileOutputStream(handle.idPath, false)) {
             output.flush();
         } catch (Exception error) { if (failure == null) failure = error; }
         if (failure != null) throw failure;
-        log("released displayId=" + handle.displayId + " reason=host_shutdown");
+        handle.released = true;
+        log("released displayId=" + handle.displayId + " reason=host_request");
     }
 
     private static boolean secondDisplayEnabled(String path) {
@@ -203,6 +385,7 @@ public final class AaasDisplayBroker {
 
         Runnable shutdownPoll = new Runnable() {
             @Override public void run() {
+                for (DisplayHandle display : displays) pollDisplayControl(display);
                 boolean requested = false;
                 try (FileInputStream input = new FileInputStream(shutdownPath)) {
                     requested = input.read() == 's';

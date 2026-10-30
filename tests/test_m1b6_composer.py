@@ -94,8 +94,12 @@ class M1B6ComposerTest(unittest.TestCase):
 
         self.assertIn("#define AAAS_DISPLAY_WIDTH 1280", content)
         self.assertIn("#define AAAS_DISPLAY_HEIGHT 720", content)
-        self.assertIn("cfg.width = AAAS_DISPLAY_WIDTH", content)
-        self.assertIn("cfg.height = AAAS_DISPLAY_HEIGHT", content)
+        self.assertIn("int32_t width = AAAS_DISPLAY_WIDTH", content)
+        self.assertIn("int32_t height = AAAS_DISPLAY_HEIGHT", content)
+        self.assertIn("width = virtual_state->width", content)
+        self.assertIn("height = virtual_state->height", content)
+        self.assertIn("cfg.width = width", content)
+        self.assertIn("cfg.height = height", content)
         self.assertIn("cfg.vsyncPeriod = 16666666", content)
         self.assertIn("DisplayConnectionType::INTERNAL", content)
 

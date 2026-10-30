@@ -9,6 +9,7 @@
 #include "linux-dmabuf-client-protocol.h"
 #include "presentation-time-client-protocol.h"
 #include "linux-drm-syncobj-client-protocol.h"
+#include "viewporter-client-protocol.h"
 
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
@@ -29,6 +30,7 @@
 #include <sys/socket.h>
 #include <linux/dma-buf.h>
 #include <math.h>
+#include <limits.h>
 
 #define MAX_SLOTS 32
 #define INPUT_QUEUE_CAP 64u
@@ -55,8 +57,15 @@ typedef struct {
 struct presenter_app {
     int sock;
     uint32_t w, h, gen;
+    uint32_t pending_w, pending_h;
+    uint32_t initial_w, initial_h;
+    uint32_t last_source_frame_w, last_source_frame_h;
+    uint32_t last_source_frame_gen, last_source_frame_config_gen;
+    uint32_t resize_request_generation;
+    const char *resize_request_path;
     int configured;
     int closed;
+    int android_close_requested;
     int copy_complete_enabled;
 
     int drm_fd;
@@ -70,12 +79,14 @@ struct presenter_app {
     struct zwp_linux_dmabuf_v1 *dmabuf;
     struct wp_presentation *presentation;
     struct wp_linux_drm_syncobj_manager_v1 *syncobj_mgr;
+    struct wp_viewporter *viewporter;
 
     /* Surface objects */
     struct wl_surface *surface;
     struct xdg_surface *xdg_surf;
     struct xdg_toplevel *toplevel;
     struct wp_linux_drm_syncobj_surface_v1 *syncobj_surface;
+    struct wp_viewport *viewport;
 
     /* Acquire timeline */
     uint32_t acquire_timeline_handle;
@@ -93,6 +104,7 @@ struct presenter_app {
     uint64_t imported;
     uint64_t submitted;
     uint64_t released;
+    uint64_t teardown_invalidated;
     uint64_t rejected;
     uint64_t presented;
     uint64_t discarded;
@@ -969,6 +981,8 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
         a->dmabuf = wl_registry_bind(r, name, &zwp_linux_dmabuf_v1_interface, 3);
     } else if (strcmp(iface, "wp_linux_drm_syncobj_manager_v1") == 0) {
         a->syncobj_mgr = wl_registry_bind(r, name, &wp_linux_drm_syncobj_manager_v1_interface, 1);
+    } else if (strcmp(iface, "wp_viewporter") == 0) {
+        a->viewporter = wl_registry_bind(r, name, &wp_viewporter_interface, 1);
     } else if (strcmp(iface, "wl_seat") == 0) {
         a->seat_name = name;
         /* axis_value120 is available in wl_pointer v8; do not negotiate v9
@@ -1034,13 +1048,124 @@ static void set_surface_opaque_region(presenter_app *a, uint32_t width,
     wl_region_destroy(region);
 }
 
+static void write_android_resize_request(presenter_app *a, uint32_t width,
+                                         uint32_t height) {
+    if (!a->resize_request_path || !a->resize_request_path[0] ||
+        width < 64 || height < 64 || width > 4096 || height > 4096) return;
+    char temporary[PATH_MAX];
+    int n = snprintf(temporary, sizeof(temporary), "%s.tmp.%ld",
+                     a->resize_request_path, (long)getpid());
+    if (n < 0 || (size_t)n >= sizeof(temporary)) {
+        log_presenter_event("resize_request_path_invalid", a->gen, 0, NULL);
+        return;
+    }
+    int fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    if (fd < 0) {
+        char extra[80];
+        snprintf(extra, sizeof(extra), "\"errno\":%d", errno);
+        log_presenter_event("resize_request_open_failed", a->gen, 0, extra);
+        return;
+    }
+    char request[96];
+    n = snprintf(request, sizeof(request), "%u %u %u\n", a->gen, width, height);
+    ssize_t written = n > 0 ? write(fd, request, (size_t)n) : -1;
+    int saved_errno = errno;
+    close(fd);
+    if (written != n || rename(temporary, a->resize_request_path) != 0) {
+        saved_errno = errno;
+        unlink(temporary);
+        char extra[80];
+        snprintf(extra, sizeof(extra), "\"errno\":%d", saved_errno);
+        log_presenter_event("resize_request_publish_failed", a->gen, 0, extra);
+        return;
+    }
+    char extra[128];
+    snprintf(extra, sizeof(extra), "\"width\":%u,\"height\":%u", width, height);
+    log_presenter_event("android_resize_requested", a->gen, 0, extra);
+}
+
+static void write_android_close_request(presenter_app *a) {
+    if (!a->resize_request_path || !a->resize_request_path[0]) {
+        a->closed = 1;
+        return;
+    }
+    const char *marker = strstr(a->resize_request_path, "resize_");
+    if (!marker) {
+        a->closed = 1;
+        log_presenter_event("android_close_path_invalid", a->gen, 0, NULL);
+        return;
+    }
+    char path[PATH_MAX], temporary[PATH_MAX];
+    size_t prefix = (size_t)(marker - a->resize_request_path);
+    int n = snprintf(path, sizeof(path), "%.*sclose_%s", (int)prefix,
+                     a->resize_request_path, marker + 7);
+    if (n < 0 || (size_t)n >= sizeof(path)) {
+        a->closed = 1;
+        return;
+    }
+    n = snprintf(temporary, sizeof(temporary), "%s.tmp.%ld", path, (long)getpid());
+    if (n < 0 || (size_t)n >= sizeof(temporary)) {
+        a->closed = 1;
+        return;
+    }
+    int fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    if (fd < 0 || write(fd, "close\n", 6) != 6) {
+        int saved_errno = errno;
+        if (fd >= 0) close(fd);
+        unlink(temporary);
+        char extra[80];
+        snprintf(extra, sizeof(extra), "\"errno\":%d", saved_errno);
+        log_presenter_event("android_close_request_failed", a->gen, 0, extra);
+        a->closed = 1;
+        return;
+    }
+    close(fd);
+    if (rename(temporary, path) != 0) {
+        int saved_errno = errno;
+        unlink(temporary);
+        char extra[80];
+        snprintf(extra, sizeof(extra), "\"errno\":%d", saved_errno);
+        log_presenter_event("android_close_request_failed", a->gen, 0, extra);
+        a->closed = 1;
+        return;
+    }
+    a->android_close_requested = 1;
+    log_presenter_event("android_close_requested", a->gen, 0, NULL);
+}
+
+static void check_android_close_ack(presenter_app *a) {
+    if (!a->android_close_requested || !a->resize_request_path) return;
+    const char *marker = strstr(a->resize_request_path, "resize_");
+    if (!marker) return;
+    char path[PATH_MAX];
+    size_t prefix = (size_t)(marker - a->resize_request_path);
+    int n = snprintf(path, sizeof(path), "%.*scontrol_ack_%s", (int)prefix,
+                     a->resize_request_path, marker + 7);
+    if (n < 0 || (size_t)n >= sizeof(path)) return;
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return;
+    char value[96] = {0};
+    ssize_t bytes = read(fd, value, sizeof(value) - 1);
+    close(fd);
+    if (bytes <= 0) return;
+    if (strncmp(value, "released", 8) == 0) {
+        log_presenter_event("android_close_acknowledged", a->gen, 0, NULL);
+        a->closed = 1;
+    } else if (strncmp(value, "failed", 6) == 0) {
+        log_presenter_event("android_close_failed", a->gen, 0, NULL);
+        a->closed = 1;
+    }
+}
+
 static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t serial) {
     presenter_app *a = data;
     xdg_surface_ack_configure(xs, serial);
     uint32_t prev_w = a->w;
     uint32_t prev_h = a->h;
-    uint32_t w = a->w ? a->w : 640;
-    uint32_t h = a->h ? a->h : 480;
+    uint32_t w = a->pending_w ? a->pending_w : (a->w ? a->w : 640);
+    uint32_t h = a->pending_h ? a->pending_h : (a->h ? a->h : 480);
+    a->pending_w = 0;
+    a->pending_h = 0;
     if (w > 1920) w = 1920;
     if (h > 1920) h = 1920;
     a->w = w;
@@ -1048,6 +1173,14 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
     /* AaaS frames are complete Android display compositions, not translucent
      * overlays. Keep uninitialized startup alpha from exposing desktop pixels. */
     set_surface_opaque_region(a, w, h);
+    if (a->viewport) {
+        wp_viewport_set_destination(a->viewport, (int32_t)w, (int32_t)h);
+    }
+    /* Apply the acknowledged xdg configure even while Android is rebuilding
+     * its output buffers. Without a surface commit here, KWin keeps the old
+     * toplevel geometry until a resized Android frame arrives, creating a
+     * configure/buffer-size deadlock during app-display resize. */
+    wl_surface_commit(a->surface);
 
     bool initial = !a->configured;
     a->configured = 1;
@@ -1066,6 +1199,10 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
             fprintf(stderr, "[AaaS Presenter] aaas_v2_send RESIZE failed: %s (errno=%d)\n", strerror(errno), errno);
             a->closed = 1;
         }
+        if (w != prev_w || h != prev_h ||
+            (initial && (w != a->initial_w || h != a->initial_h))) {
+            write_android_resize_request(a, w, h);
+        }
         char extra[64];
         snprintf(extra, sizeof(extra), "\"width\":%u,\"height\":%u", w, h);
         log_presenter_event("configure", a->gen, 0, extra);
@@ -1080,14 +1217,18 @@ static void toplevel_configure(void *data, struct xdg_toplevel *t,
                                int32_t w, int32_t h, struct wl_array *states) {
     (void)t; (void)states;
     presenter_app *a = data;
-    if (w > 0) a->w = (uint32_t)w;
-    if (h > 0) a->h = (uint32_t)h;
+    if (w > 0) a->pending_w = (uint32_t)w;
+    if (h > 0) a->pending_h = (uint32_t)h;
 }
 
 static void toplevel_close(void *data, struct xdg_toplevel *t) {
     (void)t;
     presenter_app *a = data;
-    a->closed = 1;
+    if (a->resize_request_path && a->resize_request_path[0]) {
+        write_android_close_request(a);
+    } else {
+        a->closed = 1;
+    }
     log_presenter_event("close_requested", a->gen, 0, NULL);
 }
 
@@ -1196,6 +1337,80 @@ static void check_release_timelines(presenter_app *a) {
     }
 }
 
+static unsigned active_buffer_count(const presenter_app *a) {
+    unsigned count = 0;
+    for (int i = 0; i < MAX_SLOTS; i++) {
+        if (a->slots[i].active) count++;
+    }
+    return count;
+}
+
+/* Stop producing frames and give Wayland/explicit-sync releases a bounded
+ * opportunity to retire. Anything still owned at the deadline is explicitly
+ * invalidated by connection teardown; it is never counted as a release. */
+static void drain_wayland_buffers(presenter_app *a) {
+    if (a->surface && a->display) {
+        wl_surface_attach(a->surface, NULL, 0, 0);
+        wl_surface_commit(a->surface);
+        wl_display_flush(a->display);
+    }
+
+    const uint64_t deadline = monotonic_ns() + 1500000000ULL;
+    while (active_buffer_count(a) && a->display && monotonic_ns() < deadline) {
+        while (wl_display_prepare_read(a->display) != 0) {
+            if (wl_display_dispatch_pending(a->display) < 0) goto invalidate;
+            check_release_timelines(a);
+        }
+        if (wl_display_flush(a->display) < 0 && errno != EAGAIN) {
+            wl_display_cancel_read(a->display);
+            break;
+        }
+        struct pollfd pfd = {
+            .fd = wl_display_get_fd(a->display),
+            .events = POLLIN,
+        };
+        const uint64_t now = monotonic_ns();
+        int timeout = (int)((deadline > now ? deadline - now : 0) / 1000000ULL);
+        if (timeout > 100) timeout = 100;
+        int rc = poll(&pfd, 1, timeout);
+        if (rc < 0) {
+            wl_display_cancel_read(a->display);
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (rc > 0 && (pfd.revents & POLLIN)) {
+            if (wl_display_read_events(a->display) < 0) break;
+            wl_display_dispatch_pending(a->display);
+        } else {
+            wl_display_cancel_read(a->display);
+        }
+        check_release_timelines(a);
+        if (pfd.revents & (POLLHUP | POLLERR)) break;
+    }
+
+invalidate:
+    for (int i = 0; i < MAX_SLOTS; i++) {
+        presenter_slot *s = &a->slots[i];
+        if (!s->active) continue;
+        char extra[128];
+        snprintf(extra, sizeof(extra),
+                 "\"reason\":\"presenter_teardown\",\"explicit_sync\":%s",
+                 s->explicit_sync_used ? "true" : "false");
+        log_presenter_event("buffer_teardown_invalidated", s->gen, s->id, extra);
+        if (s->wl) {
+            wl_buffer_destroy(s->wl);
+            s->wl = NULL;
+        }
+        if (s->staging_bo) {
+            gbm_bo_destroy(s->staging_bo);
+            s->staging_bo = NULL;
+        }
+        s->active = 0;
+        s->explicit_sync_used = false;
+        a->teardown_invalidated++;
+    }
+}
+
 static void pres_sync_output(void *data, struct wp_presentation_feedback *f, struct wl_output *o) {
     (void)data; (void)f; (void)o;
 }
@@ -1269,6 +1484,23 @@ static void handle_incoming_buffer(presenter_app *a) {
     }
     if (a->gen == 0 && m.generation > 0) {
         a->gen = m.generation;
+    }
+
+    if (m.type == AAAS_V2_BUFFER &&
+        (m.width != a->last_source_frame_w || m.height != a->last_source_frame_h ||
+         m.generation != a->last_source_frame_gen ||
+         a->gen != a->last_source_frame_config_gen)) {
+        char dimensions[128];
+        snprintf(dimensions, sizeof(dimensions),
+                 "\"width\":%u,\"height\":%u,\"stride_bytes\":%u,"
+                 "\"matches_configure\":%s",
+                 m.width, m.height, m.stride[0],
+                 (m.width == a->w && m.height == a->h) ? "true" : "false");
+        log_presenter_event("source_frame_dimensions", m.generation, m.id, dimensions);
+        a->last_source_frame_w = m.width;
+        a->last_source_frame_h = m.height;
+        a->last_source_frame_gen = m.generation;
+        a->last_source_frame_config_gen = a->gen;
     }
 
     bool gen_ok = (m.generation == a->gen || a->gen == 0 || m.generation == 0 ||
@@ -1735,6 +1967,9 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         .sock = config->sock,
         .w = config->initial_width ? config->initial_width : 640,
         .h = config->initial_height ? config->initial_height : 480,
+        .initial_w = config->initial_width ? config->initial_width : 640,
+        .initial_h = config->initial_height ? config->initial_height : 480,
+        .resize_request_path = config->resize_request_path,
         .input_listen_fd = config->input_listen_fd,
         .input_fd = -1,
         .input_session_id = config->input_session_id,
@@ -1785,6 +2020,10 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     log_presenter_event("capabilities", 0, 0, cap_extra);
 
     app.surface = wl_compositor_create_surface(app.compositor);
+    if (app.viewporter) {
+        app.viewport = wp_viewporter_get_viewport(app.viewporter, app.surface);
+        log_presenter_event("viewporter_enabled", 0, 0, NULL);
+    }
     app.xdg_surf = xdg_wm_base_get_xdg_surface(app.wm_base, app.surface);
     xdg_surface_add_listener(app.xdg_surf, &xdg_surf_listener, &app);
     app.toplevel = xdg_surface_get_toplevel(app.xdg_surf);
@@ -1904,6 +2143,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         }
 
         check_release_timelines(&app);
+        check_android_close_ack(&app);
 
         if (p[1].revents & POLLIN) {
             handle_incoming_buffer(&app);
@@ -1915,6 +2155,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     }
 
     input_teardown(&app);
+    drain_wayland_buffers(&app);
 
     // Teardown notification
     aaas_v2_msg close_msg = {
@@ -1932,6 +2173,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
              "\"imports\":%llu,\"submissions\":%llu,\"releases\":%llu,\"rejected\":%llu,"
              "\"presented\":%llu,\"discarded\":%llu,\"explicit_sync_frames\":%llu,"
              "\"input_sent\":%llu,\"input_dropped\":%llu,"
+             "\"teardown_invalidated\":%llu,\"outstanding\":%u,"
              "\"maxrss_kib\":%ld,\"user_us\":%ld,\"system_us\":%ld",
              (unsigned long long)app.imported, (unsigned long long)app.submitted,
              (unsigned long long)app.released, (unsigned long long)app.rejected,
@@ -1939,6 +2181,8 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
              (unsigned long long)app.explicit_sync_frames,
              (unsigned long long)app.input_sent,
              (unsigned long long)app.input_dropped,
+             (unsigned long long)app.teardown_invalidated,
+             active_buffer_count(&app),
              usage.ru_maxrss,
              usage.ru_utime.tv_sec * 1000000L + usage.ru_utime.tv_usec,
              usage.ru_stime.tv_sec * 1000000L + usage.ru_stime.tv_usec);
@@ -1963,6 +2207,12 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     }
     if (app.syncobj_surface) {
         wp_linux_drm_syncobj_surface_v1_destroy(app.syncobj_surface);
+    }
+    if (app.viewport) {
+        wp_viewport_destroy(app.viewport);
+    }
+    if (app.viewporter) {
+        wp_viewporter_destroy(app.viewporter);
     }
     if (app.syncobj_mgr) {
         wp_linux_drm_syncobj_manager_v1_destroy(app.syncobj_mgr);

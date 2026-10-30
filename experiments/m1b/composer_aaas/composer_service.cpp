@@ -226,12 +226,20 @@ public:
 
     ::ndk::ScopedAStatus getDisplayConfigurations(int64_t in_display, int32_t in_maxFrameIntervalNs, std::vector<DisplayConfiguration>* _aidl_return) override {
         (void)in_maxFrameIntervalNs;
+        int32_t width = AAAS_DISPLAY_WIDTH;
+        int32_t height = AAAS_DISPLAY_HEIGHT;
+        auto virtual_state = findVirtualDisplay(in_display);
+        if (virtual_state) {
+            std::lock_guard<std::mutex> state_lock(virtual_state->lock);
+            width = virtual_state->width;
+            height = virtual_state->height;
+        }
         kmsg_log("[AaasComposerClient] getDisplayConfigurations(display=%ld) -> %dx%d@60Hz\n",
-                 (long)in_display, AAAS_DISPLAY_WIDTH, AAAS_DISPLAY_HEIGHT);
+                 (long)in_display, width, height);
         DisplayConfiguration cfg;
         cfg.configId = 1;
-        cfg.width = AAAS_DISPLAY_WIDTH;
-        cfg.height = AAAS_DISPLAY_HEIGHT;
+        cfg.width = width;
+        cfg.height = height;
         cfg.vsyncPeriod = 16666666;
         _aidl_return->push_back(cfg);
         return ::ndk::ScopedAStatus::ok();
@@ -450,8 +458,7 @@ public:
                     std::lock_guard<std::mutex> state_lock(virtual_state->lock);
                     if (!virtual_state->destroyed) {
                         updateVirtualBuffer(virtual_state->client_target, 64,
-                                            ct.buffer, virtual_state->width,
-                                            virtual_state->height);
+                                            ct.buffer, 0, 0);
                         if (slot >= 0 && slot < 64) {
                             virtual_state->current_client_slot = slot;
                         }
@@ -467,12 +474,25 @@ public:
                         !updateVirtualBuffer(virtual_state->output_slots.data(),
                                              virtual_state->output_slots.size(),
                                              *cmd.virtualDisplayOutputBuffer,
-                                             virtual_state->width, virtual_state->height)) {
+                                             0, 0)) {
                         kmsg_log("[AaasComposerClient] invalid virtual output buffer display=%lld slot=%d\n",
                                  (long long)cmd.display,
                                  cmd.virtualDisplayOutputBuffer->slot);
                     } else if (!virtual_state->destroyed) {
                         virtual_state->current_output_slot = cmd.virtualDisplayOutputBuffer->slot;
+                        const auto& output = virtual_state->output_slots[
+                                virtual_state->current_output_slot];
+                        if (output.width >= 64 && output.height >= 64 &&
+                            output.width <= 4096 && output.height <= 4096) {
+                            if (virtual_state->width != static_cast<int32_t>(output.width) ||
+                                virtual_state->height != static_cast<int32_t>(output.height)) {
+                                kmsg_log("[AaasComposerClient] virtual display resize observed display=%lld old=%dx%d new=%ux%u\n",
+                                         (long long)cmd.display, virtual_state->width,
+                                         virtual_state->height, output.width, output.height);
+                            }
+                            virtual_state->width = static_cast<int32_t>(output.width);
+                            virtual_state->height = static_cast<int32_t>(output.height);
+                        }
                     }
                 }
             }
@@ -672,8 +692,10 @@ private:
             const uint32_t handle_height = static_cast<uint32_t>(handle.ints[2]);
             const uint32_t handle_stride = static_cast<uint32_t>(handle.ints[3]);
             const uint32_t handle_format = static_cast<uint32_t>(handle.ints[4]);
-            if (handle_width != static_cast<uint32_t>(width) ||
-                handle_height != static_cast<uint32_t>(height) ||
+            if (handle_width < 64 || handle_height < 64 ||
+                handle_width > 4096 || handle_height > 4096 ||
+                (width > 0 && handle_width != static_cast<uint32_t>(width)) ||
+                (height > 0 && handle_height != static_cast<uint32_t>(height)) ||
                 handle_stride < handle_width || handle.ints[7] <= 0) {
                 if (new_fence >= 0) close(new_fence);
                 return false;
@@ -691,7 +713,9 @@ private:
             slot.format = handle_format;
             slot.allocation_size = static_cast<uint32_t>(handle.ints[7]);
             ++slot.generation;
-        } else if (slot.dma_fd < 0) {
+        } else if (slot.dma_fd < 0 ||
+                   (width > 0 && slot.width != static_cast<uint32_t>(width)) ||
+                   (height > 0 && slot.height != static_cast<uint32_t>(height))) {
             if (new_fence >= 0) close(new_fence);
             return false;
         }

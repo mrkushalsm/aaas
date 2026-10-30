@@ -11,13 +11,15 @@ PROTOCOLS_HDR = \
 	$(BUILD)/xdg-shell-client-protocol.h \
 	$(BUILD)/linux-dmabuf-client-protocol.h \
 	$(BUILD)/presentation-time-client-protocol.h \
-	$(BUILD)/linux-drm-syncobj-client-protocol.h
+	$(BUILD)/linux-drm-syncobj-client-protocol.h \
+	$(BUILD)/viewporter-client-protocol.h
 
 PROTOCOLS_SRC = \
 	$(BUILD)/xdg-shell-protocol.c \
 	$(BUILD)/linux-dmabuf-protocol.c \
 	$(BUILD)/presentation-time-protocol.c \
-	$(BUILD)/linux-drm-syncobj-protocol.c
+	$(BUILD)/linux-drm-syncobj-protocol.c \
+	$(BUILD)/viewporter-protocol.c
 
 all: $(BUILD)/aaas-m1a $(BUILD)/aaas-m1a1 $(BUILD)/wayland-host-presenter
 
@@ -46,6 +48,12 @@ $(BUILD)/linux-drm-syncobj-client-protocol.h: $(LOCAL_XML)/linux-drm-syncobj-v1.
 	wayland-scanner client-header $< $@
 
 $(BUILD)/linux-drm-syncobj-protocol.c: $(LOCAL_XML)/linux-drm-syncobj-v1.xml | $(BUILD)
+	wayland-scanner private-code $< $@
+
+$(BUILD)/viewporter-client-protocol.h: $(LOCAL_XML)/viewporter.xml | $(BUILD)
+	wayland-scanner client-header $< $@
+
+$(BUILD)/viewporter-protocol.c: $(LOCAL_XML)/viewporter.xml | $(BUILD)
 	wayland-scanner private-code $< $@
 
 # Original M1A baseline (v1)

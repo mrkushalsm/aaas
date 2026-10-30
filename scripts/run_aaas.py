@@ -70,6 +70,22 @@ def finalize_status_sentinel(path, failed):
     return value
 
 
+def write_session_state(session, status_path, state):
+    """Publish one state transition to both the journal and Android sentinel."""
+    if state in SESSION_STATUS_VALUES:
+        write_status_sentinel(status_path, state)
+    with (Path(session) / 'state.jsonl').open('a') as stream:
+        stream.write(json.dumps({'state': state, 'monotonic_ns': time.monotonic_ns()}) + '\n')
+
+
+def write_session_control(path, value):
+    """Atomically publish a bounded command in this private session directory."""
+    path = Path(path)
+    temporary = path.with_name(path.name + f'.tmp.{os.getpid()}')
+    temporary.write_text(value.rstrip() + '\n')
+    os.replace(temporary, path)
+
+
 def terminate_process_group(process, timeout=8):
     if process is None:
         return
@@ -533,12 +549,44 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '! aaas_app_task_alive || ! aaas_app2_task_alive; then\n'
         )
         readiness_and_watch = readiness_and_watch.replace(
-            '&& aaas_app_task_alive', '&& aaas_app_task_alive && aaas_app2_task_alive')
+            '&& aaas_app_task_alive',
+            '&& (aaas_app_task_alive || aaas_app2_task_alive)', 1)
     if experimental_virtual_display:
         readiness_and_watch += (
             ' && [ "$(/system/bin/toybox cat /aaas_session_status)" != "STOPPING" ]; do\n'
-            '      /system/bin/toybox sleep 2\n'
-            '    done\n'
+        )
+        if app_package2 is not None:
+            readiness_and_watch += (
+                '      if aaas_app_task_alive; then echo RUNNING > /dev/aaas/app1_state; '
+                'else echo CLOSED > /dev/aaas/app1_state; '
+                'if [ -n "$VDISPLAY_INPUT_ADAPTER_PID" ]; then '
+                '/system/bin/toybox kill "$VDISPLAY_INPUT_ADAPTER_PID" 2>/dev/null || true; '
+                'VDISPLAY_INPUT_ADAPTER_PID=; fi; fi\n'
+                '      if aaas_app2_task_alive; then echo RUNNING > /dev/aaas/app2_state; '
+                'else echo CLOSED > /dev/aaas/app2_state; '
+                'if [ -n "$VDISPLAY2_INPUT_ADAPTER_PID" ]; then '
+                '/system/bin/toybox kill "$VDISPLAY2_INPUT_ADAPTER_PID" 2>/dev/null || true; '
+                'VDISPLAY2_INPUT_ADAPTER_PID=; fi; fi\n'
+                '      /system/bin/toybox sleep 1\n'
+            )
+        else:
+            readiness_and_watch += '      /system/bin/toybox sleep 2\n'
+        readiness_and_watch += '    done\n'
+        if app_package2 is not None:
+            readiness_and_watch += (
+                '    if [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
+                '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
+                '! aaas_app_task_alive && ! aaas_app2_task_alive; then\n'
+                '      echo STOPPING > /aaas_session_status\n'
+                '    fi\n'
+            )
+        else:
+            readiness_and_watch += (
+                '    if [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
+                '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
+                '! aaas_app_task_alive; then echo STOPPING > /aaas_session_status; fi\n'
+            )
+        readiness_and_watch += (
             '    if [ "$(/system/bin/toybox cat /aaas_session_status)" = "STOPPING" ]; then\n'
             '      echo AAAS_DISPLAY_BROKER_STOP_REQUESTED >> /aaas_session_commands\n'
             '      echo stop > /dev/aaas/display_broker_shutdown\n'
@@ -775,6 +823,12 @@ def main():
         (ipc / 'vdisplay2_id').chmod(0o666)
         (ipc / 'display_broker_shutdown').write_text('')
         (ipc / 'display_broker_shutdown').chmod(0o666)
+        for index in (1, 2):
+            for name in (f'vdisplay_resize_{index}', f'vdisplay_close_{index}',
+                         f'vdisplay_control_ack_{index}', f'app{index}_state'):
+                path = ipc / name
+                path.write_text('')
+                path.chmod(0o666)
     policy = None
     policy_monitor = None
     policy_log = session / 'policy.jsonl'
@@ -815,13 +869,14 @@ def main():
     state = 'CREATED'
     input_ready_reported = False
     running_session = False
+    window_close_requested = {1: None, 2: None}
 
     def transition(new_state):
         nonlocal state
         state = new_state
+        # Keep the state journal and bind-mounted Android sentinel in step.
+        write_session_state(session, status, new_state)
         print(f'AaaS: {new_state} ({session})', flush=True)
-        with (session / 'state.jsonl').open('a') as stream:
-            stream.write(json.dumps({'state': state, 'monotonic_ns': time.monotonic_ns()}) + '\n')
 
     try:
         transition('PREPARING')
@@ -850,6 +905,7 @@ def main():
                          '--input-socket', str(ipc / 'input-vdisplay.sock'),
                          '--input-session', f'0x{input_session:016x}',
                          '--input-display-id-file', str(ipc / 'vdisplay_id'),
+                         '--resize-request', str(ipc / 'vdisplay_resize_1'),
                          '--title', f'AaaS: {args.app}', '--app-id',
                          'org.aaas.' + args.app.replace('.', '-'), '--exit-on-close'],
                         stdout=virtual_log, stderr=subprocess.STDOUT,
@@ -870,6 +926,7 @@ def main():
                              '--input-socket', str(ipc / 'input-vdisplay-2.sock'),
                              '--input-session', f'0x{input_session:016x}',
                              '--input-display-id-file', str(ipc / 'vdisplay2_id'),
+                            '--resize-request', str(ipc / 'vdisplay_resize_2'),
                              '--title', f'AaaS: {args.app2}', '--app-id',
                              'org.aaas.' + args.app2.replace('.', '-'),
                              '--exit-on-close'],
@@ -916,7 +973,8 @@ def main():
                         policy_monitor.start()
                         print('AaaS: tracking Android memory priority classes', flush=True)
                     launched = args.app if not args.app2 else f'{args.app} and {args.app2}'
-                    print(f'{launched} task(s) started. Close a window or press Ctrl+C to stop.', flush=True)
+                    print(f'{launched} task(s) started. Close an app window to end that app; '
+                          'press Ctrl+C to stop the shared runtime.', flush=True)
                     break
                 if status.read_text().strip() == 'FAILED' or time.monotonic() >= deadline:
                     raise RuntimeError(f'Android app {args.app} did not become ready')
@@ -926,10 +984,36 @@ def main():
                 if presenter.poll() is not None:
                     print('AaaS: presenter exited; stopping Android', flush=True)
                     break
-                if virtual_presenter is not None and virtual_presenter.poll() is not None:
-                    raise RuntimeError('virtual display presenter exited')
-                if virtual_presenter2 is not None and virtual_presenter2.poll() is not None:
-                    raise RuntimeError('second virtual display presenter exited')
+                if args.experimental_virtual_display:
+                    app1_state = (ipc / 'app1_state').read_text().strip()
+                    app2_state = (ipc / 'app2_state').read_text().strip() if args.app2 else ''
+                    for index, process, app_state in (
+                            (1, virtual_presenter, app1_state),
+                            (2, virtual_presenter2, app2_state)):
+                        if process is None or (index == 2 and not args.app2):
+                            continue
+                        exited = process.poll() is not None
+                        if not exited and app_state != 'CLOSED':
+                            continue
+                        if window_close_requested[index] is None:
+                            write_session_control(ipc / f'vdisplay_close_{index}', 'close')
+                            window_close_requested[index] = time.monotonic()
+                            print(f'AaaS: closing Android output {index} independently',
+                                  flush=True)
+                        if not exited:
+                            terminate_process_group(process)
+                            if index == 1:
+                                virtual_presenter = None
+                            else:
+                                virtual_presenter2 = None
+                        ack = (ipc / f'vdisplay_control_ack_{index}').read_text().strip()
+                        if ack.startswith('failed'):
+                            raise RuntimeError(f'Android display {index} release failed: {ack}')
+                        if (not ack.startswith('released') and
+                                time.monotonic() - window_close_requested[index] > 8):
+                            raise RuntimeError(f'Android display {index} release timed out')
+                    if status.read_text().strip() == 'STOPPING':
+                        break
                 if android.poll() is not None or status.read_text().strip() == 'FAILED':
                     raise RuntimeError('Android runtime failed')
                 if (policy_monitor is not None and policy_monitor.degraded
@@ -1004,10 +1088,13 @@ def main():
             else:
                 print(f'AaaS: memory policy hierarchy removed ({policy.session_dir})',
                       flush=True)
-        if state != 'FAILED':
+        terminal_failed = (failed_before_cleanup or state == 'FAILED' or cleanup_failed)
+        if terminal_failed:
+            if state != 'FAILED':
+                transition('FAILED')
+        elif state != 'STOPPED':
             transition('STOPPED')
-        final_status = finalize_status_sentinel(
-            status, failed=failed_before_cleanup or state == 'FAILED' or cleanup_failed)
+        final_status = finalize_status_sentinel(status, failed=terminal_failed)
         print(f'AaaS: session status {final_status}', flush=True)
         print(f'AaaS logs: {session}', flush=True)
         os.close(lock_fd)

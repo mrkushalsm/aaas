@@ -21,6 +21,7 @@ typedef struct {
     uint64_t input_session_id;
     /* Optional file containing the Android display ID for this private output. */
     const char *input_display_id_file;
+    const char *resize_request_path;
 } aaas_presenter_config;
 
 /**

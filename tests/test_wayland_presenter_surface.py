@@ -43,6 +43,37 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         self.assertIn("syncobj_timeline_wait", timeline)
         self.assertIn("finalize_buffer_release(s, true)", timeline)
 
+    def test_teardown_distinguishes_release_from_invalidated_ownership(self):
+        drain_start = self.source.index("static void drain_wayland_buffers(")
+        drain_end = self.source.index("static void pres_sync_output(", drain_start)
+        drain = self.source[drain_start:drain_end]
+        self.assertIn("1500000000ULL", drain)
+        self.assertIn("wl_surface_attach(a->surface, NULL", drain)
+        self.assertIn("check_release_timelines(a)", drain)
+        self.assertIn('"buffer_teardown_invalidated"', drain)
+        self.assertIn("a->teardown_invalidated++", drain)
+        self.assertNotIn("a->released++", drain)
+
+        teardown = self.source.index("drain_wayland_buffers(&app)")
+        close_message = self.source.index(".type = AAAS_V2_CLOSE", teardown)
+        self.assertLess(teardown, close_message)
+
+    def test_resize_keeps_wayland_surface_geometry_during_android_rebuild(self):
+        configure_start = self.source.index("static void xdg_surface_configure(")
+        configure_end = self.source.index("static const struct xdg_surface_listener", configure_start)
+        configure = self.source[configure_start:configure_end]
+        self.assertIn("wp_viewport_set_destination(a->viewport", configure)
+        self.assertIn("wl_surface_commit(a->surface)", configure)
+        self.assertLess(configure.index("xdg_surface_ack_configure"),
+                        configure.index("wl_surface_commit"))
+        self.assertIn('strcmp(iface, "wp_viewporter")', self.source)
+
+    def test_resize_records_android_source_buffer_dimensions(self):
+        self.assertIn('log_presenter_event("source_frame_dimensions"', self.source)
+        self.assertIn('matches_configure', self.source)
+        self.assertIn('last_source_frame_w', self.source)
+        self.assertIn('last_source_frame_config_gen', self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
