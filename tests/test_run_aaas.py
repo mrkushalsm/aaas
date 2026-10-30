@@ -31,6 +31,18 @@ class ForegroundRunnerTests(unittest.TestCase):
             self.assertIn('AAAS_ENABLE_VIRTUAL_DISPLAY=1', command)
             self.assertIn(f'BIN={output}', command)
 
+    def test_app_mode_hides_primary_diagnostic_unless_explicitly_requested(self):
+        from types import SimpleNamespace
+        self.assertFalse(SESSION.show_primary_diagnostic(SimpleNamespace(
+            experimental_virtual_display=True, app='com.android.settings',
+            show_primary_diagnostic=False)))
+        self.assertTrue(SESSION.show_primary_diagnostic(SimpleNamespace(
+            experimental_virtual_display=True, app='com.android.settings',
+            show_primary_diagnostic=True)))
+        self.assertTrue(SESSION.show_primary_diagnostic(SimpleNamespace(
+            experimental_virtual_display=False, app='com.android.settings',
+            show_primary_diagnostic=False)))
+
     def test_status_sentinel_recovers_stale_state_without_replacing_inode(self):
         with tempfile.TemporaryDirectory() as directory:
             status = Path(directory) / 'status'

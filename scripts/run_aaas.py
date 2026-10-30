@@ -21,6 +21,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aaas_cgroup
+import aaas_resources
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -740,6 +741,11 @@ def build_multi_output_composer():
     return COMPOSER_MULTI_OUTPUT
 
 
+def show_primary_diagnostic(args):
+    """Keep the primary Wayland window for diagnostics, not normal app mode."""
+    return not (args.experimental_virtual_display and args.app) or args.show_primary_diagnostic
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--startup-timeout', type=int, default=90)
@@ -760,9 +766,17 @@ def main():
                         help='Allow Android to show its software keyboard (mobile/accessibility mode)')
     parser.add_argument('--experimental-virtual-display', action='store_true',
                         help='Use the isolated M1E trusted virtual-display prototype')
+    parser.add_argument('--show-primary-diagnostic', action='store_true',
+                        help='Also present Android primary display in a diagnostic Wayland window')
+    parser.add_argument('--resource-diagnostics', action='store_true',
+                        help='Write read-only host/cgroup snapshots at session start and shutdown')
+    parser.add_argument('--resource-sample-interval', type=float, default=0.0,
+                        help='Opt in to host/cgroup resource snapshots; optionally sample every N seconds (0 disables periodic samples, max 3600 samples)')
     args = parser.parse_args()
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
+    if not 0.0 <= args.resource_sample_interval <= 3600.0:
+        parser.error('resource sample interval must be between 0 and 3600 seconds')
     try:
         validate_app_package(args.app)
         if args.app2 is not None:
@@ -790,6 +804,7 @@ def main():
         paths['AAAS_COMPOSER_OVERLAY'] = str(
             build_multi_output_composer() if args.app2 else COMPOSER_VDISPLAY)
         paths['AAAS_SERVICES_JAR_OVERLAY'] = str(VDISPLAY_SERVICES_OVERLAY)
+    primary_diagnostic = show_primary_diagnostic(args)
     lock_fd = os.open(TMP / '.aaas_session.lock', os.O_CREAT | os.O_RDWR, 0o600)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -860,6 +875,27 @@ def main():
             os.close(lock_fd)
             return 1
         print(f'AaaS: cgroup memory policy at {policy.session_dir}', flush=True)
+    resource_policy_path = policy.session_dir if policy is not None else None
+    if args.resource_sample_interval > 0:
+        resource_sample_log = session / 'resources-periodic.jsonl'
+        periodic_sample_count = 0
+        next_resource_sample = time.monotonic() + args.resource_sample_interval
+    else:
+        resource_sample_log = None
+        periodic_sample_count = 0
+        next_resource_sample = None
+    collect_resource_diagnostics = (
+        args.resource_diagnostics or args.resource_sample_interval > 0)
+    if collect_resource_diagnostics:
+        try:
+            aaas_resources.write_snapshot(
+                session / 'resources-start.json', workspace=WORKSPACE,
+                policy_cgroup=resource_policy_path,
+                tracked_packages=[package for package in (args.app, args.app2)
+                                  if package])
+        except OSError as error:
+            print(f'AaaS: resource snapshot unavailable: {error}',
+                  file=sys.stderr, flush=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
@@ -901,20 +937,24 @@ def main():
         transition('PREPARING')
         with (session / 'presenter.log').open('wb') as presenter_log, (session / 'android.log').open('wb') as android_log:
             transition('STARTING_PRESENTER')
-            presenter = subprocess.Popen(
-                [str(PRESENTER), '--socket', str(ipc / 'wayland.sock'),
-                 '--width', presenter_size[0], '--height', presenter_size[1],
-                 '--input-socket', str(ipc / 'input.sock'),
-                 '--input-session', f'0x{input_session:016x}',
-                 '--exit-on-close'],
-                stdout=presenter_log, stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-            deadline = time.monotonic() + 10
-            while not (ipc / 'wayland.sock').exists():
-                if presenter.poll() is not None or time.monotonic() >= deadline:
-                    raise RuntimeError('presenter did not start')
-                time.sleep(.1)
+            if primary_diagnostic:
+                presenter = subprocess.Popen(
+                    [str(PRESENTER), '--socket', str(ipc / 'wayland.sock'),
+                     '--width', presenter_size[0], '--height', presenter_size[1],
+                     '--input-socket', str(ipc / 'input.sock'),
+                     '--input-session', f'0x{input_session:016x}',
+                     '--exit-on-close'],
+                    stdout=presenter_log, stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+                deadline = time.monotonic() + 10
+                while not (ipc / 'wayland.sock').exists():
+                    if presenter.poll() is not None or time.monotonic() >= deadline:
+                        raise RuntimeError('presenter did not start')
+                    time.sleep(.1)
+            else:
+                print('AaaS: primary diagnostic presenter suppressed in app mode',
+                      flush=True)
             if args.experimental_virtual_display:
                 virtual_log_path = session / 'virtual-presenter.log'
                 with virtual_log_path.open('wb') as virtual_log:
@@ -964,7 +1004,7 @@ def main():
             transition('WAITING_FOR_FRAMEWORK')
             deadline = time.monotonic() + args.startup_timeout + 20
             while not stop:
-                if presenter.poll() is not None:
+                if presenter is not None and presenter.poll() is not None:
                     raise RuntimeError(f'presenter exited before {args.app} became ready')
                 if virtual_presenter is not None and virtual_presenter.poll() is not None:
                     raise RuntimeError('virtual display presenter exited before Android startup')
@@ -1000,7 +1040,7 @@ def main():
                 time.sleep(.25)
             warned_degraded = False
             while not stop and state == 'RUNNING':
-                if presenter.poll() is not None:
+                if presenter is not None and presenter.poll() is not None:
                     print('AaaS: presenter exited; stopping Android', flush=True)
                     break
                 if args.experimental_virtual_display:
@@ -1040,6 +1080,21 @@ def main():
                     warned_degraded = True
                     print('AaaS: memory policy monitor degraded; Android continues',
                           file=sys.stderr, flush=True)
+                if (resource_sample_log is not None and
+                        periodic_sample_count < aaas_resources.MAX_PERIODIC_SAMPLES and
+                        time.monotonic() >= next_resource_sample):
+                    try:
+                        aaas_resources.append_sample(
+                            resource_sample_log,
+                            aaas_resources.snapshot(
+                                WORKSPACE, resource_policy_path,
+                                tracked_packages=[package for package in (args.app, args.app2)
+                                                  if package]))
+                        periodic_sample_count += 1
+                        next_resource_sample = time.monotonic() + args.resource_sample_interval
+                    except OSError as error:
+                        print(f'AaaS: periodic resource sample unavailable: {error}',
+                              file=sys.stderr, flush=True)
                 time.sleep(.25)
         transition('STOPPING')
         return 0
@@ -1049,6 +1104,16 @@ def main():
         return 1
     finally:
         cleanup_failed = False
+        if collect_resource_diagnostics:
+            try:
+                aaas_resources.write_snapshot(
+                    session / 'resources-shutdown-begin.json', workspace=WORKSPACE,
+                    policy_cgroup=resource_policy_path,
+                    tracked_packages=[package for package in (args.app, args.app2)
+                                      if package])
+            except OSError as error:
+                print(f'AaaS: shutdown resource snapshot unavailable: {error}',
+                      file=sys.stderr, flush=True)
         if policy_monitor is not None:
             try:
                 policy_monitor.stop(timeout=12)
@@ -1107,6 +1172,17 @@ def main():
             else:
                 print(f'AaaS: memory policy hierarchy removed ({policy.session_dir})',
                       flush=True)
+        if collect_resource_diagnostics:
+            try:
+                aaas_resources.write_snapshot(
+                    session / 'resources-shutdown.json', workspace=WORKSPACE,
+                    policy_cgroup=resource_policy_path,
+                    tracked_packages=[package for package in (args.app, args.app2)
+                                      if package])
+                print(f'AaaS: resource snapshots recorded in {session}', flush=True)
+            except OSError as error:
+                print(f'AaaS: final resource snapshot unavailable: {error}',
+                      file=sys.stderr, flush=True)
         terminal_failed = (failed_before_cleanup or state == 'FAILED' or cleanup_failed)
         if terminal_failed:
             if state != 'FAILED':
