@@ -250,3 +250,19 @@ The single-output resize follow-up did not reproduce that SIGSEGV, but SurfaceFl
 logged two `Unexpected onFrameCommitted in Gpu state` transition warnings.
 One bounded non-reproduction does not identify or fix the historical JIT fault.
 The resize ownership change is separate from the unresolved SwiftShader issue.
+
+
+### Capacity-two runtime selection and memory-pressure boundary
+
+The two-app experimental launcher now selects a separately built Composer
+with `AAAS_VIRTUAL_DISPLAY_CAPACITY=2`; the single-app path continues to use
+the one-output overlay. In the latest bounded attempt, Composer advertised two
+transports and created two outputs, both app launches returned success, both
+input adapters completed HELLO, and each presenter observed/released frames.
+Android then failed before the foreground session reached RUNNING: logcat shows
+lowmemorykiller repeatedly killing framework/app processes under breached
+watermarks and swap below the configured ~801 MB minimum. This is the current
+observed blocker for repeating live two-app acceptance on this host; it is not
+evidence that the cap-two transport or adapter handshake failed. No screenshot
+or interactive acceptance is claimed for that attempt. Evidence and hashes are
+in [`two_output_capacity_memory_pressure_20261030.json`](../results/m1e/live/two_output_capacity_memory_pressure_20261030.json).

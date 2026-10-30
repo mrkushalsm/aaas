@@ -172,3 +172,14 @@ at `(0,0,960,1156)` and `(960,0,960,1156)`, captured together in
 `results/m1e/live/two_app_side_by_side_resize_20261030.png`. Settings closed
 independently while DeskClock remained live. DeskClock keyboard and independent
 scroll behavior remain unverified. Resize and close evidence: `results/m1e/live/two_app_window_resize_close_20261030.json`.
+
+
+### Capacity-two Composer selection
+
+When `--experimental-virtual-display` is combined with `--app2`, the launcher
+builds/selects the Composer overlay with capacity two and two transport
+endpoints. The `--app2` path starts the second Android activity before waiting
+for the second input adapter HELLO, because that adapter connects only after its
+virtual-display producer exists. The latest run verified both HELLOs and frame
+traffic but did not reach RUNNING due to lowmemorykiller pressure; see
+[`two_output_capacity_memory_pressure_20261030.json`](../results/m1e/live/two_output_capacity_memory_pressure_20261030.json).

@@ -45,9 +45,11 @@ invalidations. Full trace and hashes are in
 This proves one output resizing in both directions. Rapid resize bursts,
 landscape, simultaneous independent output resizing, navigation during resize,
 and pointer remapping after resize remain untested. No screenshot was captured
-in this run. A separate two-app attempt failed before RUNNING when the second
-presenter did not accept its input adapter; that failure is not attributed to
-the resize fix, and earlier accepted two-app evidence below remains intact.
+in this run. A later cap-two retry (described below) reached both Android activity launch
+commands and both display-specific input HELLO handshakes, then failed before
+RUNNING because Android lowmemorykiller reported exhausted host/container swap
+and killed both app processes. This supersedes the earlier second-presenter
+readiness diagnosis.
 
 The continuation session `m1b84_session_8e7pe6lh` created Settings task 8 on
 Android display 2 / Composer display 100 and DeskClock task 9 on Android
@@ -130,7 +132,7 @@ historical SwiftShader JIT fault remains unresolved. The clean
 
 The final automated runs for this continuation passed:
 
-- `python3 -m unittest discover -s tests -v`: **153 tests**.
+- `python3 -m unittest discover -s tests -v`: **154 tests**.
 - `make -C experiments/m1a test`.
 - `make -C experiments/m1a -B build/wayland-host-presenter test`.
 - `make -C experiments/m1c/input_adapter -B all`.
@@ -139,7 +141,7 @@ The final automated runs for this continuation passed:
 - `python3 scripts/android_workspace.py --workspace /run/media/mrkus/Homework/aaas-workspace check`.
 
 The external workspace remained on `/dev/sda2` (NTFS3, UUID
-`A2ACEDF2ACEDC0C1`) at about 22.8 GB used, under its 80 GiB ceiling with the
+`A2ACEDF2ACEDC0C1`) at 22.9 GB used, under its 80 GiB ceiling with the
 20 GiB safety reserve. Build hashes and IDs are in
 [`window_resize_lifecycle_20261030.json`](../results/m1e/build_receipts/window_resize_lifecycle_20261030.json).
 
@@ -159,3 +161,29 @@ single-output run verifies genuine Android-sized buffer changes in both
 directions. Full two-output resize, complete per-window input, reopen/minimize,
 primary diagnostic-output suppression, and the historical SwiftShader JIT
 crash boundary remain open.
+
+
+### Capacity-two retry and low-memory failure (2026-10-30)
+
+The two-app launcher now builds/selects a Composer configuration advertising
+two virtual outputs. Its runtime log reports two independent transport sockets,
+`getMaxVirtualDisplayCount -> 2`, and Composer display IDs 100 and 101. Settings
+launch on Android display 2 and DeskClock on display 3 both returned `Status: ok`;
+both input adapters received HELLO, and both presenters imported and released
+frames (144/144 and 127/127, with zero outstanding buffers at teardown).
+
+The session did not reach `RUNNING`. Android logcat recorded repeated
+lowmemorykiller decisions because memory watermarks were breached and swap was
+far below its 801380 kB threshold. It killed Settings and DeskClock, among other
+processes. This identifies the previous readiness failure as memory pressure,
+not a missing second-presenter HELLO. The attempt did not produce a valid
+simultaneous-window screenshot and establishes no new UI/input acceptance.
+Host swap was effectively exhausted after the run, so no immediate retry was
+started. The two-output build identity, state history, and raw log hashes are
+in [`two_output_capacity_memory_pressure_20261030.json`](../results/m1e/live/two_output_capacity_memory_pressure_20261030.json).
+
+The capacity-two runtime configuration is now selected by the two-app
+experimental launch path; one-app mode retains its existing Composer overlay.
+This does not resolve two-output resizing, per-output keyboard/scroll testing,
+app reopen, minimize, primary diagnostic-window suppression, or the historical
+SwiftShader JIT crash. Overall M1E remains **PARTIAL**.
