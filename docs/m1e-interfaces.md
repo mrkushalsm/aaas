@@ -32,6 +32,29 @@ dynamic display management.
 The feature is opt-in; default sessions do not set its display-content-mode
 property or start this service.
 
+## App-mode primary presentation
+
+For app-selected `--experimental-virtual-display` runs, `run_aaas.py` skips
+starting the primary diagnostic presenter by default. `--show-primary-diagnostic`
+requests the previous primary Wayland window for debugging. This does not
+change Android display 0 or stop its framework/SystemUI services. Without
+`--experimental-virtual-display`, the existing diagnostic primary presenter
+behavior is retained.
+
+## Resource diagnostic snapshots
+
+`--resource-diagnostics` writes `resources-start.json`,
+`resources-shutdown-begin.json`, and `resources-shutdown.json` in the private
+session directory. `--resource-sample-interval N` additionally enables
+periodic JSONL snapshots while RUNNING; interval must be 0–3600 seconds and at
+most 3600 periodic records are emitted. Files are created with mode 0600.
+Snapshots contain host `/proc/meminfo`, host PSI, cgroup v2 limits/events and
+pressure for the launcher, AaaS parent, and optional delegated session group,
+bounded matching process RSS/PSS and OOM score adjustments, and workspace
+free space. Selected package names are used only to classify app processes;
+command-line contents are not retained. Collection is read-only and does not
+change memory policy.
+
 ## Identity mapping
 
 These identifiers have distinct owners and lifetimes:

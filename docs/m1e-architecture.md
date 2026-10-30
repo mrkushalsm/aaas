@@ -16,11 +16,12 @@ path keeps the diagnostic primary display. The experimental
 `--experimental-virtual-display` path creates a system-owned trusted Android
 virtual display for each requested app (`--app` and optional `--app2`), routes
 each task to its Android display ID, and uses one Composer transport socket
-and Wayland toplevel per output. The primary display, wire
-protocol v2, and primary input route remain unchanged. A two-app live run proved two tasks, Android displays, Composer outputs, and
-Wayland toplevels in one runtime. It is still not a complete multi-window
-session manager: KWin placed both windows at the same geometry, and per-window
-input, resize, close, and independent teardown remain unverified.
+and Wayland toplevel per output. The primary display, wire protocol v2, and
+primary input route remain unchanged. Two tasks, Android displays, Composer
+outputs, and Wayland toplevels have been verified in one runtime. KWin
+quick-tile placement, per-window close, and single-output native resize have
+since been verified; concurrent resize, complete per-window input, app reopen,
+and minimize remain unverified.
 
 The live Android probe reported one logical display: ID 0, 720×1280, trusted,
 and able to host tasks. Settings was task 8 and top-resumed. A Launcher HOME
@@ -30,6 +31,12 @@ of 126 pixels. The Android app window reported full display bounds in that
 probe, but the system navigation window and touch ownership still exist on
 that diagnostic display. The experimental secondary display has a separately
 verified WMS/InputDispatcher state recorded below.
+
+In selected-app virtual-display mode, the launcher omits the primary
+diagnostic Wayland presenter unless `--show-primary-diagnostic` is specified.
+Android's primary display and its framework/SystemUI services remain active;
+only its host presentation is omitted. The ordinary non-virtual-display
+diagnostic command still presents the primary output.
 
 ## Candidate comparison
 

@@ -1,6 +1,6 @@
 # M1E status
 
-Status: **PARTIAL — two-app placement and per-window close are live; single-output Android buffer resizing now works, while multi-output resize, input isolation, reopen, and crash stability remain incomplete**
+Status: **PARTIAL — two-app rendering and per-window close are live; app mode now omits the primary diagnostic presenter and bounded resource snapshots are available; multi-output resize, input isolation, reopen, and crash stability remain incomplete**
 
 Date: 2026-10-30
 
@@ -123,7 +123,7 @@ historical SwiftShader JIT fault remains unresolved. The clean
 | Keyboard on both outputs, scrolling, focus isolation | PARTIAL / NOT TESTED here | Prior Settings secondary keyboard evidence remains; this continuation did not type into DeskClock or test scrolling on both outputs. |
 | Reopen app without restarting runtime | NOT TESTED | No broker create-after-destroy request exists in this experiment. |
 | Minimize/unmap lifecycle | NOT TESTED | `xdg-shell` does not provide a general minimized notification; no visibility policy is claimed. |
-| Hide primary diagnostic presenter in normal app mode | NOT IMPLEMENTED | The primary diagnostic presenter still starts; this continuation did not hide it. |
+| Hide primary diagnostic presenter in normal app mode | PASS, bounded live | Experimental app sessions with selected apps skip the primary presenter; Android display 0 remains intact. `--show-primary-diagnostic` restores diagnostic presentation. This verifies no primary Wayland output, not removal of internal Android SystemUI. |
 | Distinct DMA-BUF copy on real Mixed composition | NOT TESTED LIVE | GPU-only alias path and component-level stride/copy tests remain as previously documented. |
 | SwiftShader JIT crash freedom | PARTIAL | One separate live SurfaceFlinger JIT SIGSEGV remains unresolved. |
 | Resize/JIT relationship | OPEN | The resize follow-up did not reproduce the historical JIT SIGSEGV; it logged two `Unexpected onFrameCommitted in Gpu state` warnings. The old fault remains unsymbolicated and open. |
@@ -132,7 +132,7 @@ historical SwiftShader JIT fault remains unresolved. The clean
 
 The final automated runs for this continuation passed:
 
-- `python3 -m unittest discover -s tests -v`: **154 tests**.
+- `python3 -m unittest discover -s tests -v`: **164 tests**.
 - `make -C experiments/m1a test`.
 - `make -C experiments/m1a -B build/wayland-host-presenter test`.
 - `make -C experiments/m1c/input_adapter -B all`.
@@ -145,21 +145,27 @@ The external workspace remained on `/dev/sda2` (NTFS3, UUID
 20 GiB safety reserve. Build hashes and IDs are in
 [`window_resize_lifecycle_20261030.json`](../results/m1e/build_receipts/window_resize_lifecycle_20261030.json).
 
+After adding resource snapshots and the app-mode presentation option, the
+Python suite passed **164 tests**. M1A, forced presenter rebuild/tests, forced
+input-adapter build, Composer component tests, forced display-broker build,
+and the workspace guard passed again. Default and enhanced two-app app-mode
+sessions reached RUNNING then STOPPED; the enhanced session cgroup was removed.
+The explicit primary diagnostic opt-in also reached RUNNING and stopped cleanly.
+
 ## Next verified work
 
 1. Diagnose the unresolved SwiftShader JIT/SF crash and repeat bounded stability runs.
 2. Verify resize bursts, landscape, pointer-coordinate mapping, and resize isolation across two live outputs.
-3. Diagnose the latest second-presenter/input-adapter readiness failure, then verify two-way keyboard, scroll, and focus isolation.
+3. Verify two-way keyboard, scroll, and focus isolation.
 4. Add a broker create-after-destroy lifecycle so apps can reopen without restarting Android.
 5. Define/test minimize behavior only where the Wayland/KWin protocol exposes reliable visibility state.
-6. Add an explicit app-mode policy for not showing the primary diagnostic output while retaining a diagnostic option.
-7. Repeat expanded two-app resize, close/reopen, input, and shutdown under default and source-LMKD/cgroup modes.
+6. Repeat expanded two-app resize, close/reopen, input, and shutdown under default and source-LMKD/cgroup modes.
 
 Overall M1E remains **PARTIAL**. Two live Android apps have previously been
 shown side by side, with independent task close and drained buffers. A later
 single-output run verifies genuine Android-sized buffer changes in both
 directions. Full two-output resize, complete per-window input, reopen/minimize,
-primary diagnostic-output suppression, and the historical SwiftShader JIT
+and the historical SwiftShader JIT
 crash boundary remain open.
 
 
@@ -185,8 +191,10 @@ in [`two_output_capacity_memory_pressure_20261030.json`](../results/m1e/live/two
 The capacity-two runtime configuration is now selected by the two-app
 experimental launch path; one-app mode retains its existing Composer overlay.
 This does not resolve two-output resizing, per-output keyboard/scroll testing,
-app reopen, minimize, primary diagnostic-window suppression, or the historical
-SwiftShader JIT crash. Overall M1E remains **PARTIAL**.
+app reopen, minimize, or the historical SwiftShader JIT crash. Primary
+diagnostic presentation was still present at the time of this earlier record;
+its later app-mode suppression is documented below. Overall M1E remains
+**PARTIAL**.
 
 
 ### Two-app LMKD/memory comparison (2026-10-30)
@@ -233,3 +241,45 @@ was removed. No LMKD policy change was made. Full interactive two-window input,
 concurrent resize, close/reopen, and the separate historical SwiftShader JIT
 crash remain open. Overall M1E remains **PARTIAL**. Structured measurements and
 raw-log hashes: [`two_app_memory_comparison_20261030.json`](../results/m1e/live/two_app_memory_comparison_20261030.json).
+
+### App-mode presentation policy and bounded resource snapshots (2026-10-30)
+
+For `--experimental-virtual-display` sessions with an application selected, the
+launcher now skips creating the primary diagnostic Wayland presenter by
+default. `--show-primary-diagnostic` opts back into the previous diagnostic
+window. This does not change Android display 0, SurfaceFlinger, SystemUI, or
+framework startup. A live default two-app run reached `RUNNING`; startup output
+reported the suppressed presenter, both secondary presenters handled frames,
+and the session IPC directory exposed the two `wayland-vdisplay` endpoints
+without a primary `wayland.sock`. A real desktop screenshot shows DeskClock
+content rather than the Android launcher/primary desktop; it is a single
+foreground window capture, not new side-by-side evidence:
+[`app_mode_primary_suppressed_20261030.png`](../results/m1e/live/app_mode_primary_suppressed_20261030.png).
+The `--show-primary-diagnostic` escape hatch was also exercised live in a
+single-app session: both `wayland.sock` and `wayland-vdisplay.sock` were
+created with their presenters, then the session reached STOPPED on Ctrl+C.
+
+The opt-in `--resource-diagnostics` flag records mode-0600 startup,
+shutdown-begin, and post-cleanup JSON snapshots. An optional
+`--resource-sample-interval N` records bounded periodic JSONL samples (maximum
+3600) while the session is RUNNING. Snapshots read host MemAvailable/SwapFree,
+memory/IO/CPU PSI, cgroup limits/events/pressure, selected Android process
+RSS/PSS and `oom_score_adj`, and external workspace free space. They do not
+change memory policy or persist command lines or typed text. The collector
+supports both `/proc/<pid>/cgroup` hierarchy paths and absolute cgroup paths;
+its tests cover both forms.
+
+The default diagnostic-LMKD two-app run `m1b84_session_jdaldf3f` reached
+RUNNING and STOPPED, wrote three periodic samples, and both app tasks remained
+alive at the shutdown boundary. Sampled host MemAvailable ranged from
+5,057,820 to 5,088,460 KiB and SwapFree from 1,044,980 to 1,045,140 KiB;
+Settings PSS was about 99 MiB and DeskClock PSS about 73–77 MiB. The later
+enhanced run `m1b84_session_62xzkt6n` also reached RUNNING and STOPPED; its
+session cgroup had `oom=0`, `oom_kill=0`, `high=0`, and `max=0`, then was
+removed. At shutdown-begin, host MemAvailable was 5,169,880 KiB and SwapFree
+was 1,043,804 KiB; Settings and DeskClock PSS were 106,177 and 74,087 KiB.
+These are process-accounting snapshots, not total graphics memory; DMA-BUF
+allocations may not be represented in process PSS. Both presenters completed
+all submitted-buffer releases with zero outstanding buffers. Full structured
+evidence and session paths are in
+[`app_mode_resource_diagnostics_20261030.json`](../results/m1e/live/app_mode_resource_diagnostics_20261030.json).
