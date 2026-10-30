@@ -49,7 +49,8 @@ The output buffer and client target are distinct Composer API roles and have
 separate slot records. In the captured Settings run, both handles referred to
 the same DMA-BUF inode (`alias=1`), so Composer correctly waited both acquire
 fences and forwarded the allocation without a self-copy. The different-backing
-copy path is implemented but was not independently exercised in this run.
+copy path now has DMA-BUF CPU-sync calls and a host row-copy component test,
+but it has not been exercised with real DMA-BUFs in a live Android run.
 Therefore this prototype does **not** establish that SurfaceFlinger always
 provides physically separate allocations, nor does it establish concurrent
 multi-display ownership. Keep the primary output as a diagnostic baseline.
@@ -72,8 +73,18 @@ composition uses the sink/output buffer as the GPU producer buffer, while
 for the observed GPU-only path. It does not validate the Composer's
 distinct-backing copy path. Keep the one-display cap until that copy path is
 covered by a distinct-allocation correctness test and multi-display resource
-isolation is implemented. Raw paths and hashes are in
-`results/m1e/live/distinct_backing_probe.json`.
+isolation is implemented. The host test verifies different memfd backing,
+strides, visible pixel bytes, and unchanged padding; it does not prove DMA-BUF
+cache behavior. The copy branch now uses DMA_BUF_IOCTL_SYNC around CPU access,
+rejects unsupported non-RGBA/BGRA formats, and fails the frame on sync/copy
+errors. The patched regular Composer reached RUNNING and STOPPED in both
+default and source-LMKD/cgroup sessions. A patched virtual Composer also
+completed a live GPU-only session with 66 presented frames, zero rejects, and
+no invocation of the distinct-backing branch. Its build and evidence limits are in
+`results/m1e/build_receipts/distinct_copy.json`,
+`results/m1e/live/distinct_backing_probe.json`, and
+`results/m1e/live/distinct_copy_component.json` and
+`results/m1e/live/composer_copy_runtime_smokes.json`.
 
 ## Remaining M1E work
 

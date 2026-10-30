@@ -87,10 +87,15 @@ case: `fbSourceForCompositionType(CompositionType::Gpu)` returns
 (`VirtualDisplaySurface.cpp`, lines 670-671 and 388-435). `SOURCE_SCRATCH` is
 selected for `CompositionType::Mixed`. Thus the observed alias is consistent
 with the framework contract; it is not evidence that the separate-backing
-copy path works. That path still needs a focused distinct-allocation test (and
-live integration if a real Mixed composition can be induced) before increasing
-the Composer virtual-display capacity. See
-`results/m1e/live/distinct_backing_probe.json`.
+copy path works. The Composer copy now rejects non-RGBA/BGRA formats, brackets
+the CPU mapping with DMA-BUF read/write START/END synchronization, and uses a
+stride-aware row-copy helper. A host component test confirms distinct backing,
+pixel bytes, stride handling, and padding preservation. It uses memfd rather
+than DMA-BUF, so cache-coherency and real Mixed-composition behavior remain
+unverified. Do not increase Composer virtual-display capacity until the
+distinct DMA-BUF path and concurrent per-display ownership are validated. See
+`results/m1e/live/distinct_backing_probe.json` and
+`results/m1e/live/distinct_copy_component.json`.
 
 The framework `VirtualDisplayConfig` surface is the output sink supplied at
 display creation. The system-owned broker must own that sink's BufferQueue
