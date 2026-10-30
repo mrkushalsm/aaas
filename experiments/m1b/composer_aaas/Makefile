@@ -9,9 +9,10 @@ BIN ?= $(OUT_DIR)/android.hardware.graphics.composer3-service.aaas
 AAAS_DISPLAY_WIDTH ?= 1280
 AAAS_DISPLAY_HEIGHT ?= 720
 AAAS_ENABLE_VIRTUAL_DISPLAY ?= 0
+AAAS_VIRTUAL_DISPLAY_CAPACITY ?= 1
 
 SRCS := composer_service.cpp aaas_transport.cpp ../../m1a/src/wire_v2.c
-HEADERS := aaas_transport.h linear_copy.h
+HEADERS := aaas_transport.h linear_copy.h virtual_transport_pool.h
 
 CXXFLAGS := -target $(TARGET) -std=c++17 -nostdlib -nostdinc++ -fno-rtti \
   -D__BIONIC__ '-D__INTRODUCED_IN(n)=' -D__ANDROID_API__=35 \
@@ -24,6 +25,7 @@ CXXFLAGS := -target $(TARGET) -std=c++17 -nostdlib -nostdinc++ -fno-rtti \
 
 ifeq ($(AAAS_ENABLE_VIRTUAL_DISPLAY),1)
 CXXFLAGS += -DAAAS_ENABLE_VIRTUAL_DISPLAY=1 \
+  -DAAAS_VIRTUAL_DISPLAY_CAPACITY=$(AAAS_VIRTUAL_DISPLAY_CAPACITY) \
   -DAAAS_VIRTUAL_DISPLAY_SOCKET=\"/dev/aaas/wayland-vdisplay.sock\"
 endif
 
@@ -42,8 +44,13 @@ build/test-linear-copy: tests/test_linear_copy.cpp linear_copy.h
 	@mkdir -p build
 	$(HOST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -I. $< -o $@
 
-test: build/test-linear-copy
+build/test-virtual-transport-pool: tests/test_virtual_transport_pool.cpp virtual_transport_pool.h
+	@mkdir -p build
+	$(HOST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -I. $< -o $@
+
+test: build/test-linear-copy build/test-virtual-transport-pool
 	./build/test-linear-copy
+	./build/test-virtual-transport-pool
 
 $(BIN): $(SRCS) $(HEADERS)
 	@mkdir -p $(OUT_DIR)

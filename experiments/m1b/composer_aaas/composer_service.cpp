@@ -45,12 +45,16 @@
 
 #include "aaas_transport.h"
 #include "linear_copy.h"
+#include "virtual_transport_pool.h"
 
 #ifndef AAAS_DISPLAY_WIDTH
 #define AAAS_DISPLAY_WIDTH 1280
 #endif
 #ifndef AAAS_DISPLAY_HEIGHT
 #define AAAS_DISPLAY_HEIGHT 720
+#endif
+#ifndef AAAS_VIRTUAL_DISPLAY_CAPACITY
+#define AAAS_VIRTUAL_DISPLAY_CAPACITY 1
 #endif
 
 extern "C" {
@@ -143,6 +147,8 @@ struct VirtualBufferSlot {
 };
 
 struct VirtualDisplayState {
+    std::mutex lock;
+    bool destroyed = false;
     int32_t width = 0;
     int32_t height = 0;
     PixelFormat format = PixelFormat::UNSPECIFIED;
@@ -150,6 +156,7 @@ struct VirtualDisplayState {
     VirtualBufferSlot client_target[64];
     int current_output_slot = -1;
     int current_client_slot = -1;
+    int transport_slot = -1;
     uint32_t ownership_diagnostics = 0;
     uint32_t empty_frame_diagnostics = 0;
 };
@@ -160,11 +167,21 @@ public:
         : mNextLayerId(1), mCurrentClientTargetSlot(-1),
           mNeedsValidation(true), mVsyncEnabled(false), mRunning(true) {
 #ifdef AAAS_ENABLE_VIRTUAL_DISPLAY
-        mVirtualOutputAvailable = mVirtualTransport.initialize(AAAS_VIRTUAL_DISPLAY_SOCKET);
-        // Do not advertise HWC virtual displays unless their isolated Wayland
-        // endpoint is already listening. Primary output stays independent.
-        for (int i = 0; i < 100 && !mVirtualTransport.isConnected(); ++i) usleep(10000);
-        mVirtualOutputAvailable = mVirtualOutputAvailable && mVirtualTransport.isConnected();
+        for (int i = 0; i < AAAS_VIRTUAL_DISPLAY_CAPACITY; ++i) {
+            auto transport = std::make_unique<AaasTransport>();
+            std::string socket_path = AAAS_VIRTUAL_DISPLAY_SOCKET;
+            if (i > 0) socket_path += "-" + std::to_string(i + 1);
+            transport->initialize(socket_path);
+            // Advertise only endpoints already listening. A display never
+            // shares another display's transport object or slot namespace.
+            for (int wait = 0; wait < 100 && !transport->isConnected(); ++wait) usleep(10000);
+            const bool ready = transport->isConnected();
+            kmsg_log("[AaasComposerClient] virtual transport slot=%d socket=%s ready=%d\n",
+                     i, socket_path.c_str(), ready ? 1 : 0);
+            mVirtualTransportReady.push_back(ready);
+            mVirtualTransportUsed.push_back(false);
+            mVirtualTransports.push_back(std::move(transport));
+        }
 #endif
         kmsg_log("[AaasComposerClient] Instance created (M1B.7)\n");
     }
@@ -175,8 +192,12 @@ public:
         if (mVsyncThread.joinable()) {
             mVsyncThread.join();
         }
-        for (auto& entry : mVirtualDisplays) closeVirtualDisplayState(entry.second);
-        mVirtualTransport.shutdown();
+        for (auto& entry : mVirtualDisplays) {
+            std::lock_guard<std::mutex> state_lock(entry.second->lock);
+            entry.second->destroyed = true;
+            closeVirtualDisplayState(*entry.second);
+        }
+        for (auto& transport : mVirtualTransports) transport->shutdown();
     }
 
     ::ndk::ScopedAStatus registerCallback(const std::shared_ptr<IComposerCallback>& in_callback) override {
@@ -424,33 +445,34 @@ public:
                              slot, mSlots[slot].width, mSlots[slot].height, mSlots[slot].stride,
                              mSlots[slot].format, mSlots[slot].dma_fd, mSlots[slot].acquire_fence);
                 }
-                {
-                    std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
-                    auto it = mVirtualDisplays.find(cmd.display);
-                    if (it != mVirtualDisplays.end()) {
-                        updateVirtualBuffer(it->second.client_target, 64,
-                                            ct.buffer, it->second.width,
-                                            it->second.height);
+                auto virtual_state = findVirtualDisplay(cmd.display);
+                if (virtual_state) {
+                    std::lock_guard<std::mutex> state_lock(virtual_state->lock);
+                    if (!virtual_state->destroyed) {
+                        updateVirtualBuffer(virtual_state->client_target, 64,
+                                            ct.buffer, virtual_state->width,
+                                            virtual_state->height);
                         if (slot >= 0 && slot < 64) {
-                            it->second.current_client_slot = slot;
+                            virtual_state->current_client_slot = slot;
                         }
                     }
                 }
             }
 
             if (cmd.virtualDisplayOutputBuffer.has_value()) {
-                std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
-                auto it = mVirtualDisplays.find(cmd.display);
-                if (it != mVirtualDisplays.end()) {
-                    if (!updateVirtualBuffer(it->second.output_slots.data(),
-                                             it->second.output_slots.size(),
+                auto virtual_state = findVirtualDisplay(cmd.display);
+                if (virtual_state) {
+                    std::lock_guard<std::mutex> state_lock(virtual_state->lock);
+                    if (!virtual_state->destroyed &&
+                        !updateVirtualBuffer(virtual_state->output_slots.data(),
+                                             virtual_state->output_slots.size(),
                                              *cmd.virtualDisplayOutputBuffer,
-                                             it->second.width, it->second.height)) {
+                                             virtual_state->width, virtual_state->height)) {
                         kmsg_log("[AaasComposerClient] invalid virtual output buffer display=%lld slot=%d\n",
                                  (long long)cmd.display,
                                  cmd.virtualDisplayOutputBuffer->slot);
-                    } else {
-                        it->second.current_output_slot = cmd.virtualDisplayOutputBuffer->slot;
+                    } else if (!virtual_state->destroyed) {
+                        virtual_state->current_output_slot = cmd.virtualDisplayOutputBuffer->slot;
                     }
                 }
             }
@@ -507,15 +529,14 @@ public:
                 mNeedsValidation = false;
             } else if (cmd.presentDisplay) {
                 bool presented = false;
-                {
-                    std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
-                    auto it = mVirtualDisplays.find(cmd.display);
-                    if (it != mVirtualDisplays.end()) {
-                        presented = presentVirtualDisplayFrame(cmd.display, it->second,
-                                                               command_index, _aidl_return);
-                    } else {
-                        presented = presentCurrentFrame(cmd.display, command_index, _aidl_return);
-                    }
+                auto virtual_state = findVirtualDisplay(cmd.display);
+                if (virtual_state) {
+                    std::lock_guard<std::mutex> state_lock(virtual_state->lock);
+                    presented = !virtual_state->destroyed &&
+                        presentVirtualDisplayFrame(cmd.display, *virtual_state,
+                                                   command_index, _aidl_return);
+                } else {
+                    presented = presentCurrentFrame(cmd.display, command_index, _aidl_return);
                 }
                 if (!presented) {
                     CommandError error;
@@ -531,7 +552,7 @@ public:
     }
 
     ::ndk::ScopedAStatus createVirtualDisplay(int32_t in_width, int32_t in_height, PixelFormat in_formatHint, int32_t in_outputBufferSlotCount, VirtualDisplay* _aidl_return) override {
-        if (!mVirtualOutputAvailable) {
+        if (availableVirtualDisplayCount() == 0) {
             return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_UNSUPPORTED);
         }
         if (in_width <= 0 || in_height <= 0 || in_width > 4096 || in_height > 4096 ||
@@ -544,16 +565,20 @@ public:
             return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_UNSUPPORTED);
         }
         std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
-        if (!mVirtualDisplays.empty()) {
+        const int transport_slot = reserveVirtualTransport(
+                mVirtualTransportReady, mVirtualTransportUsed);
+        if (transport_slot < 0) {
             return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_NO_RESOURCES);
         }
         const int64_t id = mNextVirtualDisplayId++;
-        VirtualDisplayState state;
-        state.width = in_width;
-        state.height = in_height;
-        state.format = in_formatHint;
-        state.output_slots.resize(static_cast<size_t>(in_outputBufferSlotCount));
+        auto state = std::make_shared<VirtualDisplayState>();
+        state->width = in_width;
+        state->height = in_height;
+        state->format = in_formatHint;
+        state->transport_slot = transport_slot;
+        state->output_slots.resize(static_cast<size_t>(in_outputBufferSlotCount));
         mVirtualDisplays.emplace(id, std::move(state));
+        mVirtualTransportUsed[transport_slot] = true;
         _aidl_return->display = id;
         _aidl_return->format = in_formatHint;
         kmsg_log("[AaasComposerClient] createVirtualDisplay id=%lld size=%dx%d slots=%d format=%d\n",
@@ -563,13 +588,28 @@ public:
     }
 
     ::ndk::ScopedAStatus destroyVirtualDisplay(int64_t in_display) override {
-        std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
-        auto it = mVirtualDisplays.find(in_display);
-        if (it == mVirtualDisplays.end()) {
-            return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_BAD_DISPLAY);
+        std::shared_ptr<VirtualDisplayState> state;
+        {
+            std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+            auto it = mVirtualDisplays.find(in_display);
+            if (it == mVirtualDisplays.end()) {
+                return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_BAD_DISPLAY);
+            }
+            state = it->second;
+            mVirtualDisplays.erase(it);
         }
-        closeVirtualDisplayState(it->second);
-        mVirtualDisplays.erase(it);
+        int transport_slot = -1;
+        {
+            std::lock_guard<std::mutex> state_lock(state->lock);
+            state->destroyed = true;
+            transport_slot = state->transport_slot;
+            closeVirtualDisplayState(*state);
+        }
+        if (transport_slot >= 0 &&
+            static_cast<size_t>(transport_slot) < mVirtualTransportUsed.size()) {
+            std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+            releaseVirtualTransport(mVirtualTransportUsed, transport_slot);
+        }
         kmsg_log("[AaasComposerClient] destroyVirtualDisplay id=%lld\n", (long long)in_display);
         return ::ndk::ScopedAStatus::ok();
     }
@@ -580,13 +620,25 @@ public:
     }
 
     ::ndk::ScopedAStatus getMaxVirtualDisplayCount(int32_t* _aidl_return) override {
-        *_aidl_return = mVirtualOutputAvailable ? 1 : 0;
-        kmsg_log("[AaasComposerClient] getMaxVirtualDisplayCount -> %d (transport=%s)\n",
-                 *_aidl_return, mVirtualOutputAvailable ? "ready" : "unavailable");
+        *_aidl_return = availableVirtualDisplayCount();
+        kmsg_log("[AaasComposerClient] getMaxVirtualDisplayCount -> %d independent transports ready\n",
+                 *_aidl_return);
         return ::ndk::ScopedAStatus::ok();
     }
 
 private:
+    std::shared_ptr<VirtualDisplayState> findVirtualDisplay(int64_t display) {
+        std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+        auto it = mVirtualDisplays.find(display);
+        return it == mVirtualDisplays.end() ? nullptr : it->second;
+    }
+
+    int32_t availableVirtualDisplayCount() const {
+        int32_t count = 0;
+        for (bool ready : mVirtualTransportReady) if (ready) ++count;
+        return count;
+    }
+
     static void closeVirtualSlot(VirtualBufferSlot& slot) {
         if (slot.dma_fd >= 0) close(slot.dma_fd);
         if (slot.acquire_fence >= 0) close(slot.acquire_fence);
@@ -781,14 +833,17 @@ private:
                            ? 0x34325241 : 0x34324241;
         frame.modifier = 0;
         frame.is_linear = true;
-        if (mVirtualTransport.submitFrame(frame) != 0 ||
-            !mVirtualTransport.waitForSlotRelease(frame.slot, 250) ||
-            !mVirtualTransport.isConnected()) {
+        if (state.transport_slot < 0 ||
+            static_cast<size_t>(state.transport_slot) >= mVirtualTransports.size()) return false;
+        AaasTransport& transport = *mVirtualTransports[state.transport_slot];
+        if (transport.submitFrame(frame) != 0 ||
+            !transport.waitForSlotRelease(frame.slot, 250) ||
+            !transport.isConnected()) {
             kmsg_log("[AaasComposerClient] virtual display %lld transport release timeout\n",
                      (long long)display);
             return false;
         }
-        int release_fence = mVirtualTransport.takeReleaseFence(frame.slot);
+        int release_fence = transport.takeReleaseFence(frame.slot);
         if (output.acquire_fence >= 0) {
             close(output.acquire_fence);
             output.acquire_fence = -1;
@@ -956,10 +1011,11 @@ private:
 
     ClientTargetSlot mSlots[64];
     std::mutex mVirtualDisplayLock;
-    std::unordered_map<int64_t, VirtualDisplayState> mVirtualDisplays;
+    std::unordered_map<int64_t, std::shared_ptr<VirtualDisplayState>> mVirtualDisplays;
     int64_t mNextVirtualDisplayId = 100;
-    AaasTransport mVirtualTransport;
-    bool mVirtualOutputAvailable = false;
+    std::vector<std::unique_ptr<AaasTransport>> mVirtualTransports;
+    std::vector<bool> mVirtualTransportReady;
+    std::vector<bool> mVirtualTransportUsed;
     int mCurrentClientTargetSlot;
     bool mNeedsValidation;
 
