@@ -554,7 +554,9 @@ static int request_android_display_focus(adapter_state *st, uint32_t generation)
     close(fd);
     if (written != request_len) return -1;
 
-    uint64_t deadline = monotonic_ns() + 1500000000ULL;
+    /* The broker acknowledges only after InputDispatcher reports the target Activity window.
+     * Allow that bounded Android focus transition to finish before rejecting host focus. */
+    uint64_t deadline = monotonic_ns() + 3000000000ULL;
     while (monotonic_ns() < deadline && !g_stop) {
         char response[128] = {0};
         fd = open(st->focus_ack_path, O_RDONLY | O_CLOEXEC);
@@ -563,9 +565,11 @@ static int request_android_display_focus(adapter_state *st, uint32_t generation)
             close(fd);
             uint64_t nonce = 0, response_generation = 0, task_id = 0;
             const char *cursor = response;
-            int parsed = count > 8 && strncmp(cursor, "focused ", 8) == 0;
+            int ready = count > 8 && strncmp(cursor, "focused ", 8) == 0;
+            int rejected = count > 9 && strncmp(cursor, "unfocused ", 10) == 0;
+            int parsed = ready || rejected;
             if (parsed) {
-                cursor += 8;
+                cursor += ready ? 8 : 10;
                 parsed = parse_decimal_field(&cursor, ' ', UINT64_MAX, &nonce) == 0 &&
                         parse_decimal_field(&cursor, ' ', UINT32_MAX,
                                             &response_generation) == 0 &&
@@ -573,10 +577,16 @@ static int request_android_display_focus(adapter_state *st, uint32_t generation)
             }
             if (parsed && nonce == st->focus_instance_nonce &&
                     response_generation == generation) {
-                adapter_logf("android_display_focus_ready",
-                        "\"display\":%u,\"generation\":%u,\"task_id\":%d",
-                        st->android_display_id, generation, (int)task_id);
-                return 0;
+                if (ready) {
+                    adapter_logf("android_display_focus_ready",
+                            "\"display\":%u,\"generation\":%u,\"task_id\":%d",
+                            st->android_display_id, generation, (int)task_id);
+                    return 0;
+                }
+                adapter_logf("android_display_focus_rejected",
+                        "\"display\":%u,\"generation\":%u",
+                        st->android_display_id, generation);
+                return -1;
             }
         }
         usleep(10000);

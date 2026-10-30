@@ -283,6 +283,24 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('focusDisplayTask(handle)', broker)
         self.assertIn('"setFocusedTask"', broker)
 
+    def test_android_keyboard_focus_ack_waits_for_inputdispatcher_window(self):
+        broker = (SCRIPT.parents[1] /
+                  'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
+        focus = broker[broker.index('private static int focusDisplayTask('):
+                       broker.index('private static String readInputDispatcherFocusedWindows(')]
+        self.assertLess(focus.index('"setFocusedTask"'),
+                        focus.index('awaitInputFocusedWindow('))
+        self.assertIn('FocusedWindows:', broker)
+        self.assertIn('"displayId=" + displayId + ", name=\'"', broker)
+        self.assertIn('hasInputFocusedWindow(focused, displayId)', broker)
+        self.assertIn('focus_input_window_timeout', broker)
+        self.assertIn('"unfocused " + focusFields[0]', broker)
+        adapter = (SCRIPT.parents[1] /
+                   'experiments/m1c/input_adapter/aaas_input_adapter.c').read_text()
+        self.assertIn('3000000000ULL', adapter)
+        self.assertIn('strncmp(cursor, "unfocused ", 10)', adapter)
+        self.assertIn('android_display_focus_rejected', adapter)
+
     def test_virtual_display_broker_releases_owned_display_before_ack(self):
         broker = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
         service = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/aaas-display-broker.rc').read_text()

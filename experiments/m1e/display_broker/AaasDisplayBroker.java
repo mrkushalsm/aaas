@@ -1,7 +1,9 @@
 package com.aaas.display;
 
+import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
@@ -9,6 +11,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /** Narrow system-UID broker for up to two trusted, own-content AaaS displays. */
 public final class AaasDisplayBroker {
@@ -321,24 +324,40 @@ public final class AaasDisplayBroker {
         String focusRequest = readControl(focusPath);
         if (!focusRequest.isEmpty() && !focusRequest.equals(handle.lastFocusRequest)) {
             String[] focusFields = focusRequest.split("\\s+");
+            boolean focusIdentityValid = false;
+            long focusGeneration = 0;
             try {
                 if (focusFields.length != 3) throw new IllegalArgumentException("field_count");
                 Long.parseLong(focusFields[0]); // adapter instance nonce
-                long generation = Long.parseLong(focusFields[1]);
+                focusGeneration = Long.parseLong(focusFields[1]);
                 int requestedDisplay = Integer.parseInt(focusFields[2]);
-                if (generation <= 0 || requestedDisplay != handle.displayId) {
+                if (focusGeneration <= 0 || requestedDisplay != handle.displayId) {
                     throw new IllegalArgumentException("display_or_generation");
                 }
+                focusIdentityValid = true;
+                long focusStartedNs = monotonicNanos();
                 int taskId = focusDisplayTask(handle);
                 if (taskId >= 0) {
                     handle.lastFocusRequest = focusRequest;
                     writeControl(focusAckPath, "focused " + focusFields[0] + " "
                             + focusFields[1] + " " + taskId + "\n");
-                    log("focus_task_requested index=" + handle.index + " displayId="
+                    log("focus_input_window_ready index=" + handle.index + " displayId="
                             + handle.displayId + " taskId=" + taskId + " generation="
-                            + generation);
+                            + focusGeneration + " elapsedNs="
+                            + (monotonicNanos() - focusStartedNs));
+                } else {
+                    handle.lastFocusRequest = focusRequest;
+                    writeControl(focusAckPath, "unfocused " + focusFields[0] + " "
+                            + focusFields[1] + " 0\n");
+                    log("focus_input_window_rejected index=" + handle.index + " displayId="
+                            + handle.displayId + " generation=" + focusGeneration);
                 }
             } catch (Exception error) {
+                if (focusIdentityValid) {
+                    handle.lastFocusRequest = focusRequest;
+                    writeControl(focusAckPath, "unfocused " + focusFields[0] + " "
+                            + focusFields[1] + " 0\n");
+                }
                 log("focus_request_failed index=" + handle.index + " displayId="
                         + handle.displayId + " error="
                         + error.getClass().getSimpleName());
@@ -364,7 +383,7 @@ public final class AaasDisplayBroker {
         }
     }
 
-    /** Focus the top Android task on this broker-owned display. */
+    /** Focus the Android task on this display and wait for its input window to be published. */
     private static int focusDisplayTask(DisplayHandle handle) throws Exception {
         @SuppressWarnings("unchecked")
         List<Object> tasks = (List<Object>) call(handle.activityManager, "getRunningTasks",
@@ -376,9 +395,97 @@ public final class AaasDisplayBroker {
             Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
             Object service = activityTaskManager.getMethod("getService").invoke(null);
             call(service, "setFocusedTask", new Class<?>[] {int.class}, taskId);
-            return taskId;
+            if (awaitInputFocusedWindow(handle.displayId)) {
+                return taskId;
+            }
+            log("focus_input_window_timeout index=" + handle.index + " displayId="
+                    + handle.displayId + " taskId=" + taskId);
+            return -1;
         }
         return -1;
+    }
+
+    /**
+     * InputDispatcher's dump is the Android 16 diagnostic source that identifies the focused
+     * input window by display. setFocusedTask() changes task/display focus before WindowManager
+     * has necessarily published that window to InputDispatcher, so its return is not readiness.
+     * This bounded condition wait only acknowledges focus after InputDispatcher reports a
+     * nonempty focused input window for the broker-owned display. The task's topActivity can lag
+     * Activity transitions and may differ from the window currently accepting input.
+     */
+    private static boolean awaitInputFocusedWindow(int displayId) throws Exception {
+        long deadline = monotonicNanos() + 2_000_000_000L;
+        int snapshots = 0;
+        while (monotonicNanos() < deadline) {
+            String focused = readInputDispatcherFocusedWindows();
+            snapshots++;
+            if (hasInputFocusedWindow(focused, displayId)) {
+                log("input_focus_snapshot_match displayId=" + displayId
+                        + " snapshots=" + snapshots);
+                return true;
+            }
+            Thread.sleep(20);
+        }
+        return false;
+    }
+
+    private static String readInputDispatcherFocusedWindows() throws Exception {
+        Process process = new ProcessBuilder("/system/bin/dumpsys", "input")
+                .redirectErrorStream(true).start();
+        final ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Thread reader = new Thread(new Runnable() {
+            @Override public void run() {
+                try (InputStream input = process.getInputStream()) {
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = input.read(buffer)) >= 0) {
+                        int remaining = 1_048_576 - output.size();
+                        if (remaining > 0) output.write(buffer, 0, Math.min(count, remaining));
+                    }
+                } catch (Exception ignored) { }
+            }
+        }, "aaas-input-focus-dump");
+        reader.start();
+        if (!process.waitFor(500, TimeUnit.MILLISECONDS)) {
+            process.destroy();
+            reader.join(100);
+            throw new IllegalStateException("dumpsys input timed out");
+        }
+        reader.join(100);
+        if (reader.isAlive()) {
+            process.destroy();
+            reader.join(100);
+        }
+        if (reader.isAlive()) throw new IllegalStateException("dumpsys input reader stuck");
+        if (process.exitValue() != 0) throw new IllegalStateException("dumpsys input failed");
+        return output.toString("UTF-8");
+    }
+
+    private static boolean hasInputFocusedWindow(String dump, int displayId) {
+        boolean inFocusedWindows = false;
+        String displayPrefix = "displayId=" + displayId + ", name='";
+        for (String line : dump.split("\\r?\\n")) {
+            String value = line.trim();
+            if (value.equals("FocusedWindows:")) {
+                inFocusedWindows = true;
+                continue;
+            }
+            if (inFocusedWindows && (value.startsWith("FocusRequests:")
+                    || value.endsWith("Windows:"))) break;
+            if (!inFocusedWindows || !value.startsWith(displayPrefix)) continue;
+            return value.length() > displayPrefix.length()
+                    && value.charAt(value.length() - 1) == '\'';
+        }
+        return false;
+    }
+
+    private static long monotonicNanos() {
+        try {
+            Class<?> systemClock = Class.forName("android.os.SystemClock");
+            return (Long) systemClock.getMethod("uptimeNanos", new Class<?>[0]).invoke(null);
+        } catch (Exception error) {
+            return System.nanoTime();
+        }
     }
 
     private static void releaseDisplay(DisplayHandle handle) throws Exception {

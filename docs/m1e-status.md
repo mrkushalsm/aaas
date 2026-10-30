@@ -568,3 +568,35 @@ buffers. The state journal and sentinel matched at STOPPED, and the delegated
 cgroup was removed. This was a short text-entry smoke only; enhanced-mode
 scrolling, minimize, resize, and close/reopen were not repeated. Evidence:
 [`enhanced_keyboard_interaction_20261031.json`](../results/m1e/live/enhanced_keyboard_interaction_20261031.json).
+
+### InputDispatcher focus-readiness follow-up (2026-10-31)
+
+The missed-first-key investigation found that the trusted broker's earlier focus
+acknowledgement meant only that `ActivityTaskManager.setFocusedTask()` returned.
+That return can precede publication of the app's focused input window to
+InputDispatcher. The broker now waits for Android's `dumpsys input` focused
+window list to contain a nonempty entry on the broker-owned display before it
+acknowledges that focus generation. A bounded timeout produces an explicit
+negative acknowledgement; the input adapter does not blindly replay key events.
+
+The default-mode live session `m1b84_session_y5s8nhsj` showed Settings (task 8,
+display 2) and Contacts (task 9, display 3) side by side. After switching focus,
+one controlled synthetic first key appeared visibly as `a` in Settings Search.
+The broker logged per-display focused-window matches before the adapter logged
+`android_display_focus_ready`. Both presenters ended with imports equal to
+submissions and releases (698/698 for Settings, 690/690 for Contacts), zero
+outstanding buffers, and zero teardown invalidations. The state journal and
+status sentinel both reached `STOPPED`. The screenshot is
+[`focus_readiness_first_key_20261031.png`](../results/m1e/live/focus_readiness_first_key_20261031.png); structured evidence and external log hashes are in
+[`focus_readiness_followup_20261031.json`](../results/m1e/live/focus_readiness_followup_20261031.json).
+
+This is bounded evidence for one first character in Settings, not a complete
+reliability result. Contacts did not visibly consume text in this session, and
+transient InputDispatcher “focused display does not have a focused window”
+warnings remain (no ANR signature was found in this session's log). The broker
+currently obtains the readiness snapshot by launching the fixed Android
+`/system/bin/dumpsys input` command and parses its per-display focused-window
+section; this is a diagnostic interface, so the focus matrix must be repeated
+and the query contract kept under review. Modifiers, repeated first-key trials,
+post-resize input, scroll variants, and minimize/restore were not covered by
+this session. M1E remains **PARTIAL**.
