@@ -340,3 +340,14 @@ last, so those cumulative counters are not attributed to this session. The
 historical SwiftShader JIT fault did not recur. No resize was performed in
 this smoke session. Details and external raw-log hashes are in
 [`two_app_startup_shutdown_resource_probe_20261030.json`](../results/m1e/live/two_app_startup_shutdown_resource_probe_20261030.json).
+
+An enhanced-mode run `m1b84_session_koo55mvl` also remained RUNNING for 66.2
+seconds before Ctrl+C shutdown. The source-built LMKD logged 14 cached or
+background process kills after swap fell below its configured watermark; the
+Settings and DeskClock tasks remained alive in the collected interval. The
+delegated session cgroup had zero OOM and OOM-kill events and was removed at
+shutdown. Each presenter ended with all 401/401 and 378/378 imported,
+submitted, released buffers and zero outstanding. This is bounded startup and
+cleanup evidence only: no interaction or deliberate pressure injection was
+performed. See
+[`two_app_enhanced_lmkd_cgroup_smoke_20261030.json`](../results/m1e/live/two_app_enhanced_lmkd_cgroup_smoke_20261030.json).
