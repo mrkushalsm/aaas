@@ -76,8 +76,10 @@ The intended later relationship is
 Current live evidence proves Settings task 8/display 2 and DeskClock task
 9/display 3 concurrently, with Composer IDs 100/101. The toplevels had distinct
 titles and app IDs and were quick-tiled side by side in a later live run. Per-
-window close was exercised; independent keyboard/scroll behavior, reopen, and
-full Android output resize are not yet verified.
+window close was exercised. A later session verified concurrent Android-backed
+resize on both outputs and an independent Settings resize while DeskClock stayed
+unchanged. App reopen, per-output scroll, application-consumed keyboard input on
+DeskClock, and post-resize input mapping remain unverified.
 
 ## Trusted display broker boundary
 
@@ -229,6 +231,8 @@ When `--experimental-virtual-display` is combined with `--app2`, the launcher
 builds/selects the Composer overlay with capacity two and two transport
 endpoints. The `--app2` path starts the second Android activity before waiting
 for the second input adapter HELLO, because that adapter connects only after its
-virtual-display producer exists. The latest run verified both HELLOs and frame
-traffic but did not reach RUNNING due to lowmemorykiller pressure; see
+virtual-display producer exists. An earlier capacity-two retry failed before
+RUNNING during severe low-memory/swap pressure; subsequent bounded default and
+source-LMKD/cgroup runs reached RUNNING and STOPPED. The lower-swap failure was
+not reproduced in those follow-ups; see
 [`two_output_capacity_memory_pressure_20261030.json`](../results/m1e/live/two_output_capacity_memory_pressure_20261030.json).
