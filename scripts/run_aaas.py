@@ -415,6 +415,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    echo "AAAS_TRUSTED_VDISPLAY_ID=$VD_ID"\n'
             '    /system/bin/aaas-input-adapter --socket /dev/aaas/input-vdisplay.sock '
             '--session-file /dev/aaas/input_session --log /aaas_vdisplay_input_adapter.log '
+            '--focus-request /dev/aaas/vdisplay_focus_1 '
+            '--focus-ack /dev/aaas/vdisplay_focus_ack_1 '
             '--display "$VD_ID" &\n'
             '    VDISPLAY_INPUT_ADAPTER_PID=$!\n'
             '    echo "AAAS_VDISPLAY_INPUT_ADAPTER_STARTED=$VDISPLAY_INPUT_ADAPTER_PID" '
@@ -485,6 +487,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 'echo FAILED > /aaas_session_status; exit 1 ;; esac\n'
                 '    /system/bin/aaas-input-adapter --socket /dev/aaas/input-vdisplay-2.sock '
                 '--session-file /dev/aaas/input_session --log /aaas_vdisplay2_input_adapter.log '
+                '--focus-request /dev/aaas/vdisplay_focus_2 '
+                '--focus-ack /dev/aaas/vdisplay_focus_ack_2 '
                 '--display "$VD_ID2" &\n'
                 '    VDISPLAY2_INPUT_ADAPTER_PID=$!\n'
                 '    echo "AAAS_VDISPLAY2_INPUT_ADAPTER_STARTED=$VDISPLAY2_INPUT_ADAPTER_PID" '
@@ -859,7 +863,8 @@ def main():
         (ipc / 'display_broker_shutdown').chmod(0o666)
         for index in (1, 2):
             for name in (f'vdisplay_resize_{index}', f'vdisplay_close_{index}',
-                         f'vdisplay_control_ack_{index}', f'app{index}_state'):
+                         f'vdisplay_control_ack_{index}', f'app{index}_state',
+                         f'vdisplay_focus_{index}', f'vdisplay_focus_ack_{index}'):
                 path = ipc / name
                 path.write_text('')
                 path.chmod(0o666)

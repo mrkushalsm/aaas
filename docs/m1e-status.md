@@ -132,7 +132,7 @@ historical SwiftShader JIT fault remains unresolved. The clean
 
 The final automated runs for this continuation passed:
 
-- `python3 -m unittest discover -s tests -v`: **164 tests**.
+- `python3 -m unittest discover -s tests -v`: **165 tests**.
 - `make -C experiments/m1a test`.
 - `make -C experiments/m1a -B build/wayland-host-presenter test`.
 - `make -C experiments/m1c/input_adapter -B all`.
@@ -146,7 +146,7 @@ The external workspace remained on `/dev/sda2` (NTFS3, UUID
 [`window_resize_lifecycle_20261030.json`](../results/m1e/build_receipts/window_resize_lifecycle_20261030.json).
 
 After adding resource snapshots and the app-mode presentation option, the
-Python suite passed **164 tests**. M1A, forced presenter rebuild/tests, forced
+Python suite passed **164 tests** in the earlier resource-diagnostics run; the focus-sync follow-up passed **165 tests**. M1A, forced presenter rebuild/tests, forced
 input-adapter build, Composer component tests, forced display-broker build,
 and the workspace guard passed again. Default and enhanced two-app app-mode
 sessions reached RUNNING then STOPPED; the enhanced session cgroup was removed.
@@ -379,8 +379,58 @@ adapter to the running session. This continuation did not add a partial
 control API that could create an Android display without a corresponding
 graphics, input, task, and cleanup owner.
 
-The latest regression run again passed 164 Python tests, M1A tests, the forced
+The focus-sync follow-up regression run passed 165 Python tests, M1A tests, the forced
 presenter build/tests, input-adapter build, Composer tests, forced broker
 build, and the workspace guard. The inherited untracked
 `experiments/m1b/composer_aaas/build/` directory remains untouched and is not
 part of source changes. Overall M1E remains **PARTIAL**.
+
+### Wayland-to-Android focus synchronization follow-up (2026-10-30)
+
+The previous ANR trace had a confirmed gap: a Wayland keyboard-focus enter
+updated only the host adapter. Android's InputDispatcher continued to focus the
+other display, so a key could be injected while the Settings task had no
+focused Android window.
+
+The per-output adapter now sends a nonce- and focus-generation-tagged request
+to the existing trusted-display broker before accepting keyboard focus. The
+system-owned broker locates the task assigned to that broker-owned display and
+calls Android 16 `ActivityTaskManager.setFocusedTask()`. It acknowledges only
+a request matching that display's task. Repeated polling of the same request is
+suppressed; no host-global input capture or arbitrary task/display target is
+introduced.
+
+In live session `m1b84_session_80wfe0wl`, repeated KWin activation produced
+five matching transitions between Settings/display 2 and DeskClock/display 3.
+For each transition, `dumpsys input` reported the corresponding
+`FocusedDisplayId` and focused application window. Settings SearchActivity was
+focused on display 2; DeskClock was the focused window on display 3. Both tasks
+remained present. No Settings or InputDispatcher ANR was observed during this
+session's bounded focus sequence. The session's screenshot shows both Android
+windows at once, with a controlled nonsensitive `/dev/uinput` fixture visible
+in the Settings search field and no software keyboard. While DeskClock owned
+focus, its adapter received the synthetic key events and the Settings adapter
+received none; Settings' displayed text remained unchanged. DeskClock has no
+editable control on its tested Clock page, so visible application consumption
+on that app is still not established.
+
+The session ended with matching `STOPPED` state journal and sentinel. Settings
+and DeskClock presenters reported 872/872 and 848/848 imports/submissions/
+releases, zero outstanding buffers, and zero teardown invalidations. Evidence:
+[`focus_sync_inputdispatcher_20261030.json`](../results/m1e/live/focus_sync_inputdispatcher_20261030.json),
+[`two-window screenshot`](../results/m1e/live/focus_sync_two_windows_20261030.png),
+and the filtered Android input/task snapshots beside them.
+
+The same patched focus path was exercised in a separate enhanced
+source-LMKD/cgroup two-app session: Settings → DeskClock → Settings produced
+matching Android focused-display IDs 2 → 3 → 2. The session reached RUNNING,
+stopped cleanly, removed its delegated cgroup, had no observed ANR, and both
+presenters ended with zero outstanding buffers. This was focus/lifecycle smoke
+coverage only; it did not repeat visible text entry. See
+[`focus_sync_enhanced_lmkd_20261030.json`](../results/m1e/live/focus_sync_enhanced_lmkd_20261030.json).
+
+This resolves the reproduced host-focus/Android-display-focus mismatch for
+the tested tasks, but it does not close M1E. Two-way application-consumed
+keyboard input, independent scrolling, app close/reopen without Android restart,
+and other lifecycle gates remain open. The earlier ANR run remains recorded as
+a failed experiment, not an accepted close event.

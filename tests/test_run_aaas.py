@@ -267,6 +267,22 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn("'--input-socket', str(ipc / 'input-vdisplay.sock')", launcher)
         self.assertIn("write_status_sentinel(status, 'STOPPING')", launcher)
 
+    def test_virtual_display_keyboard_focus_activates_its_android_task(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True,
+                app_package='com.android.settings', app_package2='com.android.deskclock'
+            ).read_text()
+        self.assertIn('--focus-request /dev/aaas/vdisplay_focus_1', generated)
+        self.assertIn('--focus-ack /dev/aaas/vdisplay_focus_ack_1', generated)
+        self.assertIn('--focus-request /dev/aaas/vdisplay_focus_2', generated)
+        self.assertIn('--focus-ack /dev/aaas/vdisplay_focus_ack_2', generated)
+        self.assertIn("f'vdisplay_focus_{index}'", SCRIPT.read_text())
+        broker = (SCRIPT.parents[1] /
+                  'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
+        self.assertIn('focusDisplayTask(handle)', broker)
+        self.assertIn('"setFocusedTask"', broker)
+
     def test_virtual_display_broker_releases_owned_display_before_ack(self):
         broker = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
         service = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/aaas-display-broker.rc').read_text()

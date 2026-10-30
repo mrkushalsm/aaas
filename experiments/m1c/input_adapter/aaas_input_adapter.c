@@ -514,10 +514,76 @@ typedef struct {
     unsigned invalid_messages;
     input_backend selected_backend;
     int keyboard_focused;
+    const char *focus_request_path;
+    const char *focus_ack_path;
+    uint64_t focus_instance_nonce;
     uint8_t pressed_keys[768];
     uint32_t pressed_keycodes[768];
     int64_t key_down_ns[768];
 } adapter_state;
+
+static int parse_decimal_field(const char **cursor, char delimiter,
+                               uint64_t maximum, uint64_t *value) {
+    const char *p = *cursor;
+    if (*p < '0' || *p > '9') return -1;
+    uint64_t parsed = 0;
+    do {
+        unsigned digit = (unsigned)(*p - '0');
+        if (parsed > (maximum - digit) / 10U) return -1;
+        parsed = parsed * 10U + digit;
+        ++p;
+    } while (*p >= '0' && *p <= '9');
+    if (*p != delimiter) return -1;
+    *cursor = p + 1;
+    *value = parsed;
+    return 0;
+}
+
+static int request_android_display_focus(adapter_state *st, uint32_t generation) {
+    if (!st->focus_request_path || !st->focus_ack_path) return 0;
+    char request[128];
+    int request_len = snprintf(request, sizeof(request), "%llu %u %u\n",
+            (unsigned long long)st->focus_instance_nonce, generation,
+            st->android_display_id);
+    if (request_len <= 0 || request_len >= (int)sizeof(request)) return -1;
+    int fd = open(st->focus_request_path, O_WRONLY | O_TRUNC | O_CLOEXEC);
+    if (fd < 0) return -1;
+    ssize_t written = write(fd, request, (size_t)request_len);
+    close(fd);
+    if (written != request_len) return -1;
+
+    uint64_t deadline = monotonic_ns() + 1500000000ULL;
+    while (monotonic_ns() < deadline && !g_stop) {
+        char response[128] = {0};
+        fd = open(st->focus_ack_path, O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            ssize_t count = read(fd, response, sizeof(response) - 1);
+            close(fd);
+            uint64_t nonce = 0, response_generation = 0, task_id = 0;
+            const char *cursor = response;
+            int parsed = count > 8 && strncmp(cursor, "focused ", 8) == 0;
+            if (parsed) {
+                cursor += 8;
+                parsed = parse_decimal_field(&cursor, ' ', UINT64_MAX, &nonce) == 0 &&
+                        parse_decimal_field(&cursor, ' ', UINT32_MAX,
+                                            &response_generation) == 0 &&
+                        parse_decimal_field(&cursor, '\n', INT32_MAX, &task_id) == 0;
+            }
+            if (parsed && nonce == st->focus_instance_nonce &&
+                    response_generation == generation) {
+                adapter_logf("android_display_focus_ready",
+                        "\"display\":%u,\"generation\":%u,\"task_id\":%d",
+                        st->android_display_id, generation, (int)task_id);
+                return 0;
+            }
+        }
+        usleep(10000);
+    }
+    adapter_logf("android_display_focus_timeout",
+            "\"display\":%u,\"generation\":%u",
+            st->android_display_id, generation);
+    return -1;
+}
 
 static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_msg *wire) {
     aaas_input_keyboard_msg m;
@@ -547,6 +613,11 @@ static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_
             adapter_logf("keyboard_focus_leave","\"released\":%u",released);
             st->keyboard_focused=0;
         } else {
+            if (request_android_display_focus(st, m.focus_generation) != 0) {
+                st->keyboard_focused=0;
+                adapter_log("keyboard_focus_android_rejected",NULL);
+                return 0;
+            }
             st->keyboard_focused=1;
             adapter_log("keyboard_focus_enter",NULL);
         }
@@ -911,6 +982,8 @@ static void usage(const char *prog) {
             "  --session-file <path>  session token file (default: " DEFAULT_SESSION_FILE ")\n"
             "  --log <path>           JSON log path (default: " DEFAULT_LOG ")\n"
             "  --display <id>         Android target display id (default: 0)\n"
+            "  --focus-request <path>  trusted Android task-focus request file\n"
+            "  --focus-ack <path>      trusted Android task-focus acknowledgement file\n"
             "  --backend <auto|binder|cmd> input backend (default: auto)\n"
             "  --help                 show this help\n",
             prog);
@@ -921,6 +994,8 @@ int main(int argc, char **argv) {
     const char *session_file = DEFAULT_SESSION_FILE;
     const char *log_path = DEFAULT_LOG;
     const char *backend_arg = NULL;
+    const char *focus_request_path = NULL;
+    const char *focus_ack_path = NULL;
     int display_id = 0;
 
     for (int i = 1; i < argc; i++) {
@@ -937,6 +1012,10 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Invalid display id: %s\n", argv[i]);
                 return 1;
             }
+        } else if (strcmp(argv[i], "--focus-request") == 0 && i + 1 < argc) {
+            focus_request_path = argv[++i];
+        } else if (strcmp(argv[i], "--focus-ack") == 0 && i + 1 < argc) {
+            focus_ack_path = argv[++i];
         } else if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {
             backend_arg = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
@@ -1008,6 +1087,9 @@ int main(int argc, char **argv) {
     aaas_input_state_init(&st.order, session_id, (uint32_t)display_id);
     st.android_display_id = (uint32_t)display_id;
     st.selected_backend = g_backend;
+    st.focus_request_path = focus_request_path;
+    st.focus_ack_path = focus_ack_path;
+    st.focus_instance_nonce = monotonic_ns() ^ ((uint64_t)(uint32_t)getpid() << 32);
 
     while (!g_stop) {
         struct pollfd p = { .fd = fd, .events = POLLIN, .revents = 0 };

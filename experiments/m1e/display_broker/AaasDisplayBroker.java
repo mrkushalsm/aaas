@@ -3,6 +3,7 @@ package com.aaas.display;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -29,6 +30,7 @@ public final class AaasDisplayBroker {
         Object surface;
         Object listener;
         Object virtualDisplay;
+        Object activityManager;
         Object handler;
         Class<?> listenerClass;
         int index;
@@ -40,6 +42,7 @@ public final class AaasDisplayBroker {
         boolean released;
         String uniqueId;
         String idPath;
+        String lastFocusRequest;
     }
 
     private static void log(String message) {
@@ -73,6 +76,8 @@ public final class AaasDisplayBroker {
         DisplayHandle handle = new DisplayHandle();
         handle.index = index;
         handle.handler = handler;
+        handle.activityManager = call(context, "getSystemService",
+                new Class<?>[] {String.class}, "activity");
         handle.idPath = idPath;
         handle.width = width;
         handle.height = height;
@@ -277,6 +282,34 @@ public final class AaasDisplayBroker {
             }
             return;
         }
+        String focusPath = "/dev/aaas/vdisplay_focus_" + suffix;
+        String focusAckPath = "/dev/aaas/vdisplay_focus_ack_" + suffix;
+        String focusRequest = readControl(focusPath);
+        if (!focusRequest.isEmpty() && !focusRequest.equals(handle.lastFocusRequest)) {
+            String[] focusFields = focusRequest.split("\\s+");
+            try {
+                if (focusFields.length != 3) throw new IllegalArgumentException("field_count");
+                Long.parseLong(focusFields[0]); // adapter instance nonce
+                long generation = Long.parseLong(focusFields[1]);
+                int requestedDisplay = Integer.parseInt(focusFields[2]);
+                if (generation <= 0 || requestedDisplay != handle.displayId) {
+                    throw new IllegalArgumentException("display_or_generation");
+                }
+                int taskId = focusDisplayTask(handle);
+                if (taskId >= 0) {
+                    handle.lastFocusRequest = focusRequest;
+                    writeControl(focusAckPath, "focused " + focusFields[0] + " "
+                            + focusFields[1] + " " + taskId + "\n");
+                    log("focus_task_requested index=" + handle.index + " displayId="
+                            + handle.displayId + " taskId=" + taskId + " generation="
+                            + generation);
+                }
+            } catch (Exception error) {
+                log("focus_request_failed index=" + handle.index + " displayId="
+                        + handle.displayId + " error="
+                        + error.getClass().getSimpleName());
+            }
+        }
         String request = readControl(resizePath);
         if (request.isEmpty()) return;
         String[] fields = request.split("\\s+");
@@ -295,6 +328,23 @@ public final class AaasDisplayBroker {
                     + " request=" + request.replace(' ', '_') + " error="
                     + error.getClass().getSimpleName());
         }
+    }
+
+    /** Focus the top Android task on this broker-owned display. */
+    private static int focusDisplayTask(DisplayHandle handle) throws Exception {
+        @SuppressWarnings("unchecked")
+        List<Object> tasks = (List<Object>) call(handle.activityManager, "getRunningTasks",
+                new Class<?>[] {int.class}, 100);
+        for (Object task : tasks) {
+            Field displayField = task.getClass().getField("displayId");
+            if (displayField.getInt(task) != handle.displayId) continue;
+            int taskId = task.getClass().getField("id").getInt(task);
+            Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
+            Object service = activityTaskManager.getMethod("getService").invoke(null);
+            call(service, "setFocusedTask", new Class<?>[] {int.class}, taskId);
+            return taskId;
+        }
+        return -1;
     }
 
     private static void releaseDisplay(DisplayHandle handle) throws Exception {
