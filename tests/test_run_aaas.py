@@ -14,6 +14,23 @@ SPEC.loader.exec_module(SESSION)
 
 
 class ForegroundRunnerTests(unittest.TestCase):
+    def test_two_app_mode_builds_capacity_two_composer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'composer-two-output'
+
+            def create_output(command, check):
+                self.assertTrue(check)
+                output.write_bytes(b'test composer')
+
+            with patch.object(SESSION, 'COMPOSER_MULTI_OUTPUT', output), \
+                    patch.object(SESSION.subprocess, 'run', side_effect=create_output) as run:
+                self.assertEqual(SESSION.build_multi_output_composer(), output)
+
+            command = run.call_args.args[0]
+            self.assertIn('AAAS_VIRTUAL_DISPLAY_CAPACITY=2', command)
+            self.assertIn('AAAS_ENABLE_VIRTUAL_DISPLAY=1', command)
+            self.assertIn(f'BIN={output}', command)
+
     def test_status_sentinel_recovers_stale_state_without_replacing_inode(self):
         with tempfile.TemporaryDirectory() as directory:
             status = Path(directory) / 'status'
@@ -265,6 +282,11 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('-p com.android.deskclock', generated)
         self.assertIn('start-activity -W --display "$VD_ID2"', generated)
         self.assertIn('aaas_app2_task_alive', generated)
+        self.assertLess(
+            generated.index('AAAS_ACTIVITY2_LAUNCH_OK'),
+            generated.index('ADAPTER2_WAIT=0'),
+            'the second display producer must start before its presenter can send HELLO',
+        )
 
     def test_two_app_watch_keeps_shared_runtime_when_one_task_closes(self):
         with tempfile.TemporaryDirectory() as directory:

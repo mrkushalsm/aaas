@@ -32,6 +32,7 @@ INPUT_ADAPTER = ROOT / 'experiments/m1c/input_adapter/build/aaas-input-adapter'
 COMPOSER_PORTRAIT = TMP / 'm1b84_composer_portrait_720x1280'
 COMPOSER_LANDSCAPE = TMP / 'android.hardware.graphics.composer3-service.aaas'
 COMPOSER_VDISPLAY = TMP / 'm1e_composer_vdisplay_experimental'
+COMPOSER_MULTI_OUTPUT = TMP / 'm1e_composer_two_output'
 VDISPLAY_BROKER_DEX = TMP / 'm1e_aaas_display_broker.dex'
 VDISPLAY_BROKER_RC = ROOT / 'experiments/m1e/display_broker/aaas-display-broker.rc'
 VDISPLAY_SERVICES_OVERLAY = TMP / 'm1e_services_display_content_mode.jar'
@@ -487,17 +488,6 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '    VDISPLAY2_INPUT_ADAPTER_PID=$!\n'
                 '    echo "AAAS_VDISPLAY2_INPUT_ADAPTER_STARTED=$VDISPLAY2_INPUT_ADAPTER_PID" '
                 '>> /aaas_session_commands\n'
-                '    ADAPTER2_WAIT=0\n'
-                '    while ! /system/bin/toybox grep -Fq hello '
-                '/aaas_vdisplay2_input_adapter.log 2>/dev/null && [ "$ADAPTER2_WAIT" -lt 100 ]; do\n'
-                '      /system/bin/toybox sleep 0.1\n'
-                '      ADAPTER2_WAIT=$((ADAPTER2_WAIT + 1))\n'
-                '    done\n'
-                '    if ! /system/bin/toybox grep -Fq hello '
-                '/aaas_vdisplay2_input_adapter.log 2>/dev/null; then\n'
-                '      echo AAAS_VDISPLAY2_INPUT_ADAPTER_NOT_READY >> /aaas_session_commands\n'
-                '      echo FAILED > /aaas_session_status; exit 1\n'
-                '    fi\n'
                 '    APP_COMPONENT2=$(/system/bin/cmd package resolve-activity --brief --user 0 '
                 '-a android.intent.action.MAIN -c android.intent.category.LAUNCHER '
                 f'-p {app_package2} 2>&1 | /system/bin/toybox tee -a /aaas_session_commands '
@@ -513,7 +503,18 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '      fi\n'
                 '    fi\n'
                 '    echo "AAAS_ACTIVITY2_LAUNCH_OK display=$VD_ID2 component=$APP_COMPONENT2" '
-                '>> /aaas_session_commands',
+                '>> /aaas_session_commands\n'
+                '    ADAPTER2_WAIT=0\n'
+                '    while ! /system/bin/toybox grep -Fq hello '
+                '/aaas_vdisplay2_input_adapter.log 2>/dev/null && [ "$ADAPTER2_WAIT" -lt 100 ]; do\n'
+                '      /system/bin/toybox sleep 0.1\n'
+                '      ADAPTER2_WAIT=$((ADAPTER2_WAIT + 1))\n'
+                '    done\n'
+                '    if ! /system/bin/toybox grep -Fq hello '
+                '/aaas_vdisplay2_input_adapter.log 2>/dev/null; then\n'
+                '      echo AAAS_VDISPLAY2_INPUT_ADAPTER_NOT_READY >> /aaas_session_commands\n'
+                '      echo FAILED > /aaas_session_status; exit 1\n'
+                '    fi',
             )
     readiness_and_watch = (
         f'    APP_PACKAGE={app_package}\n'
@@ -722,6 +723,23 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait'):
     return paths
 
 
+def build_multi_output_composer():
+    """Build the two-endpoint Composer required by the two-app session."""
+    command = [
+        'make', '-C', str(ROOT / 'experiments/m1b/composer_aaas'),
+        f'BIN={COMPOSER_MULTI_OUTPUT}',
+        'AAAS_ENABLE_VIRTUAL_DISPLAY=1',
+        'AAAS_VIRTUAL_DISPLAY_CAPACITY=2',
+        'AAAS_DISPLAY_WIDTH=720',
+        'AAAS_DISPLAY_HEIGHT=1280',
+        'all',
+    ]
+    subprocess.run(command, check=True)
+    if not COMPOSER_MULTI_OUTPUT.is_file():
+        raise RuntimeError(f'two-output Composer build missing: {COMPOSER_MULTI_OUTPUT}')
+    return COMPOSER_MULTI_OUTPUT
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--startup-timeout', type=int, default=90)
@@ -769,7 +787,8 @@ def main():
                 '--apktool', str(APKTOOL), '--output', str(VDISPLAY_SERVICES_OVERLAY),
                 '--work-parent', str(TMP), '--receipt', str(VDISPLAY_SERVICES_RECEIPT),
             ], check=True)
-        paths['AAAS_COMPOSER_OVERLAY'] = str(COMPOSER_VDISPLAY)
+        paths['AAAS_COMPOSER_OVERLAY'] = str(
+            build_multi_output_composer() if args.app2 else COMPOSER_VDISPLAY)
         paths['AAAS_SERVICES_JAR_OVERLAY'] = str(VDISPLAY_SERVICES_OVERLAY)
     lock_fd = os.open(TMP / '.aaas_session.lock', os.O_CREAT | os.O_RDWR, 0o600)
     try:
