@@ -1,6 +1,6 @@
 # M1E architecture evaluation
 
-Status: **two app windows can be arranged side by side and closed independently; Android output-frame resizing remains partial**
+Status: **two app windows can be arranged side by side and closed independently; single-output Android frame resizing is verified, while concurrent resize and remaining multi-window lifecycle/input work are partial**
 Android framework reference: pinned AOSP `frameworks/base` commit
 `99b01a65cc4c104933788b3143285ab6bae65827` from
 `manifests/android16-r1-subset.json`.
@@ -35,9 +35,9 @@ verified WMS/InputDispatcher state recorded below.
 
 | Candidate | Reuse and rendering | Android policy and security | Cost / principal risk | Assessment |
 |---|---|---|---|---|
-| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. A live run created two outputs concurrently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | Genuine output-buffer resize, second-display keyboard/scroll, reopen, and minimize remain incomplete. | **Side-by-side placement and per-window close are bounded live passes; overall M1E remains partial.** |
+| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. A live run created two outputs concurrently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | Concurrent resize, second-display keyboard/scroll, reopen, and minimize remain incomplete. | **Side-by-side placement, per-window close, and single-output native resize are bounded live passes; overall M1E remains partial.** |
 | **B. Task-level SurfaceControl output** | Android tasks already group an application's Activity stack, which is the right lifecycle unit. But the AaaS host currently receives only the whole-display Composer client target. It cannot obtain a task's independent surface from the current transport. | A task organizer/SurfaceControl bridge would require privileged framework ownership and strict surface/input authorization. Activities, dialogs, transitions, and child windows must remain composed consistently. | Requires task organizer/transaction infrastructure, SurfaceControl capture or reparenting, independent buffer export/release fences, z-order/animation handling, and input routing. Not a direct DMA-BUF stream merely because the Task has a SurfaceControl. | Better long-term if proven capture/export is available, but substantially more invasive and no reuse proof exists. Do not start here. |
-| **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Two distinct tasks and displays were observed concurrently. | Reopen/minimize, Android-sized output buffers, complete input isolation, and crash-free resize remain. | **Validated as the current M1E prototype direction**, not yet a finished multi-window design. |
+| **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Two distinct tasks and displays were observed concurrently. A later single-output resize produced matching Android-sized buffers in both directions. | Concurrent resize, reopen/minimize, complete input isolation, and the historical crash-free stability question remain. | **Validated as the current M1E prototype direction**, not yet a finished multi-window design. |
 
 ## Android 16 source contracts
 
@@ -205,13 +205,32 @@ Handler delay. KWin quick-tile scripting placed Settings at
 Android interfaces simultaneously.
 
 Android DisplayManager reported both virtual displays at 960×1156 / 240 dpi,
-and WindowManager transitions changed both task bounds to 960×1156. The
-presenter still received 720×1280 Android source frames, however. `wp_viewporter`
-scaled those old-sized frames to host geometry, so the display/task policy
-changed but true output-buffer resizing is not accepted. The next investigation
-must follow how SurfaceFlinger resizes its `VirtualDisplaySurface` output
-allocation and the Composer virtual display configuration; do not remove the
-viewport scaling until a matching Android frame is observed.
+and WindowManager transitions changed both task bounds to 960×1156. In that
+run the old-size transition buffers were not returned to Composer, so the
+presenter never received replacement-size buffers. A bounded follow-up
+isolated the first broken boundary: the presenter's stale/format pre-import
+reject path closed received FDs but omitted the wire-v2 RELEASE acknowledgement.
+Composer therefore retained the rejected output slot. The presenter now
+returns RELEASE for a valid buffer rejected before import, carrying its
+acquire fence as the release dependency when supplied. This permits safe reuse
+because the presenter never consumed the buffer.
+
+In a real Settings session the chain then completed in both directions:
+720×1280 → 960×1156 → 720×1280. On each transition the broker replaced the
+ImageReader surface and called `VirtualDisplay.setSurface()` and
+`VirtualDisplay.resize()`. Android recreated the Composer virtual display;
+Composer client-target/output frames and presenter source buffers then matched
+the requested dimensions. The first 960×1156 source frame had stride 3840;
+the return 720×1280 frame had stride 2944. Stale transition frames were
+explicitly RELEASEd. The presenter drained 176/176 buffers with zero
+outstanding or teardown-invalidated buffers. Details and raw artifact hashes:
+[`native_resize_release_ack_20261030.json`](../results/m1e/live/native_resize_release_ack_20261030.json).
+
+This validates one output and these two sizes only. No live evidence yet covers
+simultaneous two-output resize, rapid resize bursts, landscape, navigation
+during resize, or post-resize pointer mapping. No screenshot was captured in
+the resize follow-up. `wp_viewporter` remains a transition aid, not the source
+of the newly verified Android buffer dimensions.
 
 KWin close on Settings removed task 8/display 2 and the broker acknowledged
 `released 2`, while DeskClock task 9/display 3 and its presenter stayed alive.
@@ -226,3 +245,8 @@ A separate run crashed SurfaceFlinger with SIGSEGV at PC `0x12bf` in a deleted
 `/memfd:swiftshader_jit` mapping. The single JIT frame was not symbolicated and
 no causal relation to resizing has been established; keep the known SwiftShader
 JIT failure as a separate open runtime issue.
+
+The single-output resize follow-up did not reproduce that SIGSEGV, but SurfaceFlinger
+logged two `Unexpected onFrameCommitted in Gpu state` transition warnings.
+One bounded non-reproduction does not identify or fix the historical JIT fault.
+The resize ownership change is separate from the unresolved SwiftShader issue.

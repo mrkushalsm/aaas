@@ -133,14 +133,25 @@ surface and invokes `VirtualDisplay.setSurface` and `VirtualDisplay.resize`;
 the rollback restores the previous surface and dimensions if either call
 fails. A delayed DisplayMetrics read confirms Android's new logical size.
 
-The resize acceptance boundary remains incomplete: WindowManager task bounds
-and DisplayManager dimensions reached 960×1156, but presenter source frames
-remained 720×1280. The viewport therefore scaled those frames. Do not call this
-native app resize; do not consider the resize generation complete until the
-Composer stream reports a matching-size Android frame and pointer coordinates
-are verified against it. The eventual handshake needs to distinguish request,
-Android display/configuration acknowledgement, and first output frame of the
-new buffer generation.
+The presenter previously rejected a stale-size transition buffer without
+returning the existing protocol's RELEASE acknowledgement. Composer held that
+slot, blocking replacement-size output. The presenter now releases valid
+pre-import rejections, forwarding the original acquire fence as the release
+dependency when it has not been consumed. This does not alter wire-v2 message
+layout or accepted-buffer synchronization semantics.
+
+A bounded live single-output resize verified 720×1280 → 960×1156 → 720×1280.
+Android recreated its ImageReader-backed display output, Composer recreated
+its virtual output, and presenter source buffers matched each configured size
+(960×1156 stride 3840; 720×1280 stride 2944). The run ended with 176 imports,
+176 submissions, 176 releases, and zero outstanding buffers. Evidence:
+`results/m1e/live/native_resize_release_ack_20261030.json`.
+
+This does not establish simultaneous two-output resizing, resize bursts,
+landscape, or pointer-coordinate correctness after resize. `wp_viewporter`
+may cover transitions but is not counted as framebuffer resizing. A new
+resize generation is validated only when a matching-size Android source frame
+arrives; separate pointer remapping acceptance is still required.
 
 ## Two-output run state (2026-10-30)
 
