@@ -363,9 +363,11 @@ static int inject_cmd_scroll(int32_t x, int32_t y, uint32_t source,
         int n = 0;
         argv[n++] = (char *)"cmd";
         argv[n++] = (char *)"input";
+        /* Android 16 parses optional source before optional display ID:
+         * input [source] [-d DISPLAY_ID] command. */
+        argv[n++] = (char *)input_source;
         argv[n++] = (char *)"-d";
         argv[n++] = display;
-        argv[n++] = (char *)input_source;
         argv[n++] = (char *)"scroll";
         argv[n++] = xs;
         argv[n++] = ys;

@@ -21,6 +21,18 @@ class M1CScrollRoutingTests(unittest.TestCase):
         self.assertIn('const char *input_source = "mouse";', self.adapter)
         self.assertIn('origin_source = source == AAAS_SOURCE_TOUCHPAD ? "touchpad" : "mouse"', self.adapter)
 
+    def test_android16_input_source_precedes_display_option(self):
+        start = self.adapter.index("static int inject_cmd_scroll(")
+        end = self.adapter.index("static int inject_event(", start)
+        builder = self.adapter[start:end]
+        source = builder.index('argv[n++] = (char *)input_source;')
+        display_option = builder.index('argv[n++] = (char *)"-d";')
+        display = builder.index('argv[n++] = display;')
+        command = builder.index('argv[n++] = (char *)"scroll";')
+        self.assertLess(source, display_option)
+        self.assertLess(display_option, display)
+        self.assertLess(display, command)
+
     def test_unpressed_host_motion_does_not_inject_android_hover_stream(self):
         motion_start = self.adapter.index("case AAAS_INPUT_MOTION: {")
         hover_start = self.adapter.index("case AAAS_INPUT_HOVER: {")
