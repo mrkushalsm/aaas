@@ -187,3 +187,49 @@ experimental launch path; one-app mode retains its existing Composer overlay.
 This does not resolve two-output resizing, per-output keyboard/scroll testing,
 app reopen, minimize, primary diagnostic-window suppression, or the historical
 SwiftShader JIT crash. Overall M1E remains **PARTIAL**.
+
+
+### Two-app LMKD/memory comparison (2026-10-30)
+
+The original pre-`RUNNING` failure used the default diagnostic `/system/bin/lmkd`
+overlay (SHA-256 `9780759b…`). Its `killinfo` records show only 68 KiB of host-visible
+free swap at Settings victim selection, with low/min watermarks still breached;
+Settings (RSS 264,256 KiB, adj 102) and DeskClock (RSS 237,560 KiB, adj 0) were
+killed after earlier cached-process kills. The failed attempt did not record
+contemporaneous host PSI, `MemAvailable`, or a per-session cgroup event baseline,
+so the particular host workload that exhausted swap cannot be identified.
+
+A bounded same-mode comparison then ran one app and two apps under the same
+default diagnostic LMKD. Both reached `RUNNING`, remained there for 20 seconds,
+and shut down to `STOPPED`; neither log recorded an LMKD kill. During the two-app
+run, host `MemAvailable` reached a minimum of 5,039,856 KiB, `SwapFree` 1,228,836
+KiB, and memory PSI `full avg10` peaked at 0.18%. This shows the prior failure
+was not deterministic for the two-app workload.
+
+A bounded source-LMKD plus delegated-cgroup run also reached `RUNNING` and
+`STOPPED`. It loaded source-built LMKD (SHA-256
+`a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce`, build ID
+`96eadc7560482189dfeb5772c0150e3728cc30ac`) from Android 16 source revision
+`291e98ff95c3ce2647e44a29628dfae51c5d2634`. LMKD reclaimed ten background/cache
+processes (adj 955–985) while Settings and DeskClock survived. During this run,
+minimum host `MemAvailable` was 4,927,184 KiB, minimum `SwapFree` 1,207,828 KiB,
+and memory PSI `full avg10` peaked at 0.72%. The cgroup policy monitor reported
+10 ticks, 0 errors, 93 transitions, and `degraded=false`; teardown removed the
+policy cgroup with session `oom=0` and `oom_kill=0`. The sampled maximum PSS
+was 106,783 KiB for Settings and 79,522 KiB for DeskClock (RSS 272,044 and
+238,736 KiB respectively); system_server peaked at 301,360 KiB PSS and
+SurfaceFlinger at 61,955 KiB. These process PSS figures do not account for
+DMA-BUF allocations not charged to those processes.
+
+The evidence supports real global host swap/reclaim pressure in the original
+failure, and does not support relaxing LMKD thresholds or OOM protection. It
+does not establish whether AaaS allocations or another host workload consumed
+the swap. The follow-up did not establish a Composer/ImageReader/SwiftShader
+allocation leak: exact per-DMA-BUF memory accounting and a contemporaneous
+failed-run cgroup snapshot are absent. The persistent AaaS parent cgroup has
+cumulative OOM counters without a pre-run baseline, so they are not attributed
+to these runs; the enhanced session's own policy cgroup recorded zero OOMs and
+was removed. No LMKD policy change was made. Full interactive two-window input,
+concurrent resize, close/reopen, and the separate historical SwiftShader JIT
+crash remain open. Overall M1E remains **PARTIAL**. Structured measurements and
+raw-log hashes: [`two_app_memory_comparison_20261030.json`](../results/m1e/live/two_app_memory_comparison_20261030.json).
