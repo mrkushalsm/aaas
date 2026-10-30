@@ -216,8 +216,7 @@ argument-order defect; see the current scroll acceptance section below.
 
 ### Android 16 per-output scroll routing correction (2026-10-31)
 
-Source inspection found that Android 16 `InputShellCommand` parses the
-optional input-source token before the optional `-d DISPLAY_ID`. The per-display
+Source inspection of pinned Android 16 [`InputShellCommand`](https://android.googlesource.com/platform/frameworks/base/+/99b01a65cc4c104933788b3143285ab6bae65827/services/core/java/com/android/server/input/InputShellCommand.java) found it parses the optional input-source token before the optional `-d DISPLAY_ID`. The per-display
 adapter had emitted `input -d DISPLAY mouse scroll ...`; it now emits
 `input mouse -d DISPLAY scroll ...`. A focused regression test checks this order.
 The adapter rebuilt successfully (SHA-256
