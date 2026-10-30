@@ -47,10 +47,27 @@ VDC_OVERLAY_SHA256 = 'b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e58
 FRAMEWORK_IME_SHA256 = '701d2fd4afe62e4b02a3f2da603daab492a4369dea3bd4d3baefe52789623a0b'
 DEFAULT_APP_PACKAGE = 'com.android.settings'
 APP_PACKAGE_PATTERN = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
+SESSION_STATUS_VALUES = {'STARTING', 'RUNNING', 'STOPPING', 'STOPPED', 'FAILED'}
 
 
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def write_status_sentinel(path, value):
+    """Update the bind-mounted session status file without replacing its inode."""
+    if value not in SESSION_STATUS_VALUES:
+        raise ValueError(f'invalid session status: {value}')
+    with Path(path).open('w') as stream:
+        stream.write(value + '\n')
+        stream.flush()
+
+
+def finalize_status_sentinel(path, failed):
+    """Publish a terminal status only after session cleanup has completed."""
+    value = 'FAILED' if failed else 'STOPPED'
+    write_status_sentinel(path, value)
+    return value
 
 
 def terminate_process_group(process, timeout=8):
@@ -626,7 +643,7 @@ def main():
     ipc = session / 'ipc'
     ipc.mkdir(mode=0o711)
     status = session / 'status'
-    status.write_text('STARTING\n')
+    write_status_sentinel(status, 'STARTING')
     status.chmod(0o666)
     logcat = session / 'logcat.log'
     logcat.touch()
@@ -792,28 +809,48 @@ def main():
         transition('FAILED')
         return 1
     finally:
+        cleanup_failed = False
         if policy_monitor is not None:
-            policy_monitor.stop(timeout=12)
-        if args.experimental_virtual_display and running_session:
-            status.write_text('STOPPING\n')
+            try:
+                policy_monitor.stop(timeout=12)
+            except Exception as error:
+                cleanup_failed = True
+                print(f'AaaS: memory policy monitor cleanup failed: {error}',
+                      file=sys.stderr, flush=True)
+        try:
+            failed_before_cleanup = (state == 'FAILED' or
+                                     status.read_text().strip() == 'FAILED')
+        except OSError:
+            failed_before_cleanup = True
+
+        if android is not None and android.poll() is None:
+            write_status_sentinel(status, 'STOPPING')
+
+        if args.experimental_virtual_display and android is not None:
             shutdown_file = ipc / 'display_broker_shutdown'
             deadline = time.monotonic() + 5
+            broker_released = False
             while time.monotonic() < deadline:
                 try:
                     if shutdown_file.read_text().strip() == 'released':
                         print('AaaS: Android released its virtual display before shutdown',
                               flush=True)
-                        status.write_text('STOPPED\n')
-                        time.sleep(.5)
+                        broker_released = True
                         break
                 except OSError:
                     pass
                 time.sleep(.1)
-            else:
+            if not broker_released and android.poll() is None:
                 print('AaaS: virtual display shutdown handshake timed out',
                       file=sys.stderr, flush=True)
+                cleanup_failed = True
         for process in (android, virtual_presenter, presenter):
-            terminate_process_group(process)
+            try:
+                terminate_process_group(process)
+            except Exception as error:
+                cleanup_failed = True
+                print(f'AaaS: process cleanup failed: {error}',
+                      file=sys.stderr, flush=True)
         if policy is not None:
             summary = policy_monitor.summary() if policy_monitor is not None else {}
             try:
@@ -825,6 +862,7 @@ def main():
             (session / 'policy-summary.json').write_text(
                 json.dumps(summary, indent=1, default=str) + '\n')
             if cleanup['failures']:
+                cleanup_failed = True
                 print(f'AaaS: memory policy cleanup issues: {cleanup["failures"]}',
                       file=sys.stderr, flush=True)
             else:
@@ -832,6 +870,9 @@ def main():
                       flush=True)
         if state != 'FAILED':
             transition('STOPPED')
+        final_status = finalize_status_sentinel(
+            status, failed=failed_before_cleanup or state == 'FAILED' or cleanup_failed)
+        print(f'AaaS: session status {final_status}', flush=True)
         print(f'AaaS logs: {session}', flush=True)
         os.close(lock_fd)
 

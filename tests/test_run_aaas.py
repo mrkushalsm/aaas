@@ -14,6 +14,26 @@ SPEC.loader.exec_module(SESSION)
 
 
 class ForegroundRunnerTests(unittest.TestCase):
+    def test_status_sentinel_recovers_stale_state_without_replacing_inode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status = Path(directory) / 'status'
+            status.write_text('RUNNING\n')
+            original_inode = status.stat().st_ino
+            SESSION.write_status_sentinel(status, 'STARTING')
+            self.assertEqual(status.read_text(), 'STARTING\n')
+            self.assertEqual(status.stat().st_ino, original_inode,
+                             'the Android bind mount must keep observing this inode')
+
+    def test_status_sentinel_finalizes_success_and_failure_after_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status = Path(directory) / 'status'
+            SESSION.write_status_sentinel(status, 'RUNNING')
+            self.assertEqual(SESSION.finalize_status_sentinel(status, failed=False), 'STOPPED')
+            self.assertEqual(status.read_text(), 'STOPPED\n')
+            SESSION.write_status_sentinel(status, 'STOPPING')
+            self.assertEqual(SESSION.finalize_status_sentinel(status, failed=True), 'FAILED')
+            self.assertEqual(status.read_text(), 'FAILED\n')
+
     def test_process_group_cleanup_kills_namespace_pid1_survivors(self):
         import os
         import subprocess
@@ -202,7 +222,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('!= "STOPPING"', generated)
         self.assertIn("'--input-display-id-file', str(ipc / 'vdisplay_id')", launcher)
         self.assertIn("'--input-socket', str(ipc / 'input-vdisplay.sock')", launcher)
-        self.assertIn("status.write_text('STOPPING\\n')", launcher)
+        self.assertIn("write_status_sentinel(status, 'STOPPING')", launcher)
 
     def test_virtual_display_broker_releases_owned_display_before_ack(self):
         broker = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
