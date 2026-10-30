@@ -351,3 +351,36 @@ submitted, released buffers and zero outstanding. This is bounded startup and
 cleanup evidence only: no interaction or deliberate pressure injection was
 performed. See
 [`two_app_enhanced_lmkd_cgroup_smoke_20261030.json`](../results/m1e/live/two_app_enhanced_lmkd_cgroup_smoke_20261030.json).
+
+### Continuation lifecycle audit (2026-10-30)
+
+A further default two-app session reached `RUNNING`. Android assigned Settings
+task 8/display 2 and DeskClock task 9/display 3. During the attempted keyboard
+interaction, Settings had no focused window and InputDispatcher reported an
+ANR; Android later removed task 8. DeskClock remained running until I stopped
+the shared session. This is not a successful Settings interaction test or a
+normal KWin-close acceptance result. Both display-specific adapters logged
+validated key events and Binder `rc=0`, but this did not establish visible
+application consumption on DeskClock.
+
+Ctrl+C then completed shutdown with the state journal and status sentinel both
+at `STOPPED`. Settings and DeskClock presenters reported respectively 352/352
+and 334/334 imports/submissions/releases, zero outstanding buffers, and zero
+teardown invalidations. This session is useful for shutdown accounting, not for
+the missing input-isolation or reopen gates. Structured observations and raw
+log hashes are in
+[`continuation_runtime_audit_20261030.json`](../results/m1e/live/continuation_runtime_audit_20261030.json).
+
+The dynamic lifecycle boundary remains in source: the launcher starts and
+supervises only its initial `--app`/`--app2` pair, while the system-UID broker
+creates that fixed display set once at startup. There is no supported
+create-after-destroy request or host operation to attach a new presenter and
+adapter to the running session. This continuation did not add a partial
+control API that could create an Android display without a corresponding
+graphics, input, task, and cleanup owner.
+
+The latest regression run again passed 164 Python tests, M1A tests, the forced
+presenter build/tests, input-adapter build, Composer tests, forced broker
+build, and the workspace guard. The inherited untracked
+`experiments/m1b/composer_aaas/build/` directory remains untouched and is not
+part of source changes. Overall M1E remains **PARTIAL**.
