@@ -81,6 +81,12 @@ resize on both outputs and an independent Settings resize while DeskClock stayed
 unchanged. App reopen, per-output scroll, application-consumed keyboard input on
 DeskClock, and post-resize input mapping remain unverified.
 
+The presenter binds `xdg_wm_base` at protocol version 3 and its
+`xdg_toplevel.configure` callback ignores the state array. It has no reliable
+minimized/hidden signal or Android task visibility policy. The current behavior
+therefore leaves visibility, minimization, and rendering decisions to KWin and
+the Android runtime; no task pause or frame-throttling behavior is claimed.
+
 ## Trusted display broker boundary
 
 The system-owned broker uses Android 16 `DisplayManager` and

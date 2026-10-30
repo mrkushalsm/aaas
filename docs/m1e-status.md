@@ -169,6 +169,11 @@ acceptance on DeskClock, per-output scrolling, two-output resize-back/burst and
 landscape cases, reopen/minimize, and the historical SwiftShader JIT crash
 boundary remain open.
 
+The minimize limitation is confirmed in the host source: the presenter binds
+`xdg_wm_base` no higher than version 3, and `toplevel_configure()` discards the
+state array. No supported hidden-state signal is consumed, so M1E does not
+claim Android task pause, producer suspension, or frame throttling on minimize.
+
 
 ### Capacity-two retry and low-memory failure (2026-10-30)
 
@@ -323,3 +328,15 @@ Both sessions reached `RUNNING` then `STOPPED`; the state journal and sentinel
 matched. The new concurrent-resize and keyboard-routing sessions did not
 reproduce the historical SurfaceFlinger SwiftShader-JIT crash, but the old
 unsymbolicated SIGSEGV remains unexplained and is not considered fixed.
+
+I also ran a default-mode two-app smoke session `m1b84_session_eo2lkqum` for
+about 60.6 seconds. Both apps stayed alive and presented concurrently; Ctrl+C
+produced matching `STOPPED` journal/sentinel state. The presenters reported
+146/146 and 125/125 imports/submissions/releases with zero outstanding buffers.
+Periodic host snapshots showed MemAvailable down to 5,170,536 KiB, SwapFree
+662,180 KiB, and memory PSI `some avg10` of 0.0. The shared AaaS parent cgroup's
+OOM counters were already nonzero at the first snapshot and unchanged at the
+last, so those cumulative counters are not attributed to this session. The
+historical SwiftShader JIT fault did not recur. No resize was performed in
+this smoke session. Details and external raw-log hashes are in
+[`two_app_startup_shutdown_resource_probe_20261030.json`](../results/m1e/live/two_app_startup_shutdown_resource_probe_20261030.json).
