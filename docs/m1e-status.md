@@ -1084,3 +1084,37 @@ Detailed build, trace, tombstone hashes, and limits are recorded in
 [`swiftshader_coherent_resize_investigation_20261031.json`](../results/m1e/live/swiftshader_coherent_resize_investigation_20261031.json).
 M1E remains **PARTIAL** until the resource owner and violated lifetime
 contract are established and the resize failure is corrected and retested.
+
+
+### SwiftShader object trace expansion and v5 runtime attempts (2026-10-31)
+
+The coherent v5 diagnostic build adds process-local identities joining imported
+AHardwareBuffers to `VkDeviceMemory`, image bindings, image views, sampled-image
+descriptor sets, queue submissions, draw jobs, pipeline IDs, and generated
+PixelRoutine addresses. Its one-app Settings smoke reached `RUNNING`, produced
+123/123 imports/submissions/releases with zero outstanding buffers, and stopped
+cleanly.
+
+Two v5 two-app attempts exposed a separate Android framework failure:
+`system_server` crashed in `AlarmManagerService.getAlarmOperationBundle()` at
+`PendingIntent.isActivity()` on a null value. One attempt failed before the
+runner accepted `RUNNING`; the other reached `RUNNING`, rendered 127 and 114
+frames through the two presenters, then failed at guest time 15:32:00.002. Both
+presenters reported complete releases and zero outstanding buffers. These are
+FAILED runtime sessions, not successful acceptance runs, and no resize was
+completed in either. The failure is distinct from the historical native
+SurfaceFlinger SwiftShader SIGSEGV; no causal relationship is established.
+
+The new trace observed no Vulkan semaphore-signal events in these runs; the
+recorded draw submissions carried fence events and were followed by renderer
+synchronization completion. This does not explain the stale AHardwareBuffer read
+from the historical resize crash. The v5 trace has not yet captured a successful
+resize-correlated crash or established a display-generation owner. See
+[`swiftshader_v5_object_trace_20261031.json`](../results/m1e/live/swiftshader_v5_object_trace_20261031.json).
+
+These failure sessions also exposed a host reporting bug: the runner searched
+`commands.log` for a death marker as an arbitrary substring, and that log includes
+the generated shell script itself. It could therefore mislabel a pre-readiness
+Android failure as `surfaceflinger_died`. Classification now accepts only an
+emitted standalone death record; focused regression tests cover both the false
+positive and a real emitted marker. M1E remains **PARTIAL**.

@@ -26,6 +26,114 @@ index 0ef4a68..ef1bffd 100644
  else()
      message(FATAL_ERROR "REACTOR_BACKEND must be 'LLVM', 'LLVM-Submodule' or 'Subzero'")
  endif()
+diff --git a/src/Device/CMakeLists.txt b/src/Device/CMakeLists.txt
+index c7f082d..9bbc3c1 100644
+--- a/src/Device/CMakeLists.txt
++++ b/src/Device/CMakeLists.txt
+@@ -71,6 +71,10 @@ target_compile_options(vk_device
+         ${ROOT_PROJECT_COMPILE_OPTIONS}
+ )
+ 
++if(AAAS_SWIFTSHADER_DIAGNOSTICS)
++    target_compile_definitions(vk_device PRIVATE AAAS_SWIFTSHADER_JIT_TRACE=1)
++endif()
++
+ target_link_options(vk_device
+     PUBLIC
+         ${SWIFTSHADER_LINK_FLAGS}
+diff --git a/src/Device/Renderer.cpp b/src/Device/Renderer.cpp
+index 4d072b0..a8c5efd 100644
+--- a/src/Device/Renderer.cpp
++++ b/src/Device/Renderer.cpp
+@@ -13,6 +13,7 @@
+ // limitations under the License.
+ 
+ #include "Renderer.hpp"
++#include "Vulkan/AaasDiagnosticTrace.hpp"
+ 
+ #include "Clipper.hpp"
+ #include "Polygon.hpp"
+@@ -182,7 +183,8 @@ void Renderer::operator delete(void *mem)
+ 
+ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState &dynamicState, unsigned int count, int baseVertex,
+                     CountedEvent *events, int instanceID, int layer, void *indexBuffer, const VkRect2D &renderArea,
+-                    const vk::Pipeline::PushConstantStorage &pushConstants, bool update)
++                    const vk::Pipeline::PushConstantStorage &pushConstants, bool update,
++                    uint64_t diagnosticSubmissionId)
+ {
+ 	if(count == 0) { return; }
+ 
+@@ -195,6 +197,8 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+ 		draw = drawCallPool.borrow();
+ 	}
+ 	draw->id = id;
++	draw->diagnosticSubmissionId = diagnosticSubmissionId;
++	draw->diagnosticPipelineId = vk::AaasDiagnosticObjectId(pipeline);
+ 
+ 	const vk::GraphicsState &pipelineState = pipeline->getCombinedState(dynamicState);
+ 
+@@ -243,6 +247,15 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+ 			pixelRoutine = pixelProcessor.routine(pixelState, fragmentState->getPipelineLayout(), fragmentShader, attachments, inputs.getDescriptorSets());
+ 		}
+ 	}
++	draw->diagnosticPixelRoutine = reinterpret_cast<uintptr_t>(pixelRoutine.getEntry());
++	vk::AaasDiagnosticTrace("AAAS_DRAW_ENQUEUE submit_id=%llu draw_id=%d pipeline_id=%llu pipeline=%p pixel_routine=%p fence_event=%u set0_id=%llu set0=%p set1_id=%llu set1=%p",
++	                        static_cast<unsigned long long>(diagnosticSubmissionId), draw->id,
++	                        static_cast<unsigned long long>(draw->diagnosticPipelineId), pipeline,
++	                        reinterpret_cast<void *>(draw->diagnosticPixelRoutine), events != nullptr,
++	                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(inputs.getDescriptorSetObjects()[0])),
++	                        inputs.getDescriptorSetObjects()[0],
++	                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(inputs.getDescriptorSetObjects()[1])),
++	                        inputs.getDescriptorSetObjects()[1]);
+ 
+ 	draw->preRasterizationContainsImageWrite = pipeline->preRasterizationContainsImageWrite();
+ 	draw->fragmentContainsImageWrite = pipeline->fragmentContainsImageWrite();
+@@ -504,6 +517,10 @@ void DrawCall::setup()
+ 
+ void DrawCall::teardown(vk::Device *device)
+ {
++	vk::AaasDiagnosticTrace("AAAS_DRAW_COMPLETE submit_id=%llu draw_id=%d pipeline_id=%llu pipeline=%p pixel_routine=%p",
++	                        static_cast<unsigned long long>(diagnosticSubmissionId), id,
++	                        static_cast<unsigned long long>(diagnosticPipelineId), nullptr,
++	                        reinterpret_cast<void *>(diagnosticPixelRoutine));
+ 	if(events)
+ 	{
+ 		events->done();
+@@ -550,6 +567,10 @@ void DrawCall::teardown(vk::Device *device)
+ 
+ void DrawCall::run(vk::Device *device, const marl::Loan<DrawCall> &draw, marl::Ticket::Queue *tickets, marl::Ticket::Queue clusterQueues[MaxClusterCount])
+ {
++	vk::AaasDiagnosticTrace("AAAS_DRAW_WORK_BEGIN submit_id=%llu draw_id=%d pipeline_id=%llu pixel_routine=%p fence_event=%u",
++	                        static_cast<unsigned long long>(draw->diagnosticSubmissionId), draw->id,
++	                        static_cast<unsigned long long>(draw->diagnosticPipelineId),
++	                        reinterpret_cast<void *>(draw->diagnosticPixelRoutine), draw->events != nullptr);
+ 	draw->setup();
+ 
+ 	const auto numPrimitives = draw->numPrimitives;
+diff --git a/src/Device/Renderer.hpp b/src/Device/Renderer.hpp
+index 284a6e9..e83931f 100644
+--- a/src/Device/Renderer.hpp
++++ b/src/Device/Renderer.hpp
+@@ -140,6 +140,9 @@ struct DrawCall
+ 	static void processPixels(vk::Device *device, const marl::Loan<DrawCall> &draw, const marl::Loan<BatchData> &batch, const std::shared_ptr<marl::Finally> &finally);
+ 	void setup();
+ 	void teardown(vk::Device *device);
++	uint64_t diagnosticSubmissionId = 0;
++	uint64_t diagnosticPipelineId = 0;
++	uintptr_t diagnosticPixelRoutine = 0;
+ 
+ 	int id;
+ 
+@@ -210,7 +213,8 @@ public:
+ 
+ 	void draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState &dynamicState, unsigned int count, int baseVertex,
+ 	          CountedEvent *events, int instanceID, int layer, void *indexBuffer, const VkRect2D &renderArea,
+-	          const vk::Pipeline::PushConstantStorage &pushConstants, bool update = true);
++	          const vk::Pipeline::PushConstantStorage &pushConstants, bool update = true,
++	          uint64_t diagnosticSubmissionId = 0);
+ 
+ 	void addQuery(vk::Query *query);
+ 	void removeQuery(vk::Query *query);
 diff --git a/src/Reactor/SubzeroReactor.cpp b/src/Reactor/SubzeroReactor.cpp
 index c0c6b1d..4b8f5d6 100644
 --- a/src/Reactor/SubzeroReactor.cpp
@@ -184,6 +292,101 @@ index c0c6b1d..4b8f5d6 100644
  };
  
  #ifdef ENABLE_RR_PRINT
+diff --git a/src/Vulkan/AaasDiagnosticTrace.hpp b/src/Vulkan/AaasDiagnosticTrace.hpp
+new file mode 100644
+index 0000000..6c973c3
+--- /dev/null
++++ b/src/Vulkan/AaasDiagnosticTrace.hpp
+@@ -0,0 +1,89 @@
++#ifndef AAAS_VULKAN_DIAGNOSTIC_TRACE_HPP_
++#define AAAS_VULKAN_DIAGNOSTIC_TRACE_HPP_
++
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++#include <algorithm>
++#include <atomic>
++#include <cstdarg>
++#include <cstdio>
++#include <mutex>
++#include <string>
++#include <unordered_map>
++#include <sys/syscall.h>
++#include <time.h>
++#include <unistd.h>
++#include <fcntl.h>
++
++namespace vk {
++
++struct AaasDiagnosticRegistry
++{
++	std::mutex mutex;
++	std::unordered_map<const void *, uint64_t> ids;
++	uint64_t nextId = 0;
++};
++
++inline AaasDiagnosticRegistry &AaasDiagnosticObjects()
++{
++	static AaasDiagnosticRegistry registry;
++	return registry;
++}
++
++inline uint64_t AaasDiagnosticObjectId(const void *object)
++{
++	if(!object) return 0;
++	auto &registry = AaasDiagnosticObjects();
++	std::lock_guard<std::mutex> lock(registry.mutex);
++	auto it = registry.ids.find(object);
++	if(it != registry.ids.end()) return it->second;
++	if(registry.ids.size() >= 16384) return 0;
++	const uint64_t id = ++registry.nextId;
++	registry.ids.emplace(object, id);
++	return id;
++}
++
++inline void AaasDiagnosticObjectRetire(const void *object)
++{
++	if(!object) return;
++	auto &registry = AaasDiagnosticObjects();
++	std::lock_guard<std::mutex> lock(registry.mutex);
++	registry.ids.erase(object);
++}
++
++inline void AaasDiagnosticTrace(const char *format, ...)
++{
++	static std::atomic<uint32_t> budget{ 0 };
++	if(budget.fetch_add(1, std::memory_order_relaxed) >= 32768) return;
++	char path[96];
++	snprintf(path, sizeof(path), "/dev/aaas/swiftshader-jit-%d.log", getpid());
++	char line[1024];
++	timespec now{};
++	clock_gettime(CLOCK_MONOTONIC, &now);
++	int prefix = snprintf(line, sizeof(line), "mono_ns=%lld pid=%d tid=%ld ",
++	                      static_cast<long long>(now.tv_sec) * 1000000000LL + now.tv_nsec,
++	                      getpid(), static_cast<long>(syscall(SYS_gettid)));
++	if(prefix < 0 || static_cast<size_t>(prefix) >= sizeof(line)) return;
++	va_list args;
++	va_start(args, format);
++	int count = vsnprintf(line + prefix, sizeof(line) - static_cast<size_t>(prefix) - 1, format, args);
++	va_end(args);
++	if(count < 0) return;
++	size_t length = static_cast<size_t>(prefix) +
++	                std::min(static_cast<size_t>(count), sizeof(line) - static_cast<size_t>(prefix) - 2);
++	line[length++] = '\n';
++	int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
++	if(fd < 0) return;
++	(void)write(fd, line, length);
++	close(fd);
++}
++
++}  // namespace vk
++#else
++namespace vk {
++inline uint64_t AaasDiagnosticObjectId(const void *) { return 0; }
++inline void AaasDiagnosticObjectRetire(const void *) {}
++inline void AaasDiagnosticTrace(const char *, ...) {}
++}  // namespace vk
++#endif
++
++#endif  // AAAS_VULKAN_DIAGNOSTIC_TRACE_HPP_
 diff --git a/src/Vulkan/CMakeLists.txt b/src/Vulkan/CMakeLists.txt
 index bd05b0f..8ff592f 100644
 --- a/src/Vulkan/CMakeLists.txt
@@ -238,6 +441,66 @@ index bd05b0f..8ff592f 100644
  
  # The name of the application-facing library. Usually this would be the Vulkan Loader,
  # which then loads the Installable Client Driver (ICD), see:
+diff --git a/src/Vulkan/VkCommandBuffer.cpp b/src/Vulkan/VkCommandBuffer.cpp
+index c61e132..7d3924c 100644
+--- a/src/Vulkan/VkCommandBuffer.cpp
++++ b/src/Vulkan/VkCommandBuffer.cpp
+@@ -1257,7 +1257,8 @@ public:
+ 				{
+ 					executionState.renderer->draw(pipeline, executionState.dynamicState, indexBuffer.first, vertexOffset,
+ 					                              executionState.events, instance, layer, indexBuffer.second,
+-					                              renderArea, executionState.pushConstants);
++					                              renderArea, executionState.pushConstants, true,
++					                              executionState.diagnosticSubmissionId);
+ 				}
+ 			}
+ 
+diff --git a/src/Vulkan/VkCommandBuffer.hpp b/src/Vulkan/VkCommandBuffer.hpp
+index 683198e..e4c9e41 100644
+--- a/src/Vulkan/VkCommandBuffer.hpp
++++ b/src/Vulkan/VkCommandBuffer.hpp
+@@ -206,6 +206,7 @@ public:
+ 
+ 		sw::Renderer *renderer = nullptr;
+ 		sw::CountedEvent *events = nullptr;
++		uint64_t diagnosticSubmissionId = 0;
+ 		RenderPass *renderPass = nullptr;
+ 		Framebuffer *renderPassFramebuffer = nullptr;
+ 		DynamicRendering *dynamicRendering = nullptr;
+diff --git a/src/Vulkan/VkDescriptorSetLayout.cpp b/src/Vulkan/VkDescriptorSetLayout.cpp
+index 9f4bbcd..b70fcc2 100644
+--- a/src/Vulkan/VkDescriptorSetLayout.cpp
++++ b/src/Vulkan/VkDescriptorSetLayout.cpp
+@@ -13,10 +13,12 @@
+ // limitations under the License.
+ 
+ #include "VkDescriptorSetLayout.hpp"
++#include "AaasDiagnosticTrace.hpp"
+ 
+ #include "VkBuffer.hpp"
+ #include "VkBufferView.hpp"
+ #include "VkDescriptorSet.hpp"
++#include "VkDeviceMemory.hpp"
+ #include "VkImageView.hpp"
+ #include "VkSampler.hpp"
+ 
+@@ -429,6 +431,16 @@ void DescriptorSetLayout::WriteDescriptorSet(Device *device, DescriptorSet *dstS
+ 			sampledImage[i].mipLevels = imageView->getSubresourceRange().levelCount;
+ 			sampledImage[i].sampleCount = imageView->getSampleCount();
+ 			sampledImage[i].memoryOwner = imageView;
++			const vk::Image *diagnosticImage = imageView->getImageForDiagnostics();
++			vk::DeviceMemory *diagnosticMemory = diagnosticImage->deviceMemory;
++			vk::AaasDiagnosticTrace("AAAS_DESCRIPTOR_IMAGE set_id=%llu set=%p binding=%u element=%u type=%u view_id=%llu view=%p image_id=%llu image=%p memory_id=%llu memory=%p base=%p descriptor_buffer=%p width=%u height=%u",
++			                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(dstSet)), dstSet,
++			                        entry.dstBinding, entry.dstArrayElement + i, entry.descriptorType,
++			                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(imageView)), imageView,
++			                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(diagnosticImage)), diagnosticImage,
++			                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(diagnosticMemory)), diagnosticMemory,
++			                        diagnosticMemory ? diagnosticMemory->getOffsetPointer(0) : nullptr,
++			                        texture->mipmap[0].buffer, extent.width, extent.height);
+ 
+ 			auto &subresourceRange = imageView->getSubresourceRange();
+ 
 diff --git a/src/Vulkan/VkDevice.hpp b/src/Vulkan/VkDevice.hpp
 index f6ff70f..ce73445 100644
 --- a/src/Vulkan/VkDevice.hpp
@@ -274,13 +537,15 @@ index 884fd49..ab64efc 100644
  
  #if VK_USE_PLATFORM_FUCHSIA
 diff --git a/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp b/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
-index 01813c6..45706bb 100644
+index 01813c6..934cf53 100644
 --- a/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
 +++ b/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
-@@ -21,6 +21,46 @@
+@@ -20,6 +20,47 @@
+ #include "VkPhysicalDevice.hpp"
  #include "VkStringify.hpp"
  #include "System/Debug.hpp"
- 
++#include "AaasDiagnosticTrace.hpp"
++
 +#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
 +#include <algorithm>
 +#include <atomic>
@@ -320,21 +585,21 @@ index 01813c6..45706bb 100644
 +}
 +}
 +#endif
-+
+ 
  namespace {
  
- uint32_t GetAHBFormatFromVkFormat(VkFormat format)
-@@ -228,9 +268,23 @@ void AHardwareBufferExternalMemory::freeBuffer()
+@@ -228,9 +269,25 @@ void AHardwareBufferExternalMemory::freeBuffer()
  {
  	if(ahb != nullptr)
  	{
 +#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
 +		uint64_t id = 0;
 +		(void)AHardwareBuffer_getId(ahb, &id);
++		uint64_t memoryId = vk::AaasDiagnosticObjectId(this);
 +		uint32_t rowStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].rowStride : 0;
 +		uint32_t pixelStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].pixelStride : 0;
-+		aaasAhbTrace("AAAS_AHB_VK_REF_RELEASE_BEGIN id=%llu base=%p width=%u height=%u stride=%u format=%u layers=%u plane_count=%u row_stride=%u pixel_stride=%u",
-+		             static_cast<unsigned long long>(id), buffer, ahbDesc.width,
++		aaasAhbTrace("AAAS_AHB_VK_REF_RELEASE_BEGIN id=%llu memory_id=%llu memory=%p base=%p width=%u height=%u stride=%u format=%u layers=%u plane_count=%u row_stride=%u pixel_stride=%u",
++		             static_cast<unsigned long long>(id), static_cast<unsigned long long>(memoryId), this, buffer, ahbDesc.width,
 +		             ahbDesc.height, ahbDesc.stride, ahbDesc.format, ahbDesc.layers,
 +		             ahbPlanes.planeCount, rowStride, pixelStride);
 +#endif
@@ -342,13 +607,14 @@ index 01813c6..45706bb 100644
  
  		AHardwareBuffer_release(ahb);
 +#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
-+		aaasAhbTrace("AAAS_AHB_VK_REF_RELEASE_END id=%llu base=%p",
-+		             static_cast<unsigned long long>(id), buffer);
++		aaasAhbTrace("AAAS_AHB_VK_REF_RELEASE_END id=%llu memory_id=%llu memory=%p base=%p",
++		             static_cast<unsigned long long>(id), static_cast<unsigned long long>(memoryId), this, buffer);
 +#endif
++		vk::AaasDiagnosticObjectRetire(this);
  		ahb = nullptr;
  	}
  }
-@@ -242,7 +296,22 @@ VkResult AHardwareBufferExternalMemory::importAndroidHardwareBuffer(AHardwareBuf
+@@ -242,7 +299,24 @@ VkResult AHardwareBufferExternalMemory::importAndroidHardwareBuffer(AHardwareBuf
  	AHardwareBuffer_acquire(ahb);
  	AHardwareBuffer_describe(ahb, &ahbDesc);
  
@@ -359,10 +625,12 @@ index 01813c6..45706bb 100644
 +	{
 +		uint64_t id = 0;
 +		(void)AHardwareBuffer_getId(ahb, &id);
++		uint64_t memoryId = vk::AaasDiagnosticObjectId(this);
 +		uint32_t rowStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].rowStride : 0;
 +		uint32_t pixelStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].pixelStride : 0;
-+		aaasAhbTrace("AAAS_AHB_VK_IMPORT id=%llu base=%p width=%u height=%u stride=%u format=%u layers=%u usage=0x%llx plane_count=%u row_stride=%u pixel_stride=%u",
-+		             static_cast<unsigned long long>(id), *pBuffer, ahbDesc.width,
++		aaasAhbTrace("AAAS_AHB_VK_IMPORT id=%llu memory_id=%llu memory=%p base=%p allocation=%llu width=%u height=%u stride=%u format=%u layers=%u usage=0x%llx plane_count=%u row_stride=%u pixel_stride=%u",
++		             static_cast<unsigned long long>(id), static_cast<unsigned long long>(memoryId), this, *pBuffer,
++		             static_cast<unsigned long long>(allocationSize), ahbDesc.width,
 +		             ahbDesc.height, ahbDesc.stride, ahbDesc.format, ahbDesc.layers,
 +		             static_cast<unsigned long long>(ahbDesc.usage),
 +		             ahbPlanes.planeCount, rowStride, pixelStride);
@@ -372,7 +640,7 @@ index 01813c6..45706bb 100644
  }
  
  VkResult AHardwareBufferExternalMemory::allocateAndroidHardwareBuffer(size_t size, void **pBuffer)
-@@ -317,9 +386,18 @@ VkResult AHardwareBufferExternalMemory::lockAndroidHardwareBuffer(void **pBuffer
+@@ -317,9 +391,18 @@ VkResult AHardwareBufferExternalMemory::lockAndroidHardwareBuffer(void **pBuffer
  	ARect *rect = nullptr;
  
  	int ret = AHardwareBuffer_lockPlanes(ahb, usage, fence, rect, &ahbPlanes);
@@ -393,7 +661,7 @@ index 01813c6..45706bb 100644
  	}
  
  	*pBuffer = ahbPlanes.planes[0].data;
-@@ -424,6 +502,12 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferFormatProperties
+@@ -424,6 +507,12 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferFormatProperties
  		pFormat->format = VK_FORMAT_UNDEFINED;
  	}
  
@@ -406,7 +674,7 @@ index 01813c6..45706bb 100644
  	return VK_SUCCESS;
  }
  
-@@ -443,8 +527,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
+@@ -443,8 +532,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
  		}
  	}
  
@@ -416,7 +684,7 @@ index 01813c6..45706bb 100644
  
  	if(ahbDesc.format == AHARDWAREBUFFER_FORMAT_BLOB)
  	{
-@@ -453,7 +536,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
+@@ -453,7 +541,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
  	else
  	{
  		VkImageCreateInfo info = {};
@@ -596,10 +864,18 @@ index e9c328b..828eb4a 100644
  }
  
 diff --git a/src/Vulkan/VkImage.cpp b/src/Vulkan/VkImage.cpp
-index b18f8ee..7851bf2 100644
+index b18f8ee..e3fabec 100644
 --- a/src/Vulkan/VkImage.cpp
 +++ b/src/Vulkan/VkImage.cpp
-@@ -25,9 +25,9 @@
+@@ -13,6 +13,7 @@
+ // limitations under the License.
+ 
+ #include "VkImage.hpp"
++#include "AaasDiagnosticTrace.hpp"
+ 
+ #include "VkBuffer.hpp"
+ #include "VkDevice.hpp"
+@@ -25,9 +26,9 @@
  #include "Device/Blitter.hpp"
  #include "Device/ETC_Decoder.hpp"
  
@@ -611,7 +887,7 @@ index b18f8ee..7851bf2 100644
  #	include "VkDeviceMemoryExternalAndroid.hpp"
  #endif
  
-@@ -135,7 +135,7 @@ VkFormat GetImageFormat(const VkImageCreateInfo *pCreateInfo)
+@@ -135,7 +136,7 @@ VkFormat GetImageFormat(const VkImageCreateInfo *pCreateInfo)
  		// VK_STRUCTURE_TYPE_SWAPCHAIN_IMAGE_CREATE_INFO_ANDROID, are not enumerated in the official Vulkan headers.
  		switch((int)(nextInfo->sType))
  		{
@@ -620,7 +896,33 @@ index b18f8ee..7851bf2 100644
  		case VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID:
  			{
  				const VkExternalFormatANDROID *externalFormatAndroid = reinterpret_cast<const VkExternalFormatANDROID *>(nextInfo);
-@@ -303,6 +303,10 @@ size_t Image::getSizeInBytes(const VkImageSubresourceRange &subresourceRange) co
+@@ -197,6 +198,10 @@ Image::Image(const VkImageCreateInfo *pCreateInfo, void *mem, Device *device)
+     , tiling(pCreateInfo->tiling)
+     , usage(pCreateInfo->usage)
+ {
++	AaasDiagnosticTrace("AAAS_IMAGE_CREATE image_id=%llu image=%p width=%u height=%u depth=%u format=%u usage=0x%x",
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(this)), this,
++	                    extent.width, extent.height, extent.depth,
++	                    static_cast<unsigned int>(static_cast<VkFormat>(format)), usage);
+ 	if(format.isCompressed())
+ 	{
+ 		VkImageCreateInfo compressedImageCreateInfo = *pCreateInfo;
+@@ -213,10 +218,14 @@ Image::Image(const VkImageCreateInfo *pCreateInfo, void *mem, Device *device)
+ 
+ void Image::destroy(const VkAllocationCallbacks *pAllocator)
+ {
++	AaasDiagnosticTrace("AAAS_IMAGE_DESTROY image_id=%llu image=%p memory_id=%llu memory=%p",
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(this)), this,
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(deviceMemory)), deviceMemory);
+ 	if(decompressedImage)
+ 	{
+ 		vk::freeHostMemory(decompressedImage, pAllocator);
+ 	}
++	AaasDiagnosticObjectRetire(this);
+ }
+ 
+ size_t Image::ComputeRequiredAllocationSize(const VkImageCreateInfo *pCreateInfo)
+@@ -303,6 +312,10 @@ size_t Image::getSizeInBytes(const VkImageSubresourceRange &subresourceRange) co
  
  bool Image::canBindToMemory(DeviceMemory *pDeviceMemory) const
  {
@@ -631,7 +933,20 @@ index b18f8ee..7851bf2 100644
  	return pDeviceMemory->checkExternalMemoryHandleType(supportedExternalMemoryHandleTypes);
  }
  
-@@ -331,10 +335,23 @@ VkResult Image::prepareForExternalUseANDROID() const
+@@ -310,6 +323,12 @@ void Image::bind(DeviceMemory *pDeviceMemory, VkDeviceSize pMemoryOffset)
+ {
+ 	deviceMemory = pDeviceMemory;
+ 	memoryOffset = pMemoryOffset;
++	AaasDiagnosticTrace("AAAS_IMAGE_BIND image_id=%llu image=%p memory_id=%llu memory=%p base=%p offset=%llu width=%u height=%u depth=%u format=%u",
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(this)), this,
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(deviceMemory)), deviceMemory,
++	                    deviceMemory ? deviceMemory->getOffsetPointer(0) : nullptr,
++	                    static_cast<unsigned long long>(memoryOffset), extent.width, extent.height,
++	                    extent.depth, static_cast<unsigned int>(static_cast<VkFormat>(format)));
+ 	if(decompressedImage)
+ 	{
+ 		decompressedImage->deviceMemory = deviceMemory;
+@@ -331,10 +350,23 @@ VkResult Image::prepareForExternalUseANDROID() const
  	ahbDesc.stride = static_cast<uint32_t>(backingMemory.nativeBufferInfo.stride);
  
  	AHardwareBuffer *ahb = nullptr;
@@ -656,7 +971,7 @@ index b18f8ee..7851bf2 100644
  	if(!ahb)
  	{
  		return VK_ERROR_OUT_OF_DATE_KHR;
-@@ -349,18 +366,21 @@ VkResult Image::prepareForExternalUseANDROID() const
+@@ -349,18 +381,21 @@ VkResult Image::prepareForExternalUseANDROID() const
  	AHardwareBuffer_Planes ahbPlanes = {};
  	if(AHardwareBuffer_lockPlanes(ahb, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, /*fence=*/-1, &ahbRect, &ahbPlanes) != 0)
  	{
@@ -698,6 +1013,53 @@ index d8a247e..94ecff3 100644
  
  	DeviceMemory *deviceMemory = nullptr;
  
+diff --git a/src/Vulkan/VkImageView.cpp b/src/Vulkan/VkImageView.cpp
+index 1b25544..90f550f 100644
+--- a/src/Vulkan/VkImageView.cpp
++++ b/src/Vulkan/VkImageView.cpp
+@@ -13,6 +13,7 @@
+ // limitations under the License.
+ 
+ #include "VkImageView.hpp"
++#include "AaasDiagnosticTrace.hpp"
+ 
+ #include "VkImage.hpp"
+ #include "VkStructConversion.hpp"
+@@ -135,6 +136,11 @@ ImageView::ImageView(const VkImageViewCreateInfo *pCreateInfo, void *mem, const
+     , ycbcrConversion(ycbcrConversion)
+     , id(pCreateInfo)
+ {
++	AaasDiagnosticTrace("AAAS_IMAGE_VIEW_CREATE view_id=%llu view=%p image_id=%llu image=%p width=%u height=%u format=%u",
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(this)), this,
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(image)), image,
++	                    image->getExtent().width, image->getExtent().height,
++	                    static_cast<unsigned int>(static_cast<VkFormat>(format)));
+ }
+ 
+ size_t ImageView::ComputeRequiredAllocationSize(const VkImageViewCreateInfo *pCreateInfo)
+@@ -144,6 +150,10 @@ size_t ImageView::ComputeRequiredAllocationSize(const VkImageViewCreateInfo *pCr
+ 
+ void ImageView::destroy(const VkAllocationCallbacks *pAllocator)
+ {
++	AaasDiagnosticTrace("AAAS_IMAGE_VIEW_DESTROY view_id=%llu view=%p image_id=%llu image=%p",
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(this)), this,
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(image)), image);
++	AaasDiagnosticObjectRetire(this);
+ }
+ 
+ // Vulkan 1.2 Table 8. Image and image view parameter compatibility requirements
+diff --git a/src/Vulkan/VkImageView.hpp b/src/Vulkan/VkImageView.hpp
+index 25feebc..4d22bd4 100644
+--- a/src/Vulkan/VkImageView.hpp
++++ b/src/Vulkan/VkImageView.hpp
+@@ -136,6 +136,7 @@ public:
+ 	const VkComponentMapping &getComponentMapping() const { return components; }
+ 	const VkImageSubresourceRange &getSubresourceRange() const { return subresourceRange; }
+ 	size_t getSizeInBytes() const { return image->getSizeInBytes(subresourceRange); }
++	const Image *getImageForDiagnostics() const { return image; }
+ 
+ private:
+ 	bool imageTypesMatch(VkImageType imageType) const;
 diff --git a/src/Vulkan/VkPhysicalDevice.cpp b/src/Vulkan/VkPhysicalDevice.cpp
 index 9725e05..ae63f2d 100644
 --- a/src/Vulkan/VkPhysicalDevice.cpp
@@ -763,6 +1125,99 @@ index 9184362..ff676a3 100644
  	void getProperties(VkPhysicalDevicePresentationPropertiesANDROID *properties) const;
  	void getProperties(const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo, VkAndroidHardwareBufferUsageANDROID *properties) const;
  #endif
+diff --git a/src/Vulkan/VkQueue.cpp b/src/Vulkan/VkQueue.cpp
+index a0d143d..9748ee2 100644
+--- a/src/Vulkan/VkQueue.cpp
++++ b/src/Vulkan/VkQueue.cpp
+@@ -13,6 +13,7 @@
+ // limitations under the License.
+ 
+ #include "VkQueue.hpp"
++#include "AaasDiagnosticTrace.hpp"
+ 
+ #include "VkCommandBuffer.hpp"
+ #include "VkFence.hpp"
+@@ -56,9 +57,11 @@ Queue::~Queue()
+ 
+ VkResult Queue::submit(uint32_t submitCount, SubmitInfo *pSubmits, Fence *fence)
+ {
++	static std::atomic<uint64_t> nextSubmissionId{ 0 };
+ 	garbageCollect();
+ 
+ 	Task task;
++	task.diagnosticSubmissionId = nextSubmissionId.fetch_add(1, std::memory_order_relaxed) + 1;
+ 	task.submitCount = submitCount;
+ 	task.pSubmits = pSubmits;
+ 	if(fence)
+@@ -68,12 +71,20 @@ VkResult Queue::submit(uint32_t submitCount, SubmitInfo *pSubmits, Fence *fence)
+ 	}
+ 
+ 	pending.put(task);
++		AaasDiagnosticTrace("AAAS_QUEUE_SUBMIT_ENQUEUE submit_id=%llu queue_id=%llu queue=%p fence=%p fence_event=%u submits=%u",
++		                    static_cast<unsigned long long>(task.diagnosticSubmissionId),
++		                    static_cast<unsigned long long>(AaasDiagnosticObjectId(this)), this, fence,
++		                    fence != nullptr, submitCount);
+ 
+ 	return VK_SUCCESS;
+ }
+ 
+ void Queue::submitQueue(const Task &task)
+ {
++	AaasDiagnosticTrace("AAAS_QUEUE_EXEC_BEGIN submit_id=%llu queue_id=%llu queue=%p fence_event=%u submits=%u",
++	                    static_cast<unsigned long long>(task.diagnosticSubmissionId),
++	                    static_cast<unsigned long long>(AaasDiagnosticObjectId(this)), this,
++	                    task.events != nullptr, task.submitCount);
+ 	if(renderer == nullptr)
+ 	{
+ 		renderer.reset(new sw::Renderer(device));
+@@ -103,14 +114,22 @@ void Queue::submitQueue(const Task &task)
+ 			CommandBuffer::ExecutionState executionState;
+ 			executionState.renderer = renderer.get();
+ 			executionState.events = task.events.get();
++			executionState.diagnosticSubmissionId = task.diagnosticSubmissionId;
+ 			for(uint32_t j = 0; j < submitInfo.commandBufferCount; j++)
+ 			{
++				AaasDiagnosticTrace("AAAS_QUEUE_COMMAND submit_id=%llu command_buffer_id=%llu command_buffer=%p",
++				                    static_cast<unsigned long long>(task.diagnosticSubmissionId),
++				                    static_cast<unsigned long long>(AaasDiagnosticObjectId(Cast(submitInfo.pCommandBuffers[j]))),
++				                    Cast(submitInfo.pCommandBuffers[j]));
+ 				Cast(submitInfo.pCommandBuffers[j])->submit(executionState);
+ 			}
+ 		}
+ 
+ 		for(uint32_t j = 0; j < submitInfo.signalSemaphoreCount; j++)
+ 		{
++			AaasDiagnosticTrace("AAAS_QUEUE_SIGNAL_SEMAPHORE submit_id=%llu semaphore=%p index=%u renderer_sync_done=0",
++			                    static_cast<unsigned long long>(task.diagnosticSubmissionId),
++			                    submitInfo.pSignalSemaphores[j], j);
+ 			if(auto *sem = DynamicCast<TimelineSemaphore>(submitInfo.pSignalSemaphores[j]))
+ 			{
+ 				ASSERT(j < submitInfo.signalSemaphoreValueCount);
+@@ -137,8 +156,12 @@ void Queue::submitQueue(const Task &task)
+ 		// TODO: fix renderer signaling so that work submitted separately from (but before) a fence
+ 		// is guaranteed complete by the time the fence signals.
+ 		renderer->synchronize();
++		AaasDiagnosticTrace("AAAS_QUEUE_RENDERER_SYNC_DONE submit_id=%llu fence_event=1",
++		                    static_cast<unsigned long long>(task.diagnosticSubmissionId));
+ 		task.events->done();
+ 	}
++	AaasDiagnosticTrace("AAAS_QUEUE_EXEC_RETURN submit_id=%llu fence_event=%u",
++	                    static_cast<unsigned long long>(task.diagnosticSubmissionId), task.events != nullptr);
+ }
+ 
+ void Queue::taskLoop(marl::Scheduler *scheduler)
+diff --git a/src/Vulkan/VkQueue.hpp b/src/Vulkan/VkQueue.hpp
+index 1b145ef..20424b7 100644
+--- a/src/Vulkan/VkQueue.hpp
++++ b/src/Vulkan/VkQueue.hpp
+@@ -69,6 +69,7 @@ private:
+ 		uint32_t submitCount = 0;
+ 		SubmitInfo *pSubmits = nullptr;
+ 		std::shared_ptr<sw::CountedEvent> events;
++		uint64_t diagnosticSubmissionId = 0;
+ 
+ 		enum Type
+ 		{
 diff --git a/src/Vulkan/libVulkan.cpp b/src/Vulkan/libVulkan.cpp
 index 1cd4b57..a5dc4cc 100644
 --- a/src/Vulkan/libVulkan.cpp
