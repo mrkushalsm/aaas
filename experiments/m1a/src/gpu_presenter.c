@@ -1177,9 +1177,9 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
         wp_viewport_set_destination(a->viewport, (int32_t)w, (int32_t)h);
     }
     /* Apply the acknowledged xdg configure even while Android is rebuilding
-     * its output buffers. Without a surface commit here, KWin keeps the old
-     * toplevel geometry until a resized Android frame arrives, creating a
-     * configure/buffer-size deadlock during app-display resize. */
+     * its output buffers. Without a surface commit here, a compositor can keep
+     * the old toplevel geometry until a resized Android frame arrives, creating
+     * a configure/buffer-size deadlock during app-display resize. */
     wl_surface_commit(a->surface);
 
     bool initial = !a->configured;

@@ -72,7 +72,7 @@ These identifiers have distinct owners and lifetimes:
 | Activity token/component | ActivityTaskManager/PackageManager | Settings and SubSettings instances |
 | transport socket | session launcher | separate socket and transport instance for each output |
 | buffer slot/generation | Composer transport | output and client-target records are separate per display |
-| Wayland toplevel | host presenter/KWin | separate virtual-output window; no stable host-window ID yet |
+| Wayland toplevel | host presenter and connected Wayland compositor | separate virtual-output window; no stable host-window ID yet |
 | input focus generation | presenter/input adapter | existing stale-event rejection; separate adapters target displays 2 and 3 |
 
 The intended later relationship is
@@ -119,9 +119,10 @@ closed slot, so this is not proof that every close was user-initiated.
 
 The presenter binds `xdg_wm_base` at protocol version 3 and its
 `xdg_toplevel.configure` callback ignores the state array. It has no reliable
-minimized/hidden signal or Android task visibility policy. The current behavior
-therefore leaves visibility, minimization, and rendering decisions to KWin and
-the Android runtime; no task pause or frame-throttling behavior is claimed.
+minimized/hidden signal or Android task visibility policy. Visibility and
+minimization are managed by whichever Wayland compositor hosts the toplevel;
+no compositor-specific API, KDE/KWin patch, Android task pause, or frame-
+throttling behavior is required or claimed.
 
 ## Trusted display broker boundary
 

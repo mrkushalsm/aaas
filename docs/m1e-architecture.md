@@ -18,11 +18,15 @@ virtual display for each requested app (`--app` and optional `--app2`), routes
 each task to its Android display ID, and uses one Composer transport socket
 and Wayland toplevel per output. The primary display, wire protocol v2, and
 primary input route remain unchanged. Two tasks, Android displays, Composer
-outputs, and Wayland toplevels have been verified in one runtime. KWin
-quick-tile placement, per-window close, single-output native resize, and a
-two-output resize where one output changed independently have since been
-verified. Bounded app-consumed keyboard input and create-after-destroy app
-reopen have since been demonstrated. Per-output vertical scroll consumption is now live-verified in both runtime modes. Horizontal/touchpad-specific scroll and Android lifecycle synchronization with host minimize remain unverified.
+outputs, and Wayland toplevels have been verified in one runtime. Window
+creation, configure, input, and presentation use Wayland protocols; AaaS has
+no KDE/KWin API or patch dependency. KWin was the available test compositor
+for recorded quick-tile placement and configure-event experiments. Per-window
+close, native resize, and an independently resized second output have since
+been verified. Bounded app-consumed keyboard input and create-after-destroy app
+reopen have since been demonstrated. Per-output vertical scroll consumption
+is live-verified in both runtime modes. Horizontal/touchpad-specific scroll
+and Android lifecycle synchronization with host minimize remain unverified.
 
 The live Android probe reported one logical display: ID 0, 720×1280, trusted,
 and able to host tasks. Settings was task 8 and top-resumed. A Launcher HOME
