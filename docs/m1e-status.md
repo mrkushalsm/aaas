@@ -1794,3 +1794,26 @@ M1E remains **PARTIAL**. Open acceptance includes the unresolved historical
 v4 resource owner, complete modifier/navigation and scroll-source matrices,
 input behavior during Android Activity transition pauses, and pointer mapping
 during an in-flight resize. No universal crash-freedom claim is made.
+
+
+### Enhanced held-modifier close and reopen (2026-11-01)
+
+In source-LMKD/cgroup session `m1b84_session_aqcjppfg`, Settings and Contacts
+were both running on displays 2 and 3. Settings had focus when synthetic Shift
+was pressed. Closing Settings released display 2 while Shift was still held; the
+presenter emitted Shift-up before focus leave and adapter shutdown. Only after
+the slot reported CLOSED was the synthetic host Shift released. Reopening
+Settings reused slot 1 on a new Android display (display 4, task 10) while
+Contacts remained running on display 3/task 9. After the new focus-ready event,
+the Settings Search field visibly contained lowercase `beta`, including a
+lowercase first character. This is bounded evidence of modifier cleanup and
+input after reopen, not the complete modifier matrix.
+
+The app manager rejected a third concurrent launch with `capacity_exhausted`.
+At final shutdown, both slots' presenter summaries had imports=submissions=
+releases, zero outstanding buffers, and zero teardown invalidations; the session
+ended STOPPED and the delegated cgroup was removed. Logcat also contains
+repeated `com.android.bluetooth` process failures caused by the runtime image's
+missing `libbluetooth_jni.so`; `system_server` and SurfaceFlinger remained alive.
+The screenshots, event timestamps, and raw log hashes are in
+[enhanced_modifier_close_reopen_20261101.json](../results/m1e/live/enhanced_modifier_close_reopen_20261101.json).
