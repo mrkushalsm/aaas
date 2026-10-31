@@ -1322,3 +1322,39 @@ framework exception. Source-built LMKD remained active, the delegated session
 cgroup was removed, and Settings/Contacts drained 131/131 and 116/116 buffers,
 with zero outstanding. It did not exercise resize or input; see
 [`swiftshader_fixed_notrace_enhanced_shutdown_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_enhanced_shutdown_20261031.json).
+
+### Pre-fix reproduction and corrected odd-height path (2026-10-31)
+
+A coherent trace build with the `f38251d` odd-height PixelRoutine correction
+excluded reproduced the fault on the exact path `720×1280 → 960×578 →
+960×557 → 960×565`. SurfaceFlinger attempted an 8-byte `movq` from the first
+address of the guard mapping immediately after the live 960×557 render-target
+mapping. Trace identities linked the access to AHardwareBuffer
+`919123001401`, VkDeviceMemory 293, VkImage 292, view 296, pipeline 180,
+submission 401, draw 1280, and `PixelRoutine_00000042`. The computed access was
+row 557 of a 557-row attachment. This establishes an odd-height paired-row
+bounds defect for this reproduced failure, rather than a use-after-free of
+that target in this execution. The session is correctly recorded as `FAILED`;
+both presenters nevertheless emitted complete zero-outstanding summaries.
+
+The same sequence was then run with diagnostic v9, which includes the
+`f38251d` correction. DisplayManager and SwiftShader draw targets reached
+960×578, 960×557, and 960×565; SurfaceFlinger survived and the shared runtime
+reached `STOPPED`. Settings released 177/177 buffers and Contacts 166/166,
+with zero outstanding and zero teardown invalidations. This is bounded live
+validation of the exact previously failing sequence, not universal stability
+proof. Full trace, crash hashes, binary provenance, and limitations are in
+[`swiftshader_odd_height_prefx_reproduction_20261031.json`](../results/m1e/live/swiftshader_odd_height_prefx_reproduction_20261031.json).
+
+This result does **not** identify or resolve the separate older v4 observation
+of a 960×578 AHardwareBuffer address released before a later JIT fault. That
+resource-owner chain remains unresolved, so overall graphics stability and
+M1E remain **PARTIAL**. KWin was only the available local compositor/test
+driver for standard Wayland configure events; no KDE/KWin product integration
+or patch is required by AaaS.
+
+The final regression pass after this evidence update completed 198 Python tests,
+M1A tests, forced presenter build/tests (including the queued keyboard teardown
+regression), input-adapter and display-broker builds, Composer copy/transport
+unit binaries built under `/tmp`, and the external workspace guard. The inherited
+untracked Composer `build/` directory was not used, staged, or modified.
