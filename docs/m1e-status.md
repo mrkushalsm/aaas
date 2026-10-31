@@ -1569,6 +1569,50 @@ lifecycle matrix remain open. The exact sessions, request times, Composer frame
 identities, trace counters, binary provenance, and artifact hashes are in
 [`swiftshader_clean_resize_after_alarm_fix_20261101.json`](../results/m1e/live/swiftshader_clean_resize_after_alarm_fix_20261101.json).
 
+### Current-patch odd-height resize validation (2026-11-01)
+
+The current coherent source patch was rebuilt with diagnostics disabled into a
+separate no-tracing SwiftShader candidate. The build manifest records pinned
+revision `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5`, patch SHA-256
+`49c1ce42f0cb09dd69a81645c9a3bec91a390c958ac3d49ff2bd3edf4df86ece`, overlay
+SHA-256 `e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee`, and
+Build ID `603ff4f389a1050a89743c1adef98c7a39dfefb4`. The preserved original
+production overlay remains byte-identical at SHA-256
+`1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`; the new
+candidate was selected explicitly for these validation runs and is not called
+the original production overlay.
+
+In default session `m1b84_session_4kmgsc62` and enhanced
+`m1b84_session_ono2a5yn`, Settings reached matching Android source frames for
+960×578, 960×557, 960×565, and 720×1280 while Contacts remained at 720×1280.
+Both SurfaceFlinger and system_server survived. Both runs reached STOPPED;
+presenter import/submission/release counts balanced, outstanding buffers were
+zero, and teardown invalidations were zero. The enhanced session cgroup was
+removed.
+
+One bounded paired-output run `m1b84_session_zl3l6zm5` then resized both
+applications to 960×557, to 960×565, and back to 720×1280. The two configure
+events were 8.84 microseconds apart for 960×557 and 19.02 microseconds apart
+for 960×565; both outputs produced matching generation-specific Android
+source frames at every stable size. SurfaceFlinger and system_server survived,
+shutdown reached STOPPED, and both presenters drained with zero outstanding
+buffers. This is one bounded successful paired trial, not proof of general
+crash freedom. Detailed logs, metrics, build identity, and hashes are in
+[`swiftshader_no_trace_current_patch_default_resize_20261101.json`](../results/m1e/live/swiftshader_no_trace_current_patch_default_resize_20261101.json),
+[`swiftshader_no_trace_current_patch_enhanced_resize_20261101.json`](../results/m1e/live/swiftshader_no_trace_current_patch_enhanced_resize_20261101.json),
+and
+[`swiftshader_current_patch_near_simultaneous_resize_20261101.json`](../results/m1e/live/swiftshader_current_patch_near_simultaneous_resize_20261101.json).
+
+These runs validate the odd-height correction in the explicitly selected
+current-patch binary across default/enhanced modes and a bounded paired resize.
+They do not identify the owner of the separate historical v4 stale
+AHardwareBuffer access. The original production overlay was preserved rather
+than overwritten. M1E remains **PARTIAL** while that historical graphics
+observation and remaining input-transition/modifier acceptance gates remain
+open. No KDE/KWin API or patch was added to the AaaS runtime; KWin remained only
+the locally available test compositor used to generate standard Wayland
+configure events.
+
 KWin was used only as the available local test compositor and to issue ordinary
 Wayland window-geometry changes during live testing. The runtime has no KWin
 patch, private KWin API, or KDE product dependency; its resize path remains
