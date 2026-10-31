@@ -1817,3 +1817,60 @@ repeated `com.android.bluetooth` process failures caused by the runtime image's
 missing `libbluetooth_jni.so`; `system_server` and SurfaceFlinger remained alive.
 The screenshots, event timestamps, and raw log hashes are in
 [enhanced_modifier_close_reopen_20261101.json](../results/m1e/live/enhanced_modifier_close_reopen_20261101.json).
+
+### Diagnostic v10 historical resize sequence (2026-11-01)
+
+Default-mode session `m1b84_session_ey3820js` used the coherent v10 SwiftShader
+diagnostic overlay (SHA-256 `7a3190fb690f8e231d41bd835a284fcf1e90a430e63386710ced813fde727c73`,
+Build ID `78aa60b0eebcc475f8308e38e98dee5e7e6a0e91`) with Settings on
+display 2/task 8 and Contacts on display 3/task 9. Settings traversed
+720×1280 → 960×578 → 960×557 → 960×565 → 720×1280 while Contacts stayed at
+720×1280. The presenter reported matching Android source frames for every
+stable configure generation, including odd heights; stale previous-generation
+frames were observed before the matching frame and rejected by the generation
+path. SurfaceFlinger (guest PID 230) and system_server (guest PID 370) remained
+alive through the run. The journal and sentinel reached STOPPED.
+
+The same-process trace recorded 1,363 draw completions and 452 queue renderer
+synchronizations. Descriptor bindings were applied in trace order and joined to
+draws. For all 18 released imported memory IDs with descriptor-linked completed
+draws, the last observed draw completion and submission renderer sync preceded
+AHardwareBuffer release. Fifteen other referenced imports had no explicit
+release event before process teardown and remain unclassified. This is bounded
+diagnostic evidence, not proof of the historical v4 resource's owner or a
+general crash-freedom result. Both presenters drained all 217/217/217 and
+208/208/208 imported/submitted/released buffers with zero outstanding buffers
+and zero teardown invalidations.
+
+The production overlay remains unchanged at SHA-256
+`1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`; this
+session explicitly selected the diagnostic overlay. Logcat contains repeated
+optional `com.android.bluetooth` process failures caused by the missing
+`libbluetooth_jni.so`; neither target app, system_server, nor SurfaceFlinger
+failed. The historical v4 stale-AHardwareBuffer read remains unresolved and
+M1E remains **PARTIAL**. Structured details and hashes are in
+[swiftshader_v10_resize_back_followup_20261101.json](../results/m1e/live/swiftshader_v10_resize_back_followup_20261101.json).
+
+### Diagnostic v10 two-output resize correlation (2026-11-01)
+
+A second bounded default-mode v10 run, `m1b84_session_30bampm8`, matched the
+two-output historical setup more closely: both Settings and Contacts first
+reached 960×578, Settings then reached 960×557, and both were requested at
+960×565 12.39 ms apart before returning independently to 720×1280. Every
+stable configure generation produced a matching Android source frame. The
+same SurfaceFlinger process logged 1,507 completed draws, 485 queue renderer
+synchronizations, and 55 AHardwareBuffer releases. The trace joined descriptor
+bindings to 34 released memory IDs with completed draws; in all 34 cases the
+last observed draw completion and submission renderer sync preceded release.
+The remaining descriptor-referenced memory IDs without explicit release before
+process teardown are unclassified. SurfaceFlinger and system_server survived,
+both presenters drained 212/212/212 and 203/203/203 buffers with no outstanding
+ownership, and the session reached STOPPED.
+
+This is stronger bounded evidence for current draw/resource ordering and the
+odd-height correction in the diagnostic overlay; it still did not reproduce
+the separate v4 stale-address fault or identify its owner. The production
+SwiftShader overlay remains unchanged. Details, monotonic request times, trace
+and log hashes are in
+[swiftshader_v10_two_output_resize_trace_20261101.json](../results/m1e/live/swiftshader_v10_two_output_resize_trace_20261101.json).
+M1E remains **PARTIAL**.
