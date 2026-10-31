@@ -1,6 +1,6 @@
 # M1E status
 
-Status: **PARTIAL — two-app rendering, input subsets, resize, and dynamic lifecycle are live; a resize-correlated SurfaceFlinger SwiftShader JIT crash was reproduced and remains unresolved**
+Status: **PARTIAL — the reproduced odd-height SwiftShader paired-row bounds fault is corrected and passed bounded diagnostic/no-tracing resize runs; the separate historical stale AHardwareBuffer lifetime observation and full stability/interaction matrix remain open**
 
 Date: 2026-10-31
 
@@ -1265,3 +1265,32 @@ and zero teardown invalidations. Contacts ended at generation 1 with
 result does not test input after resize, repeated bursts, dual-output landscape,
 or enhanced mode. Evidence:
 [`swiftshader_resize_back_odd_height_20261031.json`](../results/m1e/live/swiftshader_resize_back_odd_height_20261031.json).
+
+### Coherent no-tracing build and odd-height validation (2026-10-31)
+
+The coherent SwiftShader source snapshot was rebuilt with Android support enabled
+and diagnostic tracing disabled, using the same complete source/object/archive
+graph as the tracing build. The no-tracing library is external to Git at
+`/run/media/mrkus/Homework/aaas-workspace/tmp/m1e_swiftshader_fixed_notrace_vulkan.so`
+(SHA-256 `386bd8cf7857adfb598212aafae73c82e9dfea2b0ea76f0a14aa45aae8a883cb`,
+Build ID `b364161b9af0fd1841bb7b7045f77e2a7f5fb543`). The original production
+overlay remains unchanged at SHA-256
+`1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`.
+
+A live two-app default-mode run reached `RUNNING`. Settings was resized through
+720×1280 → 960×557 → 960×565 → 720×1280 while Contacts remained at 720×1280.
+Android DisplayManager and the presenter observed matching native buffers for
+each Settings generation, including 3840-byte odd-height strides. Settings
+reconciled 176 imports/submissions/releases and Contacts 168/168/168, with zero
+outstanding buffers and zero teardown invalidations. SurfaceFlinger survived
+the resize sequence. The exact session and hashes are recorded in
+[`swiftshader_fixed_notrace_resize_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_resize_20261031.json).
+
+This was not a clean session acceptance: after resize-back, system_server
+restarted at guest 17:21:00.001 UTC with the known null-PendingIntent
+`AlarmManagerService.getAlarmOperationBundle()` exception. The runner retained
+`FAILED`; no SurfaceFlinger crash was found in this run. The resize result is
+bounded positive evidence for the SwiftShader odd-height correction, while
+clean shutdown under this build and unrelated framework reliability remain
+unverified. KWin scripting only generated ordinary Wayland configure events on
+the available host. AaaS contains no KWin-specific product dependency.
