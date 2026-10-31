@@ -662,6 +662,40 @@ The full regression set was rerun after these sessions: 171 Python tests,
 M1A tests, forced presenter build/tests, forced input-adapter build, Composer
 component tests, display-broker build, and workspace guard all passed.
 
+### Verified default-mode two-window editor isolation probe (2026-10-31)
+
+A further default-LMKD session (`m1b84_session_6ilda528`) checked that the
+test harness really changed KWin focus before attributing key results. The
+delayed project pointer probe focused Contacts task 9/display 3, where
+Ctrl+A followed by `beta` visibly replaced the First name value. Settings
+Search on task 8/display 2 remained `z`. After the delayed pointer probe
+focused Settings, `q` appended to its query; Ctrl+A followed by `alpha`
+replaced it, while Contacts remained `beta`. The final real desktop capture
+shows both app windows and both editor values in
+[`two_app_input_isolation_default_20261031.png`](../results/m1e/live/two_app_input_isolation_default_20261031.png).
+This establishes one visible input-isolation sample in each direction in
+default mode. It is synthetic `/dev/uinput`, not physical-keyboard evidence,
+and does not replace the prior 40/40 repeated first-key trials.
+
+This session recorded nine InputDispatcher no-focused-window warnings and no
+ANR signature. It did not individually correlate those warnings with each
+focus request. Settings finished with 505/505 imports/submissions/releases;
+Contacts finished with 488/488. Both had zero outstanding buffers and zero
+teardown invalidations. The state journal and sentinel both reached
+`STOPPED`; no runtime processes were left. The structured run record contains
+the identities, hashes, and exact untested matrix:
+[`desktop_input_probe_20261031.json`](../results/m1e/live/desktop_input_probe_20261031.json).
+
+The same run also demonstrated why pointer-test setup must wait for uinput
+device registration: an earlier temporary probe left Contacts as KWin's
+active toplevel, so its typed text was not accepted as a Settings focus test.
+Those exploratory events were excluded. The established delayed pointer
+probe and KWin active-window check were used for the accepted interactions.
+M1E remains **PARTIAL**: modifier/navigation behavior, post-resize input,
+landscape and resize-burst interaction, horizontal/touchpad scrolling,
+minimize/restore, dynamic lifecycle stress, and enhanced-mode interactive
+coverage remain open.
+
 ### SwiftShader JIT bounded review update (2026-10-31)
 
 The retained failure log for `m1b84_session_byh_9r3y` confirms SurfaceFlinger
