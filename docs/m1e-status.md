@@ -1613,6 +1613,28 @@ open. No KDE/KWin API or patch was added to the AaaS runtime; KWin remained only
 the locally available test compositor used to generate standard Wayland
 configure events.
 
+### Two-way visible input after resize; Activity transition drop (2026-11-01)
+
+In default session `m1b84_session_eeynp99l`, both Settings and Contacts reached
+matching 960×578 Android source frames. Contacts visibly accepted `beta` in
+Create new contact / First name. Settings Search visibly accepted `alpha`
+while Contacts remained `beta`; Contacts then visibly accepted `gamma` while
+Settings remained `alpha`. The interaction screenshots and raw session hashes
+are referenced by
+[`postresize_two_way_input_transition_20261101.json`](../results/m1e/live/postresize_two_way_input_transition_20261101.json).
+Both presenters finished with balanced imports/submissions/releases, zero
+outstanding buffers, and zero teardown invalidations; the session ended
+STOPPED.
+
+The same session also observed an Android transition edge. After the Settings
+search UI was opened, `ViewRootImpl` logged a key-down dropped while
+`SearchActivity` was paused for transition. InputDispatcher had a focused
+window and the adapter's Binder call succeeded, but those facts do not prove
+widget consumption. A later screenshot showed the complete `alpha` marker;
+the interval was not measured as a bounded readiness delay. This remains
+PARTIAL and is distinct from steady-window focus switching. No arbitrary delay
+or blind key replay was added.
+
 KWin was used only as the available local test compositor and to issue ordinary
 Wayland window-geometry changes during live testing. The runtime has no KWin
 patch, private KWin API, or KDE product dependency; its resize path remains
