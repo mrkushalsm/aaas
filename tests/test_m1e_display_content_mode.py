@@ -29,6 +29,44 @@ class DisplayContentModePatchTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "already applied"):
             PATCHER.patch_smali(PATCHER.BODY)
 
+    def test_alarm_fallback_uses_listener_aware_delivery(self):
+        source = '''    invoke-static {v0}, Lcom/android/server/alarm/AlarmManagerService;->-$$Nest$mupdateNextAlarmClockLocked(Lcom/android/server/alarm/AlarmManagerService;)V
+
+    .line 4725
+    monitor-exit v4
+    :try_end_3
+    .catchall {:try_start_3 .. :try_end_3} :catchall_3
+
+    .line 4728
+    :goto_4
+    invoke-virtual {p1}, Ljava/util/ArrayList;->size()I
+    move-result v0
+    if-ge v2, v0, :cond_4
+    invoke-virtual {v5, v6}, Landroid/app/PendingIntent;->isActivity()Z
+    goto :goto_4
+
+    :cond_4
+    :goto_6
+    return-void'''
+        patched = PATCHER.patch_alarm_fallback(source)
+        self.assertIn(
+            "deliverAlarmsLocked(Ljava/util/ArrayList;J)V", patched)
+        self.assertIn("rescheduleKernelAlarmsLocked()V", patched)
+        self.assertNotIn("PendingIntent;->isActivity()Z", patched)
+        self.assertNotIn(":goto_4", patched)
+        self.assertIn(":cond_4", patched)
+        self.assertIn(":goto_6", patched)
+
+    def test_alarm_fallback_patch_rejects_unexpected_or_repeated_input(self):
+        with self.assertRaisesRegex(RuntimeError, "synchronization block"):
+            PATCHER.patch_alarm_fallback(".method public handleMessage()V\n.end method")
+        with self.assertRaisesRegex(RuntimeError, "already applied"):
+            PATCHER.patch_alarm_fallback(
+                PATCHER.ALARM_TRIGGER + "\n" +
+                PATCHER.ALARM_LOOP_START + "\n" +
+                "deliverAlarmsLocked(Ljava/util/ArrayList;J)V\n" +
+                PATCHER.ALARM_LOOP_END)
+
 
 if __name__ == "__main__":
     unittest.main()

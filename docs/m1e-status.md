@@ -1504,3 +1504,40 @@ shutdown timed out. There was no SurfaceFlinger SIGSEGV in this run, and it does
 not resolve the historical v4 release-before-fault observation. Concurrent
 resize, input after resize, and app lifecycle were not tested. See
 [`swiftshader_v10_resizeback_sequence_20261101.json`](../results/m1e/live/swiftshader_v10_resizeback_sequence_20261101.json).
+
+### AlarmManager handler fallback: listener alarm correction (2026-11-01)
+
+The recurring system_server exception was traced to the rootless alarm-driver
+fallback, not to a malformed PendingIntent. `timerfd_create(CLOCK_*_ALARM)` is
+denied with `EPERM`; the resulting `ALARM_EVENT` handler drained due alarms and
+unconditionally called `getAlarmOperationBundle()` and `PendingIntent.send()`.
+Android alarms may instead be direct `IAlarmListener` alarms with a null
+`operation`. The internal `TIME_TICK` listener is scheduled for each minute
+boundary, matching the repeated failure timing. The exact Alarm object from the
+historical crash was not logged, so attribution to that specific listener is
+strongly indicated by timing and the source path, not directly captured.
+
+The M1E services overlay now routes handler-fallback due alarms through the
+framework's existing `deliverAlarmsLocked()` path while holding the expected
+`mLock`, then reschedules the next alarm and refreshes alarm-clock state. This
+preserves listener callbacks, completion tracking, PendingIntent behavior,
+wake-lock/accounting semantics, and repeat scheduling. It does not modify the
+stock services.jar or alarm policy. The source reference is the Android
+framework's [`AlarmManagerService`](https://android.googlesource.com/platform/frameworks/base/+/a38d32bb09756370c5c28d210a051415e85e0be2/apex/jobscheduler/service/java/com/android/server/alarm/AlarmManagerService.java),
+whose ordinary delivery path is listener-aware; the overlay is built from the
+pinned local services diagnostic JAR using the pinned Apktool binary.
+
+In session `m1b84_session_jglvfw9y`, both Settings (task 8/display 2) and
+Contacts (task 9/display 3) stayed RUNNING from guest 19:00:50 through 19:04:32,
+covering four minute-boundary alarm opportunities with one system_server PID
+and no recurrence of the null-PendingIntent fatal exception. Normal stop reached
+STOPPED. Presenter accounting was 162/162/162 and 153/153/153 imports,
+submissions, and releases, with zero outstanding or teardown-invalidated
+buffers. No direct TIME_TICK receiver trace was enabled. This is bounded
+validation of the corrected M1E framework fallback, not proof of universal
+AlarmManager correctness and not the complete resize/input acceptance matrix.
+See [`alarm_fallback_two_app_tick_validation_20261101.json`](../results/m1e/live/alarm_fallback_two_app_tick_validation_20261101.json).
+
+The independent historical SwiftShader v4 read-after-unmap observation remains
+unresolved. The healthy v10 resource-order traces and this framework fix do not
+retroactively establish its owner or cause. M1E remains **PARTIAL**.

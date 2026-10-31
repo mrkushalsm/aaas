@@ -37,8 +37,8 @@ COMPOSER_VDISPLAY = TMP / 'm1e_composer_vdisplay_experimental'
 COMPOSER_MULTI_OUTPUT = TMP / 'm1e_composer_two_output'
 VDISPLAY_BROKER_DEX = TMP / 'm1e_aaas_display_broker.dex'
 VDISPLAY_BROKER_RC = ROOT / 'experiments/m1e/display_broker/aaas-display-broker.rc'
-VDISPLAY_SERVICES_OVERLAY = TMP / 'm1e_services_display_content_mode.jar'
-VDISPLAY_SERVICES_RECEIPT = TMP / 'm1e_services_display_content_mode.json'
+VDISPLAY_SERVICES_OVERLAY = TMP / 'm1e_services_alarm_fallback.jar'
+VDISPLAY_SERVICES_RECEIPT = TMP / 'm1e_services_alarm_fallback.json'
 APKTOOL = TMP / 'apktool_3.0.3.jar'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
 RUNNER_SHA256 = '2e93ad37536fc0cd84b434a646545583115bdd84d67eb0439fa05ae6e7e73b8e'
@@ -1023,6 +1023,10 @@ def vdisplay_services_overlay_is_current():
             and receipt.get('output_sha256') == sha256(VDISPLAY_SERVICES_OVERLAY)
             and receipt.get('source_patch_sha256') == sha256(source_patch)
             and receipt.get('property') == 'debug.aaas.display_content_mode_management'
+            and receipt.get('alarm_fallback') == (
+                'AlarmHandler delegates due alarms to deliverAlarmsLocked and reschedules')
+            and receipt.get('alarm_source_patch_sha256') == sha256(
+                ROOT / 'patches/m1e/alarm-listener-fallback.patch')
         )
     except (OSError, ValueError, KeyError):
         return False

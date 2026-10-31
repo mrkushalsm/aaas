@@ -17,12 +17,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PATCH = ROOT / "patches/m1e/display-content-mode-compat.patch"
+ALARM_PATCH = ROOT / "patches/m1e/alarm-listener-fallback.patch"
 SOURCE = ROOT / "experiments/m1e/framework_refs/DisplayManagerFlags.java"
 SOURCE_SHA256 = "a0f68c8fd2f7fb06810f0efde60cf3c1d378bed2d5ce979c81ff6a7bc29022e3"
 SOURCE_REVISION = "99b01a65cc4c104933788b3143285ab6bae65827"
 BASE_SHA256 = "878461b6366adad72b86b06f3defaa7c44a2dc0bdb83cc2f31789fe7845e8359"
 APKTOOL_SHA256 = "dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423"
 DEX_CLASS = Path("smali/com/android/server/display/feature/DisplayManagerFlags.smali")
+ALARM_HANDLER_CLASS = Path(
+    "smali/com/android/server/alarm/AlarmManagerService$AlarmHandler.smali")
 METHOD = ".method public isDisplayContentModeManagementEnabled()Z"
 END = ".end method"
 BODY = '''.method public isDisplayContentModeManagementEnabled()Z
@@ -47,6 +50,45 @@ BODY = '''.method public isDisplayContentModeManagementEnabled()Z
     :aaas_display_content_mode_enabled
     return v0
 .end method'''
+
+# The rootless sandbox does not permit timerfd_create(CLOCK_*_ALARM), so Android
+# uses AlarmHandler's documented handler fallback. The pinned services.jar's
+# fallback directly sends every due Alarm.operation, although legal listener
+# alarms have operation == null. Use the service's normal listener-aware
+# delivery path while retaining the same mLock contract.
+ALARM_TRIGGER = '''    invoke-static {v0}, Lcom/android/server/alarm/AlarmManagerService;->-$$Nest$mupdateNextAlarmClockLocked(Lcom/android/server/alarm/AlarmManagerService;)V
+
+    .line 4725
+    monitor-exit v4'''
+ALARM_TRIGGER_PATCHED = '''    invoke-virtual {v0, p1, v5, v6}, Lcom/android/server/alarm/AlarmManagerService;->deliverAlarmsLocked(Ljava/util/ArrayList;J)V
+
+    iget-object v0, p0, Lcom/android/server/alarm/AlarmManagerService$AlarmHandler;->this$0:Lcom/android/server/alarm/AlarmManagerService;
+
+    invoke-virtual {v0}, Lcom/android/server/alarm/AlarmManagerService;->rescheduleKernelAlarmsLocked()V
+
+    iget-object v0, p0, Lcom/android/server/alarm/AlarmManagerService$AlarmHandler;->this$0:Lcom/android/server/alarm/AlarmManagerService;
+
+    invoke-static {v0}, Lcom/android/server/alarm/AlarmManagerService;->-$$Nest$mupdateNextAlarmClockLocked(Lcom/android/server/alarm/AlarmManagerService;)V
+
+    .line 4725
+    monitor-exit v4'''
+ALARM_LOOP_START = '''    .line 4728
+    :goto_4'''
+ALARM_LOOP_END = '''    :cond_4'''
+
+
+def patch_alarm_fallback(source):
+    """Route no-timerfd alarms through Android's listener-aware delivery path."""
+    if source.count(ALARM_TRIGGER) != 1:
+        raise RuntimeError("AlarmHandler fallback synchronization block mismatch")
+    if source.count(ALARM_LOOP_START) != 1 or source.count(ALARM_LOOP_END) != 1:
+        raise RuntimeError("AlarmHandler fallback dispatch loop mismatch")
+    if "deliverAlarmsLocked(Ljava/util/ArrayList;J)V" in source:
+        raise RuntimeError("AlarmHandler fallback fix is already applied")
+    patched = source.replace(ALARM_TRIGGER, ALARM_TRIGGER_PATCHED, 1)
+    start = patched.index(ALARM_LOOP_START)
+    end = patched.index(ALARM_LOOP_END, start) + len(ALARM_LOOP_END)
+    return patched[:start] + "    :cond_4\n\n" + patched[end:]
 
 
 def sha256(path):
@@ -82,6 +124,9 @@ def build_overlay(original, apktool, output, work_parent=None):
         raise RuntimeError("pinned Java source contract changed")
     if not PATCH.is_file() or "debug.aaas.display_content_mode_management" not in PATCH.read_text():
         raise RuntimeError("source patch missing or inconsistent")
+    alarm_patch = ALARM_PATCH.read_text()
+    if "deliverAlarmsLocked()" not in alarm_patch or "alarm.operation is null" not in alarm_patch:
+        raise RuntimeError("AlarmManager fallback patch record missing or inconsistent")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="aaas-m1e-services-", dir=work_parent) as td:
@@ -93,6 +138,10 @@ def build_overlay(original, apktool, output, work_parent=None):
         if not smali.is_file():
             raise RuntimeError(f"pinned framework class not found: {smali}")
         smali.write_text(patch_smali(smali.read_text()))
+        alarm_smali = decoded / ALARM_HANDLER_CLASS
+        if not alarm_smali.is_file():
+            raise RuntimeError(f"pinned AlarmHandler class not found: {alarm_smali}")
+        alarm_smali.write_text(patch_alarm_fallback(alarm_smali.read_text()))
         subprocess.run(["java", "-jar", str(apktool), "b", str(decoded),
                         "-o", str(rebuilt)], check=True)
         with zipfile.ZipFile(rebuilt) as built:
@@ -124,6 +173,10 @@ def build_overlay(original, apktool, output, work_parent=None):
         "source_patch": str(PATCH.relative_to(ROOT)),
         "source_patch_sha256": sha256(PATCH),
         "property": "debug.aaas.display_content_mode_management",
+        "alarm_fallback": "AlarmHandler delegates due alarms to deliverAlarmsLocked and reschedules",
+        "alarm_handler_class": str(ALARM_HANDLER_CLASS),
+        "alarm_source_patch": str(ALARM_PATCH.relative_to(ROOT)),
+        "alarm_source_patch_sha256": sha256(ALARM_PATCH),
         "default_behavior": "stock Aconfig flag unless the experimental session sets the property",
         "apktool_sha256": APKTOOL_SHA256,
     }

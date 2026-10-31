@@ -1,0 +1,20 @@
+This patch is applied to the pinned services.jar smali during the existing
+M1E framework overlay build.
+
+The rootless runtime cannot create timerfd CLOCK_*_ALARM descriptors and uses
+AlarmManagerService.AlarmHandler.ALARM_EVENT. The pinned fallback directly
+calls PendingIntent.isActivity() and PendingIntent.send() for every due Alarm.
+Listener alarms are valid and represent their target with alarm.listener while
+alarm.operation is null. AlarmManager's internal TIME_TICK trigger is such a
+listener and is scheduled for each minute boundary. Android's regular alarm path calls
+deliverAlarmsLocked(), which routes both PendingIntent and listener alarms
+through DeliveryTracker and updates alarm bookkeeping.
+
+The overlay changes only the fallback dispatch: while holding the existing
+mLock, it calls deliverAlarmsLocked(triggerList, nowElapsed), reschedules the
+next alarm, and updates alarm-clock state. This preserves listener callback,
+completion, wake-lock, and alarm-count handling. The stock framework image and
+original services.jar remain immutable.
+
+Reference implementation:
+https://android.googlesource.com/platform/frameworks/base/+/a38d32bb09756370c5c28d210a051415e85e0be2/apex/jobscheduler/service/java/com/android/server/alarm/AlarmManagerService.java
