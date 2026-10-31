@@ -1663,3 +1663,21 @@ system_server failures. No configure-burst or near-simultaneous resize was
 included in this run. The historical v4 SwiftShader stale-AHardwareBuffer
 observation remains unresolved. Full generation and hash data are in
 [mixed_orientation_resize_back_20261101.json](../results/m1e/live/mixed_orientation_resize_back_20261101.json).
+
+### Bounded configure burst and stale-frame recovery (2026-11-01)
+
+Default production-overlay session m1b84_session_axspxtmq issued a bounded
+rapid Settings geometry sequence (960×578, 950×1100, 960×557, 960×565) while
+Contacts stayed at 720×1280. The compositor coalesced those writes before the
+presenter observed them: only the final 960×565 configure reached Android.
+Settings produced a matching native source buffer at 960×565 and was then
+restored to 720×1280. A 960×565 buffer that arrived after the restore
+configure was rejected as stale and release-acknowledged; the following
+720×1280 source buffer matched. Contacts remained at its original size.
+
+Both presenters ended with imports=submissions=releases, zero outstanding
+buffers, zero teardown invalidations, and the session reached STOPPED.
+SurfaceFlinger and system_server survived. This validates bounded configure
+coalescing and stale-frame recovery, not rendering at every transient size.
+The event trace and hashes are in
+[configure_burst_coalescing_20261101.json](../results/m1e/live/configure_burst_coalescing_20261101.json).
