@@ -73,6 +73,18 @@ def finalize_status_sentinel(path, failed):
     return value
 
 
+def classify_session_failure(commands_log):
+    """Classify only an emitted framework-death record, never script text."""
+    try:
+        contents = Path(commands_log).read_text()
+    except OSError:
+        return 'runtime_or_control_failure'
+    if re.search(r'^AAAS_FRAMEWORK_DEATH service=surfaceflinger(?:\s|$)',
+                 contents, re.MULTILINE):
+        return 'surfaceflinger_died'
+    return 'runtime_or_control_failure'
+
+
 def request_tombstone_capture(ipc, timeout=10.0):
     """Ask the in-session Android watcher to export stable tombstones."""
     ipc = Path(ipc)
@@ -1655,12 +1667,7 @@ def main():
             warned_degraded = False
             while not stop and state == 'RUNNING':
                 if status.read_text().strip() == 'FAILED':
-                    reason = 'android_runtime_failed'
-                    try:
-                        if 'AAAS_FRAMEWORK_DEATH service=surfaceflinger' in session_commands.read_text():
-                            reason = 'surfaceflinger_died'
-                    except OSError:
-                        pass
+                    reason = classify_session_failure(session_commands)
                     raise RuntimeError(f'Android runtime failed: {reason}')
                 if control_server is not None:
                     try:
@@ -1758,12 +1765,10 @@ def main():
         return 0
     except Exception as error:
         print(f'AaaS: {error}', file=sys.stderr, flush=True)
-        failure_reason = 'runtime_or_control_failure'
         try:
-            if 'AAAS_FRAMEWORK_DEATH service=surfaceflinger' in session_commands.read_text():
-                failure_reason = 'surfaceflinger_died'
-        except (OSError, UnboundLocalError):
-            pass
+            failure_reason = classify_session_failure(session_commands)
+        except UnboundLocalError:
+            failure_reason = 'runtime_or_control_failure'
         try:
             failure_record = {
                 'reason': failure_reason,

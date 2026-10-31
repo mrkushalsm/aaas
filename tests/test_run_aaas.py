@@ -234,6 +234,31 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('pid: $test_pid,', generated)
         self.assertIn('os.chmod(tombstone_dir, 0o700)', generated)
 
+    def test_failure_classifier_ignores_framework_death_command_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            command_log = Path(directory) / 'commands.log'
+            command_log.write_text(
+                '      echo "AAAS_FRAMEWORK_DEATH service=surfaceflinger" '
+                '>> /aaas_session_commands\n'
+                'Android app com.android.settings did not become ready\n'
+            )
+            self.assertEqual(
+                SESSION.classify_session_failure(command_log),
+                'runtime_or_control_failure',
+            )
+
+    def test_failure_classifier_recognizes_emitted_surfaceflinger_death(self):
+        with tempfile.TemporaryDirectory() as directory:
+            command_log = Path(directory) / 'commands.log'
+            command_log.write_text(
+                'AAAS_FRAMEWORK_DEATH service=surfaceflinger '
+                'initial=237 current=\n'
+            )
+            self.assertEqual(
+                SESSION.classify_session_failure(command_log),
+                'surfaceflinger_died',
+            )
+
     def test_crash_manifest_records_missing_tombstone_without_fabrication(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
