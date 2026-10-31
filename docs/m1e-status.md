@@ -2056,3 +2056,23 @@ was exercised by pointer enter/motion and mapping was blocked. The explicit
 stale-click rejection log added afterward is covered by the rebuilt presenter
 but was not itself observed in that live run. Activity-transition key loss
 remains unresolved and M1E remains PARTIAL.
+
+A further default-mode run (`m1b84_session_9x2l23oc`) used the ordinary runner
+with the corrected SwiftShader candidate, waited for the newly emitted
+SearchActivity focused-window event, then sent one synthetic `KEY_Q` pair.
+Android logged retention at 22:31:57.277 and same-ViewRoot resume at
+22:31:57.532; the screenshot visibly showed one `q`. Both presenters balanced
+all 494/480 imports, submissions, and releases, with zero outstanding buffers,
+and the session reached `STOPPED`. The attempted focus-loss cancellation setup
+did not reach a second SearchActivity transition because its tap arrived before
+Android focus readiness and was rejected (`rc=-3`); cancellation remains
+untested. This session also logged optional `com.android.bluetooth` process
+failures because the runtime image lacks `libbluetooth_jni.so`; SurfaceFlinger,
+`system_server`, Settings, and Contacts stayed alive. See
+[`activity_transition_latest_runtime_probe_20261101.json`](../results/m1e/live/activity_transition_latest_runtime_probe_20261101.json).
+
+The latest full regression run passed 214 Python tests, M1A, a forced presenter
+rebuild and test, input-adapter rebuild, Composer component tests, display-broker
+rebuild, and the external workspace guard. The inherited Composer build
+contents were not cleaned or rebuilt. Exact commands and workspace usage are in
+[`regression_suite_final_20261101.json`](../results/m1e/live/regression_suite_final_20261101.json).
