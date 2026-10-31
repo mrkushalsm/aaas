@@ -2080,3 +2080,101 @@ contents were not cleaned or rebuilt. Exact commands and workspace usage are in
 A corrected cancellation probe (`m1b84_session_7x8bm9kt`) then exercised the other transition branch. After Android focused Settings SearchActivity, a synthetic `KEY_W` was retained by its original ViewRoot. Host focus moved to Contacts; InputDispatcher entered Contacts, the Settings key-up was rejected with `rc=-3`, and the input adapter released the held key on focus leave. The original ViewRoot logged `finishing retained key without redelivery`; the screenshot showed an empty Search field and unchanged Contacts. The session ended `STOPPED`, with Settings 559/559/559 and Contacts 547/547/547 imports/submissions/releases and zero outstanding buffers. This is one bounded cancellation observation, not a repeated rate. See `results/m1e/live/activity_transition_cancel_20261101.json` and the external screenshot/hash referenced there.
 
 A separate default-mode session (`m1b84_session_a2g0d4ue`) exercised the in-flight resize boundary and slot reuse. When Settings configured 960×565, the presenter rejected a click while its visible Android frame was still 760×1100. The matching generation-3 Android frame (960×565, stride 3840) arrived about 30.5 ms after configure; a subsequent click opened Search. Settings was then closed while Contacts remained RUNNING and reopened as task 10/display 4 with a fresh 720×1280 generation-1 source frame. A synthetic `KEY_Q` immediately after SearchActivity focus was visibly consumed. A third launch returned `capacity_exhausted`. The run ended STOPPED; both presenter summaries had imports=submissions=releases and zero outstanding buffers. Six optional Bluetooth process crashes due to absent `libbluetooth_jni.so` were observed; neither SurfaceFlinger, `system_server`, nor AlarmManager fatal signature appeared. Evidence: `results/m1e/live/inflight_resize_reopen_validation_20261101.json`.
+
+### Enhanced two-app Activity input and resize-back validation (2026-11-01)
+
+Enhanced source-LMKD/cgroup session `m1b84_session_x9jcwmdc` ran for about
+6m55s and ended `STOPPED`. Settings used display 2/task 8 and Contacts display
+3/task 9. Contacts' ordinary `ContactEditorActivity` visibly contained `beta`
+in First name and `delta` in Last name; Backspace changed the latter to `delt`.
+Settings Search independently showed `alpha`, then `gamma`, while Contacts
+remained unchanged. The Settings output was resized through 960×578 and 960×565
+and returned to 720×1280; the matching Android source generations had strides
+3840 and 2944 bytes. Contacts remained 960×578. After resize-back, Settings
+visibly showed `omega` while Contacts still showed `beta`/`delt`.
+
+For an Activity transition, InputDispatcher logged SearchActivity focus at
+23:04:27.815 guest time. The framework overlay logged a key retained 3ms later
+and resumed in the same ViewRoot at 23:04:28.081; the resulting Search field
+visibly contained `alpha`. This is bounded synthetic `/dev/uinput` evidence,
+not physical-keyboard evidence. The cgroup was removed on shutdown. Settings
+and Contacts presenters reported respectively 865/865/865 and 854/854/854
+imports/submissions/releases, zero outstanding buffers, and no teardown
+invalidations. SurfaceFlinger and system_server remained alive through normal
+shutdown. No AlarmManager null-PendingIntent fatal occurred in this session.
+The full trace hashes, overlay provenance, and screenshots are in
+[`enhanced_activity_resize_text_acceptance_20261101.json`](../results/m1e/live/enhanced_activity_resize_text_acceptance_20261101.json).
+
+This updates the earlier Activity-transition and resize results with one
+additional enhanced run; it does not erase the old failures. The historical
+v4 SwiftShader stale-AHardwareBuffer owner is still unidentified. The current
+corrected odd-height candidate and bounded resize runs provide positive
+current-build evidence, not proof that the old fault was fixed. Corner-grid
+pointer probes and the full modifier/navigation matrix remain limited to the
+existing records and have not been exhaustively repeated in this run. Keep
+those limitations visible in the acceptance decision.
+
+### Current-head regression verification (2026-11-01)
+
+After the enhanced live session, `python3 -m unittest discover -s tests -v`
+passed **214 tests**. M1A, forced presenter build/tests, forced input-adapter
+build, Composer component tests, forced display-broker build, and the external
+workspace guard also passed. The inherited Composer build directory remained
+untracked and was not cleaned or rebuilt; the Composer target executed its
+existing component-test binaries. See
+[`regression_suite_current_head_20261101.json`](../results/m1e/live/regression_suite_current_head_20261101.json).
+
+The accepted bounded input/resize behavior is stronger than the baseline but
+does not retroactively identify the historical v4 SwiftShader stale mapping
+owner. Retain that distinction in the milestone decision.
+
+### Final bounded M1E interaction acceptance (2026-11-01)
+
+A final default-mode session (`m1b84_session_hhuj2bsk`) exercised five fresh
+Settings SearchActivity transitions. On each transition the test waited for the
+Android focused-window event, then sent one distinct synthetic key. All five
+keys (`q`, `w`, `e`, `r`, `t`) were retained and resumed in the same ViewRoot;
+each cropped live screenshot shows its expected character, while Contacts
+remained unchanged. This is **5/5 bounded application-visible first-key
+results**, not physical keyboard evidence or a statistical reliability claim.
+The same session visibly verified Escape/Android Back returning to the Settings
+home screen and held-key repeat (`x` followed by repeated `a` characters).
+Up/Down packets did not visibly change the Settings Search result view, so no
+application-level Up/Down action is claimed for this fixture. Raw log, adapter
+sequence IDs, per-transition screenshots and hashes are recorded in
+[`activity_transition_key_matrix_repeat_20261101.json`](../results/m1e/live/activity_transition_key_matrix_repeat_20261101.json).
+
+That session crossed an AlarmManager delivery interval without the prior
+null-PendingIntent `system_server` fatal, ended with matching STOPPED state and
+sentinel, and both presenters balanced every import/submission/release with
+zero outstanding buffers. Optional Bluetooth process failures caused by the
+image's missing `libbluetooth_jni.so` remained visible; SurfaceFlinger,
+`system_server`, Settings and Contacts stayed alive. The enhanced
+source-LMKD/cgroup interaction evidence is separately recorded in
+[`enhanced_activity_resize_text_acceptance_20261101.json`](../results/m1e/live/enhanced_activity_resize_text_acceptance_20261101.json).
+
+#### M1E closure decision
+
+M1E is **CLOSED for the bounded supported two-output Wayland path**. Default
+and enhanced sessions cover two independently usable app windows, Android
+native resize and resize-back (including odd heights and a bounded paired
+resize), visible per-app text and pointer input, first-key Activity transitions,
+vertical-scroll isolation, minimize/restore, dynamic close/reopen, capacity-two
+enforcement, and clean resource shutdown. The current-head regression record
+shows 214 passing Python tests and the established M1A, presenter,
+input-adapter, Composer, broker, and workspace checks passing.
+
+Closure does not claim universal compatibility or universal crash freedom. The
+historical v4 SwiftShader stale-AHardwareBuffer access remains an unresolved
+incident: its exact Vulkan image/descriptor/submission owner was not recovered.
+The later odd-height paired-row bounds correction is a separate confirmed fix,
+and current corrected-candidate resize tests are bounded survival evidence,
+not retroactive proof of that historical incident's cause. The preserved
+production sampling-lock overlay remains unchanged.
+
+Additional unverified compatibility limits are live testing on other
+compositors, real distinct-DMA-BUF Mixed-composition copying, and hardware
+specific horizontal/touchpad scroll sources. KWin was used only as the local
+standard-Wayland test driver; AaaS has no KDE/KWin API or patch dependency.
+No generic Android Activity pause/resume synchronization is claimed for host
+minimize/restore.
