@@ -121,6 +121,26 @@ class TransitionInputPatchTests(unittest.TestCase):
                 builder.write_bytes(b"changed builder")
                 self.assertFalse(RUNNER.framework_transition_overlay_is_current())
 
+    def test_runtime_swiftshader_overlay_requires_the_validated_candidate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            overlay = Path(temp) / "candidate.so"
+            overlay.write_bytes(b"candidate")
+            manifest = {
+                "source_diff_sha256": "patch-hash",
+                "diagnostics_enabled": False,
+                "output": {"sha256": "binary-hash"},
+            }
+            Path(str(overlay) + ".manifest.json").write_text(json.dumps(manifest))
+            with (patch.object(RUNNER, "SWIFTSHADER_RUNTIME_OVERLAY", overlay),
+                  patch.object(RUNNER, "SWIFTSHADER_RUNTIME_SHA256", "binary-hash"),
+                  patch.object(RUNNER, "SWIFTSHADER_RUNTIME_SOURCE_DIFF_SHA256", "patch-hash"),
+                  patch.object(RUNNER, "validate_diagnostic_vulkan_overlay", return_value=overlay)):
+                self.assertEqual(RUNNER.validate_swiftshader_runtime_overlay(), overlay)
+                manifest["diagnostics_enabled"] = True
+                Path(str(overlay) + ".manifest.json").write_text(json.dumps(manifest))
+                with self.assertRaises(ValueError):
+                    RUNNER.validate_swiftshader_runtime_overlay()
+
 
 if __name__ == "__main__":
     unittest.main()

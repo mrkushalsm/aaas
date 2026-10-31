@@ -45,7 +45,9 @@ APKTOOL = TMP / 'apktool_3.0.3.jar'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
 RUNNER_SHA256 = '2e93ad37536fc0cd84b434a646545583115bdd84d67eb0439fa05ae6e7e73b8e'
-VULKAN_SHA256 = '1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181'
+SWIFTSHADER_RUNTIME_OVERLAY = TMP / 'm1e_swiftshader_fixed_notrace_v2.so'
+SWIFTSHADER_RUNTIME_SHA256 = 'e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee'
+SWIFTSHADER_RUNTIME_SOURCE_DIFF_SHA256 = '49c1ce42f0cb09dd69a81645c9a3bec91a390c958ac3d49ff2bd3edf4df86ece'
 LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd'
 LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce'
 COMPOSER_PORTRAIT_SHA256 = 'cd55e7418a469e84c839bfec287b1bce238a43daa28f50900acf3174c17e3a46'
@@ -1095,6 +1097,19 @@ def validate_diagnostic_vulkan_overlay(path):
     return overlay
 
 
+def validate_swiftshader_runtime_overlay():
+    overlay = validate_diagnostic_vulkan_overlay(SWIFTSHADER_RUNTIME_OVERLAY)
+    manifest = json.loads(Path(str(overlay) + '.manifest.json').read_text())
+    identity = manifest.get('output', {})
+    if manifest.get('source_diff_sha256') != SWIFTSHADER_RUNTIME_SOURCE_DIFF_SHA256:
+        raise ValueError('runtime SwiftShader overlay source patch does not match the validated bounds fix')
+    if manifest.get('diagnostics_enabled') is not False:
+        raise ValueError('runtime SwiftShader overlay must have diagnostics disabled')
+    if identity.get('sha256') != SWIFTSHADER_RUNTIME_SHA256:
+        raise ValueError('runtime SwiftShader overlay hash differs from the validated candidate')
+    return overlay
+
+
 def verify_requirements(use_source_lmkd=False, orientation='portrait',
                         diagnostic_vulkan_overlay=None,
                         diagnostic_framework_overlay=None,
@@ -1118,7 +1133,7 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     required = {
         'AAAS_VDC_OVERLAY': ('m1d_vdc_overlay/vdc', VDC_OVERLAY_SHA256),
         'AAAS_FRAMEWORK_JAR_OVERLAY': (FRAMEWORK_TRANSITION_OVERLAY.name, None),
-        'AAAS_VULKAN_OVERLAY': ('m1b83_sampling_lock_vulkan.so', VULKAN_SHA256),
+        'AAAS_VULKAN_OVERLAY': (SWIFTSHADER_RUNTIME_OVERLAY.name, SWIFTSHADER_RUNTIME_SHA256),
         'AAAS_LMKD_OVERLAY': lmkd_overlay_entry,
         'AAAS_RANGING_JAR_OVERLAY': ('m1b8_service-ranging.rebuilt2.jar', None),
         'AAAS_NETWORKSTATS_LIB_OVERLAY': ('m1b81_networkstats_uid_diagnostic.so', None),
@@ -1142,6 +1157,11 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
             except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
                 raise RuntimeError(f'invalid diagnostic Vulkan overlay: {error}') from error
             expected_hash = None
+        elif key == 'AAAS_VULKAN_OVERLAY':
+            try:
+                path = validate_swiftshader_runtime_overlay()
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+                raise RuntimeError(f'invalid runtime SwiftShader overlay: {error}') from error
         else:
             path = FRAMEWORK_TRANSITION_OVERLAY if key == 'AAAS_FRAMEWORK_JAR_OVERLAY' else TMP / name
             if key == 'AAAS_FRAMEWORK_JAR_OVERLAY' and not framework_transition_overlay_is_current():

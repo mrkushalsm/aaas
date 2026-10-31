@@ -112,6 +112,29 @@ historical SwiftShader JIT fault remains unresolved. The clean
 
 ## Acceptance boundaries
 
+### Corrected runtime SwiftShader default (2026-11-01)
+
+The ordinary runner now selects the separate no-tracing SwiftShader candidate
+that contains the odd-height paired-row bounds correction. It verifies the
+source revision/diff hash, diagnostics-disabled setting, ELF Build ID, manifest
+hash, and pinned binary hash before launch. The historical
+`m1b83_sampling_lock_vulkan.so` remains byte-identical and separate.
+
+A normal two-app run resized Settings through 960×578, 960×557, 960×565, then
+back to 720×1280 while Contacts remained at 720×1280. Every generation reached
+a matching Android source buffer. SurfaceFlinger and system_server survived;
+both presenters balanced imports/submissions/releases with zero outstanding
+buffers; the journal and sentinel reached STOPPED. In source-LMKD/cgroup mode,
+Settings then crossed the 960×557 odd-height path and returned to 720×1280,
+accepted visible post-resize text editing, and survived three guest minute
+boundaries without the AlarmManager failure. The cgroup was removed at clean
+shutdown. Records: [`default_runtime_corrected_swiftshader_resize_20261101.json`](../results/m1e/live/default_runtime_corrected_swiftshader_resize_20261101.json)
+and [`enhanced_runtime_transition_resize_20261101.json`](../results/m1e/live/enhanced_runtime_transition_resize_20261101.json).
+
+The old v4 stale AHardwareBuffer access remains a separate unresolved
+historical lifetime observation; this bounded candidate validation does not
+retroactively identify or fix its owner.
+
 ### Activity-transition first key (2026-11-01)
 
 The recorded Settings first-key loss occurs below the host focus handshake:
@@ -150,9 +173,9 @@ depend on KWin APIs; KWin only arranged the local test windows.
 | Both windows simultaneously visible and independently placed | PASS, bounded live | KWin quick-tile arrangement and genuine screenshot; user-driven repositioning was not separately tested. |
 | Per-window task/display close and reopen | PASS, bounded live | Two create-after-destroy cycles reused each slot while the other app remained RUNNING; final stop shut down the shared runtime. |
 | Buffer/fence terminal ownership | PASS, bounded live | Both summaries show imports=submissions=releases, zero invalidated/outstanding. |
-| Single-output Android framebuffer resize | PASS, bounded live | Stable resize, odd-height, landscape, and resize-back paths have bounded current-patch evidence in default and enhanced modes. Matching Android source buffers were observed after stable generations. In-flight pointer mapping remains untested. |
+| Single-output Android framebuffer resize | PASS, bounded live | Stable resize, odd-height, landscape, and resize-back paths have bounded current-candidate evidence in default and enhanced modes. Matching native Android source buffers were observed. In-flight pointer events are held to active presented geometry; full pointer corner grid remains untested. |
 | Concurrent two-output resize | PASS_BOUNDED_CURRENT_PATCH; historical v4 crash owner unresolved | Both outputs reached matching resized and restored frames in bounded paired runs. A v10 trace recorded renderer sync before release for 34 imported descriptor-referenced memories. The older v4 unmapped AHardwareBuffer read remains unresolved; see the dated v10 trace records and `swiftshader_coherent_resize_investigation_20261031.json`. |
-| Keyboard on both outputs, vertical scrolling, focus isolation | PASS_BOUNDED steady-field isolation; Activity-transition and modifier/navigation edges remain PARTIAL | Repeated first-key tests passed 40/40 steady-field focus transitions across default and enhanced modes. Post-resize Settings and Contacts editors visibly changed independently; an Activity-transition key drop remains recorded. Vertical scroll changed only the targeted app rectangle in both modes. See `repeated_focus_typing_20261031.json`, `postresize_visible_input_20261101.json`, and `scroll_routing_fix_20261031.json`. |
+| Keyboard on both outputs, vertical scrolling, focus isolation | PASS_BOUNDED steady-field isolation and Activity-transition first key; modifier/navigation matrix remains PARTIAL | Repeated first-key tests passed 40/40 steady-field focus transitions across default and enhanced modes. Immediate SearchActivity keys are retained/resumed in the same Android ViewRoot and visibly consumed in default and enhanced runs; older unfixed captures remain historical. Vertical scroll changed only the targeted app rectangle in both modes. See `repeated_focus_typing_20261031.json`, `activity_transition_key_deferral_20261101.json`, `enhanced_runtime_transition_resize_20261101.json`, and `scroll_routing_fix_20261031.json`. |
 | Reopen app without restarting runtime | PASS, bounded live | Settings reopened as task 10/display 4 while Contacts remained active. The reopened app accepted visible text after focus readiness; a third launch returned `capacity_exhausted`. Enhanced-mode close/reopen and minimize/restore reached clean STOPPED with cgroup removal. |
 | Minimize/unmap lifecycle | PASS, bounded user-visible restore; Android lifecycle sync NOT TESTED | KWin minimize/restore hid and restored Contacts while Settings remained visible; both runtime slots stayed RUNNING. No Android pause/resume synchronization is claimed because the presenter has no standard minimized-state signal. |
 | Hide primary diagnostic presenter in normal app mode | PASS, bounded live | Experimental app sessions with selected apps skip the primary presenter; Android display 0 remains intact. `--show-primary-diagnostic` restores diagnostic presentation. This verifies no primary Wayland output, not removal of internal Android SystemUI. |
@@ -1241,6 +1264,26 @@ available KWin session only to issue ordinary Wayland configure events; the
 product implementation uses SwiftShader attachment extents and introduces no
 KDE/KWin dependency or patch. See
 [`swiftshader_odd_height_pair_bounds_20261031.json`](../results/m1e/live/swiftshader_odd_height_pair_bounds_20261031.json).
+
+### Corrected SwiftShader candidate selected by the default runner (2026-11-01)
+
+The runner now selects the separately built no-tracing candidate containing
+the paired-row bounds correction. It verifies the candidate's source revision,
+source-diff hash, diagnostics-disabled setting, ELF Build ID, manifest hash,
+and pinned SHA-256 before launching Android. The historical
+`m1b83_sampling_lock_vulkan.so` remains unchanged at its original hash; the
+candidate is a distinct versioned artifact, not an overwrite.
+
+A normal default two-app session completed Settings
+720×1280 → 960×578 → 960×557 → 960×565 → 720×1280 while Contacts remained
+720×1280. Each Android DisplayManager generation produced a matching source
+buffer at its requested dimensions. SurfaceFlinger and system_server remained
+alive; both presenters ended with imports=submissions=releases, zero
+outstanding buffers, and the state journal and sentinel both reached STOPPED.
+This validates the default deployment path for this bounded sequence. The
+historical v4 stale AHardwareBuffer mapping access remains unresolved and is
+not covered by the odd-height bounds fix. Full trace and artifact hashes are
+in [`default_runtime_corrected_swiftshader_resize_20261101.json`](../results/m1e/live/default_runtime_corrected_swiftshader_resize_20261101.json).
 
 ### Enhanced-mode v9 smoke (2026-10-31)
 
