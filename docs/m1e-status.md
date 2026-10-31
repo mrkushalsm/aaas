@@ -1681,3 +1681,20 @@ SurfaceFlinger and system_server survived. This validates bounded configure
 coalescing and stale-frame recovery, not rendering at every transient size.
 The event trace and hashes are in
 [configure_burst_coalescing_20261101.json](../results/m1e/live/configure_burst_coalescing_20261101.json).
+
+### Enhanced-mode mixed resize and restore (2026-11-01)
+
+The source-LMKD/cgroup session m1b84_session_cfecknv8 exchanged the
+independent output geometries: Settings 950×1100 with Contacts 1000×650,
+then Settings 1000×650 with Contacts 950×1100, followed by both returning to
+720×1280. Android display metrics and presenter source buffers matched each
+stable generation. Superseded-generation frames were rejected with release
+acknowledgements. SurfaceFlinger and system_server remained alive; both
+presenters ended with matching imports/submissions/releases, zero outstanding
+buffers, and zero teardown invalidations. The state journal and sentinel
+ended STOPPED, and the session-specific delegated cgroup was removed.
+
+This was a bounded resize/ownership run, not a full input run. Evidence and
+artifact hashes are in
+[enhanced_mixed_orientation_20261101.json](../results/m1e/live/enhanced_mixed_orientation_20261101.json).
+The historical v4 SwiftShader ownership question remains unresolved.
