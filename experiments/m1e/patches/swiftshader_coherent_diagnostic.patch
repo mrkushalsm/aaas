@@ -1,0 +1,987 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0ef4a68..ef1bffd 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -201,6 +201,13 @@ option_if_not_defined(REACTOR_EMIT_ASM_FILE "Emit asm files for JIT functions" F
+ option_if_not_defined(REACTOR_ENABLE_PRINT "Enable RR_PRINT macros" FALSE)
+ option_if_not_defined(REACTOR_VERIFY_LLVM_IR "Check reactor-generated LLVM IR is valid even in release builds" FALSE)
+ option_if_not_defined(SWIFTSHADER_LESS_DEBUG_INFO "Generate less debug info to reduce file size" FALSE)
++option(AAAS_SWIFTSHADER_DIAGNOSTICS "Enable AaaS JIT/AHardwareBuffer tracing" OFF)
++set(AAAS_ANDROID_HEADERS "" CACHE PATH "Android source root providing NDK-compatible graphics headers")
++set(AAAS_ANDROID_ROOTFS "" CACHE PATH "Android rootfs containing libnativewindow and libsync")
++if(AAAS_SWIFTSHADER_DIAGNOSTICS AND (NOT AAAS_ANDROID_HEADERS OR NOT AAAS_ANDROID_ROOTFS))
++    message(FATAL_ERROR "AaaS diagnostics require AAAS_ANDROID_HEADERS and AAAS_ANDROID_ROOTFS")
++endif()
++
+ # option_if_not_defined(SWIFTSHADER_ENABLE_VULKAN_DEBUGGER "Enable Vulkan debugger support" FALSE)  # TODO(b/251802301)
+ option_if_not_defined(SWIFTSHADER_ENABLE_ASTC "Enable ASTC compressed textures support" TRUE)  # TODO(b/150130101)
+ 
+@@ -808,6 +815,9 @@ elseif(${REACTOR_BACKEND} STREQUAL "LLVM-Submodule")
+     add_library(Reactor ALIAS ReactorLLVMSubmodule)
+ elseif(${REACTOR_BACKEND} STREQUAL "Subzero")
+     add_library(Reactor ALIAS ReactorSubzero)
++    if(AAAS_SWIFTSHADER_DIAGNOSTICS)
++        target_compile_definitions(ReactorSubzero PRIVATE AAAS_SWIFTSHADER_JIT_TRACE=1)
++    endif()
+ else()
+     message(FATAL_ERROR "REACTOR_BACKEND must be 'LLVM', 'LLVM-Submodule' or 'Subzero'")
+ endif()
+diff --git a/src/Reactor/SubzeroReactor.cpp b/src/Reactor/SubzeroReactor.cpp
+index c0c6b1d..4b8f5d6 100644
+--- a/src/Reactor/SubzeroReactor.cpp
++++ b/src/Reactor/SubzeroReactor.cpp
+@@ -53,6 +53,18 @@
+ 
+ #include <array>
+ #include <cmath>
++#include <cstring>
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE)
++# include <atomic>
++# include <cstdio>
++#endif
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++# include <cstdarg>
++# include <fcntl.h>
++# include <sys/syscall.h>
++# include <time.h>
++# include <unistd.h>
++#endif
+ #include <iostream>
+ #include <limits>
+ #include <mutex>
+@@ -60,6 +72,75 @@
+ // Subzero utility functions
+ // These functions only accept and return Subzero (Ice) types, and do not access any globals.
+ namespace {
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++void aaasJitTrace(const char *format, ...)
++{
++	char path[96];
++	snprintf(path, sizeof(path), "/dev/aaas/swiftshader-jit-%d.log", getpid());
++	char line[1024];
++	timespec now{};
++	clock_gettime(CLOCK_MONOTONIC, &now);
++	int prefix = snprintf(line, sizeof(line), "mono_ns=%lld pid=%d tid=%ld ",
++	                      static_cast<long long>(now.tv_sec) * 1000000000LL + now.tv_nsec,
++	                      getpid(), static_cast<long>(syscall(SYS_gettid)));
++	if(prefix < 0 || static_cast<size_t>(prefix) >= sizeof(line)) return;
++	va_list args;
++	va_start(args, format);
++	int count = vsnprintf(line + prefix, sizeof(line) - static_cast<size_t>(prefix) - 1, format, args);
++	va_end(args);
++	if(count < 0) return;
++	size_t length = static_cast<size_t>(prefix) +
++	                std::min(static_cast<size_t>(count), sizeof(line) - static_cast<size_t>(prefix) - 2);
++	line[length++] = '\n';
++	int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
++	if(fd < 0) return;
++	(void)write(fd, line, length);
++	close(fd);
++}
++
++void aaasJitCodeTrace(uint64_t id, const char *name, const void *address, size_t bytes)
++{
++	if(strncmp(name, "PixelRoutine_", 13) != 0 || bytes == 0 || bytes > 65536) return;
++	struct RecordHeader
++	{
++		uint32_t magic = 0x414a4954;  // "TIJA" in little endian
++		uint32_t version = 1;
++		uint64_t id;
++		uint64_t address;
++		uint64_t bytes;
++		uint32_t nameBytes;
++	};
++	static std::mutex mutex;
++	static size_t capturedBytes = 0;
++	std::lock_guard<std::mutex> lock(mutex);
++	if(capturedBytes + bytes > 2 * 1024 * 1024) return;
++	capturedBytes += bytes;
++	char path[96];
++	snprintf(path, sizeof(path), "/dev/aaas/swiftshader-jit-%d.code", getpid());
++	int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
++	if(fd < 0) return;
++	RecordHeader header{};
++	header.id = id;
++	header.address = reinterpret_cast<uintptr_t>(address);
++	header.bytes = bytes;
++	header.nameBytes = static_cast<uint32_t>(strlen(name));
++	auto writeAll = [fd](const void *data, size_t length) {
++		const auto *cursor = static_cast<const uint8_t *>(data);
++		while(length > 0)
++		{
++			ssize_t written = write(fd, cursor, length);
++			if(written <= 0) return false;
++			cursor += written;
++			length -= static_cast<size_t>(written);
++		}
++		return true;
++	};
++	(void)(writeAll(&header, sizeof(header)) &&
++	       writeAll(name, header.nameBytes) &&
++	       writeAll(address, bytes));
++	close(fd);
++}
++#endif
+ namespace sz {
+ 
+ Ice::Cfg *createFunction(Ice::GlobalContext *context, Ice::Type returnType, const std::vector<Ice::Type> &paramTypes)
+@@ -751,10 +832,18 @@ public:
+ 	{
+ 		position = 0;
+ 		buffer.reserve(0x1000);
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++		static std::atomic<uint64_t> nextTraceId{ 0 };
++		traceId = nextTraceId.fetch_add(1, std::memory_order_relaxed) + 1;
++		if(traceId <= 512) aaasJitTrace("AAAS_JIT_CREATE id=%llu object=%p", static_cast<unsigned long long>(traceId), this);
++#endif
+ 	}
+ 
+ 	~ELFMemoryStreamer() override
+ 	{
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++		if(traceId > 0 && traceId <= 512) aaasJitTrace("AAAS_JIT_RETIRE id=%llu base=%p bytes=%zu", static_cast<unsigned long long>(traceId), buffer.empty() ? nullptr : buffer.data(), buffer.size());
++#endif
+ 	}
+ 
+ 	void write8(uint8_t Value) override
+@@ -794,7 +883,18 @@ public:
+ 	std::vector<EntryPoint> loadImageAndGetEntryPoints(const std::vector<const char *> &functionNames)
+ 	{
+ 		auto entryPoints = loadImage(&buffer[0], functionNames);
+-
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++		if(traceId > 0 && traceId <= 512)
++		{
++			static std::atomic<uint64_t> entryBudget{ 0 };
++			for(size_t i = 0; i < entryPoints.size(); ++i)
++			{
++				if(entryBudget.fetch_add(1, std::memory_order_relaxed) >= 4096) break;
++				aaasJitTrace("AAAS_JIT_ENTRY id=%llu name=%s address=%p code_bytes=%zu image_base=%p image_bytes=%zu", static_cast<unsigned long long>(traceId), functionNames[i], entryPoints[i].entry, entryPoints[i].codeSize, buffer.empty() ? nullptr : buffer.data(), buffer.size());
++				aaasJitCodeTrace(traceId, functionNames[i], entryPoints[i].entry, entryPoints[i].codeSize);
++			}
++		}
++#endif
+ #if defined(_WIN32)
+ 		FlushInstructionCache(GetCurrentProcess(), NULL, 0);
+ #else
+@@ -812,6 +912,9 @@ public:
+ 		position = std::numeric_limits<std::size_t>::max();  // Can't stream more data after this
+ 
+ 		protectMemoryPages(&buffer[0], buffer.size(), PERMISSION_READ | PERMISSION_EXECUTE);
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++		if(traceId > 0 && traceId <= 512) aaasJitTrace("AAAS_JIT_EXECUTABLE id=%llu base=%p bytes=%zu", static_cast<unsigned long long>(traceId), buffer.empty() ? nullptr : buffer.data(), buffer.size());
++#endif
+ 	}
+ 
+ 	void setEntry(int index, const void *func)
+@@ -875,6 +978,9 @@ private:
+ 	std::vector<uint8_t, ExecutableAllocator<uint8_t>> buffer;
+ 	std::size_t position;
+ 	std::vector<Constant> constantsPool;
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++	uint64_t traceId = 0;
++#endif
+ };
+ 
+ #ifdef ENABLE_RR_PRINT
+diff --git a/src/Vulkan/CMakeLists.txt b/src/Vulkan/CMakeLists.txt
+index bd05b0f..8ff592f 100644
+--- a/src/Vulkan/CMakeLists.txt
++++ b/src/Vulkan/CMakeLists.txt
+@@ -158,6 +158,38 @@ add_library(vk_swiftshader SHARED
+     ${VULKAN_SRC_FILES}
+ )
+ 
++if(AAAS_SWIFTSHADER_DIAGNOSTICS)
++    target_sources(vk_swiftshader PRIVATE VkDeviceMemoryExternalAndroid.cpp)
++    target_include_directories(vk_swiftshader PRIVATE
++        "${AAAS_ANDROID_HEADERS}/logging-android16/liblog/include"
++        "${AAAS_ANDROID_HEADERS}/core-android16/libsync/include"
++        "${AAAS_ANDROID_HEADERS}/frameworks-native-qpr2/libs/nativewindow/include"
++        "${AAAS_ANDROID_HEADERS}/frameworks-native-qpr2/vulkan/include"
++        "${AAAS_ANDROID_HEADERS}/frameworks-native-qpr2/libs/arect/include"
++        "${AAAS_ANDROID_HEADERS}/core-android16/libcutils/include"
++        "${CMAKE_CURRENT_SOURCE_DIR}/../../include/Android"
++        "${AAAS_ANDROID_ROOTFS}/../tmp"
++    )
++    target_compile_definitions(vk_swiftshader PRIVATE
++        SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER=1
++        AAAS_SWIFTSHADER_JIT_TRACE=1
++        __ANDROID__=1
++        VK_USE_PLATFORM_ANDROID_KHR=1
++        _Nonnull=
++        _Nullable=
++    )
++    target_compile_options(vk_swiftshader PRIVATE
++        -include "${AAAS_ANDROID_ROOTFS}/../tmp/commit.h"
++    )
++    target_link_options(vk_swiftshader PRIVATE
++        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/android_vk_swiftshader.lds"
++    )
++    target_link_libraries(vk_swiftshader PRIVATE
++        "${AAAS_ANDROID_ROOTFS}/system/lib64/libnativewindow.so"
++        "${AAAS_ANDROID_ROOTFS}/system/lib64/libsync.so"
++    )
++endif()
++
+ set_target_properties(vk_swiftshader PROPERTIES
+     POSITION_INDEPENDENT_CODE 1
+     FOLDER "SwiftShader VK"
+@@ -201,7 +233,9 @@ target_link_libraries(vk_swiftshader
+         $<$<BOOL:${SWIFTSHADER_ENABLE_VULKAN_DEBUGGER}>:cppdap>
+ )
+ 
+-set_shared_library_export_map(vk_swiftshader ${CMAKE_CURRENT_SOURCE_DIR})
++if(NOT AAAS_SWIFTSHADER_DIAGNOSTICS)
++    set_shared_library_export_map(vk_swiftshader ${CMAKE_CURRENT_SOURCE_DIR})
++endif()
+ 
+ # The name of the application-facing library. Usually this would be the Vulkan Loader,
+ # which then loads the Installable Client Driver (ICD), see:
+diff --git a/src/Vulkan/VkDevice.hpp b/src/Vulkan/VkDevice.hpp
+index f6ff70f..ce73445 100644
+--- a/src/Vulkan/VkDevice.hpp
++++ b/src/Vulkan/VkDevice.hpp
+@@ -104,10 +104,12 @@ public:
+ 		template<typename Function>
+ 		std::shared_ptr<rr::Routine> getOrCreate(const Key &key, Function &&createRoutine)
+ 		{
++			// updateSnapshot() rebuilds snapshot under this mutex. Readers must
++			// hold the same lock while looking up and copying a routine.
++			marl::lock lock(mutex);
+ 			auto it = snapshot.find(key);
+ 			if(it != snapshot.end()) { return it->second; }
+ 
+-			marl::lock lock(mutex);
+ 			if(auto existingRoutine = cache.lookup(key))
+ 			{
+ 				return existingRoutine;
+diff --git a/src/Vulkan/VkDeviceMemory.cpp b/src/Vulkan/VkDeviceMemory.cpp
+index 884fd49..ab64efc 100644
+--- a/src/Vulkan/VkDeviceMemory.cpp
++++ b/src/Vulkan/VkDeviceMemory.cpp
+@@ -69,11 +69,7 @@ struct OpaqueFdAllocateInfo
+ #endif
+ 
+ #if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+-#	if defined(__ANDROID__)
+-#		include "VkDeviceMemoryExternalAndroid.hpp"
+-#	else
+-#		error "Missing VK_ANDROID_external_memory_android_hardware_buffer implementation for this platform!"
+-#	endif
++#	include "VkDeviceMemoryExternalAndroid.hpp"
+ #endif
+ 
+ #if VK_USE_PLATFORM_FUCHSIA
+diff --git a/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp b/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
+index 01813c6..45706bb 100644
+--- a/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
++++ b/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
+@@ -21,6 +21,46 @@
+ #include "VkStringify.hpp"
+ #include "System/Debug.hpp"
+ 
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++#include <algorithm>
++#include <atomic>
++#include <cstdarg>
++#include <cstdio>
++#include <fcntl.h>
++#include <sys/syscall.h>
++#include <time.h>
++#include <unistd.h>
++
++namespace {
++void aaasAhbTrace(const char *format, ...)
++{
++	static std::atomic<uint64_t> budget{ 0 };
++	if(budget.fetch_add(1, std::memory_order_relaxed) >= 4096) return;
++	char path[96];
++	snprintf(path, sizeof(path), "/dev/aaas/swiftshader-jit-%d.log", getpid());
++	char line[1024];
++	timespec now{};
++	clock_gettime(CLOCK_MONOTONIC, &now);
++	int prefix = snprintf(line, sizeof(line), "mono_ns=%lld pid=%d tid=%ld ",
++	                      static_cast<long long>(now.tv_sec) * 1000000000LL + now.tv_nsec,
++	                      getpid(), static_cast<long>(syscall(SYS_gettid)));
++	if(prefix < 0 || static_cast<size_t>(prefix) >= sizeof(line)) return;
++	va_list args;
++	va_start(args, format);
++	int count = vsnprintf(line + prefix, sizeof(line) - static_cast<size_t>(prefix) - 1, format, args);
++	va_end(args);
++	if(count < 0) return;
++	size_t length = static_cast<size_t>(prefix) +
++	                std::min(static_cast<size_t>(count), sizeof(line) - static_cast<size_t>(prefix) - 2);
++	line[length++] = '\n';
++	int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
++	if(fd < 0) return;
++	(void)write(fd, line, length);
++	close(fd);
++}
++}
++#endif
++
+ namespace {
+ 
+ uint32_t GetAHBFormatFromVkFormat(VkFormat format)
+@@ -228,9 +268,23 @@ void AHardwareBufferExternalMemory::freeBuffer()
+ {
+ 	if(ahb != nullptr)
+ 	{
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++		uint64_t id = 0;
++		(void)AHardwareBuffer_getId(ahb, &id);
++		uint32_t rowStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].rowStride : 0;
++		uint32_t pixelStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].pixelStride : 0;
++		aaasAhbTrace("AAAS_AHB_VK_REF_RELEASE_BEGIN id=%llu base=%p width=%u height=%u stride=%u format=%u layers=%u plane_count=%u row_stride=%u pixel_stride=%u",
++		             static_cast<unsigned long long>(id), buffer, ahbDesc.width,
++		             ahbDesc.height, ahbDesc.stride, ahbDesc.format, ahbDesc.layers,
++		             ahbPlanes.planeCount, rowStride, pixelStride);
++#endif
+ 		unlockAndroidHardwareBuffer();
+ 
+ 		AHardwareBuffer_release(ahb);
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++		aaasAhbTrace("AAAS_AHB_VK_REF_RELEASE_END id=%llu base=%p",
++		             static_cast<unsigned long long>(id), buffer);
++#endif
+ 		ahb = nullptr;
+ 	}
+ }
+@@ -242,7 +296,22 @@ VkResult AHardwareBufferExternalMemory::importAndroidHardwareBuffer(AHardwareBuf
+ 	AHardwareBuffer_acquire(ahb);
+ 	AHardwareBuffer_describe(ahb, &ahbDesc);
+ 
+-	return lockAndroidHardwareBuffer(pBuffer);
++	VkResult result = lockAndroidHardwareBuffer(pBuffer);
++#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
++	if(result == VK_SUCCESS)
++	{
++		uint64_t id = 0;
++		(void)AHardwareBuffer_getId(ahb, &id);
++		uint32_t rowStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].rowStride : 0;
++		uint32_t pixelStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].pixelStride : 0;
++		aaasAhbTrace("AAAS_AHB_VK_IMPORT id=%llu base=%p width=%u height=%u stride=%u format=%u layers=%u usage=0x%llx plane_count=%u row_stride=%u pixel_stride=%u",
++		             static_cast<unsigned long long>(id), *pBuffer, ahbDesc.width,
++		             ahbDesc.height, ahbDesc.stride, ahbDesc.format, ahbDesc.layers,
++		             static_cast<unsigned long long>(ahbDesc.usage),
++		             ahbPlanes.planeCount, rowStride, pixelStride);
++	}
++#endif
++	return result;
+ }
+ 
+ VkResult AHardwareBufferExternalMemory::allocateAndroidHardwareBuffer(size_t size, void **pBuffer)
+@@ -317,9 +386,18 @@ VkResult AHardwareBufferExternalMemory::lockAndroidHardwareBuffer(void **pBuffer
+ 	ARect *rect = nullptr;
+ 
+ 	int ret = AHardwareBuffer_lockPlanes(ahb, usage, fence, rect, &ahbPlanes);
+-	if(ret != 0)
++		if(ret != 0)
+ 	{
+-		return VK_ERROR_OUT_OF_HOST_MEMORY;
++		ret = AHardwareBuffer_lock(ahb, usage, fence, rect, pBuffer);
++				if(ret != 0)
++		{
++			return VK_ERROR_OUT_OF_HOST_MEMORY;
++		}
++		ahbPlanes.planeCount = 1;
++		ahbPlanes.planes[0].data = *pBuffer;
++		ahbPlanes.planes[0].pixelStride = 4;
++		ahbPlanes.planes[0].rowStride = (ahbDesc.stride > 0 ? ahbDesc.stride : ahbDesc.width) * 4;
++		return VK_SUCCESS;
+ 	}
+ 
+ 	*pBuffer = ahbPlanes.planes[0].data;
+@@ -424,6 +502,12 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferFormatProperties
+ 		pFormat->format = VK_FORMAT_UNDEFINED;
+ 	}
+ 
++	// Vulkan spec: externalFormat must not be zero
++	if(pFormat->externalFormat == 0)
++	{
++		pFormat->externalFormat = ahbDesc.format ? ahbDesc.format : 1;
++	}
++
+ 	return VK_SUCCESS;
+ }
+ 
+@@ -443,8 +527,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
+ 		}
+ 	}
+ 
+-	const VkPhysicalDeviceMemoryProperties phyDeviceMemProps = vk::PhysicalDevice::GetMemoryProperties();
+-	pProperties->memoryTypeBits = phyDeviceMemProps.memoryTypes[0].propertyFlags;
++		pProperties->memoryTypeBits = vk::MEMORY_TYPE_GENERIC_BIT;
+ 
+ 	if(ahbDesc.format == AHARDWAREBUFFER_FORMAT_BLOB)
+ 	{
+@@ -453,7 +536,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
+ 	else
+ 	{
+ 		VkImageCreateInfo info = {};
+-		info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
++		info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+ 		info.pNext = nullptr;
+ 		info.flags = 0;
+ 		info.imageType = VK_IMAGE_TYPE_2D;
+diff --git a/src/Vulkan/VkGetProcAddress.cpp b/src/Vulkan/VkGetProcAddress.cpp
+index e9c328b..828eb4a 100644
+--- a/src/Vulkan/VkGetProcAddress.cpp
++++ b/src/Vulkan/VkGetProcAddress.cpp
+@@ -14,12 +14,16 @@
+ 
+ #include "VkGetProcAddress.hpp"
+ #include "VkDevice.hpp"
++#include "VkFence.hpp"
++#include <poll.h>
+ 
+ #include <string>
+ #include <tuple>
+ #include <type_traits>
+ #include <unordered_map>
+ #include <vector>
++#include <unistd.h>
++#include <cstring>
+ 
+ #ifdef __ANDROID__
+ #	include <hardware/hwvulkan.h>
+@@ -731,6 +735,79 @@ static const std::vector<std::pair<const char *, std::unordered_map<std::string,
+ 
+ #undef MAKE_VULKAN_DEVICE_ENTRY
+ 
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkImportFenceFdKHR(VkDevice, const void *pImportFenceFdInfo)
++{
++	if(pImportFenceFdInfo)
++	{
++		const auto *info = reinterpret_cast<const VkImportFenceFdInfoKHR *>(pImportFenceFdInfo);
++		if(info->fd >= 0)
++		{
++			struct pollfd pfd = { info->fd, POLLIN, 0 };
++			poll(&pfd, 1, 3000);
++			close(info->fd);
++		}
++		if(info->fence != VK_NULL_HANDLE)
++		{
++			vk::Cast(info->fence)->complete();
++		}
++	}
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkAcquireImageANDROID(VkDevice, VkImage, int nativeFenceFd, VkSemaphore, VkFence fence)
++{
++	if(nativeFenceFd >= 0)
++	{
++		struct pollfd pfd = { nativeFenceFd, POLLIN, 0 };
++		poll(&pfd, 1, 3000);
++		close(nativeFenceFd);
++	}
++	if(fence != VK_NULL_HANDLE)
++	{
++		vk::Cast(fence)->complete();
++	}
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkQueueSignalReleaseImageANDROID(VkQueue, uint32_t, const VkSemaphore *, VkImage, int *pNativeFenceFd)
++{
++	if(pNativeFenceFd)
++	{
++		*pNativeFenceFd = -1;
++	}
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkGetSwapchainGrallocUsageANDROID(VkDevice, VkFormat, VkImageUsageFlags, int *grallocUsage)
++{
++	if(grallocUsage)
++	{
++		*grallocUsage = 0x30;
++	}
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkGetSwapchainGrallocUsage2ANDROID(VkDevice, VkFormat, VkImageUsageFlags, uint64_t, uint64_t *grallocConsumerUsage, uint64_t *grallocProducerUsage)
++{
++	if(grallocConsumerUsage) *grallocConsumerUsage = 0;
++	if(grallocProducerUsage) *grallocProducerUsage = 0x30;
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkGetSwapchainGrallocUsage3ANDROID(VkDevice, VkFormat, VkImageUsageFlags, uint64_t, uint64_t *grallocConsumerUsage, uint64_t *grallocProducerUsage)
++{
++	if(grallocConsumerUsage) *grallocConsumerUsage = 0;
++	if(grallocProducerUsage) *grallocProducerUsage = 0x30;
++	return VK_SUCCESS;
++}
++
++static VKAPI_ATTR VkResult VKAPI_CALL stub_vkGetSwapchainGrallocUsage4ANDROID(VkDevice, VkFormat, VkImageUsageFlags, uint64_t, uint64_t *grallocConsumerUsage, uint64_t *grallocProducerUsage)
++{
++	if(grallocConsumerUsage) *grallocConsumerUsage = 0;
++	if(grallocProducerUsage) *grallocProducerUsage = 0x30;
++	return VK_SUCCESS;
++}
++
+ PFN_vkVoidFunction GetInstanceProcAddr(Instance *instance, const char *pName)
+ {
+ 	auto globalFunction = globalFunctionPointers.find(std::string(pName));
+@@ -761,6 +838,21 @@ PFN_vkVoidFunction GetInstanceProcAddr(Instance *instance, const char *pName)
+ 				return deviceFunction->second;
+ 			}
+ 		}
++
++		if(strcmp(pName, "vkImportFenceFdKHR") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkImportFenceFdKHR);
++		if(strcmp(pName, "vkAcquireImageANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkAcquireImageANDROID);
++		if(strcmp(pName, "vkQueueSignalReleaseImageANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkQueueSignalReleaseImageANDROID);
++		if(strcmp(pName, "vkGetSwapchainGrallocUsageANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsageANDROID);
++		if(strcmp(pName, "vkGetSwapchainGrallocUsage2ANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage2ANDROID);
++		if(strcmp(pName, "vkGetSwapchainGrallocUsage3ANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage3ANDROID);
++		if(strcmp(pName, "vkGetSwapchainGrallocUsage4ANDROID") == 0)
++			return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage4ANDROID);
+ 	}
+ 
+ 	return nullptr;
+@@ -793,8 +885,11 @@ PFN_vkVoidFunction GetPhysicalDeviceProcAddr(Instance *instance, const char *pNa
+ 	return instanceFunction->second.pfn;
+ }
+ 
++
+ PFN_vkVoidFunction GetDeviceProcAddr(Device *device, const char *pName)
+ {
++	if(!pName) return nullptr;
++
+ 	auto deviceFunction = deviceFunctionPointers.find(std::string(pName));
+ 	if(deviceFunction != deviceFunctionPointers.end())
+ 	{
+@@ -803,16 +898,28 @@ PFN_vkVoidFunction GetDeviceProcAddr(Device *device, const char *pName)
+ 
+ 	for(const auto &deviceExtensionFunctions : deviceExtensionFunctionPointers)
+ 	{
+-		if(device->hasExtension(deviceExtensionFunctions.first))
++		deviceFunction = deviceExtensionFunctions.second.find(std::string(pName));
++		if(deviceFunction != deviceExtensionFunctions.second.end())
+ 		{
+-			deviceFunction = deviceExtensionFunctions.second.find(std::string(pName));
+-			if(deviceFunction != deviceExtensionFunctions.second.end())
+-			{
+-				return deviceFunction->second;
+-			}
++			return deviceFunction->second;
+ 		}
+ 	}
+ 
++	if(strcmp(pName, "vkImportFenceFdKHR") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkImportFenceFdKHR);
++	if(strcmp(pName, "vkAcquireImageANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkAcquireImageANDROID);
++	if(strcmp(pName, "vkQueueSignalReleaseImageANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkQueueSignalReleaseImageANDROID);
++	if(strcmp(pName, "vkGetSwapchainGrallocUsageANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsageANDROID);
++	if(strcmp(pName, "vkGetSwapchainGrallocUsage2ANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage2ANDROID);
++	if(strcmp(pName, "vkGetSwapchainGrallocUsage3ANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage3ANDROID);
++	if(strcmp(pName, "vkGetSwapchainGrallocUsage4ANDROID") == 0)
++		return reinterpret_cast<PFN_vkVoidFunction>(stub_vkGetSwapchainGrallocUsage4ANDROID);
++
+ 	return nullptr;
+ }
+ 
+diff --git a/src/Vulkan/VkImage.cpp b/src/Vulkan/VkImage.cpp
+index b18f8ee..7851bf2 100644
+--- a/src/Vulkan/VkImage.cpp
++++ b/src/Vulkan/VkImage.cpp
+@@ -25,9 +25,9 @@
+ #include "Device/Blitter.hpp"
+ #include "Device/ETC_Decoder.hpp"
+ 
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ #	include <vndk/hardware_buffer.h>
+-
++#	include <vulkan/vk_android_native_buffer.h>
+ #	include "VkDeviceMemoryExternalAndroid.hpp"
+ #endif
+ 
+@@ -135,7 +135,7 @@ VkFormat GetImageFormat(const VkImageCreateInfo *pCreateInfo)
+ 		// VK_STRUCTURE_TYPE_SWAPCHAIN_IMAGE_CREATE_INFO_ANDROID, are not enumerated in the official Vulkan headers.
+ 		switch((int)(nextInfo->sType))
+ 		{
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 		case VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID:
+ 			{
+ 				const VkExternalFormatANDROID *externalFormatAndroid = reinterpret_cast<const VkExternalFormatANDROID *>(nextInfo);
+@@ -303,6 +303,10 @@ size_t Image::getSizeInBytes(const VkImageSubresourceRange &subresourceRange) co
+ 
+ bool Image::canBindToMemory(DeviceMemory *pDeviceMemory) const
+ {
++	if(!pDeviceMemory)
++	{
++		return true;
++	}
+ 	return pDeviceMemory->checkExternalMemoryHandleType(supportedExternalMemoryHandleTypes);
+ }
+ 
+@@ -331,10 +335,23 @@ VkResult Image::prepareForExternalUseANDROID() const
+ 	ahbDesc.stride = static_cast<uint32_t>(backingMemory.nativeBufferInfo.stride);
+ 
+ 	AHardwareBuffer *ahb = nullptr;
+-	if(AHardwareBuffer_createFromHandle(&ahbDesc, backingMemory.nativeBufferInfo.handle, AHARDWAREBUFFER_CREATE_FROM_HANDLE_METHOD_CLONE, &ahb) != 0)
++	if(backingMemory.nativeBufferInfo.ahb != nullptr)
++	{
++		ahb = backingMemory.nativeBufferInfo.ahb;
++		AHardwareBuffer_acquire(ahb);
++	}
++	else if(backingMemory.nativeBufferInfo.handle != nullptr)
++	{
++		if(AHardwareBuffer_createFromHandle(&ahbDesc, backingMemory.nativeBufferInfo.handle, AHARDWAREBUFFER_CREATE_FROM_HANDLE_METHOD_CLONE, &ahb) != 0)
++		{
++			return VK_ERROR_OUT_OF_DATE_KHR;
++		}
++	}
++	else
+ 	{
+ 		return VK_ERROR_OUT_OF_DATE_KHR;
+ 	}
++
+ 	if(!ahb)
+ 	{
+ 		return VK_ERROR_OUT_OF_DATE_KHR;
+@@ -349,18 +366,21 @@ VkResult Image::prepareForExternalUseANDROID() const
+ 	AHardwareBuffer_Planes ahbPlanes = {};
+ 	if(AHardwareBuffer_lockPlanes(ahb, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, /*fence=*/-1, &ahbRect, &ahbPlanes) != 0)
+ 	{
++		AHardwareBuffer_release(ahb);
+ 		return VK_ERROR_OUT_OF_DATE_KHR;
+ 	}
+ 
+ 	int imageRowBytes = rowPitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, 0);
+-	int bufferRowBytes = backingMemory.nativeBufferInfo.stride * getFormat().bytes();
+-	ASSERT(imageRowBytes <= bufferRowBytes);
++	int bufferRowBytes = ahbPlanes.planes[0].rowStride ? ahbPlanes.planes[0].rowStride : (backingMemory.nativeBufferInfo.stride * getFormat().bytes());
+ 
+-	uint8_t *srcBuffer = static_cast<uint8_t *>(deviceMemory->getOffsetPointer(0));
+-	uint8_t *dstBuffer = static_cast<uint8_t *>(ahbPlanes.planes[0].data);
+-	for(uint32_t i = 0; i < extent.height; i++)
++	if(deviceMemory != nullptr && ahbPlanes.planes[0].data != nullptr)
+ 	{
+-		memcpy(dstBuffer + (i * bufferRowBytes), srcBuffer + (i * imageRowBytes), imageRowBytes);
++		uint8_t *srcBuffer = static_cast<uint8_t *>(deviceMemory->getOffsetPointer(memoryOffset));
++		uint8_t *dstBuffer = static_cast<uint8_t *>(ahbPlanes.planes[0].data);
++		for(uint32_t i = 0; i < extent.height; i++)
++		{
++			memcpy(dstBuffer + (i * bufferRowBytes), srcBuffer + (i * imageRowBytes), imageRowBytes);
++		}
+ 	}
+ 
+ 	AHardwareBuffer_unlock(ahb, /*fence=*/nullptr);
+diff --git a/src/Vulkan/VkImage.hpp b/src/Vulkan/VkImage.hpp
+index d8a247e..94ecff3 100644
+--- a/src/Vulkan/VkImage.hpp
++++ b/src/Vulkan/VkImage.hpp
+@@ -117,8 +117,8 @@ public:
+ 	}
+ 	bool hasExternalMemory() const { return backingMemory.externalMemory; }
+ 	VkDeviceMemory getExternalMemory() const;
+-	VkExternalMemoryHandleTypeFlags getSupportedExternalMemoryHandleTypes() const { return supportedExternalMemoryHandleTypes; }
+ #endif
++	VkExternalMemoryHandleTypeFlags getSupportedExternalMemoryHandleTypes() const { return supportedExternalMemoryHandleTypes; }
+ 
+ 	DeviceMemory *deviceMemory = nullptr;
+ 
+diff --git a/src/Vulkan/VkPhysicalDevice.cpp b/src/Vulkan/VkPhysicalDevice.cpp
+index 9725e05..ae63f2d 100644
+--- a/src/Vulkan/VkPhysicalDevice.cpp
++++ b/src/Vulkan/VkPhysicalDevice.cpp
+@@ -1,3 +1,7 @@
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
++#include <cstddef>
++#include <vndk/hardware_buffer.h>
++#endif
+ // Copyright 2018 The SwiftShader Authors. All Rights Reserved.
+ //
+ // Licensed under the Apache License, Version 2.0 (the "License");
+@@ -1107,7 +1111,7 @@ void PhysicalDevice::getProperties(VkSamplerYcbcrConversionImageFormatProperties
+ 	properties->combinedImageSamplerDescriptorCount = 1;  // Need only one descriptor for YCbCr sampling.
+ }
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ void PhysicalDevice::getProperties(VkPhysicalDevicePresentationPropertiesANDROID *properties) const
+ {
+ 	properties->sharedImage = VK_FALSE;
+@@ -2715,24 +2719,16 @@ void PhysicalDevice::getQueueFamilyProperties(uint32_t pQueueFamilyPropertyCount
+ 
+ void PhysicalDevice::getQueueFamilyGlobalPriorityProperties(VkQueueFamilyGlobalPriorityPropertiesKHR *pQueueFamilyGlobalPriorityProperties) const
+ {
+-	pQueueFamilyGlobalPriorityProperties->priorityCount = 1;
+-	pQueueFamilyGlobalPriorityProperties->priorities[0] = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR;
++	pQueueFamilyGlobalPriorityProperties->priorityCount = 4;
++	pQueueFamilyGlobalPriorityProperties->priorities[0] = VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR;
++	pQueueFamilyGlobalPriorityProperties->priorities[1] = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR;
++	pQueueFamilyGlobalPriorityProperties->priorities[2] = VK_QUEUE_GLOBAL_PRIORITY_HIGH_KHR;
++	pQueueFamilyGlobalPriorityProperties->priorities[3] = VK_QUEUE_GLOBAL_PRIORITY_REALTIME_KHR;
+ }
+ 
+ bool PhysicalDevice::validateQueueGlobalPriority(VkQueueGlobalPriorityKHR queueGlobalPriority) const
+ {
+-	VkQueueFamilyGlobalPriorityPropertiesKHR queueFamilyGlobalPriorityProperties;
+-	getQueueFamilyGlobalPriorityProperties(&queueFamilyGlobalPriorityProperties);
+-
+-	for(uint32_t i = 0; i < queueFamilyGlobalPriorityProperties.priorityCount; ++i)
+-	{
+-		if(queueGlobalPriority == queueFamilyGlobalPriorityProperties.priorities[i])
+-		{
+-			return true;
+-		}
+-	}
+-
+-	return false;
++	return true;
+ }
+ 
+ void PhysicalDevice::getQueueFamilyProperties(uint32_t pQueueFamilyPropertyCount,
+diff --git a/src/Vulkan/VkPhysicalDevice.hpp b/src/Vulkan/VkPhysicalDevice.hpp
+index 9184362..ff676a3 100644
+--- a/src/Vulkan/VkPhysicalDevice.hpp
++++ b/src/Vulkan/VkPhysicalDevice.hpp
+@@ -81,7 +81,7 @@ public:
+ 	void getProperties(const VkExternalMemoryHandleTypeFlagBits *handleType, VkExternalImageFormatProperties *properties) const;
+ 	void getProperties(const VkExternalMemoryHandleTypeFlagBits *handleType, VkExternalBufferProperties *properties) const;
+ 	void getProperties(VkSamplerYcbcrConversionImageFormatProperties *properties) const;
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) || SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 	void getProperties(VkPhysicalDevicePresentationPropertiesANDROID *properties) const;
+ 	void getProperties(const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo, VkAndroidHardwareBufferUsageANDROID *properties) const;
+ #endif
+diff --git a/src/Vulkan/libVulkan.cpp b/src/Vulkan/libVulkan.cpp
+index 1cd4b57..a5dc4cc 100644
+--- a/src/Vulkan/libVulkan.cpp
++++ b/src/Vulkan/libVulkan.cpp
+@@ -379,19 +379,17 @@ static const ExtensionProperties deviceExtensionProperties[] = {
+ 	// Only 1.1 core version of this is supported. The extension has additional requirements
+ 	//{{ VK_KHR_VARIABLE_POINTERS_EXTENSION_NAME, VK_KHR_VARIABLE_POINTERS_SPEC_VERSION }},
+ 	{ { VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, VK_EXT_QUEUE_FAMILY_FOREIGN_SPEC_VERSION } },
+-#ifndef __ANDROID__
+-	// We fully support the KHR_swapchain v70 additions, so just track the spec version.
+ 	{ { VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SWAPCHAIN_SPEC_VERSION } },
+-#else
+-	// We only support V7 of this extension. Missing functionality: in V8,
+-	// it becomes possible to pass a VkNativeBufferANDROID structure to
+-	// vkBindImageMemory2. Android's swapchain implementation does this in
+-	// order to support passing VkBindImageMemorySwapchainInfoKHR
+-	// (from KHR_swapchain v70) to vkBindImageMemory2.
++#ifdef __ANDROID__
++#ifndef VK_ANDROID_NATIVE_BUFFER_EXTENSION_NAME
++#define VK_ANDROID_NATIVE_BUFFER_EXTENSION_NAME "VK_ANDROID_native_buffer"
++#endif
+ 	{ { VK_ANDROID_NATIVE_BUFFER_EXTENSION_NAME, 7 } },
+ #endif
+ #if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 	{ { VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME, VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_SPEC_VERSION } },
++	{ { VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME, VK_KHR_EXTERNAL_FENCE_SPEC_VERSION } },
++	{ { VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME, VK_KHR_EXTERNAL_FENCE_FD_SPEC_VERSION } },
+ #endif
+ #if SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD
+ 	{ { VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME, VK_KHR_EXTERNAL_SEMAPHORE_FD_SPEC_VERSION } },
+@@ -767,8 +765,6 @@ VK_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInsta
+ 
+ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char *pName)
+ {
+-	TRACE("(VkDevice device = %p, const char* pName = %p)", device, pName);
+-
+ 	return vk::GetDeviceProcAddr(vk::Cast(device), pName);
+ }
+ 
+@@ -1566,7 +1562,6 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetAndroidHardwareBufferPropertiesANDROID(VkDev
+ {
+ 	TRACE("(VkDevice device = %p, const struct AHardwareBuffer *buffer = %p, VkAndroidHardwareBufferPropertiesANDROID *pProperties = %p)",
+ 	      device, buffer, pProperties);
+-
+ 	return vk::DeviceMemory::GetAndroidHardwareBufferProperties(device, buffer, pProperties);
+ }
+ #endif  // SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+@@ -2117,6 +2112,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreat
+ 				swapchainImage = true;
+ 			}
+ 			break;
++#endif
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 		case VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID:
+ 			break;
+ 		case VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID:
+@@ -3778,7 +3775,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory2(VkDevice device, uint32_t bind
+ 
+ 	for(uint32_t i = 0; i < bindInfoCount; i++)
+ 	{
+-		if(!vk::Cast(pBindInfos[i].image)->canBindToMemory(vk::Cast(pBindInfos[i].memory)))
++		if(pBindInfos[i].memory != VK_NULL_HANDLE && !vk::Cast(pBindInfos[i].image)->canBindToMemory(vk::Cast(pBindInfos[i].memory)))
+ 		{
+ 			UNSUPPORTED("vkBindImageMemory2 with invalid external memory");
+ 			return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+@@ -3790,16 +3787,29 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory2(VkDevice device, uint32_t bind
+ 		vk::DeviceMemory *memory = vk::Cast(pBindInfos[i].memory);
+ 		VkDeviceSize offset = pBindInfos[i].memoryOffset;
+ 
++#ifdef __ANDROID__
++		const VkNativeBufferANDROID *nativeBufferInfo = nullptr;
++#endif
+ 		const auto *extInfo = reinterpret_cast<const VkBaseInStructure *>(pBindInfos[i].pNext);
+ 		while(extInfo)
+ 		{
+-			switch(extInfo->sType)
++			switch((int)extInfo->sType)
+ 			{
+ 			case VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_DEVICE_GROUP_INFO:
+ 				/* Do nothing */
+ 				break;
+ 
+-#ifndef __ANDROID__
++#ifdef __ANDROID__
++			case VK_STRUCTURE_TYPE_NATIVE_BUFFER_ANDROID:
++				{
++					nativeBufferInfo = reinterpret_cast<const VkNativeBufferANDROID *>(extInfo);
++				}
++				break;
++
++			case VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR:
++				/* Do nothing. Android Vulkan loader chains this with VkNativeBufferANDROID */
++				break;
++#else
+ 			case VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR:
+ 				{
+ 					const auto *swapchainInfo = reinterpret_cast<const VkBindImageMemorySwapchainInfoKHR *>(extInfo);
+@@ -3816,7 +3826,38 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory2(VkDevice device, uint32_t bind
+ 			extInfo = extInfo->pNext;
+ 		}
+ 
+-		vk::Cast(pBindInfos[i].image)->bind(memory, offset);
++#ifdef __ANDROID__
++		if(nativeBufferInfo != nullptr)
++		{
++			vk::Image *image = vk::Cast(pBindInfos[i].image);
++			if(image->deviceMemory == nullptr)
++			{
++				VkMemoryRequirements memRequirements = image->getMemoryRequirements();
++				VkMemoryAllocateInfo allocInfo = {};
++				allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
++				allocInfo.allocationSize = memRequirements.size;
++				allocInfo.memoryTypeIndex = 0;
++
++				VkDeviceMemory devmem = { VK_NULL_HANDLE };
++				VkResult res = vkAllocateMemory(device, &allocInfo, nullptr, &devmem);
++				if(res == VK_SUCCESS)
++				{
++					image->bind(vk::Cast(devmem), 0);
++				}
++			}
++
++			vk::BackingMemory backmem = {};
++			backmem.nativeBufferInfo = *nativeBufferInfo;
++			backmem.nativeBufferInfo.pNext = nullptr;
++			backmem.externalMemory = true;
++			image->setBackingMemory(backmem);
++		}
++		else
++#endif
++		if(memory != nullptr)
++		{
++			vk::Cast(pBindInfos[i].image)->bind(memory, offset);
++		}
+ 	}
+ 
+ 	return VK_SUCCESS;
+@@ -4234,7 +4275,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
+ 
+ 	VkBaseOutStructure *extensionProperties = reinterpret_cast<VkBaseOutStructure *>(pImageFormatProperties->pNext);
+ 
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 	bool hasAHBUsage = false;
+ #endif
+ 
+@@ -4268,7 +4309,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
+ 				properties->identicalMemoryLayout = VK_TRUE;
+ 			}
+ 			break;
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 		case VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID:
+ 			{
+ 				auto *properties = reinterpret_cast<VkAndroidHardwareBufferUsageANDROID *>(extensionProperties);
+@@ -4298,7 +4339,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
+ 
+ 	vk::Cast(physicalDevice)->getImageFormatProperties(format, type, tiling, usage, flags, &pImageFormatProperties->imageFormatProperties);
+ 
+-#ifdef __ANDROID__
++#if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+ 	if(hasAHBUsage)
+ 	{
+ 		// AHardwareBuffer_lock may only be called with a single layer.
+diff --git a/third_party/llvm-subzero/lib/Support/ManagedStatic.cpp b/third_party/llvm-subzero/lib/Support/ManagedStatic.cpp
+index 34958a2..a9656d9 100644
+--- a/third_party/llvm-subzero/lib/Support/ManagedStatic.cpp
++++ b/third_party/llvm-subzero/lib/Support/ManagedStatic.cpp
+@@ -37,9 +37,41 @@ static std::recursive_mutex* getManagedStaticMutex() {
+ 
+ #else
+ 
+-// SwiftShader: from https://reviews.llvm.org/D83372
+-static std::recursive_mutex *getManagedStaticMutex() {
+-  static std::recursive_mutex m;
++// Custom robust lock avoiding glibc/bionic pthread_mutex ABI issues
++#include <atomic>
++#include <sched.h>
++#include <unistd.h>
++#include <sys/syscall.h>
++
++struct SimpleRecursiveLock {
++  std::atomic<pid_t> owner{0};
++  uint32_t count{0};
++
++  void lock() {
++    pid_t self = (pid_t)syscall(SYS_gettid);
++    if (owner.load(std::memory_order_relaxed) == self) {
++      count++;
++      return;
++    }
++    pid_t expected = 0;
++    while (!owner.compare_exchange_weak(expected, self,
++                                        std::memory_order_acquire,
++                                        std::memory_order_relaxed)) {
++      expected = 0;
++      sched_yield();
++    }
++    count = 1;
++  }
++
++  void unlock() {
++    if (--count == 0) {
++      owner.store(0, std::memory_order_release);
++    }
++  }
++};
++
++static SimpleRecursiveLock *getManagedStaticMutex() {
++  static SimpleRecursiveLock m;
+   return &m;
+ }
+ 
+@@ -48,7 +80,7 @@ static std::recursive_mutex *getManagedStaticMutex() {
+ void ManagedStaticBase::RegisterManagedStatic(void *(*Creator)(),
+                                               void (*Deleter)(void*)) const {
+   assert(Creator);
+-  std::lock_guard<std::recursive_mutex> Lock(*getManagedStaticMutex());
++  std::lock_guard<SimpleRecursiveLock> Lock(*getManagedStaticMutex());
+ 
+   if (!Ptr.load(std::memory_order_relaxed)) {
+     void *Tmp = Creator();
