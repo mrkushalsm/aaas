@@ -324,6 +324,40 @@ diagnostic presentation was still present at the time of this earlier record;
 its later app-mode suppression is documented below. Overall M1E remains
 **PARTIAL**.
 
+### Reopen after prior resize regression (2026-10-31)
+
+A new close/reopen trial exposed a slot-reuse defect. The closed Settings
+presenter had left `vdisplay_resize_1` containing `2 960 1156`. On the next
+launch, the broker created a fresh 720×1280 Android display, then consumed that
+old request and resized the new display before KWin had sent a configure for
+the new toplevel. Its presenter remained configured for 720×1280, rejected
+every 960×1156 source frame, and never mapped a Wayland window. The failed
+presenter summary recorded 0 imports/submissions and 30 format rejections.
+
+The launcher now clears the per-slot resize request before starting a dynamic
+presenter. A regression test asserts this ordering. In the follow-up live
+session, Settings reopened as a mapped Wayland window with Android task 10 and
+display 4 while Contacts task 9/display 3 remained running. The new display
+stayed at its initial 720×1280 until host interaction; the stale 960×1156
+request was absent. The screenshot
+[`dynamic_reopen_stale_resize_fix_20261031.png`](../results/m1e/live/dynamic_reopen_stale_resize_fix_20261031.png)
+shows the reopened Settings content. It was captured before retiling, so the
+windows overlap; it is evidence of mapping/content, not simultaneous
+accessibility. The complete failure/fix trace, external raw-log paths and
+hashes are in
+[`dynamic_reopen_stale_resize_fix_20261031.json`](../results/m1e/live/dynamic_reopen_stale_resize_fix_20261031.json).
+
+Both presenters ended with imports=submissions=releases, zero outstanding
+buffers, and zero teardown invalidations. The session journal and status
+sentinel both reached `STOPPED`; no ANR signature appeared. Nine transient
+InputDispatcher no-focused-window warnings occurred. Keyboard acceptance on
+the reopened Settings window was inconclusive: a controlled `h-i-i` attempt
+was visible as `ii`, and a subsequent key-only probe did not yield a verified
+editor change. This is not counted as successful reopen input and leaves a
+focus-entry issue for follow-up. Resize-back, landscape, burst, and
+post-resize corner-input acceptance also remain open. Overall M1E remains
+**PARTIAL**.
+
 
 ### Two-app LMKD/memory comparison (2026-10-30)
 
