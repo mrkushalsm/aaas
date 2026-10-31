@@ -112,6 +112,38 @@ historical SwiftShader JIT fault remains unresolved. The clean
 
 ## Acceptance boundaries
 
+### Activity-transition first key (2026-11-01)
+
+The recorded Settings first-key loss occurs below the host focus handshake:
+Android `ViewRootImpl.InputStage` drops focused non-Back input while its
+`ViewRootImpl` is paused for an Activity transition. A WindowManager/InputDispatcher
+focused-window acknowledgement therefore does not establish that the new
+Activity's ViewRoot is ready to consume the key.
+
+The runner now builds and selects a hash-checked, session-local framework
+overlay from the pinned Android 16 `framework.jar`. For a non-primary display,
+it retains at most one focused key event in the original paused ViewRoot. It
+resumes that event once when transition pause clears, and only if the same root
+is still attached and focused. A one-second Handler deadline or ViewRoot detach
+finishes it unhandled. The event is not moved to another display or Activity.
+The base framework JAR is not modified. The production SwiftShader overlay is
+also unchanged.
+
+In a normal two-app runner launch, Settings Search was focused during its
+Activity open transition and synthetic `/dev/uinput` `KEY_A` was sent as soon
+as the new `input_focus: Focus entering SearchActivity` log appeared. Android
+logged retain and resume; a real screenshot showed one `a` in the Search field.
+Closing and reopening Settings in the same Android runtime and repeating the
+sequence produced the same visible result. Both presenters ended with
+imports=submissions=releases, zero outstanding buffers, and the runtime ended
+`STOPPED`. The detailed trace, overlay provenance, hashes, and limits are in
+[`activity_transition_key_deferral_20261101.json`](../results/m1e/live/activity_transition_key_deferral_20261101.json).
+
+This is bounded live verification, not the full Activity/key stress matrix.
+The concurrent host-focus-loss cancellation path, Contacts Activity-transition
+input, and repeated transition count remain untested. The change does not
+depend on KWin APIs; KWin only arranged the local test windows.
+
 | Capability | Result | Evidence limit |
 |---|---|---|
 | Two Android tasks, trusted displays, Composer outputs, Wayland toplevels | PASS, bounded live | IDs recorded in the session evidence; IDs are not constants. |

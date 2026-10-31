@@ -39,7 +39,10 @@ VDISPLAY_BROKER_DEX = TMP / 'm1e_aaas_display_broker.dex'
 VDISPLAY_BROKER_RC = ROOT / 'experiments/m1e/display_broker/aaas-display-broker.rc'
 VDISPLAY_SERVICES_OVERLAY = TMP / 'm1e_services_alarm_fallback.jar'
 VDISPLAY_SERVICES_RECEIPT = TMP / 'm1e_services_alarm_fallback.json'
+FRAMEWORK_TRANSITION_OVERLAY = TMP / 'm1e_framework_transition_input.jar'
+FRAMEWORK_TRANSITION_RECEIPT = TMP / 'm1e_framework_transition_input.json'
 APKTOOL = TMP / 'apktool_3.0.3.jar'
+FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
 RUNNER_SHA256 = '2e93ad37536fc0cd84b434a646545583115bdd84d67eb0439fa05ae6e7e73b8e'
 VULKAN_SHA256 = '1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181'
@@ -47,7 +50,6 @@ LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d
 LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce'
 COMPOSER_PORTRAIT_SHA256 = 'cd55e7418a469e84c839bfec287b1bce238a43daa28f50900acf3174c17e3a46'
 VDC_OVERLAY_SHA256 = 'b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764'
-FRAMEWORK_IME_SHA256 = '701d2fd4afe62e4b02a3f2da603daab492a4369dea3bd4d3baefe52789623a0b'
 DEFAULT_APP_PACKAGE = 'com.android.settings'
 APP_PACKAGE_PATTERN = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 SESSION_STATUS_VALUES = {'STARTING', 'RUNNING', 'STOPPING', 'STOPPED', 'FAILED'}
@@ -203,7 +205,7 @@ def collect_graphics_provenance(paths):
     except (OSError, subprocess.SubprocessError):
         result['swiftshader_source_revision'] = 'unavailable'
     for key in ('AAAS_VULKAN_OVERLAY', 'AAAS_COMPOSER_OVERLAY',
-                'AAAS_SERVICES_JAR_OVERLAY'):
+                'AAAS_SERVICES_JAR_OVERLAY', 'AAAS_FRAMEWORK_JAR_OVERLAY'):
         raw = paths.get(key)
         if not raw:
             continue
@@ -1032,6 +1034,40 @@ def vdisplay_services_overlay_is_current():
         return False
 
 
+def framework_transition_overlay_is_current():
+    source = WORKSPACE / 'rootfs_m1b1/system/framework/framework.jar'
+    try:
+        receipt = json.loads(FRAMEWORK_TRANSITION_RECEIPT.read_text())
+        return (
+            receipt.get('revision') == '99b01a65cc4c104933788b3143285ab6bae65827'
+            and receipt.get('input') == str(source.resolve())
+            and receipt.get('input_sha256') == sha256(source)
+            and receipt.get('apktool_sha256') == sha256(APKTOOL)
+            and receipt.get('builder') == str(FRAMEWORK_TRANSITION_BUILDER.resolve())
+            and receipt.get('builder_sha256') == sha256(FRAMEWORK_TRANSITION_BUILDER)
+            and receipt.get('overlay') == str(FRAMEWORK_TRANSITION_OVERLAY.resolve())
+            and receipt.get('overlay_sha256') == sha256(FRAMEWORK_TRANSITION_OVERLAY)
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def build_framework_transition_overlay():
+    guard = subprocess.run(
+        [sys.executable, str(ROOT / 'scripts/android_workspace.py'),
+         '--workspace', str(WORKSPACE), 'check'],
+        capture_output=True, text=True,
+    )
+    if guard.returncode:
+        raise RuntimeError(guard.stdout + guard.stderr)
+    subprocess.run([
+        sys.executable, str(FRAMEWORK_TRANSITION_BUILDER),
+        '--original', str(WORKSPACE / 'rootfs_m1b1/system/framework/framework.jar'),
+        '--apktool', str(APKTOOL), '--output', str(FRAMEWORK_TRANSITION_OVERLAY),
+        '--work-parent', str(TMP), '--receipt', str(FRAMEWORK_TRANSITION_RECEIPT),
+    ], check=True)
+
+
 def validate_diagnostic_vulkan_overlay(path):
     overlay = Path(path).resolve(strict=True)
     workspace_tmp = TMP.resolve()
@@ -1060,7 +1096,9 @@ def validate_diagnostic_vulkan_overlay(path):
 
 
 def verify_requirements(use_source_lmkd=False, orientation='portrait',
-                        diagnostic_vulkan_overlay=None):
+                        diagnostic_vulkan_overlay=None,
+                        diagnostic_framework_overlay=None,
+                        diagnostic_framework_sha256=None):
     check = subprocess.run(
         [sys.executable, str(ROOT / 'scripts/android_workspace.py'),
          '--workspace', str(WORKSPACE), 'check'],
@@ -1079,7 +1117,7 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     lmkd_overlay_entry = select_lmkd_overlay(use_source_lmkd)
     required = {
         'AAAS_VDC_OVERLAY': ('m1d_vdc_overlay/vdc', VDC_OVERLAY_SHA256),
-        'AAAS_FRAMEWORK_JAR_OVERLAY': ('m1d_framework_desktop_ime.jar', FRAMEWORK_IME_SHA256),
+        'AAAS_FRAMEWORK_JAR_OVERLAY': (FRAMEWORK_TRANSITION_OVERLAY.name, None),
         'AAAS_VULKAN_OVERLAY': ('m1b83_sampling_lock_vulkan.so', VULKAN_SHA256),
         'AAAS_LMKD_OVERLAY': lmkd_overlay_entry,
         'AAAS_RANGING_JAR_OVERLAY': ('m1b8_service-ranging.rebuilt2.jar', None),
@@ -1091,14 +1129,23 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     }
     paths = {}
     for key, (name, expected_hash) in required.items():
-        if key == 'AAAS_VULKAN_OVERLAY' and diagnostic_vulkan_overlay:
+        if key == 'AAAS_FRAMEWORK_JAR_OVERLAY' and diagnostic_framework_overlay:
+            path = Path(diagnostic_framework_overlay).resolve()
+            if not diagnostic_framework_sha256:
+                raise RuntimeError('diagnostic framework overlay requires an explicit SHA-256')
+            expected_hash = diagnostic_framework_sha256.lower()
+            if not re.fullmatch(r'[0-9a-f]{64}', expected_hash):
+                raise RuntimeError('diagnostic framework SHA-256 must be 64 lowercase hex digits')
+        elif key == 'AAAS_VULKAN_OVERLAY' and diagnostic_vulkan_overlay:
             try:
                 path = validate_diagnostic_vulkan_overlay(diagnostic_vulkan_overlay)
             except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
                 raise RuntimeError(f'invalid diagnostic Vulkan overlay: {error}') from error
             expected_hash = None
         else:
-            path = TMP / name
+            path = FRAMEWORK_TRANSITION_OVERLAY if key == 'AAAS_FRAMEWORK_JAR_OVERLAY' else TMP / name
+            if key == 'AAAS_FRAMEWORK_JAR_OVERLAY' and not framework_transition_overlay_is_current():
+                raise RuntimeError('Android transition framework overlay receipt is missing or stale')
         if not path.is_file():
             raise RuntimeError(f'missing required diagnostic overlay: {path}')
         if expected_hash and sha256(path) != expected_hash:
@@ -1164,6 +1211,10 @@ def main():
                         help='Also present Android primary display in a diagnostic Wayland window')
     parser.add_argument('--diagnostic-vulkan-overlay',
                         help='Use a manifest-verified temporary SwiftShader overlay instead of production')
+    parser.add_argument('--diagnostic-framework-overlay',
+                        help='Select an isolated framework JAR overlay for experiments')
+    parser.add_argument('--diagnostic-framework-sha256',
+                        help='Required expected SHA-256 for the diagnostic framework overlay')
     parser.add_argument('--resource-diagnostics', action='store_true',
                         help='Write read-only host/cgroup snapshots at session start and shutdown')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
@@ -1171,6 +1222,10 @@ def main():
     parser.add_argument('--test-tombstone-capture', action='store_true',
                         help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.diagnostic_framework_overlay and not args.experimental_virtual_display:
+        parser.error('--diagnostic-framework-overlay requires --experimental-virtual-display')
+    if args.diagnostic_framework_sha256 and not args.diagnostic_framework_overlay:
+        parser.error('--diagnostic-framework-sha256 requires --diagnostic-framework-overlay')
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
     if args.test_tombstone_capture and args.app2:
@@ -1187,9 +1242,15 @@ def main():
                 raise ValueError('--app2 requires --experimental-virtual-display')
     except ValueError as error:
         parser.error(str(error))
+    if not args.diagnostic_framework_overlay and not framework_transition_overlay_is_current():
+        if not APKTOOL.is_file():
+            raise RuntimeError(f'missing pinned apktool for Android transition input overlay: {APKTOOL}')
+        build_framework_transition_overlay()
     paths = verify_requirements(use_source_lmkd=args.use_source_lmkd,
                                 orientation=args.orientation,
-                                diagnostic_vulkan_overlay=args.diagnostic_vulkan_overlay)
+                                diagnostic_vulkan_overlay=args.diagnostic_vulkan_overlay,
+                                diagnostic_framework_overlay=args.diagnostic_framework_overlay,
+                                diagnostic_framework_sha256=args.diagnostic_framework_sha256)
     if args.experimental_virtual_display:
         if not COMPOSER_VDISPLAY.is_file() or not VDISPLAY_BROKER_DEX.is_file():
             raise RuntimeError('build the M1E virtual-display Composer and broker first')
