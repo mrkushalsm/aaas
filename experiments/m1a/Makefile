@@ -90,10 +90,13 @@ $(BUILD)/test-input-v1: tests/test_input_v1.c src/input_v1.c | $(BUILD)
 $(BUILD)/test-keyboard-map: tests/test_keyboard_map.c src/keyboard_map.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@ $(shell pkg-config --libs xkbcommon)
 
+$(BUILD)/test-keyboard-teardown: tests/test_keyboard_teardown.c | $(BUILD)
+	$(CC) $(CFLAGS) $< -o $@ $(shell pkg-config --cflags --libs wayland-client wayland-server xkbcommon) -lpthread
+
 $(BUILD)/test-input-state: tests/test_input_state.c src/input_state.c src/input_v1.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
 
-test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map
+test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map $(BUILD)/test-keyboard-teardown
 	$(BUILD)/test-wire
 	$(BUILD)/test-wire-v2
 	$(BUILD)/test-sync-util
@@ -102,6 +105,8 @@ test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/
 	$(BUILD)/test-input-v1
 	$(BUILD)/test-input-state
 	$(BUILD)/test-keyboard-map
+	$(BUILD)/test-keyboard-teardown
+	$(BUILD)/test-keyboard-teardown --dispatch-control
 
 clean:
 	rm -rf $(BUILD)
