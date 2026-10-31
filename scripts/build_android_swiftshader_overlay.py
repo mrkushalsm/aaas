@@ -15,12 +15,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
+    parser.add_argument("--skip-ninja", action="store_true",
+                        help="reuse already prepared build objects and archive")
+    parser.add_argument("--reactor-subzero-archive", type=pathlib.Path,
+                        help="override libReactorSubzero.a for diagnostic overlays")
     args = parser.parse_args()
     workspace = args.workspace.resolve()
     build = workspace / "sources/swiftshader/build"
     tmp = workspace / "tmp"
     root = pathlib.Path(__file__).resolve().parents[1]
-    subprocess.run(["ninja", "-C", str(build), "ReactorSubzero"], check=True)
+    if not args.skip_ninja:
+        subprocess.run(["ninja", "-C", str(build), "ReactorSubzero"], check=True)
     shim = tmp / "m1b72_bionic_stubs.o"
     subprocess.run(
         ["g++", "-fPIC", "-O2", "-c", str(root / "experiments/m1b/swiftshader/bionic_stubs.cpp"), "-o", str(shim)],
@@ -32,7 +37,14 @@ def main():
     parts = shlex.split(command)
     patched = {path.name: path for path in tmp.glob("*.cpp.o")}
     objects = [str(patched.get(pathlib.Path(item).name, build / item)) for item in parts if item.endswith(".o")]
-    archives = [str(build / item) for item in parts if item.endswith(".a")]
+    archives = []
+    for item in parts:
+        if not item.endswith(".a"):
+            continue
+        if args.reactor_subzero_archive and pathlib.Path(item).name == "libReactorSubzero.a":
+            archives.append(str(args.reactor_subzero_archive.resolve()))
+        else:
+            archives.append(str(build / item))
     link = [
         "g++", "-shared", "-fPIC", "-O2", "-static-libstdc++", "-static-libgcc",
         "-Wl,-Bsymbolic", "-Wl,--version-script=" + str(tmp / "vulkan_hal.lds"),
