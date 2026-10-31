@@ -13,6 +13,12 @@ SPEC.loader.exec_module(BUILD)
 
 
 class BuildInputTests(unittest.TestCase):
+    def test_resolves_explicit_alternate_patch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            patch = Path(temporary) / 'trace.patch'
+            patch.write_text('diff --git a/file b/file\n')
+            self.assertEqual(BUILD.resolve_patch_input(patch), patch.resolve())
+
     def test_cache_metadata_requires_named_cmake_setting(self):
         self.assertEqual(BUILD.cache_value(
             'CMAKE_BUILD_TYPE:STRING=Release\nAAAS_ANDROID_BUILD:BOOL=ON',

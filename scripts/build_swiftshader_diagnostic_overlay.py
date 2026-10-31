@@ -124,12 +124,19 @@ def cache_value(cache_text, name):
     return line.split('=', 1)[1]
 
 
+def resolve_patch_input(path):
+    patch = ROOT / 'experiments/m1e/patches/swiftshader_coherent_diagnostic.patch'
+    return (path if path is not None else patch).resolve(strict=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace', type=Path, required=True)
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--patch', type=Path,
+                        help='alternate explicit source patch for controlled diagnostics')
     parser.add_argument('--no-tracing', action='store_true',
                         help='build the same coherent source without diagnostic tracing')
     args = parser.parse_args(argv)
@@ -146,7 +153,7 @@ def main(argv=None):
                      capture=True).stdout
         if any(line.startswith('??') for line in status.splitlines()):
             raise ValueError('untracked source files make the diagnostic build ambiguous')
-        patch = ROOT / 'experiments/m1e/patches/swiftshader_coherent_diagnostic.patch'
+        patch = resolve_patch_input(args.patch)
         diff = run(['git', '-C', str(source), 'diff', '--binary', 'HEAD'],
                    capture=True).stdout.encode()
         patch_hash = hashlib.sha256(patch.read_bytes()).hexdigest()
