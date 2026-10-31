@@ -1,6 +1,6 @@
 # M1E status
 
-Status: **PARTIAL — two-app rendering, independent resize, visible typing and vertical scrolling in both apps, per-window close/reopen, and app-mode primary-output suppression are live; focus-edge and stability coverage remain incomplete**
+Status: **PARTIAL — two-app rendering, input subsets, resize, and dynamic lifecycle are live; a resize-correlated SurfaceFlinger SwiftShader JIT crash was reproduced and remains unresolved**
 
 Date: 2026-10-31
 
@@ -817,3 +817,37 @@ input and cleanup evidence for a subset of keyboard behavior only; no resize,
 landscape, minimize, close/reopen, or capacity stress occurred in this run.
 The key matrix and resize interaction gates remain open, so M1E remains
 **PARTIAL**.
+
+### Two-output landscape resize and reproduced JIT crash (2026-10-31)
+
+A default-LMKD two-app run exercised genuine resizing through KWin quick-tile
+and resize operations. Both outputs produced matching Android source buffers
+at 960×578 (stride 3840); Settings reached that size while Contacts remained
+at 960×1156, confirming independent resize. Contacts then resized to 960×578,
+and both outputs subsequently produced matching 960×557 buffers. A later
+simultaneous generation-5 request changed both to 960×565. The screenshot
+[`two_output_landscape_resize_crash_20261031.png`](../results/m1e/live/two_output_landscape_resize_crash_20261031.png)
+shows both app outputs side by side in landscape geometry; a host terminal
+covers the lower desktop region. Dimensions and source strides are in
+[`two_output_landscape_resize_crash_20261031.json`](../results/m1e/live/two_output_landscape_resize_crash_20261031.json).
+
+Approximately 63 ms after the broker logged the generation-5 resize requests,
+SurfaceFlinger PID 189/TID 219 crashed with SIGSEGV (`SEGV_MAPERR`). The only
+backtrace frame is PC `0x12bf` in `/memfd:swiftshader_jit (deleted)`, matching
+the historical failure signature. The exact causal relationship is not
+proven: Android LMKD had reclaimed cached/background processes roughly 18
+seconds earlier because guest swap was exhausted, while host resource
+snapshots still showed 7.2–7.9 GiB MemAvailable and 3.85–3.93 GiB SwapFree.
+Settings and Contacts were not among the observed LMKD kills. The crash's
+tombstone/JIT mapping was not retained, so the generated code cannot be
+symbolized from this run.
+
+Both SurfaceFlinger clients disconnected and the runner ended in `FAILED`;
+the broker shutdown handshake timed out. Settings' presenter reported
+214/214 imports/submissions/releases with zero outstanding buffers, but the
+Contacts presenter emitted no final summary. Its terminal ownership is
+therefore unverified for this failed run. This is a reproduced graphics
+stability failure during a simultaneous resize transition, not a successful
+resize stress result. No speculative fix or JIT-disable workaround was
+applied. Further crash stress should wait until better tombstone and JIT
+mapping capture is available. M1E remains **PARTIAL**.
