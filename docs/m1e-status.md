@@ -1353,6 +1353,30 @@ M1E remain **PARTIAL**. KWin was only the available local compositor/test
 driver for standard Wayland configure events; no KDE/KWin product integration
 or patch is required by AaaS.
 
+### Even-height resource-lifetime comparison (2026-10-31)
+
+The corrected v9 trace build was also used for one 960×578 resize in default
+and enhanced modes. In the enhanced session, same-process events linked the
+960×578 AHardwareBuffer to VkDeviceMemory 245, VkImage 244, view 248, pipeline
+180, and draw 1218. The draw completed and queue renderer synchronization
+returned before the view/image were destroyed and the AHardwareBuffer was
+unlocked/released. Both app presenters drained and the session cgroup was
+removed. This demonstrates a healthy observed ordering for that execution;
+it does not identify the retained owner in the historical v4 crash.
+
+The default-mode run likewise rendered a matching 960×578 frame without a
+SurfaceFlinger JIT fault and drained both presenters, but its log contains the
+known guest-minute `AlarmManagerService` null-`PendingIntent` system_server
+crash. The runner later reached `STOPPED` during explicit cleanup, so this run
+is not counted as a healthy Android runtime pass. The enhanced trace, both
+run classifications, and hashes are recorded in
+[`swiftshader_even_height_lifetime_followup_20261031.json`](../results/m1e/live/swiftshader_even_height_lifetime_followup_20261031.json).
+
+The old v4 crash remains unresolved: its allocation was released before the
+fault, but that run lacks the image/view/descriptor/submission/job identifiers
+needed to decide which component violated lifetime ordering. The healthy
+comparison does not settle that question. M1E remains **PARTIAL**.
+
 The final regression pass after this evidence update completed 198 Python tests,
 M1A tests, forced presenter build/tests (including the queued keyboard teardown
 regression), input-adapter and display-broker builds, Composer copy/transport
