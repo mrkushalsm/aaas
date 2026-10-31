@@ -1250,3 +1250,18 @@ specific runtime were subsequently removed; ownership is recorded unknown), and
 another failed at the known guest minute-boundary `AlarmManagerService` null
 `PendingIntent` exception. Neither is counted as resize acceptance. See
 [`swiftshader_v9_failed_probe_attempts_20261031.json`](../results/m1e/live/swiftshader_v9_failed_probe_attempts_20261031.json).
+
+### Odd-height resize-back (2026-10-31)
+
+In session `m1b84_session_oc7xsro8`, the Settings output moved from 720×1280
+to 960×557 and back to 720×1280 while Contacts remained at 720×1280. Android
+DisplayManager logged both dimensions for display 2. The same SwiftShader color
+target pipeline (ID 180) first emitted 960×557 draw targets and then 720×1280
+targets; this distinguishes Settings' return from Contacts' unchanged portrait
+frames. The Settings presenter ended at generation 3 with 131/131/131
+imports/submissions/releases, 20 stale-generation rejects, zero outstanding,
+and zero teardown invalidations. Contacts ended at generation 1 with
+139/139/139, zero outstanding. The session reached `STOPPED`. This bounded
+result does not test input after resize, repeated bursts, dual-output landscape,
+or enhanced mode. Evidence:
+[`swiftshader_resize_back_odd_height_20261031.json`](../results/m1e/live/swiftshader_resize_back_odd_height_20261031.json).
