@@ -1382,3 +1382,14 @@ M1A tests, forced presenter build/tests (including the queued keyboard teardown
 regression), input-adapter and display-broker builds, Composer copy/transport
 unit binaries built under `/tmp`, and the external workspace guard. The inherited
 untracked Composer `build/` directory was not used, staged, or modified.
+
+The same corrected diagnostic v9 sequence also passed once in enhanced mode:
+Settings reached matching Android and JIT draw-target dimensions at 960×578,
+960×557, and 960×565 while Contacts remained 720×1280. SurfaceFlinger stayed
+alive; the session reached `STOPPED`; presenter ownership was fully drained;
+and the source-LMKD session cgroup was removed with zero `oom_kill` events.
+This strengthens bounded validation of the odd-height fix across both runtime
+modes. It does not resolve the separate older v4 stale-AHardwareBuffer fault or
+cover input, landscape, resize-back, burst, or dynamic lifecycle in enhanced
+mode. See
+[`swiftshader_v9_enhanced_odd_height_sequence_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_odd_height_sequence_20261031.json).
