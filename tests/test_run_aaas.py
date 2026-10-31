@@ -373,6 +373,15 @@ class ForegroundRunnerTests(unittest.TestCase):
         for command in ('list', 'launch', 'close', 'stop'):
             self.assertIn(f"add_parser('{command}'", control)
 
+    def test_dynamic_presenter_clears_previous_resize_before_reopen(self):
+        launcher = SCRIPT.read_text()
+        start = launcher.index('    def start_dynamic_presenter(')
+        end = launcher.index('    def manager_request(', start)
+        dynamic_start = launcher[start:end]
+        clear = dynamic_start.index("resize_path.write_text('')")
+        spawn = dynamic_start.index('subprocess.Popen(')
+        self.assertLess(clear, spawn)
+
     def test_resize_and_close_are_scoped_per_virtual_output(self):
         launcher = SCRIPT.read_text()
         broker = (SCRIPT.parents[1] / 'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()

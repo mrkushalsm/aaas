@@ -1004,6 +1004,10 @@ def main():
         resize_path = ipc / f'vdisplay_resize_{slot}'
         log_path = session / ('virtual-presenter.log' if slot == 1
                               else 'virtual-presenter2.log')
+        # A released slot may retain the last xdg_toplevel configure. A new
+        # Android display starts at presenter_size, so never replay the old
+        # lifecycle's request into its new VirtualDisplay.
+        resize_path.write_text('')
         socket_path.unlink(missing_ok=True)
         with log_path.open('ab') as presenter_log:
             process = subprocess.Popen(
