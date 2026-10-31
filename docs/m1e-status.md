@@ -1232,3 +1232,21 @@ and 123/123/123 releases, zero outstanding), and cgroup cleanup succeeded. No
 SurfaceFlinger SIGSEGV was observed. This known framework failure is separate
 from SwiftShader and KWin; no causal connection is established. See
 [`swiftshader_v9_enhanced_resize_blocked_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_resize_blocked_20261031.json).
+
+A further bounded default-mode v9 run configured Settings to 960×557 while
+Contacts remained at 720×1280. DisplayManager and SwiftShader draw-target trace
+reported the new 960×557 extent, and the runtime reached `STOPPED`. The resized
+presenter accounted for 149 imports/submissions/releases, rejected six stale
+old-generation frames, and ended with zero outstanding or teardown-invalidated
+buffers; Contacts accounted for 142/142/142. This is one more bounded odd-height
+resize pass, not resize-back or input acceptance. The temporary KWin script was
+only a test driver for ordinary Wayland configure events; the AaaS and SwiftShader
+implementation has no KDE/KWin dependency. See
+[`swiftshader_v9_557_resize_20261031.json`](../results/m1e/live/swiftshader_v9_557_resize_20261031.json).
+
+Two intervening attempts are also recorded: one was interrupted by a stale-session
+selection bug in the one-off test harness before readiness (all processes in that
+specific runtime were subsequently removed; ownership is recorded unknown), and
+another failed at the known guest minute-boundary `AlarmManagerService` null
+`PendingIntent` exception. Neither is counted as resize acceptance. See
+[`swiftshader_v9_failed_probe_attempts_20261031.json`](../results/m1e/live/swiftshader_v9_failed_probe_attempts_20261031.json).
