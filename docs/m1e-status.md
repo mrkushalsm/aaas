@@ -1424,3 +1424,62 @@ system_server AlarmManager null-PendingIntent exception; the broker release
 errors followed framework death. The candidate patch was removed from the
 source tree and did not alter the production overlay. See
 [`swiftshader_queue_signal_candidate_20261031.json`](../results/m1e/live/swiftshader_queue_signal_candidate_20261031.json).
+
+### SwiftShader-to-Composer resource identity on one resize (2026-11-01)
+
+The coherent v10 trace build and a two-slot Composer log were used for one
+Settings resize to 960×557 while Contacts remained active. Matching stable AaaS
+allocator buffer ID `164` and DMA-BUF `st_dev/st_ino` joined the SurfaceFlinger
+AHardwareBuffer import to Composer virtual display `102`, Composer slot 0, and
+the 960×557 frame generation records. In that SurfaceFlinger process the same
+memory ID `246` was bound to VkImage `245` and view `249`; its draw-target records
+include pipelines `48`, `120`, and `179`. The traced 960×557 draw jobs completed
+before the image and AHardwareBuffer were destroyed/unlocked. This provides a
+direct resource-identity chain for this healthy resize observation, not for the
+historical v4 crash.
+
+The Android broker recorded logical display 2, resize generation 2. Composer
+recorded destruction of its previous virtual output and creation of Composer
+display 102 at 960×557. These are correlated by the ordered single-output resize
+in the same session; the two layers do not yet share an explicit unique token.
+The session later ended `FAILED` after the known AlarmManager null-PendingIntent
+system_server exception and a broker shutdown timeout. Both presenters reported
+all buffers released, with zero outstanding or teardown-invalidated buffers;
+no SurfaceFlinger fault was observed. The resize result is therefore bounded
+diagnostic evidence, not a healthy-session or stability pass. The v4 stale
+960×578 target attachment lifetime remains unresolved. See
+[`swiftshader_resource_identity_resize_20261101.json`](../results/m1e/live/swiftshader_resource_identity_resize_20261101.json).
+
+The diagnostic build and Composer changes are compositor-neutral and introduce
+no KDE/KWin product dependency. KWin was only used locally to emit standard
+Wayland toplevel configure events.
+
+The saved trace was replayed through the committed correlation tool: 42
+AHardwareBuffer imports, 303 Composer frames, and 1,198 draw-target joins were
+parsed. The replayed joined output is 3,888,985 bytes with SHA-256
+`4a92c05328f98faf38b23c669ced2a591f3f4308ef1b9232fc541156c5e18feb`. Regression
+verification passed: 202 Python tests, M1A tests, presenter build/tests, input
+adapter build, broker build, Composer linear-copy and transport-pool tests, and
+the external workspace guard. The Composer component tests were compiled into
+`/tmp` to leave the inherited untracked Composer build directory untouched.
+
+### v10 traced resize boundary follow-up (2026-11-01)
+
+A second v10 diagnostic two-app session completed Settings display 2
+resize generations 2–4 at 960×578, 960×557, and 960×565 while Contacts
+remained on display 3. Android dimensions, Composer frames, and SwiftShader
+AHardwareBuffer imports were correlated through stable allocator IDs and DMA-BUF
+identity: buffer 167 / Composer display 102, buffer 174 / display 103, and
+buffer 181 / display 104. For each traced color-target buffer in this sequence,
+its recorded draw completions preceded the Vulkan AHardwareBuffer reference
+release. SurfaceFlinger did not crash during the resize sequence.
+
+The session did not complete normal shutdown: at guest time 18:45:00.005,
+`system_server` hit the recurring AlarmManager null-PendingIntent exception,
+and the session remained `FAILED` after broker shutdown timed out. Both
+presenters reported 223 imports, 223 submissions, 223 releases, zero
+outstanding, and zero teardown invalidations. No resize-back, concurrent
+request, or post-resize input was performed. This bounded successful resize
+sequence does not identify the older v4 use-after-unmap owner or validate clean
+runtime acceptance. See
+[`swiftshader_v10_resize_sequence_20261101.json`](../results/m1e/live/swiftshader_v10_resize_sequence_20261101.json).
