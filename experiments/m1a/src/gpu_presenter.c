@@ -145,6 +145,7 @@ struct presenter_app {
      */
     uint32_t display_w;
     uint32_t display_h;
+    uint32_t input_map_blocked_generation;
     int input_listen_fd;
     int input_fd;
     uint64_t input_session_id;
@@ -210,8 +211,36 @@ static uint32_t button_mask(uint32_t button) {
 }
 
 static aaas_mapped_point map_surface_point(presenter_app *a, double sx, double sy) {
-    uint32_t display_w = a->display_w ? a->display_w : a->w;
-    uint32_t display_h = a->display_h ? a->display_h : a->h;
+    aaas_mapped_point unavailable = { .x = 0, .y = 0, .inside = 0 };
+    /* xdg configure changes the viewport destination before Android has
+     * necessarily produced a buffer for that size. The old buffer is still
+     * visible, but its coordinates do not identify controls in the resized
+     * Android display. Reject pointer input until a matching source frame is
+     * accepted; do not deliver stale-generation coordinates.
+     */
+    if (!aaas_presented_geometry_ready(a->w, a->h, a->display_w, a->display_h)) {
+        if (a->input_map_blocked_generation != a->gen) {
+            char extra[160];
+            snprintf(extra, sizeof(extra),
+                     "\"surface_w\":%u,\"surface_h\":%u,"
+                     "\"frame_w\":%u,\"frame_h\":%u",
+                     a->w, a->h, a->display_w, a->display_h);
+            log_presenter_event("input_mapping_blocked_until_matching_frame",
+                                a->gen, 0, extra);
+            a->input_map_blocked_generation = a->gen;
+        }
+        return unavailable;
+    }
+    if (a->input_map_blocked_generation == a->gen) {
+        char extra[160];
+        snprintf(extra, sizeof(extra), "\"surface_w\":%u,\"surface_h\":%u,"
+                 "\"frame_w\":%u,\"frame_h\":%u",
+                 a->w, a->h, a->display_w, a->display_h);
+        log_presenter_event("input_mapping_ready_for_matching_frame", a->gen, 0, extra);
+        a->input_map_blocked_generation = 0;
+    }
+    uint32_t display_w = a->display_w;
+    uint32_t display_h = a->display_h;
     return aaas_map_surface_to_display(sx, sy, a->w, a->h, display_w, display_h);
 }
 
@@ -533,6 +562,17 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
 
     aaas_mapped_point p = map_surface_point(a, a->pointer_x, a->pointer_y);
     if (!p.inside) {
+        if (!aaas_presented_geometry_ready(a->w, a->h, a->display_w, a->display_h)) {
+            char extra[192];
+            snprintf(extra, sizeof(extra),
+                     "\"button\":%u,\"surface_x\":%.3f,\"surface_y\":%.3f,"
+                     "\"surface_w\":%u,\"surface_h\":%u,"
+                     "\"frame_w\":%u,\"frame_h\":%u",
+                     button, a->pointer_x, a->pointer_y, a->w, a->h,
+                     a->display_w, a->display_h);
+            log_presenter_event("input_pointer_button_rejected_stale_frame",
+                                a->gen, 0, extra);
+        }
         if (a->content_focus) {
             if (a->pressed_buttons) {
                 input_release_buttons(a, "button_outside");

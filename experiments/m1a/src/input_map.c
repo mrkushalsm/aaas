@@ -10,26 +10,15 @@ aaas_mapped_point aaas_map_surface_to_display(double surface_x, double surface_y
         return out;
     }
 
-    double scale_x = (double)surface_w / (double)display_w;
-    double scale_y = (double)surface_h / (double)display_h;
-    double scale = fmin(scale_x, scale_y);
-    if (!(scale > 0.0)) {
+    if (surface_x < 0.0 || surface_y < 0.0 ||
+        surface_x >= (double)surface_w || surface_y >= (double)surface_h) {
         return out;
     }
 
-    double content_w = (double)display_w * scale;
-    double content_h = (double)display_h * scale;
-    double origin_x = ((double)surface_w - content_w) / 2.0;
-    double origin_y = ((double)surface_h - content_h) / 2.0;
-
-    if (surface_x < origin_x || surface_y < origin_y ||
-        surface_x >= origin_x + content_w ||
-        surface_y >= origin_y + content_h) {
-        return out;
-    }
-
-    double display_x = (surface_x - origin_x) / scale;
-    double display_y = (surface_y - origin_y) / scale;
+    /* wp_viewport scales the full source rectangle independently on each
+     * axis to the destination size. Preserve that exact transform here. */
+    double display_x = surface_x * (double)display_w / (double)surface_w;
+    double display_y = surface_y * (double)display_h / (double)surface_h;
     int32_t x = (int32_t)floor(display_x);
     int32_t y = (int32_t)floor(display_y);
     if (x < 0) x = 0;
@@ -41,4 +30,10 @@ aaas_mapped_point aaas_map_surface_to_display(double surface_x, double surface_y
     out.y = y;
     out.inside = 1;
     return out;
+}
+
+int aaas_presented_geometry_ready(uint32_t surface_w, uint32_t surface_h,
+                                  uint32_t frame_w, uint32_t frame_h) {
+    return surface_w != 0 && surface_h != 0 &&
+           frame_w == surface_w && frame_h == surface_h;
 }

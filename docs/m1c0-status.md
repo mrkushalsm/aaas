@@ -83,7 +83,7 @@ frame/release socket. Pointer traffic cannot consume a frame-release packet.
 ### Host-side files
 
 - `experiments/m1a/src/input_v1.h`, `input_v1.c` — wire format and validation.
-- `experiments/m1a/src/input_map.h`, `input_map.c` — aspect-fit mapping.
+- `experiments/m1a/src/input_map.h`, `input_map.c` — viewport-aligned mapping.
 - `experiments/m1a/src/input_state.h`, `input_state.c` — receiver ordering.
 - `experiments/m1a/src/gpu_presenter.c` — `wl_seat`/`wl_pointer`, mapping,
   input socket accept/read, lifecycle handling.
@@ -151,13 +151,17 @@ Sequence and generation state reset when a new adapter connects.
 
 ## 5. Coordinate mapping
 
-The Android display is aspect-fitted into the Wayland surface, centered with
-letterboxing. Surface points outside the fitted content rectangle are rejected.
-Points inside are floored and clamped to the display bounds; the exact right and
-bottom edges are outside.
+The presenter sets the Wayland viewport destination to the configured surface
+size, stretching the complete source rectangle on each axis. Input coordinates
+therefore use the same independent x/y scale. During a resize, pointer mapping
+is rejected until an Android source frame matching the configured surface is
+active; an older frame remains visible through the viewport but its coordinates
+do not correspond to the newly resized Android display. Points are floored and
+clamped to display bounds; exact right and bottom edges are outside.
 
-Tested cases include identity, half size, double size, horizontal letterbox,
-vertical letterbox, exact edges, negative points, and zero dimensions.
+Tested cases include identity, half size, double size, nonuniform viewport
+stretch, odd heights, exact edges, negative points, zero dimensions, and the
+matching-frame readiness gate.
 
 ## 6. Lifecycle behavior
 
@@ -167,7 +171,8 @@ vertical letterbox, exact edges, negative points, and zero dimensions.
 - **Pointer button**: send BUTTON press/release; release without a matching
   press is ignored.
 - **Pointer leave**: release any pressed buttons first, then send FOCUS LEAVE.
-- **Move into letterbox**: same release-then-leave behavior.
+- **Move outside surface**: same release-then-leave behavior. During a resize,
+  pointer events are withheld until a matching Android source frame is active.
 - **Seat removal / pointer capability loss**: release buttons, leave focus,
   unbind pointer.
 - **Adapter connect**: send HELLO (display dimensions and generation), then

@@ -36,20 +36,31 @@ int main(void) {
     expect_point("double-center", 1280, 720, 2560, 1440, 1280, 720, 1, 640, 360);
     expect_point("double-last-pixel", 2559.9, 1439.9, 2560, 1440, 1280, 720, 1, 1279, 719);
 
-    /* Nonuniform surface: preserve aspect ratio and letterbox the sides. */
-    expect_point("letterbox-left-bar", 50, 300, 1280, 600, 1280, 720, 0, 0, 0);
-    expect_point("letterbox-right-bar", 1200, 300, 1280, 600, 1280, 720, 0, 0, 0);
-    expect_point("letterbox-content-center", 640, 300, 1280, 600, 1280, 720, 1, 640, 360);
-    expect_point("letterbox-content-left", 106.7, 300, 1280, 600, 1280, 720, 1, 0, 360);
-
-    /* Nonuniform surface: top/bottom letterboxing. */
-    expect_point("vertical-bar-top", 400, 20, 800, 600, 1280, 720, 0, 0, 0);
-    expect_point("vertical-bar-bottom", 400, 580, 800, 600, 1280, 720, 0, 0, 0);
-    expect_point("vertical-content-center", 400, 300, 800, 600, 1280, 720, 1, 640, 360);
+    /* wp_viewport stretches the full active buffer to the surface destination. */
+    expect_point("wide-surface-left-corner", 0, 0, 950, 1100, 720, 1280, 1, 0, 0);
+    expect_point("wide-surface-right-corner", 949.9, 0, 950, 1100, 720, 1280, 1, 719, 0);
+    expect_point("wide-surface-center", 475, 550, 950, 1100, 720, 1280, 1, 360, 640);
+    expect_point("wide-surface-bottom-right", 949.9, 1099.9, 950, 1100, 720, 1280, 1, 719, 1279);
+    expect_point("short-surface-top-right", 959.9, 0, 960, 578, 960, 578, 1, 959, 0);
+    expect_point("odd-height-bottom-right", 959.9, 556.9, 960, 557, 960, 557, 1, 959, 556);
+    expect_point("landscape-bottom-right", 1279.9, 719.9, 1280, 720, 1280, 720, 1, 1279, 719);
 
     /* Degenerate and future resize generations. */
     expect_point("zero-surface", 0, 0, 0, 0, 1280, 720, 0, 0, 0);
     expect_point("zero-display", 0, 0, 1280, 720, 0, 0, 0, 0, 0);
+
+    if (!aaas_presented_geometry_ready(960, 578, 960, 578)) {
+        fprintf(stderr, "FAIL matching frame must enable input\n");
+        failures++;
+    }
+    if (aaas_presented_geometry_ready(960, 565, 960, 557)) {
+        fprintf(stderr, "FAIL stale frame must disable input during configure\n");
+        failures++;
+    }
+    if (aaas_presented_geometry_ready(720, 1280, 960, 565)) {
+        fprintf(stderr, "FAIL resize-back must remain gated until matching frame\n");
+        failures++;
+    }
 
     if (failures) {
         fprintf(stderr, "%d input mapping test(s) failed\n", failures);

@@ -1951,3 +1951,33 @@ are kept outside the repository; the structured summary is
 The historical v4 SwiftShader stale-AHardwareBuffer ownership remains open;
 later healthy v10 ordering and corrected-patch resize results are not treated as
 a root-cause fix. M1E remains **PARTIAL**.
+
+### In-flight resize pointer mapping follow-up (2026-11-01)
+
+A default-mode live session exposed a mismatch between pointer coordinates and
+presentation: the presenter stretches the full source rectangle to the
+configured Wayland viewport destination, while the previous input transform
+used aspect-fit/letterbox math. `input_map.c` now uses the same per-axis stretch
+as `wp_viewport_set_destination`. `gpu_presenter.c` also rejects mapping while
+the active Android frame dimensions differ from the configured surface, and
+records the stale-frame interval. This prevents events from being sent to the
+new Android display using coordinates from an older displayed buffer.
+
+In session `m1b84_session_ijzzq43q`, Settings changed from 950×1100 to 960×565
+while Contacts stayed at 950×1100. During the mismatch the presenter recorded
+`input_mapping_blocked_until_matching_frame` with the old 950×1100 frame. The
+matching 960×565 Android source frame arrived later with a 3840-byte stride;
+then the mapping-ready event was recorded. A subsequent click at surface
+(400,64) mapped to Android (400,64), opened Search, and controlled typing
+visibly produced `alpha`. The run ended STOPPED. Settings and Contacts each
+reported imports=submissions=releases (1199 and 1195 respectively), zero
+outstanding buffers, zero teardown invalidations, and zero input drops.
+Structured details and hashes are in
+[`pointer_mapping_inflight_resize_20261101.json`](../results/m1e/live/pointer_mapping_inflight_resize_20261101.json).
+
+This is a bounded pointer correctness result, not a full corner/landscape/burst
+matrix. The click itself occurred after the matching frame; the stale interval
+was exercised by pointer enter/motion and mapping was blocked. The explicit
+stale-click rejection log added afterward is covered by the rebuilt presenter
+but was not itself observed in that live run. Activity-transition key loss
+remains unresolved and M1E remains PARTIAL.
