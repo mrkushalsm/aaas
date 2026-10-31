@@ -966,3 +966,72 @@ The SurfaceFlinger `PC 0x12bf` fault in `/memfd:swiftshader_jit (deleted)`
 remains unresolved. No shader/pipeline or graphics allocation identity has
 been tied to the faulting instruction. No SwiftShader correction is claimed,
 and M1E remains **PARTIAL**.
+
+### Executable presenter lifetime regression and JIT access analysis
+
+The presenter UAF regression now uses an in-process Wayland server/client with
+real `wl_keyboard` and XKB objects. Its control run dispatches a queued enter
+while state is live; its teardown run queues the same event, destroys the
+keyboard proxy, releases XKB objects, then drains the queue and confirms the
+callback is discarded. Both paths passed in a separate ASan/UBSan build, and
+the full M1A test target passed from `/tmp`. This exercises the proxy/event
+lifetime contract, but is not a forced KWin or Android producer-disconnect
+reproduction. See
+[`presenter_queued_keyboard_teardown_validation_20261031.json`](../results/m1e/live/presenter_queued_keyboard_teardown_validation_20261031.json).
+
+A complete tombstone from `m1b84_session_wpoyddeu` decodes the SwiftShader JIT
+instruction as `movq (%rcx,%rax,1),%xmm1`, an 8-byte read. Its effective
+address is exactly the end-exclusive address of a writable `/i915` mapping.
+`R8` is at offset `564 * 3840`, the start of the last row if this mapping is
+the observed 960×565, 3840-byte-stride source buffer; `RCX` is 1280 bytes into
+that row and `RAX` adds one stride. The computed address is therefore
+consistent with a read at row 565, x=320, outside that candidate image. The
+tombstone contains several same-sized `/i915` mappings and no DMA-BUF,
+AHardwareBuffer, GraphicBuffer, Vulkan image, pipeline, or display-generation
+identity. This arithmetic narrows the failure but does not prove which
+allocation or shader was accessed, nor whether resize caused it. Reactor JIT
+debug info was disabled in the Release build. No persistent source-checkout
+change or SwiftShader correction is claimed. Full decoded evidence and exact
+external artifact hashes are in
+[`swiftshader_fault_instruction_analysis_20261031.json`](../results/m1e/live/swiftshader_fault_instruction_analysis_20261031.json).
+
+The verified baseline overlay was built from SwiftShader revision
+`cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5` with the existing sampling-cache
+lock overlay SHA-256 `1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`.
+The pre-existing dirty external source checkout is preserved. A temporary,
+opt-in Subzero instrumentation patch was built into a separate overlay. It
+records bounded JIT entry names, executable address ranges, and retirement
+events to a session-bound file. One single-app run captured 20 named entries;
+one two-app run captured 21. Both reached `STOPPED` with exact presenter
+release accounting. These were no-resize instrumentation checks, not crash
+reproductions. The production overlay hash was unchanged. The diagnostic
+stderr path was not captured by session logs, so the trace uses the bound IPC
+directory. See
+[`swiftshader_jit_routine_trace_20261031.json`](../results/m1e/live/swiftshader_jit_routine_trace_20261031.json)
+and the reproducible patch at
+[`swiftshader_subzero_jit_trace.patch`](../experiments/m1e/patches/swiftshader_subzero_jit_trace.patch).
+
+A first AHardwareBuffer trace build did fail because the host C++ command
+lacked Android platform declarations. A later manually compiled trace object
+captured two AHardwareBuffer IDs during a separate diagnostic startup. Both
+logged bases exactly matched `/i915` mapping starts; each mapping was 3,768,320
+bytes, matching `stride 736 * 4 * height 1280`. This validates the pointer-to-
+AHB mapping only for that diagnostic process. It does not identify an
+allocation from the historical `0x12bf` fault.
+
+That full diagnostic overlay then crashed SurfaceFlinger during startup, before
+any resize, in `AHardwareBufferExternalMemory::exportAndroidHardwareBuffer`,
+with `rbp=1` and a store through that invalid base. Its Build ID was a one-off
+trace build assembled from selected objects while retaining other objects
+built against modified external headers. The stack and Build ID distinguish
+this instrumentation/ABI failure from the historical JIT fault. The failed
+run and hashes are recorded in
+[`swiftshader_ahb_trace_diagnostic_overlay_20261031.json`](../results/m1e/live/swiftshader_ahb_trace_diagnostic_overlay_20261031.json).
+That overlay is not suitable for further runtime tests. The expected
+sampling-lock overlay was reconstructed and its pinned SHA-256 and Build ID
+were verified before restoring the runtime path.
+
+No resize was attempted with the full diagnostic overlay. The routine-only
+trace still does not identify the historical fault's data allocation or
+resize generation. No SwiftShader fix is claimed; the concurrent-resize crash
+remains unresolved and M1E remains **PARTIAL**.
