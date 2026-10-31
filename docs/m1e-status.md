@@ -851,3 +851,83 @@ stability failure during a simultaneous resize transition, not a successful
 resize stress result. No speculative fix or JIT-disable workaround was
 applied. Further crash stress should wait until better tombstone and JIT
 mapping capture is available. M1E remains **PARTIAL**.
+
+### Tombstone capture and controlled concurrent-resize reproduction (2026-10-31)
+
+Before another resize attempt, a disposable child-process SIGSEGV verified the
+Android `tombstoned`/debuggerd export path. The child tombstone was captured,
+hashed, and stored in a session-private directory (0700; tombstone and manifest
+files 0600); the session journal and sentinel both reached STOPPED. This test
+did not crash SurfaceFlinger. See
+[`swiftshader_crash_capture_20261031.json`](../results/m1e/live/swiftshader_crash_capture_20261031.json).
+
+A subsequent bounded default-LMKD run reproduced the SurfaceFlinger failure
+while both displays resized from 960×557 to 960×565. The KWin configure events
+were 1,748 ns apart. Both first emitted stale 960×557 frames, then genuine
+960×565 buffers at stride 3840. The clock domains were aligned by converting
+presenter monotonic timestamps to UTC; the two stale-frame timestamps align
+with the corresponding SurfaceFlinger `Unexpected onFrameCommitted in Gpu
+state` logs within 1 ms. SurfaceFlinger crashed about 163 ms after the second
+matching 960×565 frame. This is strong evidence for a concurrent-resize
+association, not proof that resize is the underlying cause.
+
+This run's complete available tombstone text and protobuf were preserved in the
+external session directory. It records all available thread backtraces, 1,066
+memory-map entries, JIT mapping boundaries/permissions, and bytes around RIP.
+The crash is SIGSEGV/SEGV_MAPERR at JIT PC offset `0x12bf`, in
+`Thread<05>`. The captured instruction decodes as a generated-code 8-byte load
+from `rcx + rax`; the computed address is immediately beyond an `/i915`
+mapping. Register arithmetic is consistent with reading a next row from a
+960×565 image with 3840-byte stride. The tombstone cannot identify which
+GraphicBuffer owns that mapping or which SwiftShader shader/pipeline generated
+the code, so this is an out-of-mapping access clue, not a root-cause finding.
+The exact higher-level defect remains unknown; no speculative graphics fix or
+JIT-disable workaround was applied.
+
+The crash run used Vulkan overlay SHA-256
+`1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`
+(Build ID `48176d3bf7c52ad4a2e1c8445fac8d52b83864ba`) with source base revision
+`cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5` and the recorded dirty local
+changes. Historical sessions did not preserve their exact runtime Vulkan
+binary identity, so binary equivalence with those runs is unverified.
+
+The original crash-run capture manifest said `timeout` because the 2-second
+host wait expired; the watcher acknowledgement arrived 3.598 seconds after the
+request. The crash tombstone was nevertheless among the 100 exported files.
+The host wait is now a bounded 10 seconds. A post-change disposable-child run
+returned `complete` and STOPPED cleanly. This verifies capture plumbing, not a
+second SurfaceFlinger crash capture with the longer timeout.
+
+Failure teardown remained bounded. Both presenters emitted terminal summaries
+with imports=submissions=releases, zero outstanding buffers, and zero teardown
+invalidations. The broker could not acknowledge display release after
+SurfaceFlinger died; the runner retained FAILED, terminated the session-owned
+process group, and no matching runtime, presenter, adapter, or SurfaceFlinger
+process remained. This is failure-cleanup evidence, not successful Android
+display release or a clean runtime stop. The host had about 6.3 GiB
+MemAvailable and 3.7 GiB SwapFree at failure, so these snapshots do not support
+host-wide memory exhaustion as the direct cause.
+
+The full tombstone, resize timeline, buffer accounting, provenance hashes,
+and failure-cleanup record are in
+[`swiftshader_resize_reproduction_20261031.json`](../results/m1e/live/swiftshader_resize_reproduction_20261031.json).
+The failure is reproducible enough to block M1E closure, but the exact JIT
+shader/resource lifetime cause is not yet isolated. No further aggressive
+resize stress was run after this informative crash.
+
+The first attempt to validate a narrower tombstone export filter failed before
+Android framework startup because a single-quoted fixed grep expression broke
+the generated shell's enclosing command. That session is retained as a failed
+test, not counted as capture evidence. After changing that pattern to double
+quotes, a second disposable-child test reached RUNNING, exported exactly the
+matching text and protobuf tombstones (no unrelated tombstones), and reached
+STOPPED in both the journal and sentinel. The export directory remained 0700
+and the artifacts 0600. See
+[`swiftshader_capture_filter_validation_20261031.json`](../results/m1e/live/swiftshader_capture_filter_validation_20261031.json).
+
+After the filter change, the repository regression run passed 178 Python
+tests. M1A, the forced presenter build/tests, the Android input-adapter build,
+the Composer copy/transport component tests (compiled in `/tmp` to leave the
+inherited untracked Composer build directory untouched), the broker build, and
+the workspace guard also passed. No concurrent-resize stress was repeated
+after the informative SurfaceFlinger crash.
