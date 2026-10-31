@@ -12,6 +12,56 @@ SPEC.loader.exec_module(TRACE)
 
 
 class BufferCorrelationTests(unittest.TestCase):
+    def test_memory_retirement_requires_draw_completion_and_prior_sync(self):
+        events = [
+            {'event': 'AAAS_AHB_VK_IMPORT', 'memory_id': 77},
+            {'event': 'AAAS_DESCRIPTOR_IMAGE', 'set_id': 4, 'memory_id': 77},
+            {'event': 'AAAS_DRAW_ENQUEUE', 'submit_id': 9, 'draw_id': 2,
+             'set1_id': 4},
+            {'event': 'AAAS_DRAW_COMPLETE', 'submit_id': 9, 'draw_id': 2},
+            {'event': 'AAAS_QUEUE_RENDERER_SYNC_DONE', 'submit_id': 9},
+            {'event': 'AAAS_AHB_VK_REF_RELEASE_END', 'memory_id': 77},
+        ]
+        result = TRACE.correlate_memory_retirement(events)
+        row = result['resources'][0]
+        self.assertEqual(row['classification'], 'OBSERVED_DRAW_SYNC_RELEASE_ORDER')
+        self.assertEqual(row['linked_draw_count'], 1)
+
+    def test_memory_retirement_flags_release_before_completion(self):
+        events = [
+            {'event': 'AAAS_AHB_VK_IMPORT', 'memory_id': 77},
+            {'event': 'AAAS_DESCRIPTOR_IMAGE', 'set_id': 4, 'memory_id': 77},
+            {'event': 'AAAS_DRAW_ENQUEUE', 'submit_id': 9, 'draw_id': 2,
+             'set0_id': 4},
+            {'event': 'AAAS_AHB_VK_REF_RELEASE_END', 'memory_id': 77},
+            {'event': 'AAAS_DRAW_COMPLETE', 'submit_id': 9, 'draw_id': 2},
+            {'event': 'AAAS_QUEUE_RENDERER_SYNC_DONE', 'submit_id': 9},
+        ]
+        row = TRACE.correlate_memory_retirement(events)['resources'][0]
+        self.assertEqual(row['classification'], 'RELEASE_WITH_INCOMPLETE_DRAW')
+
+    def test_memory_retirement_keeps_missing_release_unclassified(self):
+        events = [
+            {'event': 'AAAS_AHB_VK_IMPORT', 'memory_id': 77},
+            {'event': 'AAAS_DESCRIPTOR_IMAGE', 'set_id': 4, 'memory_id': 77},
+            {'event': 'AAAS_DRAW_ENQUEUE', 'submit_id': 9, 'draw_id': 2,
+             'set1_id': 4},
+            {'event': 'AAAS_DRAW_COMPLETE', 'submit_id': 9, 'draw_id': 2},
+            {'event': 'AAAS_QUEUE_RENDERER_SYNC_DONE', 'submit_id': 9},
+        ]
+        row = TRACE.correlate_memory_retirement(events)['resources'][0]
+        self.assertEqual(row['classification'], 'NO_EXPLICIT_RELEASE_OBSERVED')
+
+    def test_read_draws_includes_descriptor_and_release_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            trace = Path(temporary) / 'trace.log'
+            trace.write_text(
+                'mono_ns=1 pid=3 AAAS_DESCRIPTOR_IMAGE set_id=4 memory_id=77\n'
+                'mono_ns=2 pid=3 AAAS_AHB_VK_REF_RELEASE_END memory_id=77\n')
+            self.assertEqual([e['event'] for e in TRACE.read_draws(trace)],
+                             ['AAAS_DESCRIPTOR_IMAGE',
+                              'AAAS_AHB_VK_REF_RELEASE_END'])
+
     def test_joins_only_by_allocator_identity_and_reports_generation(self):
         composer = [{
             'display': 3, 'slot': 1, 'generation': 8, 'buffer_id': 177,

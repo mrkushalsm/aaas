@@ -61,17 +61,111 @@ def read_swiftshader(path):
 def read_draws(path):
     events = []
     for line in Path(path).read_text(errors="replace").splitlines():
-        kind_match = re.search(r"\b(AAAS_DRAW_[A-Z_]+|AAAS_JIT_ENTRY)\b", line)
+        kind_match = re.search(
+            r"\b(AAAS_(?:DRAW_[A-Z_]+|JIT_ENTRY|DESCRIPTOR_IMAGE|"
+            r"QUEUE_RENDERER_SYNC_DONE|AHB_VK_IMPORT|"
+            r"AHB_VK_REF_RELEASE_END))\b", line)
         if not kind_match:
             continue
         row = fields(line)
         row["event"] = kind_match.group(1)
         for key in ("pid", "tid", "mono_ns", "id", "submit_id", "draw_id",
-                    "pipeline_id", "memory_id", "image_id", "view_id"):
+                    "pipeline_id", "memory_id", "image_id", "view_id",
+                    "set_id", "set0_id", "set1_id", "binding", "element",
+                    "width", "height", "stride"):
             if key in row:
                 row[key] = number(row, key)
         events.append(row)
     return events
+
+
+def correlate_memory_retirement(events):
+    """Compare traced descriptor use, renderer completion, sync, and release.
+
+    This reports event-order observations only. It does not infer Vulkan
+    happens-before guarantees from log order or claim that all resource users
+    were instrumented.
+    """
+    descriptors = {}
+    draws = {}
+    syncs = {}
+    releases = {}
+    imported_memory = set()
+    for index, event in enumerate(events):
+        kind = event.get("event")
+        if kind == "AAAS_AHB_VK_IMPORT" and "memory_id" in event:
+            imported_memory.add(event["memory_id"])
+        elif kind == "AAAS_DESCRIPTOR_IMAGE" and "set_id" in event:
+            descriptors.setdefault(event["set_id"], []).append(event)
+        elif kind == "AAAS_DRAW_ENQUEUE":
+            key = (event.get("submit_id"), event.get("draw_id"))
+            refs = []
+            for set_key in ("set0_id", "set1_id"):
+                set_id = event.get(set_key)
+                if set_id is not None:
+                    refs.extend(descriptors.get(set_id, []))
+            draws[key] = {"enqueue_index": index, "submit_id": event.get("submit_id"),
+                          "draw_id": event.get("draw_id"), "memory_ids": sorted({
+                              ref["memory_id"] for ref in refs
+                              if "memory_id" in ref}),
+                          "complete_index": None}
+        elif kind == "AAAS_DRAW_COMPLETE":
+            key = (event.get("submit_id"), event.get("draw_id"))
+            draws.setdefault(key, {"enqueue_index": None,
+                "submit_id": event.get("submit_id"), "draw_id": event.get("draw_id"),
+                "memory_ids": [], "complete_index": None})["complete_index"] = index
+        elif kind == "AAAS_QUEUE_RENDERER_SYNC_DONE" and "submit_id" in event:
+            syncs.setdefault(event["submit_id"], []).append(index)
+        elif kind == "AAAS_AHB_VK_REF_RELEASE_END" and "memory_id" in event:
+            releases.setdefault(event["memory_id"], []).append(index)
+
+    per_memory = {}
+    for draw in draws.values():
+        for memory_id in (mid for mid in draw["memory_ids"]
+                          if mid in imported_memory):
+            row = per_memory.setdefault(memory_id, {"draws": [], "sync_indices": []})
+            row["draws"].append(draw)
+            row["sync_indices"].extend(syncs.get(draw["submit_id"], []))
+
+    results = []
+    for memory_id, row in sorted(per_memory.items()):
+        release_indices = releases.get(memory_id, [])
+        last_release = max(release_indices) if release_indices else None
+        relevant = [draw for draw in row["draws"]
+                    if last_release is None or draw["enqueue_index"] < last_release]
+        incomplete = [draw for draw in relevant
+                      if draw["complete_index"] is None or
+                      (last_release is not None and
+                       draw["complete_index"] > last_release)]
+        completion = max((draw["complete_index"] for draw in relevant
+                          if draw["complete_index"] is not None), default=None)
+        sync = max((idx for idx in row["sync_indices"]
+                    if last_release is None or idx < last_release), default=None)
+        if last_release is None:
+            classification = "NO_EXPLICIT_RELEASE_OBSERVED"
+        elif incomplete:
+            classification = "RELEASE_WITH_INCOMPLETE_DRAW"
+        elif completion is None:
+            classification = "RELEASE_WITHOUT_LINKED_DRAW_COMPLETION"
+        elif sync is None:
+            classification = "RELEASE_WITHOUT_PRIOR_RENDERER_SYNC"
+        elif completion < sync < last_release:
+            classification = "OBSERVED_DRAW_SYNC_RELEASE_ORDER"
+        else:
+            classification = "RELEASE_ORDER_NOT_ESTABLISHED"
+        results.append({"memory_id": memory_id,
+            "linked_draw_count": len(relevant),
+            "last_draw_complete_index": completion,
+            "last_renderer_sync_index": sync,
+            "release_index": last_release,
+            "release_count": len(release_indices),
+            "classification": classification})
+    return {"schema_version": 1,
+            "semantics": "trace event order, not independent happens-before proof",
+            "memory_count_with_observed_draw_references": len(results),
+            "classifications": {name: sum(r["classification"] == name for r in results)
+                                for name in sorted({r["classification"] for r in results})},
+            "resources": results}
 
 
 def correlate(swiftshader, composer):
@@ -161,6 +255,8 @@ def main():
     parser.add_argument("--composer", type=Path, required=True)
     parser.add_argument("--include-draws", action="store_true",
                         help="also join draw targets to AHardwareBuffer and Composer IDs")
+    parser.add_argument("--include-lifetimes", action="store_true",
+                        help="summarize traced draw/sync/release event ordering")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     result = correlate(read_swiftshader(args.swiftshader),
@@ -170,6 +266,9 @@ def main():
         composer_records = read_composer(args.composer)
         result["draw_resource_correlations"] = correlate_draw_resources(
             read_draws(args.swiftshader), imports, composer_records)
+    if args.include_lifetimes:
+        result["memory_retirement_observations"] = correlate_memory_retirement(
+            read_draws(args.swiftshader))
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered)

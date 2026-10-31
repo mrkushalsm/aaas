@@ -1874,3 +1874,17 @@ SwiftShader overlay remains unchanged. Details, monotonic request times, trace
 and log hashes are in
 [swiftshader_v10_two_output_resize_trace_20261101.json](../results/m1e/live/swiftshader_v10_two_output_resize_trace_20261101.json).
 M1E remains **PARTIAL**.
+
+### Reproducible v10 memory-retirement trace analysis (2026-11-01)
+
+The trace analyzer now parses descriptor image bindings, draw enqueue/completion,
+queue renderer synchronization, imported AHardwareBuffer memory IDs, and release
+records. Four deterministic tests cover valid ordering, release-before-completion,
+missing release, and parsing of release events. Reanalysis of session
+`m1b84_session_30bampm8` produced 34 imported descriptor-referenced allocations
+with observed draw-completion → renderer-sync → release order and 7 allocations
+without an explicit release before process exit. This agrees with the prior
+manual 34/7 summary. The analyzer reports trace order only; it does not establish
+independent Vulkan happens-before or identify the allocation from the historical
+v4 fault. See
+[swiftshader_v10_lifetime_order_reanalysis_20261101.json](../results/m1e/live/swiftshader_v10_lifetime_order_reanalysis_20261101.json).
