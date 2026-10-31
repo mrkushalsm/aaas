@@ -718,3 +718,43 @@ and 107 seconds respectively with concurrent rendering and twenty alternating
 text edits each. Neither log contains the historical JIT SIGSEGV signature.
 These were not resize or close/reopen stress runs, so the crash remains
 unresolved and no fix or crash-free claim is made.
+
+### Default-mode editing-key acceptance follow-up (2026-10-31)
+
+A further default-LMKD live session ran Settings and Contacts simultaneously
+(task IDs 8/9, Android display IDs 2/3) and exercised ordinary Android text
+widgets using controlled synthetic `/dev/uinput` keys. Visible captures verified
+Home, End, Left/Right cursor movement, Backspace, Forward Delete, Tab focus
+traversal, Shift+Left selection, Caps Lock text case, Ctrl+A replacement, and
+Enter moving Contacts from First name to Last name. A Shift key was held through
+a KWin focus transfer, released after the new Settings focus acknowledgement,
+and the following `A` appeared lowercase; this shows no Shift effect at the new
+target, but does not establish that a held modifier is automatically released
+before an explicit key-up. The captures are
+[`final_key_matrix_default_20261031.png`](../results/m1e/live/final_key_matrix_default_20261031.png),
+[`final_key_caps_default_20261031.png`](../results/m1e/live/final_key_caps_default_20261031.png),
+[`final_key_shift_selection_default_20261031.png`](../results/m1e/live/final_key_shift_selection_default_20261031.png),
+[`final_key_enter_default_20261031.png`](../results/m1e/live/final_key_enter_default_20261031.png),
+and
+[`final_modifier_focus_switch_default_20261031.png`](../results/m1e/live/final_modifier_focus_switch_default_20261031.png).
+The key-by-key observations and artifact hashes are in
+[`final_key_matrix_default_20261031.json`](../results/m1e/live/final_key_matrix_default_20261031.json).
+
+This was a default-mode synthetic-input check only. Escape/Back, Up/Down,
+Ctrl/Alt shortcuts, repeat, and modifier cleanup on close/reopen remain
+untested. Logcat contained nine no-focused-window warnings and no ANR
+signature; the warnings were counted but not correlated individually with the
+focus requests. Both apps were RUNNING immediately before shutdown and the
+journal and status sentinel reached `STOPPED`. Contacts' presenter reported
+653 imports/submissions/releases with zero outstanding and zero teardown
+invalidations. Settings' producer disconnected, but its presenter log contained
+no final summary, so this run does not establish its terminal buffer count.
+Earlier accepted per-output clean-drain evidence remains separate.
+
+A KWin scripting probe exposed geometry for observation but did not expose a
+callable resize method for these xdg toplevels. The method call failed before
+changing geometry; no resize, landscape, resize-back, or post-resize input
+acceptance is claimed from this session. Horizontal/touchpad source coverage,
+enhanced-mode modifier acceptance, combined lifecycle stress, and the bounded
+SwiftShader resize/teardown investigation also remain open. M1E remains
+**PARTIAL**.
