@@ -758,3 +758,28 @@ acceptance is claimed from this session. Horizontal/touchpad source coverage,
 enhanced-mode modifier acceptance, combined lifecycle stress, and the bounded
 SwiftShader resize/teardown investigation also remain open. M1E remains
 **PARTIAL**.
+
+### Enhanced-mode visible editor isolation follow-up (2026-10-31)
+
+A bounded source-LMKD/cgroup session launched Settings task 8 on display 2 and
+Contacts task 9 on display 3. Controlled synthetic input changed Contacts'
+First name field to `kappaOMEGA` using Ctrl+A and Caps Lock, then switched to
+Settings and changed its Search field to `sigma`. The simultaneous desktop
+capture shows both values and the unchanged unfocused Contacts field after the
+Settings edit in
+[`final_enhanced_input_isolation_20261031.png`](../results/m1e/live/final_enhanced_input_isolation_20261031.png);
+[`final_enhanced_caps_modifier_20261031.png`](../results/m1e/live/final_enhanced_caps_modifier_20261031.png)
+shows the Contacts modifier result. The structured record is
+[`final_enhanced_input_isolation_20261031.json`](../results/m1e/live/final_enhanced_input_isolation_20261031.json).
+
+Both app slots remained RUNNING during interaction. The log recorded eight
+InputDispatcher no-focused-window warnings and no ANR signature; warning-level
+correlation is still incomplete. At shutdown, Settings had 348/348 and
+Contacts 329/329 imports/submissions/releases, zero outstanding buffers, and
+zero teardown invalidations. Journal and sentinel reached `STOPPED`, the
+source LMKD policy summary reported 34 ticks, zero errors, and no degraded
+state, and the delegated cgroup was removed. This is enhanced-mode visible
+input and cleanup evidence for a subset of keyboard behavior only; no resize,
+landscape, minimize, close/reopen, or capacity stress occurred in this run.
+The key matrix and resize interaction gates remain open, so M1E remains
+**PARTIAL**.
