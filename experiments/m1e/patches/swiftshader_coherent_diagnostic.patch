@@ -920,10 +920,10 @@ index 884fd49..ab64efc 100644
  
  #if VK_USE_PLATFORM_FUCHSIA
 diff --git a/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp b/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
-index 01813c6..934cf53 100644
+index 01813c6..9db7980 100644
 --- a/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
 +++ b/src/Vulkan/VkDeviceMemoryExternalAndroid.cpp
-@@ -20,6 +20,47 @@
+@@ -20,6 +20,80 @@
  #include "VkPhysicalDevice.hpp"
  #include "VkStringify.hpp"
  #include "System/Debug.hpp"
@@ -936,6 +936,7 @@ index 01813c6..934cf53 100644
 +#include <cstdio>
 +#include <fcntl.h>
 +#include <sys/syscall.h>
++#include <sys/stat.h>
 +#include <time.h>
 +#include <unistd.h>
 +
@@ -966,23 +967,58 @@ index 01813c6..934cf53 100644
 +	(void)write(fd, line, length);
 +	close(fd);
 +}
++
++struct AaasNativeBufferIdentity
++{
++	uint64_t bufferId = 0;
++	uint64_t device = 0;
++	uint64_t inode = 0;
++};
++
++AaasNativeBufferIdentity aaasNativeBufferIdentity(const AHardwareBuffer *buffer)
++{
++	AaasNativeBufferIdentity identity{};
++	const native_handle_t *handle = AHardwareBuffer_getNativeHandle(buffer);
++	if(handle == nullptr) return identity;
++	if(handle->numFds > 0 && handle->numInts >= 10 &&
++	   static_cast<uint32_t>(handle->data[handle->numFds]) == 0x61616173)
++	{
++		const int32_t *metadata = &handle->data[handle->numFds];
++		identity.bufferId =
++		    (static_cast<uint64_t>(static_cast<uint32_t>(metadata[9])) << 32) |
++		    static_cast<uint32_t>(metadata[8]);
++	}
++	if(handle->numFds > 0)
++	{
++		struct stat info{};
++		if(fstat(handle->data[0], &info) == 0)
++		{
++			identity.device = static_cast<uint64_t>(info.st_dev);
++			identity.inode = static_cast<uint64_t>(info.st_ino);
++		}
++	}
++	return identity;
++}
 +}
 +#endif
  
  namespace {
  
-@@ -228,9 +269,25 @@ void AHardwareBufferExternalMemory::freeBuffer()
+@@ -228,9 +302,28 @@ void AHardwareBufferExternalMemory::freeBuffer()
  {
  	if(ahb != nullptr)
  	{
 +#if defined(AAAS_SWIFTSHADER_JIT_TRACE) && !defined(_WIN32)
 +		uint64_t id = 0;
 +		(void)AHardwareBuffer_getId(ahb, &id);
++		AaasNativeBufferIdentity native = aaasNativeBufferIdentity(ahb);
 +		uint64_t memoryId = vk::AaasDiagnosticObjectId(this);
 +		uint32_t rowStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].rowStride : 0;
 +		uint32_t pixelStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].pixelStride : 0;
-+		aaasAhbTrace("AAAS_AHB_VK_REF_RELEASE_BEGIN id=%llu memory_id=%llu memory=%p base=%p width=%u height=%u stride=%u format=%u layers=%u plane_count=%u row_stride=%u pixel_stride=%u",
-+		             static_cast<unsigned long long>(id), static_cast<unsigned long long>(memoryId), this, buffer, ahbDesc.width,
++		aaasAhbTrace("AAAS_AHB_VK_REF_RELEASE_BEGIN id=%llu buffer_id=%llu dma_dev=%llu dma_ino=%llu memory_id=%llu memory=%p base=%p width=%u height=%u stride=%u format=%u layers=%u plane_count=%u row_stride=%u pixel_stride=%u",
++		             static_cast<unsigned long long>(id), static_cast<unsigned long long>(native.bufferId),
++		             static_cast<unsigned long long>(native.device), static_cast<unsigned long long>(native.inode),
++		             static_cast<unsigned long long>(memoryId), this, buffer, ahbDesc.width,
 +		             ahbDesc.height, ahbDesc.stride, ahbDesc.format, ahbDesc.layers,
 +		             ahbPlanes.planeCount, rowStride, pixelStride);
 +#endif
@@ -997,7 +1033,7 @@ index 01813c6..934cf53 100644
  		ahb = nullptr;
  	}
  }
-@@ -242,7 +299,24 @@ VkResult AHardwareBufferExternalMemory::importAndroidHardwareBuffer(AHardwareBuf
+@@ -242,7 +335,27 @@ VkResult AHardwareBufferExternalMemory::importAndroidHardwareBuffer(AHardwareBuf
  	AHardwareBuffer_acquire(ahb);
  	AHardwareBuffer_describe(ahb, &ahbDesc);
  
@@ -1008,11 +1044,14 @@ index 01813c6..934cf53 100644
 +	{
 +		uint64_t id = 0;
 +		(void)AHardwareBuffer_getId(ahb, &id);
++		AaasNativeBufferIdentity native = aaasNativeBufferIdentity(ahb);
 +		uint64_t memoryId = vk::AaasDiagnosticObjectId(this);
 +		uint32_t rowStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].rowStride : 0;
 +		uint32_t pixelStride = ahbPlanes.planeCount ? ahbPlanes.planes[0].pixelStride : 0;
-+		aaasAhbTrace("AAAS_AHB_VK_IMPORT id=%llu memory_id=%llu memory=%p base=%p allocation=%llu width=%u height=%u stride=%u format=%u layers=%u usage=0x%llx plane_count=%u row_stride=%u pixel_stride=%u",
-+		             static_cast<unsigned long long>(id), static_cast<unsigned long long>(memoryId), this, *pBuffer,
++		aaasAhbTrace("AAAS_AHB_VK_IMPORT id=%llu buffer_id=%llu dma_dev=%llu dma_ino=%llu memory_id=%llu memory=%p base=%p allocation=%llu width=%u height=%u stride=%u format=%u layers=%u usage=0x%llx plane_count=%u row_stride=%u pixel_stride=%u",
++		             static_cast<unsigned long long>(id), static_cast<unsigned long long>(native.bufferId),
++		             static_cast<unsigned long long>(native.device), static_cast<unsigned long long>(native.inode),
++		             static_cast<unsigned long long>(memoryId), this, *pBuffer,
 +		             static_cast<unsigned long long>(allocationSize), ahbDesc.width,
 +		             ahbDesc.height, ahbDesc.stride, ahbDesc.format, ahbDesc.layers,
 +		             static_cast<unsigned long long>(ahbDesc.usage),
@@ -1023,7 +1062,7 @@ index 01813c6..934cf53 100644
  }
  
  VkResult AHardwareBufferExternalMemory::allocateAndroidHardwareBuffer(size_t size, void **pBuffer)
-@@ -317,9 +391,18 @@ VkResult AHardwareBufferExternalMemory::lockAndroidHardwareBuffer(void **pBuffer
+@@ -317,9 +430,18 @@ VkResult AHardwareBufferExternalMemory::lockAndroidHardwareBuffer(void **pBuffer
  	ARect *rect = nullptr;
  
  	int ret = AHardwareBuffer_lockPlanes(ahb, usage, fence, rect, &ahbPlanes);
@@ -1044,7 +1083,7 @@ index 01813c6..934cf53 100644
  	}
  
  	*pBuffer = ahbPlanes.planes[0].data;
-@@ -424,6 +507,12 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferFormatProperties
+@@ -424,6 +546,12 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferFormatProperties
  		pFormat->format = VK_FORMAT_UNDEFINED;
  	}
  
@@ -1057,7 +1096,7 @@ index 01813c6..934cf53 100644
  	return VK_SUCCESS;
  }
  
-@@ -443,8 +532,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
+@@ -443,8 +571,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
  		}
  	}
  
@@ -1067,7 +1106,7 @@ index 01813c6..934cf53 100644
  
  	if(ahbDesc.format == AHARDWAREBUFFER_FORMAT_BLOB)
  	{
-@@ -453,7 +541,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
+@@ -453,7 +580,7 @@ VkResult AHardwareBufferExternalMemory::GetAndroidHardwareBufferProperties(VkDev
  	else
  	{
  		VkImageCreateInfo info = {};

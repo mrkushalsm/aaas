@@ -143,6 +143,7 @@ struct VirtualBufferSlot {
     uint32_t stride = 0;
     uint32_t format = 0;
     uint32_t allocation_size = 0;
+    uint64_t buffer_id = 0;
     uint64_t generation = 0;
 };
 
@@ -712,6 +713,13 @@ private:
             slot.stride = handle_stride;
             slot.format = handle_format;
             slot.allocation_size = static_cast<uint32_t>(handle.ints[7]);
+            if (handle.ints.size() >= 10) {
+                slot.buffer_id =
+                        (static_cast<uint64_t>(static_cast<uint32_t>(handle.ints[9])) << 32) |
+                        static_cast<uint32_t>(handle.ints[8]);
+            } else {
+                slot.buffer_id = 0;
+            }
             ++slot.generation;
         } else if (slot.dma_fd < 0 ||
                    (width > 0 && slot.width != static_cast<uint32_t>(width)) ||
@@ -886,9 +894,16 @@ private:
         releases.display = display;
         results->push_back(CommandResultPayload::make<CommandResultPayload::Tag::releaseFences>(
             std::move(releases)));
-        kmsg_log("[AaasComposerClient] virtual output frame display=%lld slot=%u generation=%llu command=%zu\n",
+        struct stat dma_stat = {};
+        const bool have_dma_stat = output.dma_fd >= 0 && fstat(output.dma_fd, &dma_stat) == 0;
+        kmsg_log("[AaasComposerClient] virtual output frame display=%lld slot=%u generation=%llu buffer_id=%llu width=%u height=%u stride=%u dma_dev=%llu dma_ino=%llu command=%zu\n",
                  (long long)display, frame.slot,
-                 (unsigned long long)output.generation, command_index);
+                 (unsigned long long)output.generation,
+                 (unsigned long long)output.buffer_id, output.width, output.height,
+                 output.stride,
+                 static_cast<unsigned long long>(have_dma_stat ? dma_stat.st_dev : 0),
+                 static_cast<unsigned long long>(have_dma_stat ? dma_stat.st_ino : 0),
+                 command_index);
         return true;
     }
 
