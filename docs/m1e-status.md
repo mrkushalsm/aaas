@@ -661,3 +661,26 @@ the external workspace session directories.
 The full regression set was rerun after these sessions: 171 Python tests,
 M1A tests, forced presenter build/tests, forced input-adapter build, Composer
 component tests, display-broker build, and workspace guard all passed.
+
+### SwiftShader JIT bounded review update (2026-10-31)
+
+The retained failure log for `m1b84_session_byh_9r3y` confirms SurfaceFlinger
+pid 186 / tid 216 (`Thread<05>`) received SIGSEGV code `SEGV_ACCERR` at 65
+seconds of process uptime. Logcat contains only one backtrace frame at PC
+`0x12bf` in `/memfd:swiftshader_jit (deleted)` and notes `tombstone_13`; the
+complete tombstone artifact and JIT code mapping were not retained. The
+historical log SHA-256 is recorded in `acceptance.json`. The known SwiftShader
+source checkout is revision `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5`; the
+M1B.8.3 sampling-lock overlay was `1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`
+(build ID `48176d3bf7c52ad4a2e1c8445fac8d52b83864ba`). The failed session did
+not retain the effective `AAAS_VULKAN_OVERLAY` environment value, so the
+historical crash cannot be tied conclusively to that exact overlay. The
+current workspace's default overlay file hashes to the original baseline
+binary; this current file state is not proof of which binary the earlier
+session loaded.
+
+The new default and enhanced focus-typing sessions ran for approximately 496
+and 107 seconds respectively with concurrent rendering and twenty alternating
+text edits each. Neither log contains the historical JIT SIGSEGV signature.
+These were not resize or close/reopen stress runs, so the crash remains
+unresolved and no fix or crash-free claim is made.
