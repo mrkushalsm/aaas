@@ -13,6 +13,26 @@ SPEC.loader.exec_module(BUILD)
 
 
 class BuildInputTests(unittest.TestCase):
+    def test_cache_metadata_requires_named_cmake_setting(self):
+        self.assertEqual(BUILD.cache_value(
+            'CMAKE_BUILD_TYPE:STRING=Release\nAAAS_ANDROID_BUILD:BOOL=ON',
+            'AAAS_ANDROID_BUILD'), 'ON')
+        with self.assertRaisesRegex(ValueError, 'missing CMAKE_CXX_FLAGS'):
+            BUILD.cache_value('AAAS_ANDROID_BUILD:BOOL=ON', 'CMAKE_CXX_FLAGS')
+
+    def test_build_definition_validation_tracks_tracing_mode(self):
+        common = '-D__ANDROID__=1'
+        vulkan = f'clang++ {common} VkGetProcAddress.cpp'
+        reactor = 'clang++ SubzeroReactor.cpp'
+        trace = '-DAAAS_SWIFTSHADER_JIT_TRACE=1'
+        with self.assertRaisesRegex(ValueError, 'diagnostic tracing'):
+            BUILD.validate_build_definitions([vulkan, reactor], True)
+        BUILD.validate_build_definitions(
+            [vulkan + ' ' + trace, reactor + ' ' + trace], True)
+        BUILD.validate_build_definitions([vulkan, reactor], False)
+        with self.assertRaisesRegex(ValueError, 'unexpectedly enables'):
+            BUILD.validate_build_definitions([vulkan + ' ' + trace, reactor], False)
+
     def test_requires_workspace_tmp_output_and_separate_source_build(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)

@@ -1,22 +1,26 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 0ef4a68..ef1bffd 100644
+index 0ef4a68..b1482d0 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -201,6 +201,13 @@ option_if_not_defined(REACTOR_EMIT_ASM_FILE "Emit asm files for JIT functions" F
+@@ -201,6 +201,17 @@ option_if_not_defined(REACTOR_EMIT_ASM_FILE "Emit asm files for JIT functions" F
  option_if_not_defined(REACTOR_ENABLE_PRINT "Enable RR_PRINT macros" FALSE)
  option_if_not_defined(REACTOR_VERIFY_LLVM_IR "Check reactor-generated LLVM IR is valid even in release builds" FALSE)
  option_if_not_defined(SWIFTSHADER_LESS_DEBUG_INFO "Generate less debug info to reduce file size" FALSE)
++option(AAAS_ANDROID_BUILD "Build the Android Vulkan ICD variant" OFF)
 +option(AAAS_SWIFTSHADER_DIAGNOSTICS "Enable AaaS JIT/AHardwareBuffer tracing" OFF)
 +set(AAAS_ANDROID_HEADERS "" CACHE PATH "Android source root providing NDK-compatible graphics headers")
 +set(AAAS_ANDROID_ROOTFS "" CACHE PATH "Android rootfs containing libnativewindow and libsync")
-+if(AAAS_SWIFTSHADER_DIAGNOSTICS AND (NOT AAAS_ANDROID_HEADERS OR NOT AAAS_ANDROID_ROOTFS))
-+    message(FATAL_ERROR "AaaS diagnostics require AAAS_ANDROID_HEADERS and AAAS_ANDROID_ROOTFS")
++if(AAAS_ANDROID_BUILD AND (NOT AAAS_ANDROID_HEADERS OR NOT AAAS_ANDROID_ROOTFS))
++    message(FATAL_ERROR "AaaS Android builds require AAAS_ANDROID_HEADERS and AAAS_ANDROID_ROOTFS")
++endif()
++if(AAAS_SWIFTSHADER_DIAGNOSTICS AND NOT AAAS_ANDROID_BUILD)
++    message(FATAL_ERROR "AaaS SwiftShader diagnostics require AAAS_ANDROID_BUILD")
 +endif()
 +
  # option_if_not_defined(SWIFTSHADER_ENABLE_VULKAN_DEBUGGER "Enable Vulkan debugger support" FALSE)  # TODO(b/251802301)
  option_if_not_defined(SWIFTSHADER_ENABLE_ASTC "Enable ASTC compressed textures support" TRUE)  # TODO(b/150130101)
  
-@@ -808,6 +815,9 @@ elseif(${REACTOR_BACKEND} STREQUAL "LLVM-Submodule")
+@@ -808,6 +819,9 @@ elseif(${REACTOR_BACKEND} STREQUAL "LLVM-Submodule")
      add_library(Reactor ALIAS ReactorLLVMSubmodule)
  elseif(${REACTOR_BACKEND} STREQUAL "Subzero")
      add_library(Reactor ALIAS ReactorSubzero)
@@ -659,14 +663,14 @@ index 0000000..d56c92b
 +
 +#endif  // AAAS_VULKAN_DIAGNOSTIC_TRACE_HPP_
 diff --git a/src/Vulkan/CMakeLists.txt b/src/Vulkan/CMakeLists.txt
-index bd05b0f..8ff592f 100644
+index bd05b0f..c55aedb 100644
 --- a/src/Vulkan/CMakeLists.txt
 +++ b/src/Vulkan/CMakeLists.txt
-@@ -158,6 +158,38 @@ add_library(vk_swiftshader SHARED
+@@ -158,6 +158,40 @@ add_library(vk_swiftshader SHARED
      ${VULKAN_SRC_FILES}
  )
  
-+if(AAAS_SWIFTSHADER_DIAGNOSTICS)
++if(AAAS_ANDROID_BUILD)
 +    target_sources(vk_swiftshader PRIVATE VkDeviceMemoryExternalAndroid.cpp)
 +    target_include_directories(vk_swiftshader PRIVATE
 +        "${AAAS_ANDROID_HEADERS}/logging-android16/liblog/include"
@@ -680,12 +684,14 @@ index bd05b0f..8ff592f 100644
 +    )
 +    target_compile_definitions(vk_swiftshader PRIVATE
 +        SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER=1
-+        AAAS_SWIFTSHADER_JIT_TRACE=1
 +        __ANDROID__=1
 +        VK_USE_PLATFORM_ANDROID_KHR=1
 +        _Nonnull=
 +        _Nullable=
 +    )
++    if(AAAS_SWIFTSHADER_DIAGNOSTICS)
++        target_compile_definitions(vk_swiftshader PRIVATE AAAS_SWIFTSHADER_JIT_TRACE=1)
++    endif()
 +    target_compile_options(vk_swiftshader PRIVATE
 +        -include "${AAAS_ANDROID_ROOTFS}/../tmp/commit.h"
 +    )
@@ -701,12 +707,12 @@ index bd05b0f..8ff592f 100644
  set_target_properties(vk_swiftshader PROPERTIES
      POSITION_INDEPENDENT_CODE 1
      FOLDER "SwiftShader VK"
-@@ -201,7 +233,9 @@ target_link_libraries(vk_swiftshader
+@@ -201,7 +235,9 @@ target_link_libraries(vk_swiftshader
          $<$<BOOL:${SWIFTSHADER_ENABLE_VULKAN_DEBUGGER}>:cppdap>
  )
  
 -set_shared_library_export_map(vk_swiftshader ${CMAKE_CURRENT_SOURCE_DIR})
-+if(NOT AAAS_SWIFTSHADER_DIAGNOSTICS)
++if(NOT AAAS_ANDROID_BUILD)
 +    set_shared_library_export_map(vk_swiftshader ${CMAKE_CURRENT_SOURCE_DIR})
 +endif()
  

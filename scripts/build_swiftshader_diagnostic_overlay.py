@@ -100,12 +100,38 @@ def extract_link_inputs(commands, build, source):
     return objects, archives, flags
 
 
+def validate_build_definitions(commands, diagnostics_enabled):
+    proc = next((line for line in commands if 'VkGetProcAddress.cpp' in line), '')
+    reactor = next((line for line in commands if 'SubzeroReactor.cpp' in line), '')
+    if '-D__ANDROID__=1' not in proc:
+        raise ValueError('Android HAL definition is missing from Vulkan build')
+    trace_flag = '-DAAAS_SWIFTSHADER_JIT_TRACE=1'
+    if diagnostics_enabled:
+        if trace_flag not in proc:
+            raise ValueError('diagnostic tracing is missing from Vulkan build')
+        if trace_flag not in reactor:
+            raise ValueError('JIT tracing is missing from the Reactor build')
+    elif trace_flag in proc or trace_flag in reactor:
+        raise ValueError('non-tracing build unexpectedly enables JIT tracing')
+
+
+def cache_value(cache_text, name):
+    prefix = name + ':'
+    line = next((line for line in cache_text.splitlines()
+                 if line.startswith(prefix)), None)
+    if line is None:
+        raise ValueError(f'incompatible CMake configuration: missing {name}')
+    return line.split('=', 1)[1]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace', type=Path, required=True)
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--no-tracing', action='store_true',
+                        help='build the same coherent source without diagnostic tracing')
     args = parser.parse_args(argv)
     try:
         workspace, source, build, output = resolve_build_inputs(
@@ -128,8 +154,10 @@ def main(argv=None):
             raise ValueError('isolated source diff does not match the committed patch')
         cache_path = build / 'CMakeCache.txt'
         cache_text = cache_path.read_text()
+        diagnostics_enabled = not args.no_tracing
         required_cache = (
-            'AAAS_SWIFTSHADER_DIAGNOSTICS:BOOL=ON',
+            'AAAS_ANDROID_BUILD:BOOL=ON',
+            f'AAAS_SWIFTSHADER_DIAGNOSTICS:BOOL={"OFF" if args.no_tracing else "ON"}',
             f'AAAS_ANDROID_HEADERS:PATH={workspace / "sources"}',
             f'AAAS_ANDROID_ROOTFS:PATH={workspace / "rootfs_m1b1"}',
             'REACTOR_BACKEND:STRING=Subzero',
@@ -140,13 +168,7 @@ def main(argv=None):
 
         run(['ninja', '-C', str(build), 'vk_swiftshader'])
         commands = get_build_commands(build)
-        if not any('-D__ANDROID__=1' in line and
-                   '-DAAAS_SWIFTSHADER_JIT_TRACE=1' in line
-                   and 'VkGetProcAddress.cpp' in line for line in commands):
-            raise ValueError('Android HAL and diagnostic definitions are not applied')
-        if not any('-DAAAS_SWIFTSHADER_JIT_TRACE=1' in line and
-                   'SubzeroReactor.cpp' in line for line in commands):
-            raise ValueError('JIT tracing is missing from the Reactor build')
+        validate_build_definitions(commands, diagnostics_enabled)
         objects, archives, flags = extract_link_inputs(commands, build, source)
 
         shim = build / 'aaas_bionic_stubs.o'
@@ -201,10 +223,26 @@ def main(argv=None):
             'schema_version': 1,
             'source_revision': revision,
             'source_diff_sha256': patch_hash,
+            'android_build': True,
+            'diagnostics_enabled': diagnostics_enabled,
             'source_dirty_files': status.splitlines(),
             'build': {
                 'directory': str(build), 'generator': 'Ninja',
                 'target': 'vk_swiftshader',
+                'cmake_cache_sha256': sha256(cache_path),
+                'configuration': {
+                    'build_type': cache_value(cache_text, 'CMAKE_BUILD_TYPE'),
+                    'cxx_flags': cache_value(cache_text, 'CMAKE_CXX_FLAGS'),
+                    'release_cxx_flags': cache_value(cache_text, 'CMAKE_CXX_FLAGS_RELEASE'),
+                    'warnings_as_errors': cache_value(
+                        cache_text, 'SWIFTSHADER_WARNINGS_AS_ERRORS'),
+                    'android_build': cache_value(cache_text, 'AAAS_ANDROID_BUILD'),
+                    'diagnostics_enabled': cache_value(
+                        cache_text, 'AAAS_SWIFTSHADER_DIAGNOSTICS'),
+                    'reactor_backend': cache_value(cache_text, 'REACTOR_BACKEND'),
+                },
+                'ninja_commands_sha256': hashlib.sha256(
+                    '\0'.join(commands).encode()).hexdigest(),
                 'compiler_version': run(['/usr/bin/c++', '--version'],
                                         capture=True).stdout.splitlines()[0],
                 'effective_link_command_sha256': hashlib.sha256(
