@@ -931,3 +931,38 @@ the Composer copy/transport component tests (compiled in `/tmp` to leave the
 inherited untracked Composer build directory untouched), the broker build, and
 the workspace guard also passed. No concurrent-resize stress was repeated
 after the informative SurfaceFlinger crash.
+
+### Host presenter XKB lifetime crash follow-up (2026-10-31)
+
+Two host `wayland-host-pr` cores (PIDs 1611910 and 1635213) had the same
+`SEGV_MAPERR` at `0x900000107`, in the installed libxkbcommon instruction at
+offset `0x26c15`. Their full traces reached `aaas_android_meta_state()` from a
+queued `wl_keyboard.enter` callback dispatched by `drain_wayland_buffers()`.
+At the call site, the presenter's `xkb_state` storage contained glibc freed
+chunk markers. Source ordering confirmed the lifetime error: `input_teardown()`
+released XKB objects before the later Wayland drain dispatched pending input
+callbacks. The evidence establishes a presenter use-after-free; it does not
+indicate an internal libxkbcommon defect.
+
+The presenter now destroys the keyboard proxy/listener before releasing XKB
+state, keymap, and context, and clears those pointers after unref. A source
+regression checks this ordering. The forced presenter build/tests and Python
+suite (179 tests) pass. A bounded two-app live close test passed after the fix:
+closing Settings left Contacts running, closing Contacts stopped the runtime,
+and both presenters reported imports=submissions=releases with zero outstanding
+buffers. This was normal close-path coverage; forced producer disconnect with a
+queued enter callback was not repeated.
+
+In the resize-correlated session, SurfaceFlinger crashed about 951 ms before
+its producer disconnect, and the presenter crashed about 4.1 ms after that
+disconnect. A second session showed the same presenter teardown crash after
+producer disconnect without a SurfaceFlinger fatal event in the checked logs.
+This supports a distinct presenter defect that could be exposed by a producer
+disconnect; it does not resolve the separate SwiftShader JIT failure. The
+complete core findings, hashes, and clock correlation are in
+[`presenter_libxkbcommon_crash_analysis_20261031.json`](../results/m1e/live/presenter_libxkbcommon_crash_analysis_20261031.json).
+
+The SurfaceFlinger `PC 0x12bf` fault in `/memfd:swiftshader_jit (deleted)`
+remains unresolved. No shader/pipeline or graphics allocation identity has
+been tied to the faulting instruction. No SwiftShader correction is claimed,
+and M1E remains **PARTIAL**.
