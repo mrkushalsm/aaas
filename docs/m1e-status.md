@@ -1175,3 +1175,37 @@ this is useful bounded trace coverage, not clean runtime acceptance and not a
 SwiftShader fix. The historical fault's target/source relation remains
 unresolved because that older run did not include target records. See
 [`swiftshader_v7_target_trace_resize_20261031.json`](../results/m1e/live/swiftshader_v7_target_trace_resize_20261031.json).
+
+### Odd-height SwiftShader paired-row bounds correction (2026-10-31)
+
+A later diagnostic run captured the exact failure path in the earlier 557-pixel
+height crash. `PixelRoutine_00000042` executed a paired-row read in
+`PixelRoutine::writeColor()` at `y=556` on a 960×557 color attachment. Its
+second-row address was one row (3840 bytes) beyond the 557-row image. The target
+trace identified image 244, memory 245, and pipeline 186; this is a concrete
+odd-height quad helper-lane bounds defect, separate from the older v4
+AHardwareBuffer unlock/unmap observation. The prior v8 attempt had bounded
+`readPixel()` and `alphaBlend()` but missed the independent read-modify-write
+path in `writeColor()`.
+
+The coherent diagnostic patch now carries the actual color attachment height
+into `DrawData`, clamps the paired second-row read at an odd-height edge, and
+masks helper-row lanes from writes. Diagnostic v9 (SHA-256
+`3a5408010784f1a0823da132651a3071449573d284fd95ce8ef60b022c52173b`, Build ID
+`3cffbc0378986480835d3b0511c0b61828c881e9`) completed two bounded live resize
+runs without a SurfaceFlinger tombstone. The second run exercised Settings
+720×1280 → 960×578 → 960×557 → 960×565 while Contacts remained 720×1280; Android
+reported each requested size and the trace recorded draw targets at each size.
+Both presenters fully released their buffers (158/158 and 149/149), with zero
+outstanding or teardown-invalidated buffers, and the shared runtime reached
+STOPPED. The production overlay remains unchanged at its preserved hash.
+
+This validates a specific source-level bounds correction in the diagnostic
+build, not universal SwiftShader stability and not the separate historical
+AHardwareBuffer resource-owner hypothesis. M1E remains **PARTIAL**: the
+production deployment path, enhanced-mode resize, resize-back/landscape/burst
+matrix, and post-resize pointer acceptance remain open. Live resizing used the
+available KWin session only to issue ordinary Wayland configure events; the
+product implementation uses SwiftShader attachment extents and introduces no
+KDE/KWin dependency or patch. See
+[`swiftshader_odd_height_pair_bounds_20261031.json`](../results/m1e/live/swiftshader_odd_height_pair_bounds_20261031.json).
