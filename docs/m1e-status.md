@@ -1483,3 +1483,24 @@ request, or post-resize input was performed. This bounded successful resize
 sequence does not identify the older v4 use-after-unmap owner or validate clean
 runtime acceptance. See
 [`swiftshader_v10_resize_sequence_20261101.json`](../results/m1e/live/swiftshader_v10_resize_sequence_20261101.json).
+
+### v10 resize-back follow-up (2026-11-01)
+
+A third v10 diagnostic session took Settings through 960×578, 960×557,
+960×565, then back to 720×1280 while Contacts remained at its original
+720×1280. The returned Settings output joined to Composer display 100, buffer
+144, and its 720×1280 AHardwareBuffer; Contacts remained on display 101 with
+buffer 154. The three resized generations had matching stable allocator IDs
+across SurfaceFlinger AHardwareBuffer imports and Composer frames, plus matching
+DMA-BUF device/inode. All traced target draw completions preceded release for
+the correlated target resources. SurfaceFlinger survived the full resize-back
+sequence. The presenters later reported 253/253/253 and 241/241/241 imports,
+submissions, and releases, with zero outstanding and zero teardown
+invalidations.
+
+The run still ended `FAILED`, not `STOPPED`: system_server hit the recurring
+AlarmManager null-PendingIntent exception at guest time 18:48:00.001 and broker
+shutdown timed out. There was no SurfaceFlinger SIGSEGV in this run, and it does
+not resolve the historical v4 release-before-fault observation. Concurrent
+resize, input after resize, and app lifecycle were not tested. See
+[`swiftshader_v10_resizeback_sequence_20261101.json`](../results/m1e/live/swiftshader_v10_resizeback_sequence_20261101.json).
