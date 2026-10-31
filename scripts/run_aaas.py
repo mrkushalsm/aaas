@@ -41,7 +41,7 @@ VDISPLAY_SERVICES_OVERLAY = TMP / 'm1e_services_display_content_mode.jar'
 VDISPLAY_SERVICES_RECEIPT = TMP / 'm1e_services_display_content_mode.json'
 APKTOOL = TMP / 'apktool_3.0.3.jar'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
-RUNNER_SHA256 = '63987b632cfc28f15eaa406f8b6fedc2f80f0c7c63fa2d8a751558d02267e396'
+RUNNER_SHA256 = '2e93ad37536fc0cd84b434a646545583115bdd84d67eb0439fa05ae6e7e73b8e'
 VULKAN_SHA256 = '1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181'
 LMKD_DIAGNOSTIC_SHA256 = '9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd'
 LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce'
@@ -71,6 +71,167 @@ def finalize_status_sentinel(path, failed):
     value = 'FAILED' if failed else 'STOPPED'
     write_status_sentinel(path, value)
     return value
+
+
+def request_tombstone_capture(ipc, timeout=10.0):
+    """Ask the in-session Android watcher to export stable tombstones."""
+    ipc = Path(ipc)
+    request = ipc / 'tombstone_capture_request'
+    ack = ipc / 'tombstone_capture_ack'
+    temporary = request.with_name(request.name + '.tmp')
+    temporary.write_text('stop\n')
+    os.replace(temporary, request)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if ack.read_text().strip() == 'complete':
+                return 'complete'
+        except OSError:
+            pass
+        time.sleep(.05)
+    return 'timeout'
+
+
+def write_crash_artifact_manifest(session, tombstone_dir, capture_status,
+                                  graphics_provenance=None):
+    """Hash only exported crash artifacts and explicitly record missing data."""
+    session = Path(session)
+    tombstone_dir = Path(tombstone_dir)
+    files = []
+    if tombstone_dir.is_dir():
+        for path in sorted(tombstone_dir.iterdir()):
+            if path.name.startswith('.') or not path.is_file() or path.is_symlink():
+                continue
+            digest = hashlib.sha256()
+            size = 0
+            with path.open('rb') as stream:
+                while True:
+                    block = stream.read(1024 * 1024)
+                    if not block:
+                        break
+                    size += len(block)
+                    digest.update(block)
+            files.append({'name': path.name, 'size_bytes': size,
+                          'sha256': digest.hexdigest()})
+    if files:
+        artifact_state = 'captured'
+    elif capture_status == 'complete':
+        artifact_state = 'missing'
+    else:
+        artifact_state = 'not_exported'
+    related_logs = []
+    for relative in ('logcat.log', 'commands.log', 'android.log', 'presenter.log',
+                     'virtual-presenter.log', 'virtual-presenter2.log',
+                     'ipc/display_broker.log', 'runtime-graphics-provenance.json'):
+        path = session / relative
+        if not path.is_file() or path.is_symlink():
+            continue
+        digest = hashlib.sha256()
+        size = 0
+        with path.open('rb') as stream:
+            while True:
+                block = stream.read(1024 * 1024)
+                if not block:
+                    break
+                size += len(block)
+                digest.update(block)
+        related_logs.append({'path': str(path), 'size_bytes': size,
+                             'sha256': digest.hexdigest()})
+    presenter_terminal = []
+    for relative in ('presenter.log', 'virtual-presenter.log',
+                     'virtual-presenter2.log'):
+        path = session / relative
+        summary = None
+        if path.is_file() and not path.is_symlink():
+            try:
+                for line in reversed(path.read_text(errors='replace').splitlines()):
+                    try:
+                        record = json.loads(line)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if record.get('event') == 'summary':
+                        summary = record
+                        break
+            except OSError:
+                pass
+        presenter_terminal.append({
+            'log': relative,
+            'state': 'summary_observed' if summary is not None else 'unknown',
+            'summary': summary,
+        })
+    manifest = {
+        'capture_status': capture_status,
+        'artifact_state': artifact_state,
+        'export_directory': str(tombstone_dir),
+        'files': files,
+        'related_logs': related_logs,
+        'presenter_terminal_ownership': presenter_terminal,
+        'graphics_provenance': graphics_provenance or {},
+    }
+    target = session / 'crash-artifact-manifest.json'
+    target.write_text(json.dumps(manifest, indent=2) + '\n')
+    target.chmod(0o600)
+    return manifest
+
+
+def collect_graphics_provenance(paths):
+    """Record the selected userspace graphics binaries without changing them."""
+    result = {'swiftshader_source_revision': None, 'binaries': {}}
+    source = WORKSPACE / 'sources/swiftshader'
+    try:
+        revision = subprocess.run(
+            ['git', '-C', str(source), 'rev-parse', 'HEAD'],
+            check=True, capture_output=True, text=True, timeout=2,
+        ).stdout.strip()
+        result['swiftshader_source_revision'] = revision
+        result['swiftshader_source_dirty_files'] = subprocess.run(
+            ['git', '-C', str(source), 'status', '--short'],
+            check=True, capture_output=True, text=True, timeout=2,
+        ).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        result['swiftshader_source_revision'] = 'unavailable'
+    for key in ('AAAS_VULKAN_OVERLAY', 'AAAS_COMPOSER_OVERLAY',
+                'AAAS_SERVICES_JAR_OVERLAY'):
+        raw = paths.get(key)
+        if not raw:
+            continue
+        path = Path(raw)
+        if not path.is_file():
+            result['binaries'][key] = {'path': str(path), 'status': 'missing'}
+            continue
+        identity = {'path': str(path), 'sha256': sha256(path),
+                    'size_bytes': path.stat().st_size}
+        if key == 'AAAS_VULKAN_OVERLAY':
+            try:
+                notes = subprocess.run(
+                    ['readelf', '-n', str(path)], check=True, capture_output=True,
+                    text=True, timeout=3,
+                ).stdout
+                identity['build_id'] = next(
+                    (line.split('Build ID:', 1)[1].strip()
+                     for line in notes.splitlines() if 'Build ID:' in line),
+                    'not_found',
+                )
+            except (OSError, subprocess.SubprocessError):
+                identity['build_id'] = 'unavailable'
+        result['binaries'][key] = identity
+    return result
+
+
+def tombstone_matches_test_process(tombstone_dir, pid):
+    """Require a real text tombstone for the disposable crashing child."""
+    if not pid or not pid.isdigit():
+        return False
+    for path in Path(tombstone_dir).glob('tombstone_*'):
+        if path.suffix == '.pb' or not path.is_file() or path.is_symlink():
+            continue
+        try:
+            content = path.read_text(errors='replace')
+        except OSError:
+            continue
+        if f'pid: {pid}' in content and ('SIGSEGV' in content or 'signal 11' in content):
+            return True
+    return False
 
 
 def write_session_state(session, status_path, state):
@@ -238,6 +399,72 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    fi\n'
             '    exec /system/bin/init second_stage',
         )
+    tombstone_capture_worker = (
+        "    (\n"
+        "      /system/bin/toybox umask 077\n"
+        "      /system/bin/toybox mkdir -p /data/tombstones /tombstone_export\n"
+        "      aaas_export_stable_tombstones() {{\n"
+        "        pending=0\n"
+        "        for source in /data/tombstones/tombstone_*; do\n"
+        "          [ -f \"$source\" ] || continue\n"
+        "          name=${{source##*/}}\n"
+        "          text_name=${{name%.pb}}\n"
+        "          text_source=/data/tombstones/$text_name\n"
+        "          [ -f \"$text_source\" ] || continue\n"
+        "          test_pid=$(/system/bin/toybox cat /dev/aaas/tombstone_capture_test_pid 2>/dev/null)\n"
+        "          if ! /system/bin/toybox grep -Fq \"Cmdline: /system/bin/surfaceflinger\" \"$text_source\" && {{\n"
+        "              [ -z \"$test_pid\" ] || ! /system/bin/toybox grep -Fq \"pid: $test_pid,\" \"$text_source\";\n"
+        "            }}; then continue; fi\n"
+        "          signature=$(/system/bin/toybox stat -c '%s:%y' \"$source\" 2>/dev/null)\n"
+        "          [ -n \"$signature\" ] || {{ pending=1; continue; }}\n"
+        "          stamp=/tmp/aaas_tombstone_${{name}}.stamp\n"
+        "          previous=$(/system/bin/toybox cat \"$stamp\" 2>/dev/null)\n"
+        "          if [ \"$previous\" = done:\"$signature\" ]; then continue; fi\n"
+        "          pending=1\n"
+        "          if [ \"$previous\" = \"$signature\" ]; then\n"
+        "            temporary=/tombstone_export/.${{name}}.tmp\n"
+        "            if /system/bin/toybox cp \"$source\" \"$temporary\"; then\n"
+        "              after=$(/system/bin/toybox stat -c '%s:%y' \"$source\" 2>/dev/null)\n"
+        "              if [ \"$after\" = \"$signature\" ]; then\n"
+        "                /system/bin/toybox chmod 0600 \"$temporary\"\n"
+        "                /system/bin/toybox mv -f \"$temporary\" \"/tombstone_export/$name\"\n"
+        "                echo done:\"$signature\" > \"$stamp\"\n"
+        "              else\n"
+        "                /system/bin/toybox rm -f \"$temporary\"\n"
+        "              fi\n"
+        "            fi\n"
+        "          else\n"
+        "            echo \"$signature\" > \"$stamp\"\n"
+        "          fi\n"
+        "        done\n"
+        "        [ \"$pending\" -eq 0 ]\n"
+        "      }}\n"
+        "      test_started=0\n"
+        "      while :; do\n"
+        "        if [ \"$test_started\" -eq 0 ] && [ \"$(/system/bin/toybox cat /dev/aaas/tombstone_capture_test 2>/dev/null)\" = segv-child ]; then\n"
+        "          test_started=1\n"
+        "          : > /dev/aaas/tombstone_capture_test\n"
+        "          /system/bin/sh -c \"kill -SEGV \\\\$\\\\$\" >/dev/null 2>&1 &\n"
+        "          test_pid=$!\n"
+        "          echo $test_pid > /dev/aaas/tombstone_capture_test_pid\n"
+        "          wait \"$test_pid\" 2>/dev/null\n"
+        "          echo $? > /dev/aaas/tombstone_capture_test_result\n"
+        "        fi\n"
+        "        aaas_export_stable_tombstones\n"
+        "        if [ \"$(/system/bin/toybox cat /dev/aaas/tombstone_capture_request 2>/dev/null)\" = stop ]; then\n"
+        "          if aaas_export_stable_tombstones; then\n"
+        "            echo complete > /dev/aaas/tombstone_capture_ack\n"
+        "            exit 0\n"
+        "          fi\n"
+        "        fi\n"
+        "        /system/bin/toybox sleep 0.1\n"
+        "      done\n"
+        "    ) >/dev/null 2>&1 &\n"
+    )
+    source = replace_once(
+        source, '    exec /system/bin/init second_stage',
+        tombstone_capture_worker + '    exec /system/bin/init second_stage',
+    )
     source = replace_once(source, '    ipc_dir = tmp_dir / "aaas_ipc"',
                           '    ipc_dir = Path(os.environ["AAAS_SESSION_IPC"])')
     if experimental_virtual_display:
@@ -543,6 +770,41 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         'aaas_app_task_alive'
         )
     )
+    if experimental_virtual_display:
+        readiness_and_watch = readiness_and_watch.replace(
+            '    echo RUNNING > /aaas_session_status\n',
+            '    echo RUNNING > /aaas_session_status\n'
+            '    AAAS_SURFACEFLINGER_INITIAL_PID=$(/system/bin/toybox pidof surfaceflinger)\n'
+            '    (\n'
+            '      while [ "$(/system/bin/toybox cat /aaas_session_status)" = RUNNING ]; do\n'
+            '        AAAS_SURFACEFLINGER_CURRENT_PID=$(/system/bin/toybox pidof surfaceflinger 2>/dev/null)\n'
+            '        if [ -z "$AAAS_SURFACEFLINGER_CURRENT_PID" ] || '
+            '[ "$AAAS_SURFACEFLINGER_CURRENT_PID" != "$AAAS_SURFACEFLINGER_INITIAL_PID" ]; then\n'
+            '          echo "AAAS_FRAMEWORK_DEATH service=surfaceflinger initial=$AAAS_SURFACEFLINGER_INITIAL_PID current=$AAAS_SURFACEFLINGER_CURRENT_PID" '
+            '>> /aaas_session_commands\n'
+            '          echo FAILED > /aaas_session_status\n'
+            '          for ADAPTER_PID in "$INPUT_ADAPTER_PID" '
+            '"$VDISPLAY_INPUT_ADAPTER_PID" "$VDISPLAY2_INPUT_ADAPTER_PID"; do\n'
+            '            case "$ADAPTER_PID" in ""|*[!0-9]*) ;; *) '
+            '/system/bin/toybox kill "$ADAPTER_PID" 2>/dev/null || true ;; esac\n'
+            '          done\n'
+            '          echo stop > /dev/aaas/display_broker_shutdown\n'
+            '          DEATH_RELEASE_WAIT=0\n'
+            '          while [ "$(/system/bin/toybox cat /dev/aaas/display_broker_shutdown 2>/dev/null)" '
+            '!= released ] && [ "$DEATH_RELEASE_WAIT" -lt 30 ]; do\n'
+            '            /system/bin/toybox sleep 0.1\n'
+            '            DEATH_RELEASE_WAIT=$((DEATH_RELEASE_WAIT + 1))\n'
+            '          done\n'
+            '          if [ "$(/system/bin/toybox cat /dev/aaas/display_broker_shutdown 2>/dev/null)" '
+            '= released ]; then echo AAAS_BROKER_RELEASED_AFTER_FRAMEWORK_DEATH '
+            '>> /aaas_session_commands; else echo AAAS_BROKER_UNAVAILABLE_AFTER_FRAMEWORK_DEATH '
+            '>> /aaas_session_commands; fi\n'
+            '          exit 0\n'
+            '        fi\n'
+            '        /system/bin/toybox sleep 0.2\n'
+            '      done\n'
+            '    ) >/dev/null 2>&1 &\n',
+        )
     if app_package2 is not None:
         readiness_and_watch = readiness_and_watch.replace(
             '    }}\n'
@@ -564,6 +826,29 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     if experimental_virtual_display:
         readiness_and_watch += (
             ' && [ "$(/system/bin/toybox cat /aaas_session_status)" != "STOPPING" ]; do\n'
+        )
+        readiness_and_watch += (
+            '      if [ -z "$(/system/bin/toybox pidof surfaceflinger 2>/dev/null)" ]; then\n'
+            '        echo AAAS_FRAMEWORK_DEATH service=surfaceflinger >> /aaas_session_commands\n'
+            '        echo FAILED > /aaas_session_status\n'
+            '        for ADAPTER_PID in "$INPUT_ADAPTER_PID" '
+            '"$VDISPLAY_INPUT_ADAPTER_PID" "$VDISPLAY2_INPUT_ADAPTER_PID"; do\n'
+            '          case "$ADAPTER_PID" in ""|*[!0-9]*) ;; *) '
+            '/system/bin/toybox kill "$ADAPTER_PID" 2>/dev/null || true ;; esac\n'
+            '        done\n'
+            '        echo stop > /dev/aaas/display_broker_shutdown\n'
+            '        DEATH_RELEASE_WAIT=0\n'
+            '        while [ "$(/system/bin/toybox cat /dev/aaas/display_broker_shutdown 2>/dev/null)" '
+            '!= released ] && [ "$DEATH_RELEASE_WAIT" -lt 30 ]; do\n'
+            '          /system/bin/toybox sleep 0.1\n'
+            '          DEATH_RELEASE_WAIT=$((DEATH_RELEASE_WAIT + 1))\n'
+            '        done\n'
+            '        if [ "$(/system/bin/toybox cat /dev/aaas/display_broker_shutdown 2>/dev/null)" '
+            '= released ]; then echo AAAS_BROKER_RELEASED_AFTER_FRAMEWORK_DEATH '
+            '>> /aaas_session_commands; else echo AAAS_BROKER_UNAVAILABLE_AFTER_FRAMEWORK_DEATH '
+            '>> /aaas_session_commands; fi\n'
+            '        break\n'
+            '      fi\n'
         )
         if app_package2 is not None:
             for slot in (1, 2):
@@ -634,6 +919,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             readiness_and_watch += (
                 '    if [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
                 '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
+                '[ "$(/system/bin/toybox cat /aaas_session_status)" != "FAILED" ] && '
                 '! aaas_app_task_alive && ! aaas_app2_task_alive; then\n'
                 '      echo STOPPING > /aaas_session_status\n'
                 '    fi\n'
@@ -642,6 +928,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             readiness_and_watch += (
                 '    if [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
                 '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
+                '[ "$(/system/bin/toybox cat /aaas_session_status)" != "FAILED" ] && '
                 '! aaas_app_task_alive; then echo STOPPING > /aaas_session_status; fi\n'
             )
         readiness_and_watch += (
@@ -828,9 +1115,13 @@ def main():
                         help='Write read-only host/cgroup snapshots at session start and shutdown')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
                         help='Opt in to host/cgroup resource snapshots; optionally sample every N seconds (0 disables periodic samples, max 3600 samples)')
+    parser.add_argument('--test-tombstone-capture', action='store_true',
+                        help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
+    if args.test_tombstone_capture and args.app2:
+        parser.error('--test-tombstone-capture requires a single-app disposable session')
     if not 0.0 <= args.resource_sample_interval <= 3600.0:
         parser.error('resource sample interval must be between 0 and 3600 seconds')
     try:
@@ -860,6 +1151,7 @@ def main():
         paths['AAAS_COMPOSER_OVERLAY'] = str(
             build_multi_output_composer() if args.app2 else COMPOSER_VDISPLAY)
         paths['AAAS_SERVICES_JAR_OVERLAY'] = str(VDISPLAY_SERVICES_OVERLAY)
+    graphics_provenance = collect_graphics_provenance(paths)
     primary_diagnostic = show_primary_diagnostic(args)
     lock_fd = os.open(TMP / '.aaas_session.lock', os.O_CREAT | os.O_RDWR, 0o600)
     try:
@@ -878,6 +1170,12 @@ def main():
     signal.signal(signal.SIGTERM, request_stop)
     session = Path(tempfile.mkdtemp(prefix='m1b84_session_', dir=TMP))
     session.chmod(0o700)
+    provenance_path = session / 'runtime-graphics-provenance.json'
+    provenance_path.write_text(json.dumps(graphics_provenance, indent=2) + '\n')
+    provenance_path.chmod(0o600)
+    prefix = f'm1b84_session_{os.getpid()}_'
+    tombstone_dir = session / 'tombstones'
+    tombstone_dir.mkdir(mode=0o700)
     ipc = session / 'ipc'
     ipc.mkdir(mode=0o711)
     status = session / 'status'
@@ -922,6 +1220,16 @@ def main():
                 path = ipc / name
                 path.write_text('')
                 path.chmod(0o666)
+    for name in ('tombstone_capture_request', 'tombstone_capture_ack',
+                 'tombstone_capture_test_pid',
+                 'tombstone_capture_test_result'):
+        path = ipc / name
+        path.write_text('')
+        path.chmod(0o600)
+    if args.test_tombstone_capture:
+        test_request = ipc / 'tombstone_capture_test'
+        test_request.write_text('')
+        test_request.chmod(0o600)
     policy = None
     policy_monitor = None
     policy_log = session / 'policy.jsonl'
@@ -959,7 +1267,6 @@ def main():
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
                                  app_package2=args.app2)
-    prefix = f'm1b84_session_{os.getpid()}_'
     env = os.environ.copy()
     env.update(paths)
     presenter_size = (('720', '1280') if args.orientation == 'portrait'
@@ -969,6 +1276,7 @@ def main():
     env.update(AAAS_LOG_PREFIX=prefix, AAAS_BOOTANIM='0',
                AAAS_BOOT_WAIT=str(boot_wait),
                AAAS_SESSION_IPC=str(ipc), AAAS_SESSION_STATUS=str(status),
+               AAAS_TOMBSTONE_EXPORT=str(tombstone_dir),
                AAAS_SESSION_LOGCAT=str(logcat),
                AAAS_INPUT_ADAPTER=str(INPUT_ADAPTER) if INPUT_ADAPTER.is_file() else '',
                AAAS_INPUT_ADAPTER_LOG=str(input_adapter_log))
@@ -988,6 +1296,7 @@ def main():
     slot_lifecycle_generation = {1: 0, 2: 0}
     control_path = ipc / 'aaas-control.sock'
     control_server = None
+    capture_status = 'not_requested'
 
     def atomic_control_write(path, value):
         temporary = path.with_name(path.name + '.tmp')
@@ -1035,6 +1344,9 @@ def main():
         if not isinstance(request, dict) or not isinstance(request.get('op'), str):
             return {'ok': False, 'error': 'invalid_request'}
         op = request['op']
+        if op not in ('list', 'stop') and (
+                state != 'RUNNING' or status.read_text().strip() != 'RUNNING'):
+            return {'ok': False, 'error': 'session_not_running', 'state': state}
         if op == 'list':
             return {'ok': True, 'state': state,
                     'windows': [
@@ -1273,12 +1585,45 @@ def main():
                     if args.experimental_virtual_display:
                         print(f'AaaS app control socket: {control_path} '
                               '(scripts/aaasctl.py list|launch|close|stop)', flush=True)
+                    if args.test_tombstone_capture:
+                        (ipc / 'tombstone_capture_test').write_text('segv-child\n')
+                        test_deadline = time.monotonic() + 20
+                        test_pid = ''
+                        while time.monotonic() < test_deadline:
+                            try:
+                                test_pid = (ipc / 'tombstone_capture_test_pid').read_text().strip()
+                            except OSError:
+                                pass
+                            if tombstone_matches_test_process(tombstone_dir, test_pid):
+                                print('AaaS: disposable child tombstone captured and verified',
+                                      flush=True)
+                                stop = True
+                                break
+                            if android.poll() is not None or status.read_text().strip() == 'FAILED':
+                                break
+                            time.sleep(.1)
+                        if not stop:
+                            try:
+                                test_result = (ipc / 'tombstone_capture_test_result').read_text().strip()
+                            except OSError:
+                                test_result = 'unavailable'
+                            raise RuntimeError(
+                                'disposable child tombstone was not captured '
+                                f'(pid={test_pid or "unknown"}, exit={test_result})')
                     break
                 if status.read_text().strip() == 'FAILED' or time.monotonic() >= deadline:
                     raise RuntimeError(f'Android app {args.app} did not become ready')
                 time.sleep(.25)
             warned_degraded = False
             while not stop and state == 'RUNNING':
+                if status.read_text().strip() == 'FAILED':
+                    reason = 'android_runtime_failed'
+                    try:
+                        if 'AAAS_FRAMEWORK_DEATH service=surfaceflinger' in session_commands.read_text():
+                            reason = 'surfaceflinger_died'
+                    except OSError:
+                        pass
+                    raise RuntimeError(f'Android runtime failed: {reason}')
                 if control_server is not None:
                     try:
                         client, _ = control_server.accept()
@@ -1375,6 +1720,23 @@ def main():
         return 0
     except Exception as error:
         print(f'AaaS: {error}', file=sys.stderr, flush=True)
+        failure_reason = 'runtime_or_control_failure'
+        try:
+            if 'AAAS_FRAMEWORK_DEATH service=surfaceflinger' in session_commands.read_text():
+                failure_reason = 'surfaceflinger_died'
+        except (OSError, UnboundLocalError):
+            pass
+        try:
+            failure_record = {
+                'reason': failure_reason,
+                'detail': f'{type(error).__name__}: {str(error)[:400]}',
+                'monotonic_ns': time.monotonic_ns(),
+            }
+            failure_path = session / 'failure.json'
+            failure_path.write_text(json.dumps(failure_record, indent=2) + '\n')
+            failure_path.chmod(0o600)
+        except (OSError, UnboundLocalError):
+            pass
         transition('FAILED')
         return 1
     finally:
@@ -1406,6 +1768,13 @@ def main():
             failed_before_cleanup = True
 
         if android is not None and android.poll() is None:
+            # Exporting the bounded Android tombstone ring can take several
+            # seconds when the runtime has unrelated crashing vendor services.
+            # Keep the wait finite while allowing the watcher to finish copies.
+            capture_status = request_tombstone_capture(ipc, timeout=10.0)
+        else:
+            capture_status = 'runtime_unavailable'
+        if android is not None and android.poll() is None:
             write_status_sentinel(status, 'STOPPING')
 
         if args.experimental_virtual_display and android is not None:
@@ -1433,6 +1802,8 @@ def main():
                 cleanup_failed = True
                 print(f'AaaS: process cleanup failed: {error}',
                       file=sys.stderr, flush=True)
+        write_crash_artifact_manifest(session, tombstone_dir, capture_status,
+                                      graphics_provenance)
         if policy is not None:
             summary = policy_monitor.summary() if policy_monitor is not None else {}
             try:

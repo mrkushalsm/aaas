@@ -1,8 +1,11 @@
 """Guard the diagnostic session's generated runner and mount isolation."""
 
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -145,9 +148,125 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('p.communicate(timeout=None)', generated)
         self.assertNotIn('p.communicate(timeout=80)', generated)
         self.assertIn('start_new_session=False', generated)
-        self.assertIn('    ) &\n    exec /system/bin/init second_stage', generated)
+        self.assertIn('    ) &\n    (\n      /system/bin/toybox umask 077', generated)
+        self.assertIn('    exec /system/bin/init second_stage', generated)
         self.assertNotIn('/system/bin/init second_stage &', generated)
         self.assertIn('    echo RUNNING > /aaas_session_status', generated)
+
+    def test_runner_exports_stable_tombstones_before_android_teardown(self):
+        import subprocess
+        import sys
+
+        with tempfile.TemporaryDirectory() as directory:
+            generated_path = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True,
+                app_package2='com.android.contacts')
+            generated = generated_path.read_text()
+            compiled = subprocess.run(
+                [sys.executable, '-m', 'py_compile', str(generated_path)],
+                capture_output=True, text=True,
+            )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertIn('aaas_export_stable_tombstones()', generated)
+        self.assertIn("stat -c '%s:%y'", generated)
+        self.assertIn('tombstone_capture_request', generated)
+        self.assertIn('tombstone_capture_ack', generated)
+        self.assertIn('chmod 0600', generated)
+        self.assertIn('AAAS_FRAMEWORK_DEATH service=surfaceflinger', generated)
+        self.assertIn('AAAS_BROKER_UNAVAILABLE_AFTER_FRAMEWORK_DEATH', generated)
+        self.assertIn('AAAS_SURFACEFLINGER_INITIAL_PID', generated)
+        self.assertIn('tombstone_capture_test_result', generated)
+        self.assertIn('Cmdline: /system/bin/surfaceflinger', generated)
+        self.assertIn('tombstone_capture_test_pid', generated)
+        self.assertIn('pid: $test_pid,', generated)
+        self.assertIn('os.chmod(tombstone_dir, 0o700)', generated)
+
+    def test_crash_manifest_records_missing_tombstone_without_fabrication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = root / 'session'
+            export = root / 'tombstones'
+            session.mkdir()
+            export.mkdir(mode=0o700)
+            manifest = SESSION.write_crash_artifact_manifest(
+                session, export, capture_status='complete')
+            self.assertEqual(manifest['artifact_state'], 'missing')
+            self.assertEqual(manifest['files'], [])
+            self.assertEqual(json.loads(
+                (session / 'crash-artifact-manifest.json').read_text()), manifest)
+
+    def test_crash_manifest_hashes_exported_regular_files(self):
+        import hashlib
+        import json
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = root / 'session'
+            export = root / 'tombstones'
+            session.mkdir()
+            export.mkdir(mode=0o700)
+            content = b'bounded synthetic tombstone fixture\n'
+            (export / 'tombstone_00').write_bytes(content)
+            manifest = SESSION.write_crash_artifact_manifest(
+                session, export, capture_status='complete')
+            self.assertEqual(manifest['artifact_state'], 'captured')
+            self.assertEqual(manifest['files'], [{
+                'name': 'tombstone_00', 'size_bytes': len(content),
+                'sha256': hashlib.sha256(content).hexdigest(),
+            }])
+            self.assertEqual((session / 'crash-artifact-manifest.json').stat().st_mode & 0o777,
+                             0o600)
+
+    def test_crash_manifest_keeps_missing_presenter_ownership_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = root / 'session'
+            export = session / 'tombstones'
+            session.mkdir()
+            export.mkdir(mode=0o700)
+            manifest = SESSION.write_crash_artifact_manifest(
+                session, export, capture_status='timeout')
+            states = [record['state'] for record in
+                      manifest['presenter_terminal_ownership']]
+            self.assertEqual(states, ['unknown', 'unknown', 'unknown'])
+            self.assertTrue(all(record['summary'] is None for record in
+                                manifest['presenter_terminal_ownership']))
+
+    def test_tombstone_capture_timeout_is_bounded_and_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ipc = Path(directory)
+            (ipc / 'tombstone_capture_request').write_text('')
+            (ipc / 'tombstone_capture_ack').write_text('')
+            started = time.monotonic()
+            result = SESSION.request_tombstone_capture(ipc, timeout=.05)
+            elapsed = time.monotonic() - started
+            self.assertEqual(result, 'timeout')
+            self.assertLess(elapsed, .5)
+            self.assertEqual((ipc / 'tombstone_capture_request').read_text(), 'stop\n')
+
+    def test_tombstone_capture_waits_for_bounded_export_acknowledgement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ipc = Path(directory)
+            request = ipc / 'tombstone_capture_request'
+            ack = ipc / 'tombstone_capture_ack'
+            request.write_text('')
+            ack.write_text('')
+
+            def acknowledge():
+                deadline = time.monotonic() + 1
+                while time.monotonic() < deadline:
+                    if request.read_text().strip() == 'stop':
+                        time.sleep(.08)
+                        ack.write_text('complete\n')
+                        return
+                    time.sleep(.005)
+
+            worker = threading.Thread(target=acknowledge)
+            worker.start()
+            self.assertEqual(SESSION.request_tombstone_capture(ipc, timeout=.5),
+                             'complete')
+            worker.join(timeout=1)
+            self.assertFalse(worker.is_alive())
 
     def test_runner_hash_change_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

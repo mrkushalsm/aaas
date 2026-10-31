@@ -41,9 +41,12 @@ def main():
     egl_test_log.write_text("")
     os.chmod(egl_test_log, 0o666)
 
-    tombstone_dir = tmp_dir / f"{prefix}tombstones"
+    tombstone_dir = Path(os.environ.get(
+        "AAAS_TOMBSTONE_EXPORT", str(tmp_dir / f"{prefix}tombstones")))
     tombstone_dir.mkdir(exist_ok=True)
-    os.chmod(tombstone_dir, 0o777)
+    # Tombstones can contain process memory and paths. They are exported to
+    # the owning host session only; never make the artifact directory public.
+    os.chmod(tombstone_dir, 0o700)
 
     fake_kptr = tmp_dir / "fake_kptr"
     fake_sysrq = tmp_dir / "fake_sysrq"
