@@ -1541,3 +1541,43 @@ See [`alarm_fallback_two_app_tick_validation_20261101.json`](../results/m1e/live
 The independent historical SwiftShader v4 read-after-unmap observation remains
 unresolved. The healthy v10 resource-order traces and this framework fix do not
 retroactively establish its owner or cause. M1E remains **PARTIAL**.
+
+### Clean resize validation after AlarmManager correction (2026-11-01)
+
+After the M1E-only AlarmHandler fallback was corrected, three v10 traced
+Settings/Contacts sessions completed with `STOPPED` rather than the earlier
+minute-boundary `system_server` failure. In default mode, both outputs reached
+960×578; Settings then moved independently through 960×557 and 960×565 while
+Contacts remained at 960×578, then Contacts reached 960×565. Both returned to
+720×1280. In enhanced source-LMKD/cgroup mode, both reached 960×578, Settings
+reached 960×557 while Contacts stayed unchanged, and both returned to
+720×1280; the delegated cgroup was removed. A third default run took both
+outputs to 960×557, then issued the 960×565 configure updates from one local
+compositor test call. The broker observed those requests 2 ms apart. Both
+Android displays and Composer outputs reached 960×565, returned to 720×1280,
+and the session stopped cleanly.
+
+Across all three runs, SurfaceFlinger survived, the captured draw enqueue/work
+start/completion counts balanced, and for the selected traced color-target
+memory resources checked, draw completion preceded the matching Vulkan AHB
+reference release. Both presenters ended with imports=submissions=releases,
+zero outstanding buffers, and zero teardown invalidations. The historical v4
+stale-AHB read remains unresolved: these bounded v10 sessions do not identify
+the old reader or establish its ownership invariant. Landscape, configure
+bursts, visible post-resize pointer-corner probes, and the full interaction and
+lifecycle matrix remain open. The exact sessions, request times, Composer frame
+identities, trace counters, binary provenance, and artifact hashes are in
+[`swiftshader_clean_resize_after_alarm_fix_20261101.json`](../results/m1e/live/swiftshader_clean_resize_after_alarm_fix_20261101.json).
+
+KWin was used only as the available local test compositor and to issue ordinary
+Wayland window-geometry changes during live testing. The runtime has no KWin
+patch, private KWin API, or KDE product dependency; its resize path remains
+standard Wayland `xdg_toplevel` configure handling.
+
+The regression pass accompanying these sessions completed 204 Python tests,
+M1A protocol/synchronization/input tests, the forced presenter build and test
+(including the executable queued-keyboard teardown cases), the input-adapter
+build, the Composer linear-copy and transport-pool tests compiled directly to
+`/tmp`, the forced display-broker build, and the workspace guard. The inherited
+untracked `experiments/m1b/composer_aaas/build/` directory was not used or
+staged. The structured resize record contains the exact commands and results.
