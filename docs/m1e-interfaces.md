@@ -36,6 +36,24 @@ simultaneous windows.
 The feature is opt-in; default sessions do not set its display-content-mode
 property or start this service.
 
+## Wayland compositor contract
+
+The presenter is compositor-neutral and does not call KDE/KWin APIs or require
+compositor patches. It binds the core `wl_compositor`, `xdg_wm_base`, and
+`zwp_linux_dmabuf_v1` version 3 or newer. The DMA-BUF global must advertise a
+supported XRGB8888, ARGB8888, RGBA8888, or ABGR8888 format/modifier for Android
+output buffers; otherwise
+the presenter fails startup with an explicit missing-capability error. This
+protocol requirement is independent of Linux distribution, but it means the
+runtime cannot promise operation on every Wayland compositor configuration.
+
+`wl_seat` is optional for rendering and enables pointer/keyboard input when
+provided. `wp_viewporter`, `wp_presentation`, and
+`wp_linux_drm_syncobj_manager_v1` are optional capabilities; explicit sync is
+used only when the syncobj manager and a usable DRM render node are both
+available. Local KWin sessions were used as the available test environment;
+live validation with a second compositor has not been performed.
+
 ## App-mode primary presentation
 
 For app-selected `--experimental-virtual-display` runs, `run_aaas.py` skips
