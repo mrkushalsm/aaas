@@ -1035,3 +1035,52 @@ No resize was attempted with the full diagnostic overlay. The routine-only
 trace still does not identify the historical fault's data allocation or
 resize generation. No SwiftShader fix is claimed; the concurrent-resize crash
 remains unresolved and M1E remains **PARTIAL**.
+
+### Coherent diagnostic overlay and resize crash correlation
+
+The former mixed-object diagnostic overlay was replaced by an isolated build
+from pinned SwiftShader revision `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5`.
+The complete diagnostic source diff is recorded in
+[`swiftshader_coherent_diagnostic.patch`](../experiments/m1e/patches/swiftshader_coherent_diagnostic.patch).
+The build compiles the full CMake/Ninja target graph and relinks the generated
+objects and archives together with the Android HAL shim and Android runtime
+libraries. Its manifest checks source and patch identity, Android compile
+definitions, generated input hashes, exported HAL/ICD symbols, dependencies,
+ELF Build ID, and the unchanged production overlay. A diagnostic-only runtime
+selection option validates that manifest before use.
+
+The resulting v4 overlay (SHA-256
+`fd03e647af765fd6b4cc3fbe1f804b724cd6a3775ddfdd1dd128f65a957dc74a`, Build ID
+`7aa561d1e5349441898f794382563403f22b5894`) passed bounded single-app and
+two-app no-resize runs. In the two-app run, both presenters drained all
+imports with zero outstanding buffers, and JIT/AHardwareBuffer diagnostics
+were emitted by the same SurfaceFlinger process. This establishes diagnostic
+overlay compatibility for those no-resize paths only.
+
+The coherent overlay then reproduced a SurfaceFlinger crash during sequential
+resizing, without a near-simultaneous resize request. In session
+`m1b84_session_hqgkycni`, a bounded capture of generated PixelRoutine machine
+code identified the faulting instruction as an 8-byte `movq` read at
+`0x7f31c8ba5000`. The JIT entry was `PixelRoutine_00000042` (routine ID 20).
+The same address was the base of AHardwareBuffer ID `3560527888403`, imported
+as a 960×578 image with 3840-byte rows. SwiftShader's trace recorded
+`AHardwareBuffer_unlock()`/release for that object about 32.5 ms before the
+fault; the tombstone shows the referenced page absent, immediately after an
+adjacent `/i915` mapping. This confirms a JIT read through an address whose
+AHardwareBuffer mapping had been released in that process.
+
+This is a significant memory-lifetime correlation, but it does not identify
+the Vulkan image/view/descriptor, command submission, renderer job, Android
+display, or resize generation that retained the address. The current evidence
+also does not establish whether the caller destroyed memory before pending
+work completed or whether SwiftShader failed to preserve the resource through
+the relevant work. No graphics fix is claimed. Both coherent diagnostic
+resize runs failed with SurfaceFlinger death; the session status remained
+`FAILED`, while the presenters emitted complete zero-outstanding summaries.
+The production overlay remains unchanged at SHA-256
+`1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`.
+
+Detailed build, trace, tombstone hashes, and limits are recorded in
+[`swiftshader_coherent_resize_investigation_20261031.json`](../results/m1e/live/swiftshader_coherent_resize_investigation_20261031.json).
+M1E remains **PARTIAL** until the resource owner and violated lifetime
+contract are established and the resize failure is corrected and retested.
