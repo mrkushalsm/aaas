@@ -58,6 +58,17 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         close_message = self.source.index(".type = AAAS_V2_CLOSE", teardown)
         self.assertLess(teardown, close_message)
 
+    def test_input_teardown_destroys_keyboard_before_releasing_xkb_state(self):
+        teardown_start = self.source.index("static void input_teardown(")
+        teardown_end = self.source.index("int aaas_run_gpu_presenter(", teardown_start)
+        teardown = self.source[teardown_start:teardown_end]
+        self.assertLess(teardown.index("destroy_keyboard(a)"),
+                        teardown.index("xkb_state_unref(a->xkb_state)"))
+        self.assertIn("a->xkb_state = NULL", teardown)
+        self.assertIn("a->xkb_keymap = NULL", teardown)
+        run = self.source[teardown_end:]
+        self.assertIn("input_teardown(&app);\n    drain_wayland_buffers(&app);", run)
+
     def test_resize_keeps_wayland_surface_geometry_during_android_rebuild(self):
         configure_start = self.source.index("static void xdg_surface_configure(")
         configure_end = self.source.index("static const struct xdg_surface_listener", configure_start)

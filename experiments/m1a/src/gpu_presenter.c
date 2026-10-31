@@ -1966,7 +1966,15 @@ static void input_adapter_read(presenter_app *a) {
 }
 
 static void input_teardown(presenter_app *a) {
-    if (a->keyboard_focus) keyboard_send_focus(a, AAAS_INPUT_FOCUS_LEAVE);
+    /* Stop Wayland keyboard callbacks before releasing their XKB state.
+     * drain_wayland_buffers() dispatches pending events after this function;
+     * a queued wl_keyboard.enter used to call keyboard_send_focus() through a
+     * freed xkb_state during producer-disconnect teardown. */
+    if (a->keyboard) {
+        destroy_keyboard(a);
+    } else if (a->keyboard_focus) {
+        keyboard_send_focus(a, AAAS_INPUT_FOCUS_LEAVE);
+    }
     input_keyboard_flush(a);
     if (a->pressed_buttons) {
         input_release_buttons(a, "teardown");
@@ -1982,9 +1990,18 @@ static void input_teardown(presenter_app *a) {
         a->keyboard_v2_enabled=0;
         a->keyboard_queue_head=0; a->keyboard_queue_count=0;
     }
-    if (a->xkb_state) xkb_state_unref(a->xkb_state);
-    if (a->xkb_keymap) xkb_keymap_unref(a->xkb_keymap);
-    if (a->xkb_context) xkb_context_unref(a->xkb_context);
+    if (a->xkb_state) {
+        xkb_state_unref(a->xkb_state);
+        a->xkb_state = NULL;
+    }
+    if (a->xkb_keymap) {
+        xkb_keymap_unref(a->xkb_keymap);
+        a->xkb_keymap = NULL;
+    }
+    if (a->xkb_context) {
+        xkb_context_unref(a->xkb_context);
+        a->xkb_context = NULL;
+    }
 }
 
 int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
