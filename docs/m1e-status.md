@@ -1209,3 +1209,16 @@ available KWin session only to issue ordinary Wayland configure events; the
 product implementation uses SwiftShader attachment extents and introduces no
 KDE/KWin dependency or patch. See
 [`swiftshader_odd_height_pair_bounds_20261031.json`](../results/m1e/live/swiftshader_odd_height_pair_bounds_20261031.json).
+
+### Enhanced-mode v9 smoke (2026-10-31)
+
+A short two-app run using diagnostic v9 under source-built LMKD and delegated
+cgroup policy reached `RUNNING`, rendered Settings and Contacts, then reached
+`STOPPED`. Presenter summaries were 138/138/138 and 127/127/127 imports,
+submissions, and releases respectively, with zero outstanding buffers; the
+session cgroup was removed. No SurfaceFlinger crash occurred. This smoke did
+not resize or exercise input, and therefore does not establish enhanced-mode
+resize acceptance. The guest log also showed the existing Bluetooth service
+restarting after `libbluetooth_jni.so` was unavailable; the target application
+presenters remained active. See
+[`swiftshader_v9_enhanced_smoke_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_smoke_20261031.json).
