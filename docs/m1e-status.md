@@ -1393,3 +1393,16 @@ modes. It does not resolve the separate older v4 stale-AHardwareBuffer fault or
 cover input, landscape, resize-back, burst, or dynamic lifecycle in enhanced
 mode. See
 [`swiftshader_v9_enhanced_odd_height_sequence_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_odd_height_sequence_20261031.json).
+
+A closer enhanced-mode reproduction layout resized both Settings and Contacts to
+960×578, then moved Settings through 960×557 and 960×565 while Contacts stayed
+at 960×578. SurfaceFlinger survived, the run ended `STOPPED`, both presenters
+released every imported host buffer, and the delegated cgroup was removed. The
+v9 Vulkan trace recorded 18 imported 960-wide AHardwareBuffers; 13 had explicit
+retirement before process exit. Eleven retired resources had draw uses, and all
+eleven were destroyed/released after their last traced draw completion and
+queue renderer synchronization. No release-before-sync ordering was observed.
+Five imports remained live/unclassified at process exit, so this is not a claim
+that every Vulkan allocation has a traced terminal event. The historical v4
+fault did not recur and remains unexplained. Details and hashes are in
+[`swiftshader_v9_enhanced_two_output_lifetime_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_two_output_lifetime_20261031.json).
