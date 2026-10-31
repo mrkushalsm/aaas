@@ -118,21 +118,21 @@ historical SwiftShader JIT fault remains unresolved. The clean
 | Both windows simultaneously visible and independently placed | PASS, bounded live | KWin quick-tile arrangement and genuine screenshot; user-driven repositioning was not separately tested. |
 | Per-window task/display close and reopen | PASS, bounded live | Two create-after-destroy cycles reused each slot while the other app remained RUNNING; final stop shut down the shared runtime. |
 | Buffer/fence terminal ownership | PASS, bounded live | Both summaries show imports=submissions=releases, zero invalidated/outstanding. |
-| Single-output Android framebuffer resize | PASS, bounded live | 720×1280 → 960×1156 → 720×1280; Composer and presenter source dimensions/strides matched after each transition. No screenshot or post-resize coordinate test was captured. |
-| Concurrent two-output resize | PASS, bounded live | Settings and DeskClock both transitioned from 720×1280 to matching 960×1156 Android source buffers. Settings then resized independently to 960×578 with a matching source buffer while DeskClock remained at 960×1156 / generation 2. Resize-back-to-original and landscape/burst sequences remain untested. |
-| Keyboard on both outputs, vertical scrolling, focus isolation | PARTIAL, visible synthetic text and vertical scroll in both; focus warnings remain | Settings Search and Contacts editor visibly accepted text in the prior live session. The 2026-10-31 follow-up corrected Android 16 `input` argument order; Settings All apps and Contacts editor then visibly scrolled independently in default and enhanced runs. Each scroll changed only the targeted app rectangle. Transient InputDispatcher no-focused-window warnings and a one-time initial key miss remain documented. See `scroll_routing_fix_20261031.json`. |
-| Reopen app without restarting runtime | PASS, bounded live | Settings reopened as task 10/display 4 and DeskClock as task 11/display 5 in the same session. Third launch returned `capacity_exhausted`. |
+| Single-output Android framebuffer resize | PASS, bounded live | Stable resize, odd-height, landscape, and resize-back paths have bounded current-patch evidence in default and enhanced modes. Matching Android source buffers were observed after stable generations. In-flight pointer mapping remains untested. |
+| Concurrent two-output resize | PASS_BOUNDED_CURRENT_PATCH; historical v4 crash owner unresolved | Both outputs reached matching resized and restored frames in bounded paired runs. A v10 trace recorded renderer sync before release for 34 imported descriptor-referenced memories. The older v4 unmapped AHardwareBuffer read remains unresolved; see the dated v10 trace records and `swiftshader_coherent_resize_investigation_20261031.json`. |
+| Keyboard on both outputs, vertical scrolling, focus isolation | PASS_BOUNDED steady-field isolation; Activity-transition and modifier/navigation edges remain PARTIAL | Repeated first-key tests passed 40/40 steady-field focus transitions across default and enhanced modes. Post-resize Settings and Contacts editors visibly changed independently; an Activity-transition key drop remains recorded. Vertical scroll changed only the targeted app rectangle in both modes. See `repeated_focus_typing_20261031.json`, `postresize_visible_input_20261101.json`, and `scroll_routing_fix_20261031.json`. |
+| Reopen app without restarting runtime | PASS, bounded live | Settings reopened as task 10/display 4 while Contacts remained active. The reopened app accepted visible text after focus readiness; a third launch returned `capacity_exhausted`. Enhanced-mode close/reopen and minimize/restore reached clean STOPPED with cgroup removal. |
 | Minimize/unmap lifecycle | PASS, bounded user-visible restore; Android lifecycle sync NOT TESTED | KWin minimize/restore hid and restored Contacts while Settings remained visible; both runtime slots stayed RUNNING. No Android pause/resume synchronization is claimed because the presenter has no standard minimized-state signal. |
 | Hide primary diagnostic presenter in normal app mode | PASS, bounded live | Experimental app sessions with selected apps skip the primary presenter; Android display 0 remains intact. `--show-primary-diagnostic` restores diagnostic presentation. This verifies no primary Wayland output, not removal of internal Android SystemUI. |
 | Distinct DMA-BUF copy on real Mixed composition | NOT TESTED LIVE | GPU-only alias path and component-level stride/copy tests remain as previously documented. |
-| SwiftShader JIT crash freedom | PARTIAL | One separate live SurfaceFlinger JIT SIGSEGV remains unresolved. |
-| Resize/JIT relationship | OPEN | The resize follow-up did not reproduce the historical JIT SIGSEGV; it logged two `Unexpected onFrameCommitted in Gpu state` warnings. The old fault remains unsymbolicated and open. |
+| SwiftShader JIT crash freedom | PARTIAL | The historical v4 read from an unmapped AHardwareBuffer address remains without VkImage/descriptor/submission/display-generation ownership. Later corrected-patch traces survived bounded resize sequences but do not retroactively resolve that fault. |
+| Resize/JIT relationship | PARTIAL | Corrected-patch resize traces are bounded positive evidence; the historic v4 fault's ownership path remains unknown. |
 
 ## Verification
 
 The final automated runs for this continuation passed:
 
-- `python3 -m unittest discover -s tests -v`: **170 tests** in the latest run, including an Android 16 input-shell argument-order regression test.
+- `python3 -m unittest discover -s tests -v`: **208 tests** in the 2026-11-01 continuation run.
 - `make -C experiments/m1a test`.
 - `make -C experiments/m1a -B build/wayland-host-presenter test`.
 - `make -C experiments/m1c/input_adapter -B all`.
@@ -1928,3 +1928,26 @@ Evidence:
 [screenshot](../results/m1e/live/enhanced_asymmetric_reopen_minimize_20261101.png).
 KWin only drove local test geometry/minimize actions; product behavior stays on
 standard Wayland protocols. Cross-compositor live testing remains untested.
+
+
+### Consolidated acceptance and regression rerun (2026-11-01)
+
+The latest tracked acceptance records now distinguish the bounded post-resize
+visible pointer/editor probes from untested in-flight-resize coordinate mapping.
+Default session `m1b84_session_h3cvpe8y` shows independent Settings and Contacts
+editor changes after both Android displays reached 950×1100. Enhanced session
+`m1b84_session_fyb0501r` covers asymmetric resize, visible input after close and
+reopen, minimize/restore, two-slot capacity rejection, STOPPED shutdown, and
+cgroup removal. These tests used KWin only as the locally available host window
+geometry driver; the AaaS presenter uses standard Wayland protocols and has no
+KDE/KWin product API dependency. Cross-compositor live testing remains
+unavailable in this environment.
+
+A fresh regression rerun passed 208 Python tests, M1A tests, forced presenter
+build/tests, input-adapter build, Composer component tests, display-broker
+build, and the external workspace guard. Per-command logs and SHA-256 values
+are kept outside the repository; the structured summary is
+[`regression_suite_continuation_20261101.json`](../results/m1e/live/regression_suite_continuation_20261101.json).
+The historical v4 SwiftShader stale-AHardwareBuffer ownership remains open;
+later healthy v10 ordering and corrected-patch resize results are not treated as
+a root-cause fix. M1E remains **PARTIAL**.
