@@ -1294,3 +1294,31 @@ bounded positive evidence for the SwiftShader odd-height correction, while
 clean shutdown under this build and unrelated framework reliability remain
 unverified. KWin scripting only generated ordinary Wayland configure events on
 the available host. AaaS contains no KWin-specific product dependency.
+
+### Enhanced no-tracing resize validation (2026-10-31)
+
+The same corrected no-tracing SwiftShader build was exercised with source-built
+LMKD and delegated cgroup v2. Settings rendered native 960×557 and 960×565
+buffers, then returned to 720×1280; Contacts remained independently at
+720×1280. Both presenters released all imported buffers (182/182 for Settings,
+170/170 for Contacts), with zero outstanding and no teardown invalidations.
+The session cgroup was removed. At guest 17:27:00.004 UTC, the known unrelated
+AlarmManager null-PendingIntent exception crashed system_server, so the session
+correctly remained `FAILED`, not `STOPPED`. See
+[`swiftshader_fixed_notrace_resize_enhanced_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_resize_enhanced_20261031.json).
+This is bounded resize-path evidence only; input, landscape, bursts, app reopen,
+and clean terminal shutdown under this exact overlay remain unverified.
+
+A separate short default-mode run with the corrected no-tracing build rendered
+Settings and Contacts simultaneously and reached `STOPPED` after a user stop.
+The two presenters drained 135/135 and 124/124 buffers with zero outstanding.
+It was intentionally kept within one guest minute to avoid the observed periodic
+system-server AlarmManager exception. The run did not resize or exercise input;
+see [`swiftshader_fixed_notrace_default_shutdown_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_default_shutdown_20261031.json).
+
+A short enhanced-mode two-app run with the same fixed no-tracing build also
+reached `STOPPED` cleanly when stopped before the known minute-boundary
+framework exception. Source-built LMKD remained active, the delegated session
+cgroup was removed, and Settings/Contacts drained 131/131 and 116/116 buffers,
+with zero outstanding. It did not exercise resize or input; see
+[`swiftshader_fixed_notrace_enhanced_shutdown_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_enhanced_shutdown_20261031.json).
