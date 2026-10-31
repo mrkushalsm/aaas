@@ -1222,3 +1222,13 @@ resize acceptance. The guest log also showed the existing Bluetooth service
 restarting after `libbluetooth_jni.so` was unavailable; the target application
 presenters remained active. See
 [`swiftshader_v9_enhanced_smoke_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_smoke_20261031.json).
+
+A subsequent enhanced resize attempt (`m1b84_session_1ky_uksb`) did not reach a
+resize request: system_server terminated at guest time 16:48:00 with the
+previously observed `AlarmManagerService.getAlarmOperationBundle()` null
+`PendingIntent` exception. The session remains **FAILED**, so it is not an
+enhanced resize pass. Both presenters emitted complete summaries (137/137/137
+and 123/123/123 releases, zero outstanding), and cgroup cleanup succeeded. No
+SurfaceFlinger SIGSEGV was observed. This known framework failure is separate
+from SwiftShader and KWin; no causal connection is established. See
+[`swiftshader_v9_enhanced_resize_blocked_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_resize_blocked_20261031.json).
