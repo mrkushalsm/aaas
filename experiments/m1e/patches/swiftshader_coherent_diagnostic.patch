@@ -42,7 +42,7 @@ index c7f082d..9bbc3c1 100644
      PUBLIC
          ${SWIFTSHADER_LINK_FLAGS}
 diff --git a/src/Device/Renderer.cpp b/src/Device/Renderer.cpp
-index 4d072b0..a8c5efd 100644
+index 4d072b0..a6e2f64 100644
 --- a/src/Device/Renderer.cpp
 +++ b/src/Device/Renderer.cpp
 @@ -13,6 +13,7 @@
@@ -63,16 +63,17 @@ index 4d072b0..a8c5efd 100644
  {
  	if(count == 0) { return; }
  
-@@ -195,6 +197,8 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+@@ -195,6 +197,9 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
  		draw = drawCallPool.borrow();
  	}
  	draw->id = id;
 +	draw->diagnosticSubmissionId = diagnosticSubmissionId;
 +	draw->diagnosticPipelineId = vk::AaasDiagnosticObjectId(pipeline);
++	vk::AaasDiagnosticSetDrawContext(diagnosticSubmissionId, static_cast<uint64_t>(id));
  
  	const vk::GraphicsState &pipelineState = pipeline->getCombinedState(dynamicState);
  
-@@ -243,6 +247,15 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+@@ -243,6 +248,15 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
  			pixelRoutine = pixelProcessor.routine(pixelState, fragmentState->getPipelineLayout(), fragmentShader, attachments, inputs.getDescriptorSets());
  		}
  	}
@@ -88,7 +89,15 @@ index 4d072b0..a8c5efd 100644
  
  	draw->preRasterizationContainsImageWrite = pipeline->preRasterizationContainsImageWrite();
  	draw->fragmentContainsImageWrite = pipeline->fragmentContainsImageWrite();
-@@ -504,6 +517,10 @@ void DrawCall::setup()
+@@ -487,6 +501,7 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+ 	draw->events = events;
+ 
+ 	DrawCall::run(device, draw, &drawTickets, clusterQueues);
++	vk::AaasDiagnosticSetDrawContext(0, 0);
+ }
+ 
+ void DrawCall::setup()
+@@ -504,6 +519,10 @@ void DrawCall::setup()
  
  void DrawCall::teardown(vk::Device *device)
  {
@@ -99,7 +108,7 @@ index 4d072b0..a8c5efd 100644
  	if(events)
  	{
  		events->done();
-@@ -550,6 +567,10 @@ void DrawCall::teardown(vk::Device *device)
+@@ -550,6 +569,10 @@ void DrawCall::teardown(vk::Device *device)
  
  void DrawCall::run(vk::Device *device, const marl::Loan<DrawCall> &draw, marl::Ticket::Queue *tickets, marl::Ticket::Queue clusterQueues[MaxClusterCount])
  {
@@ -294,10 +303,10 @@ index c0c6b1d..4b8f5d6 100644
  #ifdef ENABLE_RR_PRINT
 diff --git a/src/Vulkan/AaasDiagnosticTrace.hpp b/src/Vulkan/AaasDiagnosticTrace.hpp
 new file mode 100644
-index 0000000..6c973c3
+index 0000000..d56c92b
 --- /dev/null
 +++ b/src/Vulkan/AaasDiagnosticTrace.hpp
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,120 @@
 +#ifndef AAAS_VULKAN_DIAGNOSTIC_TRACE_HPP_
 +#define AAAS_VULKAN_DIAGNOSTIC_TRACE_HPP_
 +
@@ -342,6 +351,16 @@ index 0000000..6c973c3
 +	return id;
 +}
 +
++inline uint64_t AaasDiagnosticObjectCreate(const void *object)
++{
++	if(!object) return 0;
++	auto &registry = AaasDiagnosticObjects();
++	std::lock_guard<std::mutex> lock(registry.mutex);
++	const uint64_t id = ++registry.nextId;
++	if(registry.ids.size() < 16384) registry.ids[object] = id;
++	return id;
++}
++
 +inline void AaasDiagnosticObjectRetire(const void *object)
 +{
 +	if(!object) return;
@@ -377,12 +396,33 @@ index 0000000..6c973c3
 +	close(fd);
 +}
 +
++struct AaasDiagnosticDrawContext
++{
++	uint64_t submissionId = 0;
++	uint64_t drawId = 0;
++};
++
++inline AaasDiagnosticDrawContext &AaasDiagnosticCurrentDraw()
++{
++	static thread_local AaasDiagnosticDrawContext context;
++	return context;
++}
++
++inline void AaasDiagnosticSetDrawContext(uint64_t submissionId, uint64_t drawId)
++{
++	AaasDiagnosticCurrentDraw() = { submissionId, drawId };
++}
++
 +}  // namespace vk
 +#else
 +namespace vk {
 +inline uint64_t AaasDiagnosticObjectId(const void *) { return 0; }
 +inline void AaasDiagnosticObjectRetire(const void *) {}
++inline uint64_t AaasDiagnosticObjectCreate(const void *) { return 0; }
 +inline void AaasDiagnosticTrace(const char *, ...) {}
++struct AaasDiagnosticDrawContext { uint64_t submissionId = 0; uint64_t drawId = 0; };
++inline AaasDiagnosticDrawContext &AaasDiagnosticCurrentDraw() { static AaasDiagnosticDrawContext context; return context; }
++inline void AaasDiagnosticSetDrawContext(uint64_t, uint64_t) {}
 +}  // namespace vk
 +#endif
 +
@@ -467,14 +507,110 @@ index 683198e..e4c9e41 100644
  		RenderPass *renderPass = nullptr;
  		Framebuffer *renderPassFramebuffer = nullptr;
  		DynamicRendering *dynamicRendering = nullptr;
+diff --git a/src/Vulkan/VkDescriptorPool.cpp b/src/Vulkan/VkDescriptorPool.cpp
+index 066120b..e5b470d 100644
+--- a/src/Vulkan/VkDescriptorPool.cpp
++++ b/src/Vulkan/VkDescriptorPool.cpp
+@@ -13,6 +13,8 @@
+ // limitations under the License.
+ 
+ #include "VkDescriptorPool.hpp"
++#include "AaasDiagnosticTrace.hpp"
++#include "VkDescriptorSet.hpp"
+ 
+ #include "VkDescriptorSet.hpp"
+ #include "VkDescriptorSetLayout.hpp"
+@@ -39,6 +41,13 @@ DescriptorPool::DescriptorPool(const VkDescriptorPoolCreateInfo *pCreateInfo, vo
+ 
+ void DescriptorPool::destroy(const VkAllocationCallbacks *pAllocator)
+ {
++	for(const auto &node : nodes)
++	{
++		DescriptorSet *set = reinterpret_cast<DescriptorSet *>(node.set);
++		AaasDiagnosticTrace("AAAS_DESCRIPTOR_SET_RETIRE set_id=%llu set=%p reason=pool_destroy",
++		                    static_cast<unsigned long long>(AaasDiagnosticObjectId(set)), set);
++		AaasDiagnosticObjectRetire(set);
++	}
+ 	vk::freeHostMemory(pool, pAllocator);
+ }
+ 
+@@ -200,12 +209,23 @@ void DescriptorPool::freeSet(const VkDescriptorSet descriptorSet)
+ 	auto it = std::find(nodes.begin(), itEnd, asMemory(descriptorSet));
+ 	if(it != itEnd)
+ 	{
++		DescriptorSet *set = vk::Cast(descriptorSet);
++		AaasDiagnosticTrace("AAAS_DESCRIPTOR_SET_RETIRE set_id=%llu set=%p reason=free",
++		                    static_cast<unsigned long long>(AaasDiagnosticObjectId(set)), set);
++		AaasDiagnosticObjectRetire(set);
+ 		nodes.erase(it);
+ 	}
+ }
+ 
+ VkResult DescriptorPool::reset()
+ {
++	for(const auto &node : nodes)
++	{
++		DescriptorSet *set = reinterpret_cast<DescriptorSet *>(node.set);
++		AaasDiagnosticTrace("AAAS_DESCRIPTOR_SET_RETIRE set_id=%llu set=%p reason=pool_reset",
++		                    static_cast<unsigned long long>(AaasDiagnosticObjectId(set)), set);
++		AaasDiagnosticObjectRetire(set);
++	}
+ 	nodes.clear();
+ 
+ 	return VK_SUCCESS;
+diff --git a/src/Vulkan/VkDescriptorSet.cpp b/src/Vulkan/VkDescriptorSet.cpp
+index 98eb010..7b8f07f 100644
+--- a/src/Vulkan/VkDescriptorSet.cpp
++++ b/src/Vulkan/VkDescriptorSet.cpp
+@@ -13,8 +13,10 @@
+ // limitations under the License.
+ 
+ #include "VkDescriptorSet.hpp"
++#include "AaasDiagnosticTrace.hpp"
+ 
+ #include "VkDevice.hpp"
++#include "VkDeviceMemory.hpp"
+ #include "VkImageView.hpp"
+ #include "VkPipelineLayout.hpp"
+ 
+@@ -62,6 +64,21 @@ void DescriptorSet::ParseDescriptors(const Array &descriptorSets, const Pipeline
+ 					}
+ 					if(memoryOwner)
+ 					{
++						if(notificationType == PREPARE_FOR_SAMPLING)
++						{
++							const Image *image = memoryOwner->getImageForDiagnostics();
++							const DeviceMemory *memory = image ? image->deviceMemory : nullptr;
++							const auto &draw = AaasDiagnosticCurrentDraw();
++							AaasDiagnosticTrace("AAAS_DESCRIPTOR_USE submit_id=%llu draw_id=%llu set_id=%llu set=%p set_index=%u binding=%u element=%u view_id=%llu view=%p image_id=%llu image=%p memory_id=%llu memory=%p base=%p extent=%ux%u",
++							                    static_cast<unsigned long long>(draw.submissionId),
++							                    static_cast<unsigned long long>(draw.drawId),
++							                    static_cast<unsigned long long>(AaasDiagnosticObjectId(descriptorSet)), descriptorSet, i, j, k,
++							                    static_cast<unsigned long long>(AaasDiagnosticObjectId(memoryOwner)), memoryOwner,
++							                    static_cast<unsigned long long>(AaasDiagnosticObjectId(image)), image,
++							                    static_cast<unsigned long long>(AaasDiagnosticObjectId(memory)), memory,
++							                    memory ? memory->getOffsetPointer(0) : nullptr,
++							                    image ? image->getExtent().width : 0, image ? image->getExtent().height : 0);
++						}
+ 						if(notificationType == PREPARE_FOR_SAMPLING)
+ 						{
+ 							device->prepareForSampling(memoryOwner);
+@@ -98,4 +115,4 @@ uint8_t *DescriptorSet::getDataAddress()
+ 	return reinterpret_cast<uint8_t *>(this) + sizeof(DescriptorSetHeader);
+ }
+ 
+-}  // namespace vk
+\ No newline at end of file
++}  // namespace vk
 diff --git a/src/Vulkan/VkDescriptorSetLayout.cpp b/src/Vulkan/VkDescriptorSetLayout.cpp
-index 9f4bbcd..b70fcc2 100644
+index 9f4bbcd..f2874fb 100644
 --- a/src/Vulkan/VkDescriptorSetLayout.cpp
 +++ b/src/Vulkan/VkDescriptorSetLayout.cpp
-@@ -13,10 +13,12 @@
+@@ -13,10 +13,13 @@
  // limitations under the License.
  
  #include "VkDescriptorSetLayout.hpp"
++#include "AaasDiagnosticTrace.hpp"
 +#include "AaasDiagnosticTrace.hpp"
  
  #include "VkBuffer.hpp"
@@ -484,7 +620,17 @@ index 9f4bbcd..b70fcc2 100644
  #include "VkImageView.hpp"
  #include "VkSampler.hpp"
  
-@@ -429,6 +431,16 @@ void DescriptorSetLayout::WriteDescriptorSet(Device *device, DescriptorSet *dstS
+@@ -170,6 +173,9 @@ size_t DescriptorSetLayout::getDescriptorSetDataSize(const uint32_t *variableDes
+ void DescriptorSetLayout::initialize(DescriptorSet *descriptorSet, const uint32_t *variableDescriptorCount)
+ {
+ 	ASSERT(descriptorSet->header.layout == nullptr);
++	const uint64_t diagnosticSetId = AaasDiagnosticObjectCreate(descriptorSet);
++	AaasDiagnosticTrace("AAAS_DESCRIPTOR_SET_CREATE set_id=%llu set=%p layout=%p",
++	                    static_cast<unsigned long long>(diagnosticSetId), descriptorSet, this);
+ 
+ 	// Set a pointer to this descriptor set layout in the descriptor set's header.
+ 	descriptorSet->header.layout = this;
+@@ -429,6 +435,16 @@ void DescriptorSetLayout::WriteDescriptorSet(Device *device, DescriptorSet *dstS
  			sampledImage[i].mipLevels = imageView->getSubresourceRange().levelCount;
  			sampledImage[i].sampleCount = imageView->getSampleCount();
  			sampledImage[i].memoryOwner = imageView;

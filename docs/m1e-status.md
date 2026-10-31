@@ -1118,3 +1118,32 @@ the generated shell script itself. It could therefore mislabel a pre-readiness
 Android failure as `surfaceflinger_died`. Classification now accepts only an
 emitted standalone death record; focused regression tests cover both the false
 positive and a real emitted marker. M1E remains **PARTIAL**.
+
+### SwiftShader descriptor-use tracing and resize probe (2026-10-31)
+
+The v6 coherent diagnostic patch assigns a fresh diagnostic ID when a
+descriptor set is allocated, records its retirement when the pool frees or
+resets it, and emits `AAAS_DESCRIPTOR_USE` while `PrepareForSampling` walks the
+set. Each use includes submission, draw, set, view, image, device-memory, base
+address, and extent identities. This avoids inferring a draw's inputs from an
+earlier descriptor-write record or reusing an address-only set ID.
+
+The v6 overlay passed a bounded two-app startup and one Settings resize from
+720×1280 to 960×578 (Android display 2, broker generation 2); Contacts remained
+720×1280. SwiftShader emitted same-process sampled-image records for resized
+960×578 images. In this session, the last sampled uses of memory IDs 253 and
+259 preceded their release by about 6.8 seconds, and no sampled use after
+release was recorded. The release occurred during cleanup after an independent
+`system_server` failure in `AlarmManagerService.getAlarmOperationBundle()`;
+the run therefore ended **FAILED**, not as successful live acceptance. Both
+presenters nevertheless reported complete release accounting (157/157 and
+143/143; zero outstanding).
+
+This trace does not reproduce the historical JIT stale read and still does
+not attach an Android display ID directly to a SwiftShader object. It provides
+a sound per-draw Vulkan image-to-memory link for the next bounded resize
+capture. See
+[`swiftshader_v6_descriptor_use_resize_20261031.json`](../results/m1e/live/swiftshader_v6_descriptor_use_resize_20261031.json).
+The repeated system-server exception is recorded separately from the
+SurfaceFlinger JIT failure. No graphics lifetime fix is claimed; M1E remains
+**PARTIAL**.
