@@ -1906,3 +1906,25 @@ product dependency. The run does not establish corner mapping, in-flight-resize,
 landscape, resize-burst, or enhanced-mode input coverage. Evidence and hashes:
 [postresize_visible_input_20261101.json](../results/m1e/live/postresize_visible_input_20261101.json),
 [screenshot](../results/m1e/live/postresize_visible_input_20261101.png).
+
+### Enhanced asymmetric resize, reopen, and minimize/restore (2026-11-01)
+
+Enhanced source-LMKD/cgroup session `m1b84_session_fyb0501r` kept Contacts at
+720×1280 while Settings reached a matching 960×578 Android source frame. Settings
+visibly accepted `omega`, was closed, then reopened in slot 1 as display 4/task
+10 while Contacts remained display 3/task 9. The replacement output was resized
+to 960×578 and visibly accepted `zeta` after focus readiness. With Settings
+minimized, a click changed Contacts to its navigation drawer; restoring Settings
+preserved `zeta`. The third app was rejected with `capacity_exhausted`. Across
+the initial and reopened Settings presenter lifecycles and Contacts, imports,
+submissions, and releases balanced with zero outstanding buffers. SurfaceFlinger
+and system_server survived, the journal and sentinel reached STOPPED, and the
+delegated cgroup was removed. The log recorded the non-protected
+`UPDATE_CT_LOGS` broadcast warning during alarm delivery but no null
+PendingIntent fatal or system_server death. Repeated Bluetooth process failures
+from the missing `libbluetooth_jni.so` remain an unrelated image limitation.
+Evidence:
+[enhanced_asymmetric_reopen_minimize_20261101.json](../results/m1e/live/enhanced_asymmetric_reopen_minimize_20261101.json),
+[screenshot](../results/m1e/live/enhanced_asymmetric_reopen_minimize_20261101.png).
+KWin only drove local test geometry/minimize actions; product behavior stays on
+standard Wayland protocols. Cross-compositor live testing remains untested.
