@@ -1888,3 +1888,21 @@ manual 34/7 summary. The analyzer reports trace order only; it does not establis
 independent Vulkan happens-before or identify the allocation from the historical
 v4 fault. See
 [swiftshader_v10_lifetime_order_reanalysis_20261101.json](../results/m1e/live/swiftshader_v10_lifetime_order_reanalysis_20261101.json).
+
+### Post-resize visible input on both outputs (2026-11-01)
+
+Default-mode session `m1b84_session_h3cvpe8y` resized Settings and Contacts to
+950×1100. Broker DisplayManager metrics and both generation-2 Android source
+buffers matched that size (Settings frame 138, Contacts frame 125; both 3840-byte
+stride). Following stable-generation pointer clicks, Settings Search visibly
+changed from `alpha` to `gamma`; Contacts visibly accepted `beta`/`delta` in
+First name and `qa` in Email. The final screenshot shows both application
+surfaces and their independent editor values. Presenter ownership was balanced
+(641/641/641 and 627/627/627) with zero outstanding buffers; the journal and
+sentinel reached STOPPED. Input came from controlled `/dev/uinput`; physical
+keyboard behavior is not inferred. KWin scripting set geometry only as a local
+test driver; AaaS itself uses standard Wayland configure events and has no KWin
+product dependency. The run does not establish corner mapping, in-flight-resize,
+landscape, resize-burst, or enhanced-mode input coverage. Evidence and hashes:
+[postresize_visible_input_20261101.json](../results/m1e/live/postresize_visible_input_20261101.json),
+[screenshot](../results/m1e/live/postresize_visible_input_20261101.png).
