@@ -1016,7 +1016,35 @@ def vdisplay_services_overlay_is_current():
         return False
 
 
-def verify_requirements(use_source_lmkd=False, orientation='portrait'):
+def validate_diagnostic_vulkan_overlay(path):
+    overlay = Path(path).resolve(strict=True)
+    workspace_tmp = TMP.resolve()
+    try:
+        overlay.relative_to(workspace_tmp)
+    except ValueError as error:
+        raise ValueError('diagnostic Vulkan overlay must be inside the AaaS workspace tmp directory') from error
+    if overlay == (TMP / 'm1b83_sampling_lock_vulkan.so').resolve():
+        raise ValueError('diagnostic Vulkan overlay cannot replace the production overlay')
+    manifest_path = Path(str(overlay) + '.manifest.json')
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get('schema_version') != 1:
+        raise ValueError(f'unsupported diagnostic overlay manifest: {manifest_path}')
+    if manifest.get('source_revision') != 'cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5':
+        raise ValueError('diagnostic overlay source revision is not the pinned SwiftShader revision')
+    identity = manifest.get('output', {})
+    if identity.get('sha256') != sha256(overlay):
+        raise ValueError('diagnostic overlay hash does not match its manifest')
+    notes = subprocess.run(['readelf', '-n', str(overlay)], check=True,
+                            capture_output=True, text=True, timeout=5).stdout
+    build_id = next((line.split('Build ID:', 1)[1].strip()
+                     for line in notes.splitlines() if 'Build ID:' in line), None)
+    if not build_id or identity.get('build_id') != build_id:
+        raise ValueError('diagnostic overlay Build ID does not match its manifest')
+    return overlay
+
+
+def verify_requirements(use_source_lmkd=False, orientation='portrait',
+                        diagnostic_vulkan_overlay=None):
     check = subprocess.run(
         [sys.executable, str(ROOT / 'scripts/android_workspace.py'),
          '--workspace', str(WORKSPACE), 'check'],
@@ -1047,7 +1075,14 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait'):
     }
     paths = {}
     for key, (name, expected_hash) in required.items():
-        path = TMP / name
+        if key == 'AAAS_VULKAN_OVERLAY' and diagnostic_vulkan_overlay:
+            try:
+                path = validate_diagnostic_vulkan_overlay(diagnostic_vulkan_overlay)
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+                raise RuntimeError(f'invalid diagnostic Vulkan overlay: {error}') from error
+            expected_hash = None
+        else:
+            path = TMP / name
         if not path.is_file():
             raise RuntimeError(f'missing required diagnostic overlay: {path}')
         if expected_hash and sha256(path) != expected_hash:
@@ -1111,6 +1146,8 @@ def main():
                         help='Use the isolated M1E trusted virtual-display prototype')
     parser.add_argument('--show-primary-diagnostic', action='store_true',
                         help='Also present Android primary display in a diagnostic Wayland window')
+    parser.add_argument('--diagnostic-vulkan-overlay',
+                        help='Use a manifest-verified temporary SwiftShader overlay instead of production')
     parser.add_argument('--resource-diagnostics', action='store_true',
                         help='Write read-only host/cgroup snapshots at session start and shutdown')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
@@ -1135,7 +1172,8 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     paths = verify_requirements(use_source_lmkd=args.use_source_lmkd,
-                                orientation=args.orientation)
+                                orientation=args.orientation,
+                                diagnostic_vulkan_overlay=args.diagnostic_vulkan_overlay)
     if args.experimental_virtual_display:
         if not COMPOSER_VDISPLAY.is_file() or not VDISPLAY_BROKER_DEX.is_file():
             raise RuntimeError('build the M1E virtual-display Composer and broker first')

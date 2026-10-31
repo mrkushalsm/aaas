@@ -16,6 +16,59 @@ SESSION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SESSION)
 
 
+class DiagnosticOverlayManifestTests(unittest.TestCase):
+    def _overlay_with_manifest(self, directory):
+        import hashlib
+        overlay = Path(directory) / 'swiftshader-trace.so'
+        payload = b'diagnostic shared object fixture'
+        overlay.write_bytes(payload)
+        manifest = {
+            'schema_version': 1,
+            'source_revision': 'cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5',
+            'output': {
+                'sha256': hashlib.sha256(payload).hexdigest(),
+                'build_id': 'aabbcc',
+            },
+        }
+        Path(str(overlay) + '.manifest.json').write_text(json.dumps(manifest))
+        return overlay
+
+    def test_accepts_pinned_manifest_and_matching_hash_and_build_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            overlay = self._overlay_with_manifest(directory)
+            with patch.object(SESSION, 'TMP', Path(directory)), \
+                    patch.object(SESSION.subprocess, 'run', return_value=SESSION.subprocess.CompletedProcess(
+                        ['readelf'], 0, stdout='Build ID: aabbcc\n')):
+                self.assertEqual(SESSION.validate_diagnostic_vulkan_overlay(overlay), overlay)
+
+    def test_rejects_stale_overlay_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            overlay = self._overlay_with_manifest(directory)
+            overlay.write_bytes(b'changed after manifest')
+            with patch.object(SESSION, 'TMP', Path(directory)):
+                with self.assertRaisesRegex(ValueError, 'hash does not match'):
+                    SESSION.validate_diagnostic_vulkan_overlay(overlay)
+
+    def test_rejects_unpinned_source_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            overlay = self._overlay_with_manifest(directory)
+            manifest_path = Path(str(overlay) + '.manifest.json')
+            manifest = json.loads(manifest_path.read_text())
+            manifest['source_revision'] = 'other'
+            manifest_path.write_text(json.dumps(manifest))
+            with patch.object(SESSION, 'TMP', Path(directory)):
+                with self.assertRaisesRegex(ValueError, 'source revision'):
+                    SESSION.validate_diagnostic_vulkan_overlay(overlay)
+
+    def test_rejects_overlay_outside_workspace_tmp(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                tempfile.TemporaryDirectory() as other:
+            overlay = self._overlay_with_manifest(other)
+            with patch.object(SESSION, 'TMP', Path(directory)):
+                with self.assertRaisesRegex(ValueError, 'inside the AaaS workspace tmp'):
+                    SESSION.validate_diagnostic_vulkan_overlay(overlay)
+
+
 class ForegroundRunnerTests(unittest.TestCase):
     def test_two_app_mode_builds_capacity_two_composer(self):
         with tempfile.TemporaryDirectory() as directory:
