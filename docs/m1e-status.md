@@ -1,8 +1,8 @@
 # M1E status
 
-Status: **PARTIAL — the reproduced odd-height SwiftShader paired-row bounds fault is corrected and passed bounded diagnostic/no-tracing resize runs; the separate historical stale AHardwareBuffer lifetime observation and full stability/interaction matrix remain open**
+Status: **PARTIAL — bounded default/enhanced resize, resize-back, pointer navigation, lifecycle, and regression gates pass; the historical SwiftShader v4 AHardwareBuffer owner and remaining input edges are unresolved**
 
-Date: 2026-10-31
+Date: 2026-11-01
 
 ## Preserved baseline
 
@@ -1698,3 +1698,33 @@ This was a bounded resize/ownership run, not a full input run. Evidence and
 artifact hashes are in
 [enhanced_mixed_orientation_20261101.json](../results/m1e/live/enhanced_mixed_orientation_20261101.json).
 The historical v4 SwiftShader ownership question remains unresolved.
+
+
+### Current continuation summary (2026-11-01)
+
+The AlarmManager listener-alarm fallback correction remains in place. Recent
+production-overlay default and enhanced sessions crossed guest minute
+boundaries without the prior system_server null-PendingIntent failure. The
+odd-height paired-row bounds correction remains separately evidenced in the
+coherent diagnostic patch/build; the original production overlay hash is
+preserved and must not be described as containing that diagnostic correction.
+The independent historical v4 stale-AHardwareBuffer owner remains unresolved.
+
+Additional bounded default and enhanced sessions verified mixed portrait /
+landscape Android source buffers, resize-back to 720×1280, generation-aware
+stale-frame release, and clean buffer drain. A default configure burst was
+coalesced by the compositor to its final geometry and recovered cleanly. A
+post-resize pointer run caused visible Settings navigation and Contacts text
+editing. The app runtime path remains standard Wayland and contains no KDE or
+KWin dependency; local KWin use was limited to test geometry changes.
+
+The final regression run passed 204 Python tests, M1A, presenter (including
+queued keyboard teardown), input adapter, Composer component tests run from an
+isolated tracked-source archive, display broker, and the workspace guard. Raw
+logs and their hashes are recorded in the external regression manifest; the
+repository index is [regression_suite_20261101.json](../results/m1e/live/regression_suite_20261101.json).
+
+M1E remains **PARTIAL**. Open acceptance includes the unresolved historical
+v4 resource owner, complete modifier/navigation and scroll-source matrices,
+input behavior during Android Activity transition pauses, and pointer mapping
+during an in-flight resize. No universal crash-freedom claim is made.
