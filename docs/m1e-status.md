@@ -1581,3 +1581,85 @@ build, the Composer linear-copy and transport-pool tests compiled directly to
 `/tmp`, the forced display-broker build, and the workspace guard. The inherited
 untracked `experiments/m1b/composer_aaas/build/` directory was not used or
 staged. The structured resize record contains the exact commands and results.
+
+### Production input transition and enhanced reopen follow-up (2026-11-01)
+
+The production-overlay session `m1b84_session_ns31107y` confirmed visible
+Contacts editing after a native 960×578 resize. Settings Search exposed a
+narrower input boundary: immediately after tapping the Settings search entry,
+the rapid `alpha` stream left `ha` visible. Android logged the A, L, and P
+`ACTION_DOWN` events as dropped by `VRI[SearchActivity]` while that ViewRoot was
+paused for an Activity transition. Adapter records show those key packets were
+received and Binder injection returned success; the Android application log,
+not that return code, establishes non-consumption. The host monotonic event
+times and Android `KeyEvent.eventTime` values match within 0.1 ms. Once Search
+was settled, a retry visibly produced the complete `alpha` marker. The focus
+handshake reports an InputDispatcher focused window on the Android display; it
+does not assert that a newly launched Activity's ViewRoot or editor is ready.
+No blind replay or arbitrary delay was added. This is recorded as an Android
+transition-time input drop, separate from the previously passing 40/40
+steady-editor focus-switch matrix.
+
+The enhanced source-LMKD/cgroup session `m1b84_session_ebztrs3p` visibly edited
+Settings (`sigma`) and Contacts (`omega`) at 960×578. Settings was closed and
+reopened in the same Android runtime as task 10/display 4, resized to 950×578,
+and accepted more visible input (`zetatheta`). Contacts was also closed and
+reopened as task 11/display 5. A third concurrent launch returned
+`capacity_exhausted`. The final two-window shutdown reached `STOPPED`; the last
+presenter summaries had imports=submissions=releases, zero outstanding
+buffers, and zero teardown invalidations. The session-specific cgroup was
+removed. Neither `system_server` AlarmManager null-PendingIntent failure nor a
+SurfaceFlinger JIT fatal signature appeared in this bounded run.
+
+These runs used KWin only as the available local compositor and geometry test
+driver for standard Wayland configure events. No AaaS component depends on KDE,
+KWin, or a compositor patch. Cropped, actual desktop captures and raw-log
+hashes are referenced from
+[`postresize_input_transition_and_enhanced_reopen_20261101.json`](../results/m1e/live/postresize_input_transition_and_enhanced_reopen_20261101.json).
+
+This does not close M1E. Pointer corner mapping, landscape and configure-burst
+acceptance, a full post-reopen Contacts editor probe, and the historical v4
+SwiftShader stale-AHardwareBuffer ownership remain open. The observed Android
+ViewRoot transition drop is also a documented behavior boundary; the existing
+focus acknowledgement does not cover app-client transition pause state.
+
+### Production post-resize pointer navigation (2026-11-01)
+
+In default production-overlay session \`m1b84_session_vmb1g31u\`, Settings and
+Contacts both reached Android display generation 2 at 960×578. Safe, visible
+Settings controls were exercised around the top-right search row, center
+settings rows, bottom Apps row, and top-left back control. Settings visibly
+navigated to Search, Network & internet, Connected devices, and Apps. Contacts
+First name visibly accepted \`beta\`. Per-display adapter records show the
+expected local Android coordinates after removing each window's host origin
+and 40-pixel content inset. The broker recorded both logical display metrics
+at 960×578. This is application-visible pointer evidence, not only successful
+MotionEvent injection.
+
+Both presenter summaries ended with matching imports, submissions, and
+releases, zero outstanding buffers, and zero teardown invalidations. The state
+sentinel reached \`STOPPED\`. This run did not cover an in-flight resize race,
+landscape, or configure bursts; Settings did not expose safe controls at every
+absolute corner. Evidence and screenshot hashes are in
+[postresize_pointer_navigation_20261101.json](../results/m1e/live/postresize_pointer_navigation_20261101.json).
+
+### Mixed-orientation resize and resize-back (2026-11-01)
+
+Default-mode session m1b84_session_rltgozc0 exercised independent output
+changes in one shared Android runtime. Settings changed to 960×578 while
+Contacts remained 720×1280; Settings then changed to 950×1100 while Contacts
+remained 960×578. Contacts moved to 1000×650 while Settings stayed at
+950×1100. The dimensions were then swapped (Settings 960×578, Contacts
+950×1100), followed by both outputs returning to 720×1280. Android
+DisplayManager metrics and each presenter's source_frame_dimensions events
+matched the final source size for each generation, including row stride.
+SurfaceFlinger and system_server survived, the terminal state was STOPPED,
+and both presenter summaries had matching imports/submissions/releases and
+zero outstanding or teardown-invalidated buffers.
+
+The log also contains repeated com.android.bluetooth process crashes caused
+by the image's missing libbluetooth_jni.so; these were not SurfaceFlinger or
+system_server failures. No configure-burst or near-simultaneous resize was
+included in this run. The historical v4 SwiftShader stale-AHardwareBuffer
+observation remains unresolved. Full generation and hash data are in
+[mixed_orientation_resize_back_20261101.json](../results/m1e/live/mixed_orientation_resize_back_20261101.json).
