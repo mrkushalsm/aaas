@@ -1406,3 +1406,21 @@ Five imports remained live/unclassified at process exit, so this is not a claim
 that every Vulkan allocation has a traced terminal event. The historical v4
 fault did not recur and remains unexplained. Details and hashes are in
 [`swiftshader_v9_enhanced_two_output_lifetime_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_two_output_lifetime_20261031.json).
+
+Offline disassembly of the preserved v4 JIT code further narrows the old
+960×578 stale-address fault. The exact load at `PixelRoutine_00000042+0x125f`
+matches the pinned RGBA8 `PixelRoutine::writeColor` paired-row read from
+`cBuffer`, the render-target color attachment. Its effective address is the
+released AHardwareBuffer base. This identifies the faulting access role, but
+not the VkImage/framebuffer/submission or which side violated the pending-work
+lifetime. The missing v4 object/job identities still prevent a justified
+lifetime fix. See
+[`swiftshader_faulting_target_access_20261031.json`](../results/m1e/live/swiftshader_faulting_target_access_20261031.json).
+
+A temporary queue-semaphore synchronization candidate was built coherently and
+started both apps, but the trace recorded no queue semaphore signal events, so
+the changed path was not exercised. That session later failed after the known
+system_server AlarmManager null-PendingIntent exception; the broker release
+errors followed framework death. The candidate patch was removed from the
+source tree and did not alter the production overlay. See
+[`swiftshader_queue_signal_candidate_20261031.json`](../results/m1e/live/swiftshader_queue_signal_candidate_20261031.json).
