@@ -1147,3 +1147,31 @@ capture. See
 The repeated system-server exception is recorded separately from the
 SurfaceFlinger JIT failure. No graphics lifetime fix is claimed; M1E remains
 **PARTIAL**.
+
+
+### v7 target-to-draw trace and bounded resize run (2026-10-31)
+
+The coherent v7 diagnostic patch adds `AAAS_DRAW_TARGET` records joining each
+draw and pipeline to its color attachment's image view, image, device memory,
+backing base, extent, row pitch, render area, and scissor. This complements the
+v6 sampled-descriptor records and is built from the same pinned source/header
+snapshot. The v7 overlay hash is `355f180a…`; its Build ID is
+`758d776e…`. The production overlay hash remains unchanged.
+
+A two-app session resized Settings through 960×578, 960×557, and 960×565
+while Contacts remained at 720×1280. Android DisplayManager and presenter source
+frames reached each requested Settings size. For the 960×565 draws the trace
+identified target image 311 / memory 312 at 960×565, with a 3840-byte row
+pitch and render/scissor bounds matching the framebuffer; it separately
+identified a 960×557 sampled image. Both presenters drained all imports
+(190/190 and 180/180) with zero outstanding buffers.
+
+This session did **not** reproduce a SurfaceFlinger fault. It ended FAILED
+after a separate `system_server` crash in
+`AlarmManagerService.getAlarmOperationBundle()` at
+`PendingIntent.isActivity()` on null. The runner preserved FAILED and the
+SurfaceFlinger tombstone manifest truthfully reports no tombstone. Therefore
+this is useful bounded trace coverage, not clean runtime acceptance and not a
+SwiftShader fix. The historical fault's target/source relation remains
+unresolved because that older run did not include target records. See
+[`swiftshader_v7_target_trace_resize_20261031.json`](../results/m1e/live/swiftshader_v7_target_trace_resize_20261031.json).

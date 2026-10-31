@@ -42,7 +42,7 @@ index c7f082d..9bbc3c1 100644
      PUBLIC
          ${SWIFTSHADER_LINK_FLAGS}
 diff --git a/src/Device/Renderer.cpp b/src/Device/Renderer.cpp
-index 4d072b0..a6e2f64 100644
+index 4d072b0..e8b76af 100644
 --- a/src/Device/Renderer.cpp
 +++ b/src/Device/Renderer.cpp
 @@ -13,6 +13,7 @@
@@ -53,7 +53,15 @@ index 4d072b0..a6e2f64 100644
  
  #include "Clipper.hpp"
  #include "Polygon.hpp"
-@@ -182,7 +183,8 @@ void Renderer::operator delete(void *mem)
+@@ -29,6 +30,7 @@
+ #include "Vulkan/VkConfig.hpp"
+ #include "Vulkan/VkDescriptorSet.hpp"
+ #include "Vulkan/VkDevice.hpp"
++#include "Vulkan/VkDeviceMemory.hpp"
+ #include "Vulkan/VkFence.hpp"
+ #include "Vulkan/VkImageView.hpp"
+ #include "Vulkan/VkPipelineLayout.hpp"
+@@ -182,7 +184,8 @@ void Renderer::operator delete(void *mem)
  
  void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState &dynamicState, unsigned int count, int baseVertex,
                      CountedEvent *events, int instanceID, int layer, void *indexBuffer, const VkRect2D &renderArea,
@@ -63,7 +71,7 @@ index 4d072b0..a6e2f64 100644
  {
  	if(count == 0) { return; }
  
-@@ -195,6 +197,9 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+@@ -195,6 +198,9 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
  		draw = drawCallPool.borrow();
  	}
  	draw->id = id;
@@ -73,7 +81,7 @@ index 4d072b0..a6e2f64 100644
  
  	const vk::GraphicsState &pipelineState = pipeline->getCombinedState(dynamicState);
  
-@@ -243,6 +248,15 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+@@ -243,6 +249,15 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
  			pixelRoutine = pixelProcessor.routine(pixelState, fragmentState->getPipelineLayout(), fragmentShader, attachments, inputs.getDescriptorSets());
  		}
  	}
@@ -89,7 +97,30 @@ index 4d072b0..a6e2f64 100644
  
  	draw->preRasterizationContainsImageWrite = pipeline->preRasterizationContainsImageWrite();
  	draw->fragmentContainsImageWrite = pipeline->fragmentContainsImageWrite();
-@@ -487,6 +501,7 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+@@ -449,6 +464,22 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+ 
+ 				if(draw->colorBuffer[index])
+ 				{
++					const vk::ImageView *view = draw->colorBuffer[index];
++					const vk::Image *image = view->getImageForDiagnostics();
++					const vk::DeviceMemory *memory = image ? image->deviceMemory : nullptr;
++					const VkExtent3D extent = image ? image->getExtent() : VkExtent3D{};
++					vk::AaasDiagnosticTrace("AAAS_DRAW_TARGET submit_id=%llu draw_id=%d pipeline_id=%llu attachment=%d view_id=%llu view=%p image_id=%llu image=%p memory_id=%llu memory=%p base=%p extent=%ux%ux%u row_pitch=%zu render_area=%d,%d,%u,%u scissor=%d,%d,%d,%d",
++					                        static_cast<unsigned long long>(diagnosticSubmissionId), draw->id,
++					                        static_cast<unsigned long long>(draw->diagnosticPipelineId), index,
++					                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(view)), view,
++					                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(image)), image,
++					                        static_cast<unsigned long long>(vk::AaasDiagnosticObjectId(memory)), memory,
++					                        memory ? memory->getOffsetPointer(0) : nullptr,
++					                        extent.width, extent.height, extent.depth,
++					                        view->rowPitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, 0),
++					                        renderArea.offset.x, renderArea.offset.y,
++					                        renderArea.extent.width, renderArea.extent.height,
++					                        data->scissorX0, data->scissorY0, data->scissorX1, data->scissorY1);
+ 					data->colorBuffer[index] = (unsigned int *)attachments.colorBuffer[index]->getOffsetPointer({ 0, 0, 0 }, VK_IMAGE_ASPECT_COLOR_BIT, 0, data->layer);
+ 					data->colorPitchB[index] = attachments.colorBuffer[index]->rowPitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, 0);
+ 					data->colorSliceB[index] = attachments.colorBuffer[index]->slicePitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, 0);
+@@ -487,6 +518,7 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
  	draw->events = events;
  
  	DrawCall::run(device, draw, &drawTickets, clusterQueues);
@@ -97,7 +128,7 @@ index 4d072b0..a6e2f64 100644
  }
  
  void DrawCall::setup()
-@@ -504,6 +519,10 @@ void DrawCall::setup()
+@@ -504,6 +536,10 @@ void DrawCall::setup()
  
  void DrawCall::teardown(vk::Device *device)
  {
@@ -108,7 +139,7 @@ index 4d072b0..a6e2f64 100644
  	if(events)
  	{
  		events->done();
-@@ -550,6 +569,10 @@ void DrawCall::teardown(vk::Device *device)
+@@ -550,6 +586,10 @@ void DrawCall::teardown(vk::Device *device)
  
  void DrawCall::run(vk::Device *device, const marl::Loan<DrawCall> &draw, marl::Ticket::Queue *tickets, marl::Ticket::Queue clusterQueues[MaxClusterCount])
  {

@@ -24,6 +24,17 @@ class SwiftShaderDescriptorTraceTests(unittest.TestCase):
         self.assertIn('AaasDiagnosticObjectId(image)', patch)
         self.assertIn('AaasDiagnosticObjectId(memory)', patch)
 
+    def test_draw_target_trace_carries_memory_and_bounds_identity(self):
+        patch = (ROOT / 'experiments/m1e/patches/'
+                 'swiftshader_coherent_diagnostic.patch').read_text()
+        self.assertIn('AAAS_DRAW_TARGET submit_id=%llu draw_id=%d', patch)
+        self.assertIn('AaasDiagnosticObjectId(view)', patch)
+        self.assertIn('AaasDiagnosticObjectId(image)', patch)
+        self.assertIn('AaasDiagnosticObjectId(memory)', patch)
+        self.assertIn('extent=%ux%ux%u row_pitch=%zu', patch)
+        self.assertIn('render_area=%d,%d,%u,%u scissor=%d,%d,%d,%d', patch)
+        self.assertIn('#include "Vulkan/VkDeviceMemory.hpp"', patch)
+
 
 if __name__ == '__main__':
     unittest.main()
