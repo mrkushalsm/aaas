@@ -42,7 +42,7 @@ index c7f082d..9bbc3c1 100644
      PUBLIC
          ${SWIFTSHADER_LINK_FLAGS}
 diff --git a/src/Device/Renderer.cpp b/src/Device/Renderer.cpp
-index 4d072b0..e8b76af 100644
+index 4d072b0..2d36fa1 100644
 --- a/src/Device/Renderer.cpp
 +++ b/src/Device/Renderer.cpp
 @@ -13,6 +13,7 @@
@@ -97,7 +97,7 @@ index 4d072b0..e8b76af 100644
  
  	draw->preRasterizationContainsImageWrite = pipeline->preRasterizationContainsImageWrite();
  	draw->fragmentContainsImageWrite = pipeline->fragmentContainsImageWrite();
-@@ -449,6 +464,22 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
+@@ -449,9 +464,26 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
  
  				if(draw->colorBuffer[index])
  				{
@@ -120,7 +120,11 @@ index 4d072b0..e8b76af 100644
  					data->colorBuffer[index] = (unsigned int *)attachments.colorBuffer[index]->getOffsetPointer({ 0, 0, 0 }, VK_IMAGE_ASPECT_COLOR_BIT, 0, data->layer);
  					data->colorPitchB[index] = attachments.colorBuffer[index]->rowPitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, 0);
  					data->colorSliceB[index] = attachments.colorBuffer[index]->slicePitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, 0);
-@@ -487,6 +518,7 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
++					data->colorBufferHeight[index] = view->getMipLevelExtent(0, VK_IMAGE_ASPECT_COLOR_BIT).height;
+ 				}
+ 			}
+ 
+@@ -487,6 +519,7 @@ void Renderer::draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState
  	draw->events = events;
  
  	DrawCall::run(device, draw, &drawTickets, clusterQueues);
@@ -128,7 +132,7 @@ index 4d072b0..e8b76af 100644
  }
  
  void DrawCall::setup()
-@@ -504,6 +536,10 @@ void DrawCall::setup()
+@@ -504,6 +537,10 @@ void DrawCall::setup()
  
  void DrawCall::teardown(vk::Device *device)
  {
@@ -139,7 +143,7 @@ index 4d072b0..e8b76af 100644
  	if(events)
  	{
  		events->done();
-@@ -550,6 +586,10 @@ void DrawCall::teardown(vk::Device *device)
+@@ -550,6 +587,10 @@ void DrawCall::teardown(vk::Device *device)
  
  void DrawCall::run(vk::Device *device, const marl::Loan<DrawCall> &draw, marl::Ticket::Queue *tickets, marl::Ticket::Queue clusterQueues[MaxClusterCount])
  {
@@ -151,10 +155,18 @@ index 4d072b0..e8b76af 100644
  
  	const auto numPrimitives = draw->numPrimitives;
 diff --git a/src/Device/Renderer.hpp b/src/Device/Renderer.hpp
-index 284a6e9..e83931f 100644
+index 284a6e9..841c395 100644
 --- a/src/Device/Renderer.hpp
 +++ b/src/Device/Renderer.hpp
-@@ -140,6 +140,9 @@ struct DrawCall
+@@ -90,6 +90,7 @@ struct DrawData
+ 	unsigned int *colorBuffer[MAX_COLOR_BUFFERS];
+ 	int colorPitchB[MAX_COLOR_BUFFERS];
+ 	int colorSliceB[MAX_COLOR_BUFFERS];
++	int colorBufferHeight[MAX_COLOR_BUFFERS];
+ 	float *depthBuffer;
+ 	int depthPitchB;
+ 	int depthSliceB;
+@@ -140,6 +141,9 @@ struct DrawCall
  	static void processPixels(vk::Device *device, const marl::Loan<DrawCall> &draw, const marl::Loan<BatchData> &batch, const std::shared_ptr<marl::Finally> &finally);
  	void setup();
  	void teardown(vk::Device *device);
@@ -164,7 +176,7 @@ index 284a6e9..e83931f 100644
  
  	int id;
  
-@@ -210,7 +213,8 @@ public:
+@@ -210,7 +214,8 @@ public:
  
  	void draw(const vk::GraphicsPipeline *pipeline, const vk::DynamicState &dynamicState, unsigned int count, int baseVertex,
  	          CountedEvent *events, int instanceID, int layer, void *indexBuffer, const VkRect2D &renderArea,
@@ -174,6 +186,194 @@ index 284a6e9..e83931f 100644
  
  	void addQuery(vk::Query *query);
  	void removeQuery(vk::Query *query);
+diff --git a/src/Pipeline/PixelProgram.cpp b/src/Pipeline/PixelProgram.cpp
+index 9ed1d53..fc3e636 100644
+--- a/src/Pipeline/PixelProgram.cpp
++++ b/src/Pipeline/PixelProgram.cpp
+@@ -258,7 +258,7 @@ Bool PixelProgram::alphaTest(Int cMask[4], const SampleSet &samples)
+ 	return pass != 0x0;
+ }
+ 
+-void PixelProgram::blendColor(Pointer<Byte> cBuffer[4], Int &x, Int sMask[4], Int zMask[4], Int cMask[4], const SampleSet &samples)
++void PixelProgram::blendColor(Pointer<Byte> cBuffer[4], Int &x, Int &y, Int sMask[4], Int zMask[4], Int cMask[4], const SampleSet &samples)
+ {
+ 	for(int index = 0; index < MAX_COLOR_BUFFERS; index++)
+ 	{
+@@ -271,14 +271,14 @@ void PixelProgram::blendColor(Pointer<Byte> cBuffer[4], Int &x, Int sMask[4], In
+ 		{
+ 			Pointer<Byte> buffer = cBuffer[index] + q * *Pointer<Int>(data + OFFSET(DrawData, colorSliceB[index]));
+ 
+-			SIMD::Float4 C = alphaBlend(index, buffer, c[index], x);
++			SIMD::Float4 C = alphaBlend(index, buffer, c[index], x, y);
+ 			ASSERT(SIMD::Width == 4);
+ 			Vector4f color;
+ 			color.x = Extract128(C.x, 0);
+ 			color.y = Extract128(C.y, 0);
+ 			color.z = Extract128(C.z, 0);
+ 			color.w = Extract128(C.w, 0);
+-			writeColor(index, buffer, x, color, sMask[q], zMask[q], cMask[q]);
++			writeColor(index, buffer, x, y, color, sMask[q], zMask[q], cMask[q]);
+ 		}
+ 	}
+ }
+diff --git a/src/Pipeline/PixelProgram.hpp b/src/Pipeline/PixelProgram.hpp
+index b02708d..229c69b 100644
+--- a/src/Pipeline/PixelProgram.hpp
++++ b/src/Pipeline/PixelProgram.hpp
+@@ -35,7 +35,7 @@ protected:
+ 	virtual void setBuiltins(Int &x, Int &y, SIMD::Float (&z)[4], SIMD::Float &w, Int cMask[4], const SampleSet &samples);
+ 	virtual void executeShader(Int cMask[4], Int sMask[4], Int zMask[4], const SampleSet &samples);
+ 	virtual Bool alphaTest(Int cMask[4], const SampleSet &samples);
+-	virtual void blendColor(Pointer<Byte> cBuffer[4], Int &x, Int sMask[4], Int zMask[4], Int cMask[4], const SampleSet &samples);
++	virtual void blendColor(Pointer<Byte> cBuffer[4], Int &x, Int &y, Int sMask[4], Int zMask[4], Int cMask[4], const SampleSet &samples);
+ 
+ private:
+ 	// Color outputs
+diff --git a/src/Pipeline/PixelRoutine.cpp b/src/Pipeline/PixelRoutine.cpp
+index aed652a..156d0a5 100644
+--- a/src/Pipeline/PixelRoutine.cpp
++++ b/src/Pipeline/PixelRoutine.cpp
+@@ -345,7 +345,7 @@ void PixelRoutine::quad(Pointer<Byte> cBuffer[MAX_COLOR_BUFFERS], Pointer<Byte>
+ 						occlusionSampleCount(zMask, sMask, samples);
+ 					}
+ 
+-					blendColor(cBuffer, x, sMask, zMask, cMask, samples);
++					blendColor(cBuffer, x, y, sMask, zMask, cMask, samples);
+ 				}
+ 			}
+ 		}
+@@ -906,7 +906,7 @@ bool PixelRoutine::isSRGB(int index) const
+ 	return vk::Format(state.colorFormat[index]).isSRGBformat();
+ }
+ 
+-void PixelRoutine::readPixel(int index, const Pointer<Byte> &cBuffer, const Int &x, Vector4s &pixel)
++void PixelRoutine::readPixel(int index, const Pointer<Byte> &cBuffer, const Int &x, const Int &y, Vector4s &pixel)
+ {
+ 	Short4 c01;
+ 	Short4 c23;
+@@ -914,6 +914,11 @@ void PixelRoutine::readPixel(int index, const Pointer<Byte> &cBuffer, const Int
+ 	Pointer<Byte> buffer2;
+ 
+ 	Int pitchB = *Pointer<Int>(data + OFFSET(DrawData, colorPitchB[index]));
++	// Rasterization operates on 2x2 quads. For an odd-height attachment,
++	// helper lanes in the final quad may request the row beyond the image.
++	// Reuse the last valid row for paired reads; coverage masks still govern writes.
++	Int height = *Pointer<Int>(data + OFFSET(DrawData, colorBufferHeight[index]));
++	pitchB = IfThenElse(y + 1 < height, pitchB, Int(0));
+ 
+ 	vk::Format format = state.colorFormat[index];
+ 	switch(format)
+@@ -1650,7 +1655,7 @@ bool PixelRoutine::blendFactorCanExceedFormatRange(VkBlendFactor blendFactor, vk
+ 	}
+ }
+ 
+-SIMD::Float4 PixelRoutine::alphaBlend(int index, const Pointer<Byte> &cBuffer, const SIMD::Float4 &sourceColor, const Int &x)
++SIMD::Float4 PixelRoutine::alphaBlend(int index, const Pointer<Byte> &cBuffer, const SIMD::Float4 &sourceColor, const Int &x, const Int &y)
+ {
+ 	if(!state.blendState[index].alphaBlendEnable)
+ 	{
+@@ -1662,6 +1667,11 @@ SIMD::Float4 PixelRoutine::alphaBlend(int index, const Pointer<Byte> &cBuffer, c
+ 
+ 	Pointer<Byte> buffer = cBuffer;
+ 	Int pitchB = *Pointer<Int>(data + OFFSET(DrawData, colorPitchB[index]));
++	// Rasterization operates on 2x2 quads. For an odd-height attachment,
++	// helper lanes in the final quad may request the row beyond the image.
++	// Reuse the last valid row for paired reads; coverage masks still govern writes.
++	Int height = *Pointer<Int>(data + OFFSET(DrawData, colorBufferHeight[index]));
++	pitchB = IfThenElse(y + 1 < height, pitchB, Int(0));
+ 
+ 	// texelColor holds four texel color values.
+ 	// Note: Despite the type being Vector4f, the colors may be stored as
+@@ -1813,7 +1823,7 @@ SIMD::Float4 PixelRoutine::alphaBlend(int index, const Pointer<Byte> &cBuffer, c
+ 		{
+ 			// Attempt to read an integer based format and convert it to float
+ 			Vector4s color;
+-			readPixel(index, cBuffer, x, color);
++			readPixel(index, cBuffer, x, y, color);
+ 			texelColor.x = Float4(As<UShort4>(color.x)) * (1.0f / 0xFFFF);
+ 			texelColor.y = Float4(As<UShort4>(color.y)) * (1.0f / 0xFFFF);
+ 			texelColor.z = Float4(As<UShort4>(color.z)) * (1.0f / 0xFFFF);
+@@ -1960,7 +1970,7 @@ SIMD::Float4 PixelRoutine::alphaBlend(int index, const Pointer<Byte> &cBuffer, c
+ 	return blendedColor;
+ }
+ 
+-void PixelRoutine::writeColor(int index, const Pointer<Byte> &cBuffer, const Int &x, Vector4f &color, const Int &sMask, const Int &zMask, const Int &cMask)
++void PixelRoutine::writeColor(int index, const Pointer<Byte> &cBuffer, const Int &x, const Int &y, Vector4f &color, const Int &sMask, const Int &zMask, const Int &cMask)
+ {
+ 	if(isSRGB(index))
+ 	{
+@@ -2142,24 +2152,36 @@ void PixelRoutine::writeColor(int index, const Pointer<Byte> &cBuffer, const Int
+ 		writeMask = (writeMask & 0x0000000A) | (writeMask & 0x00000001) << 2 | (writeMask & 0x00000004) >> 2;
+ 	}
+ 
++	Int height = *Pointer<Int>(data + OFFSET(DrawData, colorBufferHeight[index]));
++	// A quad covers two rows. On an odd-height target, the upper pair of
++	// lanes in its last quad has no backing row and must never be written.
++	Int validRows = IfThenElse(y + 1 < height, Int(0xF), Int(0x3));
++	Int safeCMask = cMask & validRows;
++	Int safeZMask = zMask & validRows;
++	Int safeSMask = sMask & validRows;
++
+ 	Int xMask;  // Combination of all masks
+ 
+ 	if(state.depthTestActive)
+ 	{
+-		xMask = zMask;
++		xMask = safeZMask;
+ 	}
+ 	else
+ 	{
+-		xMask = cMask;
++		xMask = safeCMask;
+ 	}
+ 
+ 	if(state.stencilActive)
+ 	{
+-		xMask &= sMask;
++		xMask &= safeSMask;
+ 	}
+ 
+ 	Pointer<Byte> buffer = cBuffer;
+ 	Int pitchB = *Pointer<Int>(data + OFFSET(DrawData, colorPitchB[index]));
++	// Paired-row preservation loads must stay within the attachment too.
++	// Invalid-row lanes were removed from xMask above, so a zero pitch keeps
++	// the unconditional vector load safe without allowing it to alter row 0.
++	pitchB = IfThenElse(y + 1 < height, pitchB, Int(0));
+ 	Float4 value;
+ 
+ 	switch(format)
+diff --git a/src/Pipeline/PixelRoutine.hpp b/src/Pipeline/PixelRoutine.hpp
+index ba97cb6..438a71e 100644
+--- a/src/Pipeline/PixelRoutine.hpp
++++ b/src/Pipeline/PixelRoutine.hpp
+@@ -49,15 +49,15 @@ protected:
+ 	virtual void setBuiltins(Int &x, Int &y, SIMD::Float (&z)[4], SIMD::Float &w, Int cMask[4], const SampleSet &samples) = 0;
+ 	virtual void executeShader(Int cMask[4], Int sMask[4], Int zMask[4], const SampleSet &samples) = 0;
+ 	virtual Bool alphaTest(Int cMask[4], const SampleSet &samples) = 0;
+-	virtual void blendColor(Pointer<Byte> cBuffer[4], Int &x, Int sMask[4], Int zMask[4], Int cMask[4], const SampleSet &samples) = 0;
++	virtual void blendColor(Pointer<Byte> cBuffer[4], Int &x, Int &y, Int sMask[4], Int zMask[4], Int cMask[4], const SampleSet &samples) = 0;
+ 
+ 	void quad(Pointer<Byte> cBuffer[4], Pointer<Byte> &zBuffer, Pointer<Byte> &sBuffer, Int cMask[4], Int &x, Int &y) override;
+ 
+ 	void alphaTest(Int &aMask, const Short4 &alpha);
+ 	void alphaToCoverage(Int cMask[4], const SIMD::Float &alpha, const SampleSet &samples);
+ 
+-	void writeColor(int index, const Pointer<Byte> &cBuffer, const Int &x, Vector4f &color, const Int &sMask, const Int &zMask, const Int &cMask);
+-	SIMD::Float4 alphaBlend(int index, const Pointer<Byte> &cBuffer, const SIMD::Float4 &sourceColor, const Int &x);
++	void writeColor(int index, const Pointer<Byte> &cBuffer, const Int &x, const Int &y, Vector4f &color, const Int &sMask, const Int &zMask, const Int &cMask);
++	SIMD::Float4 alphaBlend(int index, const Pointer<Byte> &cBuffer, const SIMD::Float4 &sourceColor, const Int &x, const Int &y);
+ 
+ 	bool isSRGB(int index) const;
+ 
+@@ -72,7 +72,7 @@ private:
+ 	Bool depthTest(const Pointer<Byte> &zBuffer, int q, const Int &x, const SIMD::Float &z, const Int &sMask, Int &zMask, const Int &cMask);
+ 	void depthBoundsTest(const Pointer<Byte> &zBuffer, int q, const Int &x, Int &zMask, Int &cMask);
+ 
+-	void readPixel(int index, const Pointer<Byte> &cBuffer, const Int &x, Vector4s &pixel);
++	void readPixel(int index, const Pointer<Byte> &cBuffer, const Int &x, const Int &y, Vector4s &pixel);
+ 	enum BlendFactorModifier
+ 	{
+ 		None,
 diff --git a/src/Reactor/SubzeroReactor.cpp b/src/Reactor/SubzeroReactor.cpp
 index c0c6b1d..4b8f5d6 100644
 --- a/src/Reactor/SubzeroReactor.cpp
