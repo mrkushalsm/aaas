@@ -68,6 +68,7 @@ struct presenter_app {
     uint32_t last_source_frame_w, last_source_frame_h;
     uint32_t last_source_frame_gen, last_source_frame_config_gen;
     uint32_t resize_request_generation;
+    uint64_t last_resize_configure_ns;
     aaas_resize_scheduler resize_scheduler;
     bool resize_waiting_frame;
     const char *resize_request_path;
@@ -1335,6 +1336,10 @@ static void schedule_android_resize(presenter_app *a, uint32_t prev_w,
         log_presenter_event("initial_source_geometry", a->gen, 0, extra);
         return;
     }
+    uint64_t now_ns = monotonic_ns();
+    uint64_t interval_ns = a->last_resize_configure_ns
+        ? now_ns - a->last_resize_configure_ns : 0;
+    a->last_resize_configure_ns = now_ns;
     if (a->display_w == a->w && a->display_h == a->h &&
         !a->resize_waiting_frame) {
         if (aaas_resize_cancel(&a->resize_scheduler)) {
@@ -1343,12 +1348,16 @@ static void schedule_android_resize(presenter_app *a, uint32_t prev_w,
         }
         return;
     }
-    aaas_resize_schedule(&a->resize_scheduler, a->w, a->h, monotonic_ns());
-    char extra[128];
+    uint64_t settle_ns = aaas_resize_settle_for_interval(interval_ns);
+    aaas_resize_schedule(&a->resize_scheduler, a->w, a->h, now_ns,
+                         settle_ns);
+    char extra[160];
     snprintf(extra, sizeof(extra),
              "\"width\":%u,\"height\":%u,\"settle_ms\":%u,"
-             "\"coalesced\":%u",
-             a->w, a->h, (unsigned)(AAAS_RESIZE_SETTLE_NS / 1000000ULL),
+             "\"configure_interval_ms\":%u,\"coalesced\":%u",
+             a->w, a->h,
+             (unsigned)(a->resize_scheduler.settle_ns / 1000000ULL),
+             (unsigned)(interval_ns / 1000000ULL),
              a->resize_scheduler.coalesced);
     log_presenter_event(a->resize_scheduler.coalesced
                             ? "android_resize_coalesced"
