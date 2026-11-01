@@ -2237,3 +2237,10 @@ Mixed distinct-DMA-BUF path and hardware-specific touchpad sources remain
 unverified. Minimize/restore correctness is user-visible, but no Android
 Activity pause/resume synchronization is claimed. These are recorded as
 residual limitations, not as resolved defects.
+
+The inspected 2026-11-01 decoration, enhanced-input, and corner-resize
+sessions each logged six optional `com.android.bluetooth` process restarts
+because the base image lacks `libbluetooth_jni.so`. These are classified as a
+known peripheral image limitation: the selected Settings/Contacts tasks,
+SurfaceFlinger, and `system_server` remained alive. No Bluetooth workaround was
+applied. Session logcat hashes are recorded in the native-window evidence.
