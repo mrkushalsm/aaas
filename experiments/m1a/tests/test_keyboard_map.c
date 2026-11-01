@@ -17,6 +17,8 @@ int main(void) {
     failed+=check("back-mapping",aaas_android_keycode_from_keysym(XKB_KEY_Escape),4);
     failed+=check("tab-mapping",aaas_android_keycode_from_keysym(XKB_KEY_Tab),61);
     failed+=check("delete-mapping",aaas_android_keycode_from_keysym(XKB_KEY_Delete),112);
+    failed+=check("up-dpad-mapping",aaas_android_keycode_from_keysym(XKB_KEY_Up),19);
+    failed+=check("down-dpad-mapping",aaas_android_keycode_from_keysym(XKB_KEY_Down),20);
     failed+=check("unsupported-symbol",aaas_android_keycode_from_keysym(XKB_KEY_F35),0);
 
     struct xkb_context *ctx=xkb_context_new(XKB_CONTEXT_NO_FLAGS);

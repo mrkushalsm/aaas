@@ -649,8 +649,11 @@ static int handle_keyboard_message(adapter_state *st, const aaas_input_keyboard_
         g_android_display_id);
     if(rc==0 && m.state==AAAS_INPUT_KEY_RELEASED) st->pressed_keys[k]=0;
     adapter_logf(rc==0?"key_injected":"key_injection_failed",
-        "\"sequence\":%u,\"state\":%u,\"rc\":%d,\"elapsed_ns\":%llu",
-        m.sequence,m.state,rc,(unsigned long long)(monotonic_ns()-(uint64_t)now));
+        "\"sequence\":%u,\"state\":%u,\"evdev_key\":%u,"
+        "\"android_keycode\":%u,\"display\":%u,"
+        "\"focus_generation\":%u,\"rc\":%d,\"elapsed_ns\":%llu",
+        m.sequence,m.state,m.evdev_key,m.android_keycode,g_android_display_id,
+        m.focus_generation,rc,(unsigned long long)(monotonic_ns()-(uint64_t)now));
     return 0;
 }
 

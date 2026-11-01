@@ -4,6 +4,7 @@ BUILD = build
 XML = /usr/share/qt6/wayland/protocols
 LOCAL_XML = protocols
 PKGS = wayland-client gbm libdrm egl glesv2 xkbcommon
+PRESENTER_PKGS = $(PKGS) libdecor-0
 CPPFLAGS += -Isrc -I$(BUILD) $(shell pkg-config --cflags $(PKGS))
 LDLIBS += $(shell pkg-config --libs $(PKGS)) -lm
 
@@ -61,12 +62,12 @@ $(BUILD)/aaas-m1a: src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/
 	$(CC) $(CFLAGS) $(CPPFLAGS) src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/linux-dmabuf-protocol.c $(BUILD)/presentation-time-protocol.c -o $@ $(LDLIBS)
 
 # New M1A.1 GPU Explicit Sync (v2)
-$(BUILD)/aaas-m1a1: src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
-	$(CC) $(CFLAGS) $(CPPFLAGS) src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
+$(BUILD)/aaas-m1a1: src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/window_state.h src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(shell pkg-config --cflags $(PRESENTER_PKGS)) src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(shell pkg-config --libs $(PRESENTER_PKGS)) -lm
 
 # Standalone Host Wayland Presenter for Android Container
-$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/keyboard_map.c src/keyboard_map.h src/input_v1.h src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
-	$(CC) $(CFLAGS) $(CPPFLAGS) src/wayland_host_presenter.c src/gpu_presenter.c src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(LDLIBS)
+$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/window_state.h src/keyboard_map.c src/keyboard_map.h src/input_v1.h src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(shell pkg-config --cflags $(PRESENTER_PKGS)) src/wayland_host_presenter.c src/gpu_presenter.c src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(shell pkg-config --libs $(PRESENTER_PKGS)) -lm
 
 # Tests
 $(BUILD)/test-wire: tests/wire.c src/wire.c | $(BUILD)
@@ -93,10 +94,13 @@ $(BUILD)/test-keyboard-map: tests/test_keyboard_map.c src/keyboard_map.c | $(BUI
 $(BUILD)/test-keyboard-teardown: tests/test_keyboard_teardown.c | $(BUILD)
 	$(CC) $(CFLAGS) $< -o $@ $(shell pkg-config --cflags --libs wayland-client wayland-server xkbcommon) -lpthread
 
+$(BUILD)/test-window-state: tests/test_window_state.c src/window_state.h | $(BUILD)
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags libdecor-0) $< -o $@ $(shell pkg-config --libs libdecor-0)
+
 $(BUILD)/test-input-state: tests/test_input_state.c src/input_state.c src/input_v1.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
 
-test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map $(BUILD)/test-keyboard-teardown
+test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map $(BUILD)/test-keyboard-teardown $(BUILD)/test-window-state
 	$(BUILD)/test-wire
 	$(BUILD)/test-wire-v2
 	$(BUILD)/test-sync-util
@@ -107,6 +111,7 @@ test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/
 	$(BUILD)/test-keyboard-map
 	$(BUILD)/test-keyboard-teardown
 	$(BUILD)/test-keyboard-teardown --dispatch-control
+	$(BUILD)/test-window-state
 
 clean:
 	rm -rf $(BUILD)

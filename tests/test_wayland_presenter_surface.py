@@ -12,14 +12,15 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
 
     def test_android_display_surface_is_declared_opaque_on_configure(self):
         helper_start = self.source.index("static void set_surface_opaque_region(")
-        helper_end = self.source.index("static void xdg_surface_configure(", helper_start)
+        helper_end = self.source.index("static bool apply_window_configure(", helper_start)
         helper = self.source[helper_start:helper_end]
         self.assertIn("wl_region_add(region, 0, 0, (int32_t)width, (int32_t)height)", helper)
         self.assertIn("wl_surface_set_opaque_region(a->surface, region)", helper)
-        configure_start = self.source.index("static void xdg_surface_configure(")
-        configure_end = self.source.index("static const struct xdg_surface_listener", configure_start)
+        configure_start = self.source.index("static void decor_configure(")
+        configure_end = self.source.index("static void decor_close(", configure_start)
         configure = self.source[configure_start:configure_end]
-        self.assertIn("set_surface_opaque_region(a, w, h)", configure)
+        self.assertIn("apply_window_configure(a, w, h", configure)
+        self.assertIn("libdecor_frame_commit(frame, decor_state, configuration)", configure)
 
     def test_explicit_sync_release_waits_for_compositor_timeline(self):
         release_start = self.source.index("static void buffer_released(")
@@ -70,14 +71,28 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         self.assertIn("input_teardown(&app);\n    drain_wayland_buffers(&app);", run)
 
     def test_resize_keeps_wayland_surface_geometry_during_android_rebuild(self):
-        configure_start = self.source.index("static void xdg_surface_configure(")
-        configure_end = self.source.index("static const struct xdg_surface_listener", configure_start)
+        configure_start = self.source.index("static void decor_configure(")
+        configure_end = self.source.index("static void decor_close(", configure_start)
         configure = self.source[configure_start:configure_end]
-        self.assertIn("wp_viewport_set_destination(a->viewport", configure)
-        self.assertIn("wl_surface_commit(a->surface)", configure)
-        self.assertLess(configure.index("xdg_surface_ack_configure"),
-                        configure.index("wl_surface_commit"))
+        geometry = self.source[self.source.index("static bool apply_window_configure("):
+                               self.source.index("static void request_android_resize(")]
+        self.assertIn("wp_viewport_set_destination(a->viewport", geometry)
+        self.assertIn("libdecor_frame_commit(frame, decor_state, configuration)", configure)
+        self.assertLess(configure.index("libdecor_frame_commit"),
+                        configure.index("request_android_resize"))
         self.assertIn('strcmp(iface, "wp_viewporter")', self.source)
+
+    def test_libdecor_owns_one_xdg_role_and_uses_standard_window_state(self):
+        self.assertIn("libdecor_decorate(app.decor_context, app.surface", self.source)
+        self.assertNotIn("xdg_wm_base_get_xdg_surface", self.source)
+        self.assertIn("aaas_window_state_update", self.source)
+        self.assertIn("libdecor_frame_set_fullscreen", self.source)
+        self.assertIn("LIBDECOR_ACTION_MINIMIZE", self.source)
+        self.assertIn("libdecor_frame_unref(app.decor_frame)", self.source)
+        self.assertGreaterEqual(self.source.count("libdecor_get_fd("), 3)
+        self.assertIn("libdecor_dispatch(app.decor_context, 0)", self.source)
+        makefile = (ROOT / "experiments/m1a/Makefile").read_text()
+        self.assertIn("PRESENTER_PKGS = $(PKGS) libdecor-0", makefile)
 
     def test_resize_records_android_source_buffer_dimensions(self):
         self.assertIn('log_presenter_event("source_frame_dimensions"', self.source)

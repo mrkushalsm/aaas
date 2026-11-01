@@ -594,15 +594,16 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('reportResizedMetrics', broker)
         self.assertIn('invoke(handle.handler, reportResizedMetrics, 500L)', broker)
         self.assertIn('requested=" + handle.width + "x"', broker)
-        self.assertIn('a->pending_w = (uint32_t)w', presenter)
-        self.assertIn('write_android_resize_request(a, w, h)', presenter)
+        self.assertIn('a->pending_w = (uint32_t)width', presenter)
+        self.assertIn('write_android_resize_request(a, a->w, a->h)', presenter)
+        self.assertIn('request_android_resize(a, prev_w, prev_h, initial)', presenter)
         self.assertIn('virtual display resize observed', composer)
 
     def test_presenter_exposes_per_window_wayland_app_identity(self):
         host = (SCRIPT.parents[1] / 'experiments/m1a/src/wayland_host_presenter.c').read_text()
         gpu = (SCRIPT.parents[1] / 'experiments/m1a/src/gpu_presenter.c').read_text()
         self.assertIn('--app-id', host)
-        self.assertIn('xdg_toplevel_set_app_id(app.toplevel, config->app_id)', gpu)
+        self.assertIn('libdecor_frame_set_app_id(app.decor_frame, config->app_id)', gpu)
 
     def test_second_app_requires_a_distinct_package_and_virtual_display_mode(self):
         with tempfile.TemporaryDirectory() as directory:

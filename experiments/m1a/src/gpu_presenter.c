@@ -4,6 +4,7 @@
 #include "keyboard_map.h"
 #include "wire_v2.h"
 #include "sync_util.h"
+#include "window_state.h"
 
 #include "xdg-shell-client-protocol.h"
 #include "linux-dmabuf-client-protocol.h"
@@ -12,7 +13,9 @@
 #include "viewporter-client-protocol.h"
 
 #include <wayland-client.h>
+#include <libdecor.h>
 #include <xkbcommon/xkbcommon.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
 #include <drm_fourcc.h>
 #include <gbm.h>
 #include <fcntl.h>
@@ -67,6 +70,11 @@ struct presenter_app {
     int closed;
     int android_close_requested;
     int copy_complete_enabled;
+    int xdg_decoration_advertised;
+    bool window_maximized;
+    bool window_fullscreen;
+    bool window_active;
+    bool window_suspended;
 
     int drm_fd;
     struct gbm_device *gbm;
@@ -76,6 +84,8 @@ struct presenter_app {
     struct wl_registry *registry;
     struct wl_compositor *compositor;
     struct xdg_wm_base *wm_base;
+    struct libdecor *decor_context;
+    struct libdecor_frame *decor_frame;
     struct zwp_linux_dmabuf_v1 *dmabuf;
     struct wp_presentation *presentation;
     struct wp_linux_drm_syncobj_manager_v1 *syncobj_mgr;
@@ -83,8 +93,6 @@ struct presenter_app {
 
     /* Surface objects */
     struct wl_surface *surface;
-    struct xdg_surface *xdg_surf;
-    struct xdg_toplevel *toplevel;
     struct wp_linux_drm_syncobj_surface_v1 *syncobj_surface;
     struct wp_viewport *viewport;
 
@@ -127,6 +135,7 @@ struct presenter_app {
     uint32_t repeat_android_keycode, repeat_keysym, repeat_unicode;
     uint8_t pressed_keys[768];
     uint32_t pressed_android_keycodes[768];
+    uint8_t window_control_keys[768];
     aaas_input_keyboard_msg keyboard_queue[128];
     uint32_t keyboard_queue_head, keyboard_queue_count;
     uint32_t seat_name;
@@ -289,10 +298,14 @@ static void input_queue_flush(presenter_app *a) {
         if(send_key) {
             aaas_input_keyboard_msg sent;
             aaas_input_keyboard_from_wire(&sent, ki);
-            char extra[128];
+            char extra[224];
             snprintf(extra, sizeof(extra),
-                     "\"type\":%u,\"state\":%u,\"repeat_count\":%u",
-                     sent.type, sent.state, sent.repeat_count);
+                     "\"type\":%u,\"state\":%u,\"repeat_count\":%u,"
+                     "\"evdev_key\":%u,\"android_keycode\":%u,"
+                     "\"meta_state\":%u,\"keysym\":%u",
+                     sent.type, sent.state, sent.repeat_count,
+                     sent.evdev_key, sent.android_keycode, sent.meta_state,
+                     sent.keysym);
             log_presenter_event("keyboard_packet_sent", a->gen, sent.sequence, extra);
             a->keyboard_queue_head=(a->keyboard_queue_head+1)%128;
             a->keyboard_queue_count--;
@@ -847,6 +860,32 @@ static void keyboard_key(void *data, struct wl_keyboard *kbd, uint32_t serial,
     xkb_state_update_key(a->xkb_state,xkey,state==WL_KEYBOARD_KEY_STATE_PRESSED
         ? XKB_KEY_DOWN : XKB_KEY_UP);
     xkb_keysym_t sym=xkb_state_key_get_one_sym(a->xkb_state,xkey);
+    /* F11 is the platform-neutral fullscreen toggle. libdecor's title-bar
+     * menu also exposes fullscreen where the selected decoration supports it.
+     * Consume both edges so Android never sees a half key sequence. */
+    if (sym == XKB_KEY_F11) {
+        if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+            if (!a->pressed_keys[key]) {
+                a->pressed_keys[key] = 1;
+                a->window_control_keys[key] = 1;
+                if (a->decor_frame) {
+                    if (a->window_fullscreen)
+                        libdecor_frame_unset_fullscreen(a->decor_frame);
+                    else
+                        libdecor_frame_set_fullscreen(a->decor_frame, NULL);
+                }
+            }
+        } else if (a->window_control_keys[key]) {
+            a->window_control_keys[key] = 0;
+            a->pressed_keys[key] = 0;
+        }
+        return;
+    }
+    if (state == WL_KEYBOARD_KEY_STATE_RELEASED && a->window_control_keys[key]) {
+        a->window_control_keys[key] = 0;
+        a->pressed_keys[key] = 0;
+        return;
+    }
     uint32_t code=aaas_android_keycode_from_keysym(sym);
     if(!code) {
         log_presenter_event("keyboard_key_unmapped", a->gen, 0, NULL);
@@ -1023,6 +1062,10 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
         a->syncobj_mgr = wl_registry_bind(r, name, &wp_linux_drm_syncobj_manager_v1_interface, 1);
     } else if (strcmp(iface, "wp_viewporter") == 0) {
         a->viewporter = wl_registry_bind(r, name, &wp_viewporter_interface, 1);
+    } else if (strcmp(iface, "zxdg_decoration_manager_v1") == 0) {
+        /* libdecor owns decoration negotiation and the associated protocol
+         * object. This observation is only for diagnostics. */
+        a->xdg_decoration_advertised = ver >= 1;
     } else if (strcmp(iface, "wl_seat") == 0) {
         a->seat_name = name;
         /* axis_value120 is available in wl_pointer v8; do not negotiate v9
@@ -1197,15 +1240,18 @@ static void check_android_close_ack(presenter_app *a) {
     }
 }
 
-static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t serial) {
-    presenter_app *a = data;
-    xdg_surface_ack_configure(xs, serial);
+static bool apply_window_configure(presenter_app *a, uint32_t w, uint32_t h,
+                                   uint32_t *prev_w_out,
+                                   uint32_t *prev_h_out,
+                                   bool *initial_out) {
     uint32_t prev_w = a->w;
     uint32_t prev_h = a->h;
-    uint32_t w = a->pending_w ? a->pending_w : (a->w ? a->w : 640);
-    uint32_t h = a->pending_h ? a->pending_h : (a->h ? a->h : 480);
-    a->pending_w = 0;
-    a->pending_h = 0;
+    bool initial = !a->configured;
+    if (prev_w_out) *prev_w_out = prev_w;
+    if (prev_h_out) *prev_h_out = prev_h;
+    if (initial_out) *initial_out = initial;
+    if (!w) w = a->w ? a->w : 640;
+    if (!h) h = a->h ? a->h : 480;
     if (w > 1920) w = 1920;
     if (h > 1920) h = 1920;
     a->w = w;
@@ -1216,53 +1262,83 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
     if (a->viewport) {
         wp_viewport_set_destination(a->viewport, (int32_t)w, (int32_t)h);
     }
-    /* Apply the acknowledged xdg configure even while Android is rebuilding
-     * its output buffers. Without a surface commit here, a compositor can keep
-     * the old toplevel geometry until a resized Android frame arrives, creating
-     * a configure/buffer-size deadlock during app-display resize. */
-    wl_surface_commit(a->surface);
-
-    bool initial = !a->configured;
     a->configured = 1;
+    return initial || w != prev_w || h != prev_h;
+}
 
-    if (initial || w != prev_w || h != prev_h) {
+static void request_android_resize(presenter_app *a, uint32_t prev_w,
+                                   uint32_t prev_h, bool initial) {
+    if (initial || a->w != prev_w || a->h != prev_h) {
         a->gen++;
         aaas_v2_msg m = {
             .magic = AAAS_V2_MAGIC,
             .version = AAAS_V2_VERSION,
             .type = AAAS_V2_RESIZE,
             .generation = a->gen,
-            .width = w,
-            .height = h,
+            .width = a->w,
+            .height = a->h,
         };
         if (aaas_v2_send(a->sock, &m, NULL, 0) != 0) {
             fprintf(stderr, "[AaaS Presenter] aaas_v2_send RESIZE failed: %s (errno=%d)\n", strerror(errno), errno);
             a->closed = 1;
         }
-        if (w != prev_w || h != prev_h ||
-            (initial && (w != a->initial_w || h != a->initial_h))) {
-            write_android_resize_request(a, w, h);
+        if (a->w != prev_w || a->h != prev_h ||
+            (initial && (a->w != a->initial_w || a->h != a->initial_h))) {
+            write_android_resize_request(a, a->w, a->h);
         }
         char extra[64];
-        snprintf(extra, sizeof(extra), "\"width\":%u,\"height\":%u", w, h);
+        snprintf(extra, sizeof(extra), "\"width\":%u,\"height\":%u",
+                 a->w, a->h);
         log_presenter_event("configure", a->gen, 0, extra);
     }
 }
 
-static const struct xdg_surface_listener xdg_surf_listener = {
-    .configure = xdg_surface_configure
-};
-
-static void toplevel_configure(void *data, struct xdg_toplevel *t,
-                               int32_t w, int32_t h, struct wl_array *states) {
-    (void)t; (void)states;
+static void decor_configure(struct libdecor_frame *frame,
+                            struct libdecor_configuration *configuration,
+                            void *data) {
     presenter_app *a = data;
-    if (w > 0) a->pending_w = (uint32_t)w;
-    if (h > 0) a->pending_h = (uint32_t)h;
+    int32_t width = 0, height = 0;
+    enum libdecor_window_state state = LIBDECOR_WINDOW_STATE_NONE;
+    bool has_state = libdecor_configuration_get_window_state(configuration,
+                                                              &state);
+    if (libdecor_configuration_get_content_size(configuration, frame,
+                                                &width, &height)) {
+        if (width > 0) a->pending_w = (uint32_t)width;
+        if (height > 0) a->pending_h = (uint32_t)height;
+    }
+    aaas_window_state_update(&a->window_maximized, &a->window_fullscreen,
+                             &a->window_active, &a->window_suspended,
+                             has_state, state);
+    uint32_t w = a->pending_w ? a->pending_w : a->w;
+    uint32_t h = a->pending_h ? a->pending_h : a->h;
+    a->pending_w = 0;
+    a->pending_h = 0;
+    uint32_t prev_w = 0, prev_h = 0;
+    bool initial = false;
+    bool changed = apply_window_configure(a, w, h, &prev_w, &prev_h,
+                                         &initial);
+    struct libdecor_state *decor_state = libdecor_state_new((int)a->w, (int)a->h);
+    if (!decor_state) {
+        log_presenter_event("decoration_state_create_failed", a->gen, 0, NULL);
+        a->closed = 1;
+        return;
+    }
+    libdecor_frame_commit(frame, decor_state, configuration);
+    libdecor_state_free(decor_state);
+    if (changed) request_android_resize(a, prev_w, prev_h, initial);
+    char extra[160];
+    snprintf(extra, sizeof(extra),
+             "\"width\":%u,\"height\":%u,\"maximized\":%s,"
+             "\"fullscreen\":%s,\"active\":%s,\"suspended\":%s",
+             a->w, a->h, a->window_maximized ? "true" : "false",
+             a->window_fullscreen ? "true" : "false",
+             a->window_active ? "true" : "false",
+             a->window_suspended ? "true" : "false");
+    log_presenter_event("toplevel_state", a->gen, 0, extra);
 }
 
-static void toplevel_close(void *data, struct xdg_toplevel *t) {
-    (void)t;
+static void decor_close(struct libdecor_frame *frame, void *data) {
+    (void)frame;
     presenter_app *a = data;
     if (a->resize_request_path && a->resize_request_path[0]) {
         write_android_close_request(a);
@@ -1272,9 +1348,28 @@ static void toplevel_close(void *data, struct xdg_toplevel *t) {
     log_presenter_event("close_requested", a->gen, 0, NULL);
 }
 
-static const struct xdg_toplevel_listener toplevel_listener = {
-    .configure = toplevel_configure,
-    .close = toplevel_close
+static void decor_commit(struct libdecor_frame *frame, void *data) {
+    (void)frame;
+    presenter_app *a = data;
+    wl_surface_commit(a->surface);
+}
+
+static struct libdecor_frame_interface decor_frame_iface = {
+    .configure = decor_configure,
+    .close = decor_close,
+    .commit = decor_commit,
+    .dismiss_popup = NULL,
+};
+
+static void decor_error(struct libdecor *context, enum libdecor_error error,
+                        const char *message) {
+    (void)context;
+    fprintf(stderr, "[AaaS Presenter] libdecor error %d: %s\n", error,
+            message ? message : "unknown");
+}
+
+static struct libdecor_interface decor_iface = {
+    .error = decor_error,
 };
 
 static void finalize_buffer_release(presenter_slot *s, bool release_point_signaled) {
@@ -1397,16 +1492,11 @@ static void drain_wayland_buffers(presenter_app *a) {
 
     const uint64_t deadline = monotonic_ns() + 1500000000ULL;
     while (active_buffer_count(a) && a->display && monotonic_ns() < deadline) {
-        while (wl_display_prepare_read(a->display) != 0) {
-            if (wl_display_dispatch_pending(a->display) < 0) goto invalidate;
-            check_release_timelines(a);
-        }
         if (wl_display_flush(a->display) < 0 && errno != EAGAIN) {
-            wl_display_cancel_read(a->display);
             break;
         }
         struct pollfd pfd = {
-            .fd = wl_display_get_fd(a->display),
+            .fd = libdecor_get_fd(a->decor_context),
             .events = POLLIN,
         };
         const uint64_t now = monotonic_ns();
@@ -1414,21 +1504,20 @@ static void drain_wayland_buffers(presenter_app *a) {
         if (timeout > 100) timeout = 100;
         int rc = poll(&pfd, 1, timeout);
         if (rc < 0) {
-            wl_display_cancel_read(a->display);
             if (errno == EINTR) continue;
             break;
         }
         if (rc > 0 && (pfd.revents & POLLIN)) {
-            if (wl_display_read_events(a->display) < 0) break;
-            wl_display_dispatch_pending(a->display);
-        } else {
-            wl_display_cancel_read(a->display);
+            if (a->decor_context) {
+                if (libdecor_dispatch(a->decor_context, 0) < 0) break;
+            } else if (wl_display_dispatch(a->display) < 0) {
+                break;
+            }
         }
         check_release_timelines(a);
         if (pfd.revents & (POLLHUP | POLLERR)) break;
     }
 
-invalidate:
     for (int i = 0; i < MAX_SLOTS; i++) {
         presenter_slot *s = &a->slots[i];
         if (!s->active) continue;
@@ -2078,6 +2167,19 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     xdg_wm_base_add_listener(app.wm_base, &wm_base_listener, &app);
     wl_display_roundtrip(app.display);
 
+    app.decor_context = libdecor_new(app.display, &decor_iface);
+    if (!app.decor_context) {
+        fprintf(stderr, "Unable to initialize libdecor window integration\n");
+        wl_display_disconnect(app.display);
+        return 2;
+    }
+    char decoration_extra[96];
+    snprintf(decoration_extra, sizeof(decoration_extra),
+             "\"xdg_decoration_advertised\":%s,\"libdecor_fd\":%d",
+             app.xdg_decoration_advertised ? "true" : "false",
+             libdecor_get_fd(app.decor_context));
+    log_presenter_event("decoration_context_ready", 0, 0, decoration_extra);
+
     if (!app.num_modifiers) {
         fprintf(stderr, "No DRM XRGB8888 modifiers advertised by compositor\n");
         return 2;
@@ -2106,13 +2208,23 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         app.viewport = wp_viewporter_get_viewport(app.viewporter, app.surface);
         log_presenter_event("viewporter_enabled", 0, 0, NULL);
     }
-    app.xdg_surf = xdg_wm_base_get_xdg_surface(app.wm_base, app.surface);
-    xdg_surface_add_listener(app.xdg_surf, &xdg_surf_listener, &app);
-    app.toplevel = xdg_surface_get_toplevel(app.xdg_surf);
-    xdg_toplevel_add_listener(app.toplevel, &toplevel_listener, &app);
-    xdg_toplevel_set_title(app.toplevel, config->title ? config->title : "AaaS M1A.1 GPU Presenter");
+    app.decor_frame = libdecor_decorate(app.decor_context, app.surface,
+                                         &decor_frame_iface, &app);
+    if (!app.decor_frame) {
+        fprintf(stderr, "Unable to create decorated Wayland toplevel\n");
+        wl_surface_destroy(app.surface);
+        libdecor_unref(app.decor_context);
+        wl_display_disconnect(app.display);
+        return 2;
+    }
+    libdecor_frame_set_capabilities(app.decor_frame,
+        LIBDECOR_ACTION_MOVE | LIBDECOR_ACTION_RESIZE |
+        LIBDECOR_ACTION_MINIMIZE | LIBDECOR_ACTION_FULLSCREEN |
+        LIBDECOR_ACTION_CLOSE);
+    libdecor_frame_set_title(app.decor_frame,
+        config->title ? config->title : "AaaS M1A.1 GPU Presenter");
     if (config->app_id && config->app_id[0])
-        xdg_toplevel_set_app_id(app.toplevel, config->app_id);
+        libdecor_frame_set_app_id(app.decor_frame, config->app_id);
 
     // Initialize explicit sync surface and acquire timeline
     if (explicit_sync_available) {
@@ -2128,7 +2240,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         app.acquire_point = 0;
     }
 
-    wl_surface_commit(app.surface);
+    libdecor_frame_map(app.decor_frame);
     wl_display_roundtrip(app.display);
 
     // Event loop
@@ -2137,23 +2249,13 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             break;
         }
 
-        while (wl_display_prepare_read(app.display) != 0) {
-            if (wl_display_dispatch_pending(app.display) < 0) {
-                log_presenter_event("compositor_disconnect", app.gen, 0, NULL);
-                app.closed = 1;
-                break;
-            }
-        }
-        if (app.closed) break;
-
         if (wl_display_flush(app.display) < 0 && errno != EAGAIN) {
-            wl_display_cancel_read(app.display);
             log_presenter_event("compositor_disconnect", app.gen, 0, NULL);
             break;
         }
 
         struct pollfd p[4] = {
-            { .fd = wl_display_get_fd(app.display), .events = POLLIN },
+            { .fd = libdecor_get_fd(app.decor_context), .events = POLLIN },
             { .fd = app.sock, .events = POLLIN },
         };
         nfds_t nfds = 2;
@@ -2183,19 +2285,15 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         }
         int r = poll(p, nfds, timeout_ms);
         if (r < 0) {
-            wl_display_cancel_read(app.display);
             if (errno == EINTR) continue;
             break;
         }
 
         if (p[0].revents & POLLIN) {
-            if (wl_display_read_events(app.display) < 0) {
+            if (libdecor_dispatch(app.decor_context, 0) < 0) {
                 log_presenter_event("compositor_disconnect", app.gen, 0, NULL);
                 break;
             }
-            wl_display_dispatch_pending(app.display);
-        } else {
-            wl_display_cancel_read(app.display);
         }
 
         if (p[0].revents & (POLLHUP | POLLERR)) {
@@ -2319,8 +2417,17 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         app.seat = NULL;
     }
 
-    xdg_toplevel_destroy(app.toplevel);
-    xdg_surface_destroy(app.xdg_surf);
+    /* libdecor owns the xdg_surface/xdg_toplevel and any client-side
+     * decoration subsurfaces it created. Destroy the frame before its content
+     * surface, then release the context before disconnecting the display. */
+    if (app.decor_frame) {
+        libdecor_frame_unref(app.decor_frame);
+        app.decor_frame = NULL;
+    }
+    if (app.decor_context) {
+        libdecor_unref(app.decor_context);
+        app.decor_context = NULL;
+    }
     wl_surface_destroy(app.surface);
     zwp_linux_dmabuf_v1_destroy(app.dmabuf);
     if (app.presentation) wp_presentation_destroy(app.presentation);
