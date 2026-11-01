@@ -113,3 +113,43 @@ The original v4 defect therefore remains **OPEN / UNRESOLVED**. The current
 build's separate bounded verification record remains unchanged. Full session,
 resource and artifact hashes are in
 [`v4_idtrace_replay_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_idtrace_replay_20261102.json).
+
+## 2026-11-02 ANGLE/SwiftShader completion-path source audit
+
+The available AOSP `external/angle` tag `android-16.0.0_r1` was inspected at
+peeled commit `3dfe967316da2b7307fd86b8ee4add0559c557a1`. This is a source
+reference, not a verified source identity for the historical image's stripped
+`libEGL_angle.so` (Build ID `17c097b042d4b567ce4ba46d9ba2b8ae`). The current
+local Android source subset does not contain the ANGLE checkout needed to
+rebuild that exact library.
+
+In the inspected ANGLE source, `ContextVk::onColorDraw()` calls
+`RenderPassCommandBufferHelper::colorImagesDraw()`, which calls
+`ImageHelper::onRenderPassAttach(mQueueSerial)`. That records the queue serial
+on the attachment image. `ImageHelper::releaseImage()` collects both the
+`VkImage` and its `VkDeviceMemory` against `mUse`; `Renderer::collectGarbage()`
+destroys them only after `hasResourceUseFinished(mUse)` succeeds. `finishImpl()`
+flushes and waits for `mSubmittedResourceUse` before clearing context garbage.
+The AHardwareBuffer sibling imports through a dedicated Vulkan allocation and
+releases its `ImageHelper` through `releaseImage()`.
+
+In the pinned SwiftShader source, `CmdEndRenderPass::execute()` and
+`CmdEndRendering::execute()` call `Renderer::synchronize()` before returning.
+The queue task associated with a Vulkan fence also synchronizes the renderer
+before completing the fence event. This makes the straightforward hypothesis
+that ANGLE simply forgot to mark a color attachment as used less likely for
+these inspected code paths. It does not prove that the historical image used
+this exact ANGLE source, that the faulting attachment followed this path, or
+that the queue serial/fence at the historical release covered the faulting
+draw. The v4 incident still has no VkImage, queue serial, submission, or fence
+identity, and no source correction is justified by this audit alone.
+
+The queue implementation signals Vulkan semaphores before an optional final
+renderer synchronization. The inspected render-pass and dynamic-rendering end
+commands synchronize their draw jobs before command execution returns, while
+the fence path synchronizes before signaling its fence. No v4 signal semaphore
+was identified, so the semaphore ordering remains a separate bounded concern,
+not an explanation of the historical AHardwareBuffer read.
+
+Source hashes, function-level observations, and remaining causal gaps are in
+[`angle_resource_use_audit_20261102.json`](../../results/graphics-stability/buffer-lifetime/angle_resource_use_audit_20261102.json).
