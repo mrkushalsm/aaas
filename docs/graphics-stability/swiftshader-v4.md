@@ -57,10 +57,13 @@ reproduction. No speculative change was made.
 
 The v10 trace infrastructure already records `AAAS_DRAW_TARGET`, including
 AHardwareBuffer-backed memory, image/view identity, submission, draw, and
-renderer completion for current runs. Its bounded 960x578/odd-height/resize-back
-runs survived and showed target draw completion/synchronization before release.
-Those healthy runs are from different SurfaceFlinger processes and do not
-retroactively explain the v4 release.
+renderer completion. In healthy SurfaceFlinger PID 261, AHardwareBuffer
+`9650791514121` mapped to memory 273, image 272, and view 276 at 960×578. Its
+last recorded target draw (submission 412, draw 1332) completed and renderer
+synchronization returned before view/image destruction and AHardwareBuffer
+unlock/release. This confirms the instrumentation can preserve the full chain
+for a healthy 960×578 target. It is a different SurfaceFlinger process and a
+different AHardwareBuffer; it does not identify or explain the v4 release.
 
 ## Next required diagnostic observation
 
