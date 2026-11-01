@@ -595,8 +595,9 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('invoke(handle.handler, reportResizedMetrics, 500L)', broker)
         self.assertIn('requested=" + handle.width + "x"', broker)
         self.assertIn('a->pending_w = (uint32_t)width', presenter)
+        self.assertIn('aaas_resize_schedule(&a->resize_scheduler', presenter)
+        self.assertIn('flush_scheduled_android_resize(&app)', presenter)
         self.assertIn('write_android_resize_request(a, a->w, a->h)', presenter)
-        self.assertIn('request_android_resize(a, prev_w, prev_h, initial)', presenter)
         self.assertIn('virtual display resize observed', composer)
 
     def test_presenter_exposes_per_window_wayland_app_identity(self):

@@ -2,6 +2,7 @@
 #include "input_map.h"
 #include "input_v1.h"
 #include "keyboard_map.h"
+#include "resize_scheduler.h"
 #include "wire_v2.h"
 #include "sync_util.h"
 #include "window_state.h"
@@ -62,9 +63,13 @@ struct presenter_app {
     uint32_t w, h, gen;
     uint32_t pending_w, pending_h;
     uint32_t initial_w, initial_h;
+    uint32_t initial_display_w, initial_display_h;
+    uint32_t expected_display_w, expected_display_h;
     uint32_t last_source_frame_w, last_source_frame_h;
     uint32_t last_source_frame_gen, last_source_frame_config_gen;
     uint32_t resize_request_generation;
+    aaas_resize_scheduler resize_scheduler;
+    bool resize_waiting_frame;
     const char *resize_request_path;
     int configured;
     int closed;
@@ -221,13 +226,13 @@ static uint32_t button_mask(uint32_t button) {
 
 static aaas_mapped_point map_surface_point(presenter_app *a, double sx, double sy) {
     aaas_mapped_point unavailable = { .x = 0, .y = 0, .inside = 0 };
-    /* xdg configure changes the viewport destination before Android has
-     * necessarily produced a buffer for that size. The old buffer is still
-     * visible, but its coordinates do not identify controls in the resized
-     * Android display. Reject pointer input until a matching source frame is
-     * accepted; do not deliver stale-generation coordinates.
+    /* While a compositor resize is settling, Android still owns the previous
+     * source geometry and the viewport scales that frame to the new surface;
+     * map against the active source dimensions. After a resize request is
+     * committed, Android may already have changed its touch space, so block
+     * input until a matching source frame establishes the new mapping.
      */
-    if (!aaas_presented_geometry_ready(a->w, a->h, a->display_w, a->display_h)) {
+    if (a->resize_waiting_frame || !a->display_w || !a->display_h) {
         if (a->input_map_blocked_generation != a->gen) {
             char extra[160];
             snprintf(extra, sizeof(extra),
@@ -438,8 +443,10 @@ static void input_send_keyboard(presenter_app *a, uint16_t type, uint32_t evdev,
 }
 
 static void input_send_hello(presenter_app *a) {
-    int32_t w = (int32_t)(a->display_w ? a->display_w : a->w);
-    int32_t h = (int32_t)(a->display_h ? a->display_h : a->h);
+    int32_t w = (int32_t)(a->display_w ? a->display_w :
+                          (a->expected_display_w ? a->expected_display_w : a->w));
+    int32_t h = (int32_t)(a->display_h ? a->display_h :
+                          (a->expected_display_h ? a->expected_display_h : a->h));
     if (w <= 0 || h <= 0) {
         w = 1280;
         h = 720;
@@ -575,7 +582,7 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
 
     aaas_mapped_point p = map_surface_point(a, a->pointer_x, a->pointer_y);
     if (!p.inside) {
-        if (!aaas_presented_geometry_ready(a->w, a->h, a->display_w, a->display_h)) {
+        if (a->resize_waiting_frame || !a->display_w || !a->display_h) {
             char extra[192];
             snprintf(extra, sizeof(extra),
                      "\"button\":%u,\"surface_x\":%.3f,\"surface_y\":%.3f,"
@@ -1282,6 +1289,7 @@ static void request_android_resize(presenter_app *a, uint32_t prev_w,
             fprintf(stderr, "[AaaS Presenter] aaas_v2_send RESIZE failed: %s (errno=%d)\n", strerror(errno), errno);
             a->closed = 1;
         }
+        a->resize_waiting_frame = true;
         if (a->w != prev_w || a->h != prev_h ||
             (initial && (a->w != a->initial_w || a->h != a->initial_h))) {
             write_android_resize_request(a, a->w, a->h);
@@ -1291,6 +1299,103 @@ static void request_android_resize(presenter_app *a, uint32_t prev_w,
                  a->w, a->h);
         log_presenter_event("configure", a->gen, 0, extra);
     }
+}
+
+static void schedule_android_resize(presenter_app *a, uint32_t prev_w,
+                                    uint32_t prev_h, bool initial) {
+    if (initial) {
+        (void)prev_w;
+        (void)prev_h;
+        uint32_t width = a->initial_display_w;
+        uint32_t height = a->initial_display_h;
+        if (!width || !height) {
+            width = a->w;
+            height = a->h;
+        }
+        a->expected_display_w = width;
+        a->expected_display_h = height;
+        a->gen++;
+        aaas_v2_msg message = {
+            .magic = AAAS_V2_MAGIC,
+            .version = AAAS_V2_VERSION,
+            .type = AAAS_V2_RESIZE,
+            .generation = a->gen,
+            .width = width,
+            .height = height,
+        };
+        if (aaas_v2_send(a->sock, &message, NULL, 0) != 0) {
+            fprintf(stderr, "[AaaS Presenter] initial source geometry send failed: %s\n",
+                    strerror(errno));
+            a->closed = 1;
+        }
+        a->resize_waiting_frame = true;
+        char extra[80];
+        snprintf(extra, sizeof(extra), "\"width\":%u,\"height\":%u,\"logical_width\":%u,\"logical_height\":%u",
+                 width, height, a->w, a->h);
+        log_presenter_event("initial_source_geometry", a->gen, 0, extra);
+        return;
+    }
+    if (a->display_w == a->w && a->display_h == a->h &&
+        !a->resize_waiting_frame) {
+        if (aaas_resize_cancel(&a->resize_scheduler)) {
+            log_presenter_event("android_resize_cancelled_active_size",
+                                a->gen, 0, NULL);
+        }
+        return;
+    }
+    aaas_resize_schedule(&a->resize_scheduler, a->w, a->h, monotonic_ns());
+    char extra[128];
+    snprintf(extra, sizeof(extra),
+             "\"width\":%u,\"height\":%u,\"settle_ms\":%u,"
+             "\"coalesced\":%u",
+             a->w, a->h, (unsigned)(AAAS_RESIZE_SETTLE_NS / 1000000ULL),
+             a->resize_scheduler.coalesced);
+    log_presenter_event(a->resize_scheduler.coalesced
+                            ? "android_resize_coalesced"
+                            : "android_resize_scheduled",
+                        a->gen, 0, extra);
+}
+
+static void flush_scheduled_android_resize(presenter_app *a) {
+    uint32_t width = 0, height = 0, coalesced = 0;
+    if (!aaas_resize_take_due(&a->resize_scheduler, monotonic_ns(),
+                              &width, &height, &coalesced)) return;
+    if (width == a->display_w && height == a->display_h &&
+        !a->resize_waiting_frame) {
+        log_presenter_event("android_resize_settled_to_active_size",
+                            a->gen, 0, NULL);
+        return;
+    }
+    a->w = width;
+    a->h = height;
+    a->expected_display_w = width;
+    a->expected_display_h = height;
+    uint32_t previous_generation = a->gen;
+    request_android_resize(a, 0, 0, false);
+    char extra[96];
+    snprintf(extra, sizeof(extra),
+             "\"width\":%u,\"height\":%u,\"coalesced\":%u,"
+             "\"previous_generation\":%u",
+             width, height, coalesced, previous_generation);
+    log_presenter_event("android_resize_debounce_committed", a->gen, 0, extra);
+}
+
+static int presenter_poll_timeout_ms(const presenter_app *a) {
+    int timeout_ms = 200;
+    if (a->resize_scheduler.pending) {
+        uint64_t now = monotonic_ns();
+        uint64_t remaining = now >= a->resize_scheduler.deadline_ns
+            ? 0 : a->resize_scheduler.deadline_ns - now;
+        int due_ms = (int)((remaining + 999999ULL) / 1000000ULL);
+        if (due_ms < timeout_ms) timeout_ms = due_ms;
+    }
+    if (a->keyboard_repeat_rate && a->repeat_key < 768 && a->repeat_next_ns) {
+        uint64_t now = monotonic_ns();
+        int due_ms = now >= a->repeat_next_ns ? 0 :
+            (int)((a->repeat_next_ns - now + 999999ULL) / 1000000ULL);
+        if (due_ms < timeout_ms) timeout_ms = due_ms;
+    }
+    return timeout_ms;
 }
 
 static void decor_configure(struct libdecor_frame *frame,
@@ -1325,7 +1430,7 @@ static void decor_configure(struct libdecor_frame *frame,
     }
     libdecor_frame_commit(frame, decor_state, configuration);
     libdecor_state_free(decor_state);
-    if (changed) request_android_resize(a, prev_w, prev_h, initial);
+    if (changed) schedule_android_resize(a, prev_w, prev_h, initial);
     char extra[160];
     snprintf(extra, sizeof(extra),
              "\"width\":%u,\"height\":%u,\"maximized\":%s,"
@@ -1335,6 +1440,11 @@ static void decor_configure(struct libdecor_frame *frame,
              a->window_active ? "true" : "false",
              a->window_suspended ? "true" : "false");
     log_presenter_event("toplevel_state", a->gen, 0, extra);
+    if (changed) {
+        snprintf(extra, sizeof(extra), "\"width\":%u,\"height\":%u",
+                 a->w, a->h);
+        log_presenter_event("wayland_configure_applied", a->gen, 0, extra);
+    }
 }
 
 static void decor_close(struct libdecor_frame *frame, void *data) {
@@ -1614,8 +1724,8 @@ static void handle_incoming_buffer(presenter_app *a) {
             .type = AAAS_V2_RESIZE,
             .flags = a->copy_complete_enabled ? AAAS_V2_FLAG_COPY_COMPLETE : 0,
             .generation = a->gen ? a->gen : 1,
-            .width = a->w ? a->w : 1280,
-            .height = a->h ? a->h : 720,
+            .width = a->expected_display_w ? a->expected_display_w : a->w,
+            .height = a->expected_display_h ? a->expected_display_h : a->h,
         };
         aaas_v2_send(a->sock, &resp, NULL, 0);
         log_presenter_event("producer_hello_ack", resp.generation, 0, NULL);
@@ -1647,7 +1757,8 @@ static void handle_incoming_buffer(presenter_app *a) {
                  "\"width\":%u,\"height\":%u,\"stride_bytes\":%u,"
                  "\"matches_configure\":%s",
                  m.width, m.height, m.stride[0],
-                 (m.width == a->w && m.height == a->h) ? "true" : "false");
+                 (m.width == a->expected_display_w &&
+                  m.height == a->expected_display_h) ? "true" : "false");
         log_presenter_event("source_frame_dimensions", m.generation, m.id, dimensions);
         a->last_source_frame_w = m.width;
         a->last_source_frame_h = m.height;
@@ -1656,8 +1767,13 @@ static void handle_incoming_buffer(presenter_app *a) {
     }
 
     bool gen_ok = (m.generation == a->gen || a->gen == 0 || m.generation == 0 ||
-                   (m.width == a->w && m.height == a->h && m.generation <= a->gen));
-    bool dim_ok = (m.width == a->w && m.height == a->h);
+                   (m.width == a->expected_display_w &&
+                    m.height == a->expected_display_h && m.generation <= a->gen));
+    bool dim_ok = (m.width == a->expected_display_w &&
+                   m.height == a->expected_display_h) ||
+        (a->resize_scheduler.pending && m.generation == a->gen &&
+         m.width == (a->display_w ? a->display_w : a->initial_w) &&
+         m.height == (a->display_h ? a->display_h : a->initial_h));
 
     if (!format_ok || !gen_ok || !dim_ok || !modifier_supported(a, m.modifier)) {
         reject_unimported_buffer(a, &m, fds, nfds,
@@ -1669,6 +1785,10 @@ static void handle_incoming_buffer(presenter_app *a) {
 
     a->display_w = m.width;
     a->display_h = m.height;
+    if (m.generation == a->gen && m.width == a->expected_display_w &&
+        m.height == a->expected_display_h) {
+        a->resize_waiting_frame = false;
+    }
 
     // Find available slot
     presenter_slot *s = NULL;
@@ -2140,6 +2260,10 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         .h = config->initial_height ? config->initial_height : 480,
         .initial_w = config->initial_width ? config->initial_width : 640,
         .initial_h = config->initial_height ? config->initial_height : 480,
+        .initial_display_w = config->initial_display_width,
+        .initial_display_h = config->initial_display_height,
+        .expected_display_w = config->initial_display_width,
+        .expected_display_h = config->initial_display_height,
         .resize_request_path = config->resize_request_path,
         .input_listen_fd = config->input_listen_fd,
         .input_fd = -1,
@@ -2277,13 +2401,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             nfds++;
         }
 
-        int timeout_ms=200;
-        if(app.keyboard_repeat_rate && app.repeat_key<768 && app.repeat_next_ns) {
-            uint64_t now=monotonic_ns();
-            int due=now>=app.repeat_next_ns?0:(int)((app.repeat_next_ns-now+999999ULL)/1000000ULL);
-            if(due<timeout_ms) timeout_ms=due;
-        }
-        int r = poll(p, nfds, timeout_ms);
+        int r = poll(p, nfds, presenter_poll_timeout_ms(&app));
         if (r < 0) {
             if (errno == EINTR) continue;
             break;
@@ -2332,6 +2450,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             log_presenter_event("producer_disconnect", app.gen, 0, NULL);
             break;
         }
+        flush_scheduled_android_resize(&app);
     }
 
     input_teardown(&app);

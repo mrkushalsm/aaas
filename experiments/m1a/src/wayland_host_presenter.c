@@ -25,6 +25,8 @@ static void print_usage(const char *prog) {
             "  --app-id <id>       Wayland toplevel application identity\n"
             "  --width <w>         Initial window width (default: 1280)\n"
             "  --height <h>        Initial window height (default: 720)\n"
+            "  --display-width <w> Initial Android source width\n"
+            "  --display-height <h> Initial Android source height\n"
             "  --node <path>       DRM render node path (default: /dev/dri/renderD129)\n"
             "  --implicit-sync     Force implicit synchronization\n"
             "  --frames <N>        Exit after presenting N frames (default: 0 = infinite)\n"
@@ -47,6 +49,8 @@ int main(int argc, char **argv) {
     const char *app_id = "org.aaas.android";
     uint32_t width = 1280;
     uint32_t height = 720;
+    uint32_t display_width = 0;
+    uint32_t display_height = 0;
     const char *drm_node = "/dev/dri/renderD129";
     bool force_implicit = false;
     uint32_t max_frames = 0;
@@ -67,6 +71,10 @@ int main(int argc, char **argv) {
             width = (uint32_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--height") == 0 && i + 1 < argc) {
             height = (uint32_t)strtoul(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--display-width") == 0 && i + 1 < argc) {
+            display_width = (uint32_t)strtoul(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--display-height") == 0 && i + 1 < argc) {
+            display_height = (uint32_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--node") == 0 && i + 1 < argc) {
             drm_node = argv[++i];
         } else if (strcmp(argv[i], "--implicit-sync") == 0) {
@@ -191,6 +199,8 @@ int main(int argc, char **argv) {
             .app_id = app_id,
             .initial_width = width,
             .initial_height = height,
+            .initial_display_width = display_width,
+            .initial_display_height = display_height,
             .drm_node = drm_node,
             .force_implicit_sync = force_implicit,
             .max_frames = max_frames,

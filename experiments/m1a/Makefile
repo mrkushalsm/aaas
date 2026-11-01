@@ -97,10 +97,13 @@ $(BUILD)/test-keyboard-teardown: tests/test_keyboard_teardown.c | $(BUILD)
 $(BUILD)/test-window-state: tests/test_window_state.c src/window_state.h | $(BUILD)
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags libdecor-0) $< -o $@ $(shell pkg-config --libs libdecor-0)
 
+$(BUILD)/test-resize-scheduler: tests/test_resize_scheduler.c src/resize_scheduler.h | $(BUILD)
+	$(CC) $(CFLAGS) -Isrc $< -o $@
+
 $(BUILD)/test-input-state: tests/test_input_state.c src/input_state.c src/input_v1.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
 
-test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map $(BUILD)/test-keyboard-teardown $(BUILD)/test-window-state
+test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map $(BUILD)/test-keyboard-teardown $(BUILD)/test-window-state $(BUILD)/test-resize-scheduler
 	$(BUILD)/test-wire
 	$(BUILD)/test-wire-v2
 	$(BUILD)/test-sync-util
@@ -112,6 +115,7 @@ test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/
 	$(BUILD)/test-keyboard-teardown
 	$(BUILD)/test-keyboard-teardown --dispatch-control
 	$(BUILD)/test-window-state
+	$(BUILD)/test-resize-scheduler
 
 clean:
 	rm -rf $(BUILD)

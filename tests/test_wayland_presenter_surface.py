@@ -79,7 +79,10 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         self.assertIn("wp_viewport_set_destination(a->viewport", geometry)
         self.assertIn("libdecor_frame_commit(frame, decor_state, configuration)", configure)
         self.assertLess(configure.index("libdecor_frame_commit"),
-                        configure.index("request_android_resize"))
+                        configure.index("schedule_android_resize"))
+        self.assertNotIn("request_android_resize", configure)
+        self.assertIn("aaas_resize_take_due", self.source)
+        self.assertIn("flush_scheduled_android_resize(&app)", self.source)
         self.assertIn('strcmp(iface, "wp_viewporter")', self.source)
 
     def test_libdecor_owns_one_xdg_role_and_uses_standard_window_state(self):

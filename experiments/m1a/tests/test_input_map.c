@@ -32,6 +32,12 @@ int main(void) {
     expect_point("half-center", 320, 180, 640, 360, 1280, 720, 1, 640, 360);
     expect_point("half-last-pixel", 639.9, 359.9, 640, 360, 1280, 720, 1, 1279, 719);
 
+    /* Default AaaS phone window over an independent 720x1280 Android source. */
+    expect_point("phone-window-top-left", 0, 0, 420, 740, 720, 1280, 1, 0, 0);
+    expect_point("phone-window-center", 210, 370, 420, 740, 720, 1280, 1, 360, 640);
+    expect_point("phone-window-bottom-right", 419.9, 739.9, 420, 740,
+                 720, 1280, 1, 719, 1279);
+
     /* Double-size surface. */
     expect_point("double-center", 1280, 720, 2560, 1440, 1280, 720, 1, 640, 360);
     expect_point("double-last-pixel", 2559.9, 1439.9, 2560, 1440, 1280, 720, 1, 1279, 719);

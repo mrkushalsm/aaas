@@ -11,6 +11,8 @@ typedef struct {
     const char *app_id;
     uint32_t initial_width;
     uint32_t initial_height;
+    uint32_t initial_display_width;
+    uint32_t initial_display_height;
     const char *drm_node;
     bool force_implicit_sync;
     uint32_t max_frames; /* 0 for infinite */

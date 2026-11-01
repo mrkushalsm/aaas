@@ -360,6 +360,48 @@ def validate_app_package(package):
     return package
 
 
+def parse_window_size(value):
+    match = re.fullmatch(r'([0-9]+)x([0-9]+)', value or '')
+    if not match:
+        raise argparse.ArgumentTypeError('window size must be WIDTHxHEIGHT')
+    width, height = map(int, match.groups())
+    if min(width, height) < 64 or max(width, height) > 1920:
+        raise argparse.ArgumentTypeError('window dimensions must be between 64 and 1920')
+    return width, height
+
+
+def initial_window_size(orientation, requested=None):
+    if requested is not None:
+        return requested
+    return (420, 740) if orientation == 'portrait' else (740, 420)
+
+
+def parse_display_size(value):
+    match = re.fullmatch(r'([0-9]+)x([0-9]+)', value or '')
+    if not match:
+        raise argparse.ArgumentTypeError('display size must be WIDTHxHEIGHT')
+    width, height = map(int, match.groups())
+    if min(width, height) < 64 or max(width, height) > 1920:
+        raise argparse.ArgumentTypeError('display dimensions must be between 64 and 1920')
+    return width, height
+
+
+def initial_display_size(orientation, requested=None):
+    if requested is not None:
+        return requested
+    return (720, 1280) if orientation == 'portrait' else (1280, 720)
+
+
+def parse_display_density(value):
+    try:
+        density = int(value)
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError('display density must be an integer') from error
+    if not 72 <= density <= 1000:
+        raise argparse.ArgumentTypeError('display density must be between 72 and 1000')
+    return density
+
+
 def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKAGE,
                         experimental_virtual_display=False, app_package2=None):
     if sha256(RUNNER) != RUNNER_SHA256:
@@ -1216,7 +1258,15 @@ def main():
                         help='Apply a rootless delegated cgroup v2 memory policy')
     parser.add_argument('--orientation', choices=('portrait', 'landscape'),
                         default='portrait',
-                        help='Android display profile (default: portrait)')
+                        help='initial Android display orientation (default: portrait)')
+    parser.add_argument('--window-size', type=parse_window_size,
+                        help='initial virtual display size as WIDTHxHEIGHT; defaults to '
+                             '420x740 portrait or 740x420 landscape')
+    parser.add_argument('--display-size', type=parse_display_size,
+                        help='initial Android framebuffer as WIDTHxHEIGHT; defaults to '
+                             '720x1280 portrait or 1280x720 landscape')
+    parser.add_argument('--display-density', type=parse_display_density, default=240,
+                        help='initial Android virtual display density in dpi (default: 240)')
     parser.add_argument('--app', default=DEFAULT_APP_PACKAGE,
                         help='installed package with a MAIN/LAUNCHER activity '
                              '(default: com.android.settings)')
@@ -1404,8 +1454,12 @@ def main():
                                  app_package2=args.app2)
     env = os.environ.copy()
     env.update(paths)
-    presenter_size = (('720', '1280') if args.orientation == 'portrait'
-                      else ('1280', '720'))
+    presenter_width, presenter_height = initial_window_size(
+        args.orientation, args.window_size)
+    presenter_size = (str(presenter_width), str(presenter_height))
+    display_width, display_height = initial_display_size(
+        args.orientation, args.display_size)
+    display_size = (str(display_width), str(display_height))
     boot_wait = (min(args.startup_timeout, 180)
                  if args.experimental_virtual_display else args.startup_timeout)
     env.update(AAAS_LOG_PREFIX=prefix, AAAS_BOOTANIM='0',
@@ -1457,6 +1511,8 @@ def main():
             process = subprocess.Popen(
                 [str(PRESENTER), '--socket', str(socket_path),
                  '--width', presenter_size[0], '--height', presenter_size[1],
+                 '--display-width', display_size[0],
+                 '--display-height', display_size[1],
                  '--input-socket', str(input_path),
                  '--input-session', f'0x{input_session:016x}',
                  '--input-display-id-file', str(display_path),
@@ -1538,8 +1594,8 @@ def main():
             (ipc / f'vdisplay_control_ack_{slot}').write_text('')
             create_ack.write_text('')
             atomic_control_write(create_path,
-                                 f'{generation} {presenter_size[0]} '
-                                 f'{presenter_size[1]} 240')
+                                 f'{generation} {display_size[0]} '
+                                 f'{display_size[1]} {args.display_density}')
             deadline = time.monotonic() + 20
             response = ''
             while time.monotonic() < deadline:
@@ -1644,6 +1700,8 @@ def main():
                     virtual_presenter = subprocess.Popen(
                         [str(PRESENTER), '--socket', str(ipc / 'wayland-vdisplay.sock'),
                          '--width', presenter_size[0], '--height', presenter_size[1],
+                     '--display-width', display_size[0],
+                     '--display-height', display_size[1],
                          '--input-socket', str(ipc / 'input-vdisplay.sock'),
                          '--input-session', f'0x{input_session:016x}',
                          '--input-display-id-file', str(ipc / 'vdisplay_id'),
@@ -1665,6 +1723,8 @@ def main():
                             [str(PRESENTER), '--socket',
                              str(ipc / 'wayland-vdisplay.sock-2'),
                              '--width', presenter_size[0], '--height', presenter_size[1],
+                             '--display-width', display_size[0],
+                             '--display-height', display_size[1],
                              '--input-socket', str(ipc / 'input-vdisplay-2.sock'),
                              '--input-session', f'0x{input_session:016x}',
                              '--input-display-id-file', str(ipc / 'vdisplay2_id'),
