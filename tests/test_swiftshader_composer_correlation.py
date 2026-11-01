@@ -12,6 +12,60 @@ SPEC.loader.exec_module(TRACE)
 
 
 class BufferCorrelationTests(unittest.TestCase):
+    def target_lifetime_events(self, release_before_completion=False):
+        events = [
+            {'event': 'AAAS_AHB_VK_IMPORT', 'memory_id': 77, 'id': 901,
+             'width': 960, 'height': 578},
+            {'event': 'AAAS_DRAW_TARGET', 'submit_id': 9, 'draw_id': 2,
+             'memory_id': 77, 'image_id': 70, 'view_id': 71},
+        ]
+        if release_before_completion:
+            events.extend([
+                {'event': 'AAAS_AHB_VK_REF_RELEASE_END', 'memory_id': 77,
+                 'id': 901, 'mono_ns': 30},
+                {'event': 'AAAS_DRAW_COMPLETE', 'submit_id': 9, 'draw_id': 2,
+                 'mono_ns': 40},
+                {'event': 'AAAS_QUEUE_RENDERER_SYNC_DONE', 'submit_id': 9,
+                 'mono_ns': 50},
+            ])
+        else:
+            events.extend([
+                {'event': 'AAAS_DRAW_COMPLETE', 'submit_id': 9, 'draw_id': 2,
+                 'mono_ns': 30},
+                {'event': 'AAAS_QUEUE_RENDERER_SYNC_DONE', 'submit_id': 9,
+                 'mono_ns': 40},
+                {'event': 'AAAS_AHB_VK_REF_RELEASE_END', 'memory_id': 77,
+                 'id': 901, 'mono_ns': 50},
+            ])
+        return events
+
+    def test_target_attachment_links_through_sync_to_ahb_release(self):
+        events = self.target_lifetime_events()
+        imports = [{'memory_id': 77, 'id': 901, 'width': 960, 'height': 578}]
+        result = TRACE.correlate_target_retirement(events, imports)
+        self.assertEqual(result['target_memory_count'], 1)
+        row = result['resources'][0]
+        self.assertEqual(row['classification'],
+                         'OBSERVED_TARGET_DRAW_SYNC_RELEASE_ORDER')
+        self.assertEqual(row['ahardwarebuffer_id'], 901)
+        self.assertLess(row['last_draw_complete_index'],
+                        row['last_renderer_sync_index'])
+        self.assertLess(row['last_renderer_sync_index'], row['release_index'])
+
+    def test_target_retirement_detects_safe_invalid_ordering_control(self):
+        events = self.target_lifetime_events(release_before_completion=True)
+        imports = [{'memory_id': 77, 'id': 901, 'width': 960, 'height': 578}]
+        result = TRACE.correlate_target_retirement(events, imports)
+        self.assertEqual(result['resources'][0]['classification'],
+                         'RELEASE_WITH_INCOMPLETE_TARGET_DRAW')
+
+    def test_target_with_no_release_remains_unclassified(self):
+        events = self.target_lifetime_events()[:-1]
+        imports = [{'memory_id': 77, 'id': 901, 'width': 960, 'height': 578}]
+        result = TRACE.correlate_target_retirement(events, imports)
+        self.assertEqual(result['resources'][0]['classification'],
+                         'NO_EXPLICIT_RELEASE_OBSERVED')
+
     def test_memory_retirement_requires_draw_completion_and_prior_sync(self):
         events = [
             {'event': 'AAAS_AHB_VK_IMPORT', 'memory_id': 77},

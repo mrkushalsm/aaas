@@ -168,6 +168,108 @@ def correlate_memory_retirement(events):
             "resources": results}
 
 
+def correlate_target_retirement(events, ahb_imports):
+    """Check target-attachment draw completion/sync against AHB release order.
+
+    This is deliberately an event-order analysis, not a claim that timestamps
+    or append order independently prove Vulkan happens-before. Unlike the
+    descriptor-only summary above, it starts from AAAS_DRAW_TARGET, so render
+    targets are included even when no sampled-image descriptor references
+    them.
+    """
+    imports = {record["memory_id"]: record for record in ahb_imports
+               if record.get("memory_id") is not None}
+    targets = {}
+    syncs = {}
+    releases = {}
+    for index, event in enumerate(events):
+        kind = event.get("event")
+        if kind == "AAAS_DRAW_TARGET" and event.get("memory_id") in imports:
+            key = (event.get("submit_id"), event.get("draw_id"))
+            targets[key] = {
+                "target_index": index,
+                "submit_id": event.get("submit_id"),
+                "draw_id": event.get("draw_id"),
+                "complete_index": None,
+                "complete_mono_ns": None,
+                "target": event,
+            }
+        elif kind == "AAAS_DRAW_COMPLETE":
+            key = (event.get("submit_id"), event.get("draw_id"))
+            if key in targets:
+                targets[key]["complete_index"] = index
+                targets[key]["complete_mono_ns"] = event.get("mono_ns")
+        elif kind == "AAAS_QUEUE_RENDERER_SYNC_DONE":
+            syncs.setdefault(event.get("submit_id"), []).append(
+                {"index": index, "mono_ns": event.get("mono_ns")})
+        elif kind == "AAAS_AHB_VK_REF_RELEASE_END" and event.get("memory_id") is not None:
+            releases.setdefault(event["memory_id"], []).append(
+                {"index": index, "mono_ns": event.get("mono_ns"),
+                 "ahb_id": event.get("id")})
+
+    by_memory = {}
+    for target in targets.values():
+        memory_id = target["target"]["memory_id"]
+        by_memory.setdefault(memory_id, []).append(target)
+
+    resources = []
+    for memory_id, draw_records in sorted(by_memory.items()):
+        memory_releases = releases.get(memory_id, [])
+        last_release = max(memory_releases, key=lambda row: row["index"]) \
+            if memory_releases else None
+        uses = [row for row in draw_records
+                if last_release is None or row["target_index"] < last_release["index"]]
+        incomplete = [row for row in uses
+                      if row["complete_index"] is None or
+                      (last_release is not None and
+                       row["complete_index"] > last_release["index"])]
+        last_complete = max((row for row in uses
+                             if row["complete_index"] is not None),
+                            key=lambda row: row["complete_index"], default=None)
+        relevant_submits = {row["submit_id"] for row in uses}
+        prior_syncs = [sync for submit_id in relevant_submits
+                       for sync in syncs.get(submit_id, [])
+                       if last_release is None or sync["index"] < last_release["index"]]
+        last_sync = max(prior_syncs, key=lambda row: row["index"], default=None)
+        if last_release is None:
+            classification = "NO_EXPLICIT_RELEASE_OBSERVED"
+        elif incomplete:
+            classification = "RELEASE_WITH_INCOMPLETE_TARGET_DRAW"
+        elif last_complete is None:
+            classification = "RELEASE_WITHOUT_TARGET_COMPLETION"
+        elif last_sync is None:
+            classification = "RELEASE_WITHOUT_PRIOR_RENDERER_SYNC"
+        elif last_complete["complete_index"] < last_sync["index"] < last_release["index"]:
+            classification = "OBSERVED_TARGET_DRAW_SYNC_RELEASE_ORDER"
+        else:
+            classification = "TARGET_RELEASE_ORDER_NOT_ESTABLISHED"
+        allocation = imports[memory_id]
+        resources.append({
+            "memory_id": memory_id,
+            "ahardwarebuffer_id": allocation.get("id"),
+            "width": allocation.get("width"),
+            "height": allocation.get("height"),
+            "draw_count_before_last_release": len(uses),
+            "last_draw_complete_index": (last_complete["complete_index"]
+                                         if last_complete else None),
+            "last_draw_complete_mono_ns": (last_complete["complete_mono_ns"]
+                                            if last_complete else None),
+            "last_renderer_sync_index": last_sync["index"] if last_sync else None,
+            "last_renderer_sync_mono_ns": last_sync["mono_ns"] if last_sync else None,
+            "release_index": last_release["index"] if last_release else None,
+            "release_mono_ns": last_release["mono_ns"] if last_release else None,
+            "classification": classification,
+        })
+    return {
+        "schema_version": 1,
+        "semantics": "same-process trace event order; not independent Vulkan happens-before proof",
+        "target_memory_count": len(resources),
+        "classifications": {name: sum(row["classification"] == name for row in resources)
+                             for name in sorted({row["classification"] for row in resources})},
+        "resources": resources,
+    }
+
+
 def correlate(swiftshader, composer):
     by_id = {}
     for frame in composer:
@@ -252,13 +354,26 @@ def correlate_draw_resources(events, ahb_imports, composer):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--swiftshader", type=Path, required=True)
-    parser.add_argument("--composer", type=Path, required=True)
+    parser.add_argument("--composer", type=Path)
     parser.add_argument("--include-draws", action="store_true",
                         help="also join draw targets to AHardwareBuffer and Composer IDs")
     parser.add_argument("--include-lifetimes", action="store_true",
                         help="summarize traced draw/sync/release event ordering")
+    parser.add_argument("--target-lifetimes-only", action="store_true",
+                        help="analyze render-target completion and AHardwareBuffer release")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.target_lifetimes_only:
+        result = correlate_target_retirement(read_draws(args.swiftshader),
+                                             read_swiftshader(args.swiftshader))
+        rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
+        if args.output:
+            args.output.write_text(rendered)
+        else:
+            print(rendered, end="")
+        return
+    if args.composer is None:
+        parser.error("--composer is required unless --target-lifetimes-only is used")
     result = correlate(read_swiftshader(args.swiftshader),
                        read_composer(args.composer))
     if args.include_draws:
@@ -269,6 +384,8 @@ def main():
     if args.include_lifetimes:
         result["memory_retirement_observations"] = correlate_memory_retirement(
             read_draws(args.swiftshader))
+        result["target_retirement_observations"] = correlate_target_retirement(
+            read_draws(args.swiftshader), read_swiftshader(args.swiftshader))
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered)
