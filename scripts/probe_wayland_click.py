@@ -163,6 +163,8 @@ def main():
     parser.add_argument('--delay', type=float, default=0.25)
     parser.add_argument('--stick', action='store_true',
                         help='leave the button held while parking, testing stuck-button reconciliation')
+    parser.add_argument('--no-park', action='store_true',
+                        help='leave the released pointer over the target')
     args = parser.parse_args()
 
     if not (0 <= args.x < args.screen_width and 0 <= args.y < args.screen_height):
@@ -225,14 +227,17 @@ def main():
             emit(fd, EV_SYN, SYN_REPORT, 0)
             events.append({'event': 'button_release', 'button': BTN_LEFT})
             time.sleep(args.delay)
-            if args.mode == 'absolute':
-                emit(fd, EV_ABS, ABS_X, args.park_x)
-                emit(fd, EV_ABS, ABS_Y, args.park_y)
+            if args.no_park:
+                events.append({'event': 'pointer_left_at_target', 'x': args.x, 'y': args.y})
             else:
-                emit(fd, EV_REL, REL_X, args.park_x - args.x)
-                emit(fd, EV_REL, REL_Y, args.park_y - args.y)
-            emit(fd, EV_SYN, SYN_REPORT, 0)
-            events.append({'event': 'pointer_parked', 'x': args.park_x, 'y': args.park_y})
+                if args.mode == 'absolute':
+                    emit(fd, EV_ABS, ABS_X, args.park_x)
+                    emit(fd, EV_ABS, ABS_Y, args.park_y)
+                else:
+                    emit(fd, EV_REL, REL_X, args.park_x - args.x)
+                    emit(fd, EV_REL, REL_Y, args.park_y - args.y)
+                emit(fd, EV_SYN, SYN_REPORT, 0)
+                events.append({'event': 'pointer_parked', 'x': args.park_x, 'y': args.park_y})
     finally:
         try:
             fcntl.ioctl(fd, UI_DEV_DESTROY)

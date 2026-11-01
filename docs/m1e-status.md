@@ -1,8 +1,29 @@
 # M1E status
 
-Status: **PASS / CLOSED for the supported two-output Wayland desktop contract; historical SwiftShader and untested compatibility paths remain documented residuals**
+Status: **REOPENED / PARTIAL — additional desktop input and performance acceptance is in progress**
 
 Date: 2026-11-01
+
+## Reopened desktop acceptance: Contacts navigation input (2026-11-01)
+
+A fresh enhanced two-app session reproduced a Contacts navigation failure with
+the handwritten Binder touchscreen path: Binder reported successful event
+injection, but tapping **Create label** did not activate that drawer child.
+The same host pointer coordinates delivered through Android's platform
+`InputShellCommand` touchscreen path opened the Create label dialog, accepted a
+deterministic `aaas qa` label, and navigated to Contacts Settings. A host Back
+click returned to the Contacts People screen. Screenshots, coordinates, adapter
+hash, session identity, and test limits are in
+[`contacts_drawer_input_recovery_20261101.json`](../results/m1e/live/contacts_drawer_input_recovery_20261101.json).
+
+The input adapter now routes touchscreen gestures through that platform event
+builder in auto mode, while retaining the Binder path for mouse/keyboard and
+explicit diagnostic backend selection. This resolves the reproduced menu
+interaction in the tested enhanced session. The exact low-level reason that
+the prior Binder-accepted MotionEvent failed to reach the drawer child remains
+unidentified. Resize responsiveness, default-mode retest, broader pointer
+acceptance, portability, and the remaining reopened gates are still in progress;
+this evidence does not close M1E.
 
 ## Preserved baseline
 

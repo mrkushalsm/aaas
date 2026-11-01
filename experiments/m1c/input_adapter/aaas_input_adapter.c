@@ -11,6 +11,8 @@
 #include "input_v1.h"
 #include "input_state.h"
 #include "inject_binder.h"
+#include "pointer_injection_policy.h"
+#include "pointer_source.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -56,6 +58,7 @@ typedef enum {
 } input_backend;
 
 static input_backend g_backend = INPUT_BACKEND_AUTO;
+static input_backend g_requested_backend = INPUT_BACKEND_AUTO;
 
 static int ascii_digit(char c, int base) {
     int v;
@@ -193,6 +196,14 @@ static uint32_t button_mask(uint32_t button) {
     case AAAS_INPUT_BUTTON_MIDDLE: return 1u << 2;
     default: return 0;
     }
+}
+
+static uint32_t android_pointer_source(uint32_t buttons) {
+    return aaas_pointer_source_for_buttons(buttons);
+}
+
+static uint32_t android_pointer_tool(uint32_t buttons) {
+    return aaas_pointer_tool_for_source(android_pointer_source(buttons));
 }
 
 static uint64_t read_session_id(const char *path) {
@@ -410,6 +421,13 @@ static int inject_event(int action, int32_t x, int32_t y,
         return inject_cmd_scroll(x, y, source, vscroll, hscroll,
                                  sequence, request_ns);
     }
+    if (g_requested_backend == INPUT_BACKEND_AUTO &&
+        aaas_touch_gesture_uses_shell(source, action)) {
+        return inject_cmd_motion(action == AAAS_ACTION_DOWN ? "DOWN" :
+                                 action == AAAS_ACTION_MOVE ? "MOVE" :
+                                 action == AAAS_ACTION_UP ? "UP" : "CANCEL",
+                                 x, y, sequence, request_ns);
+    }
     if (g_backend == INPUT_BACKEND_AUTO &&
         (action == AAAS_ACTION_DOWN || action == AAAS_ACTION_BUTTON_PRESS ||
          action == AAAS_ACTION_HOVER_ENTER || action == AAAS_ACTION_HOVER_MOVE ||
@@ -440,6 +458,8 @@ static int inject_event(int action, int32_t x, int32_t y,
             return inject_cmd_motion("MOVE", x, y, sequence, request_ns);
         case AAAS_ACTION_UP:
             return inject_cmd_motion("UP", x, y, sequence, request_ns);
+        case AAAS_ACTION_CANCEL:
+            return inject_cmd_motion("CANCEL", x, y, sequence, request_ns);
         case AAAS_ACTION_BUTTON_PRESS:
         case AAAS_ACTION_BUTTON_RELEASE:
             adapter_log("cmd_backend_extra_mouse_button_unsupported", NULL);
@@ -808,7 +828,9 @@ static void release_all(adapter_state *st, int32_t x, int32_t y,
         uint32_t android_button = bit == (1u << 0) ? AAAS_BUTTON_PRIMARY
                 : bit == (1u << 1) ? AAAS_BUTTON_SECONDARY : AAAS_BUTTON_TERTIARY;
         int action = remaining == 0 ? AAAS_ACTION_UP : AAAS_ACTION_BUTTON_RELEASE;
-        int rc = inject_request(st, action, x, y, AAAS_SOURCE_MOUSE, AAAS_TOOL_MOUSE,
+        int rc = inject_request(st, action, x, y,
+                                android_pointer_source(st->pressed_buttons),
+                                android_pointer_tool(st->pressed_buttons),
                                 android_remaining, android_button, 0.0f, 0.0f, 0.0f,
                                 sequence, (int64_t)monotonic_ns());
         if (rc != 0) {
@@ -887,8 +909,10 @@ static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire)
             return 0;
         }
         if (st->pressed_buttons) {
-            inject_request(st, AAAS_ACTION_MOVE, m.x, m.y, AAAS_SOURCE_MOUSE,
-                           AAAS_TOOL_MOUSE, st->pressed_buttons, 0,
+            inject_request(st, AAAS_ACTION_MOVE, m.x, m.y,
+                           android_pointer_source(st->pressed_buttons),
+                           android_pointer_tool(st->pressed_buttons),
+                           st->pressed_buttons, 0,
                            1.0f, 0.0f, 0.0f, st->order.sequence, request_ns);
         }
         return 0;
@@ -959,8 +983,10 @@ static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire)
                     : bit == (1u << 1) ? AAAS_BUTTON_SECONDARY : AAAS_BUTTON_TERTIARY;
             int action = android_button == AAAS_BUTTON_PRIMARY && st->pressed_buttons == 0
                     ? AAAS_ACTION_DOWN : AAAS_ACTION_BUTTON_PRESS;
-            if (inject_request(st, action, m.x, m.y, AAAS_SOURCE_MOUSE,
-                               AAAS_TOOL_MOUSE, android_mask, android_button, 1.0f, 0.0f, 0.0f,
+            if (inject_request(st, action, m.x, m.y,
+                               android_pointer_source(new_mask),
+                               android_pointer_tool(new_mask),
+                               android_mask, android_button, 1.0f, 0.0f, 0.0f,
                                st->order.sequence, request_ns) == 0) {
                 st->pressed_buttons = new_mask;
             }
@@ -977,8 +1003,10 @@ static int handle_message(int fd, adapter_state *st, const aaas_input_msg *wire)
             uint32_t android_button = bit == (1u << 0) ? AAAS_BUTTON_PRIMARY
                     : bit == (1u << 1) ? AAAS_BUTTON_SECONDARY : AAAS_BUTTON_TERTIARY;
             int action = remaining == 0 ? AAAS_ACTION_UP : AAAS_ACTION_BUTTON_RELEASE;
-            if (inject_request(st, action, m.x, m.y, AAAS_SOURCE_MOUSE,
-                               AAAS_TOOL_MOUSE, android_remaining, android_button, 0.0f, 0.0f, 0.0f,
+            if (inject_request(st, action, m.x, m.y,
+                               android_pointer_source(st->pressed_buttons),
+                               android_pointer_tool(st->pressed_buttons),
+                               android_remaining, android_button, 0.0f, 0.0f, 0.0f,
                                st->order.sequence, request_ns) == 0) {
                 st->pressed_buttons = remaining;
             }
@@ -1062,6 +1090,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Invalid backend: %s\n", backend_arg);
             return 1;
         }
+        g_requested_backend = g_backend;
     }
 
     signal(SIGINT, handle_signal);
