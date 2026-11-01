@@ -1,8 +1,6 @@
 # M1E interfaces and identity model
 
-Status: **two concurrent virtual-display output streams and bounded app lifecycle
-implemented; visible keyboard input and independent vertical scrolling in two apps
-are live-tested; broader focus/resize acceptance remains incomplete**
+Status: **PASS / CLOSED for the bounded two-output Wayland desktop contract; cross-compositor live testing and documented graphics residuals remain open outside this acceptance scope**
 
 ## Current bounded two-output prototype
 
@@ -36,7 +34,7 @@ simultaneous windows.
 The feature is opt-in; default sessions do not set its display-content-mode
 property or start this service.
 
-## Wayland compositor contract
+## Wayland compositor contract and window decorations
 
 The presenter is compositor-neutral and does not call KDE/KWin APIs or require
 compositor patches. It binds the core `wl_compositor`, `xdg_wm_base`, and
@@ -53,6 +51,27 @@ provided. `wp_viewporter`, `wp_presentation`, and
 used only when the syncobj manager and a usable DRM render node are both
 available. Local KWin sessions were used as the available test environment;
 live validation with a second compositor has not been performed.
+
+The standalone presenter uses libdecor to own exactly one xdg-shell role for
+each content surface. When `zxdg_decoration_manager_v1` is available, libdecor
+negotiates decoration mode with the compositor; the client does not assume
+that a request determines the selected mode. When client-side decorations are
+selected, libdecor's installed plugin supplies the title bar and its window
+controls, move/resize hit testing, and interactive geometry requests. This
+host therefore needs both libdecor and a compatible libdecor plugin (the live
+fallback check used the Cairo plugin). A compositor's server-side decorations
+remain compositor-themed. No AaaS code calls KWin or KDE APIs, and libdecor
+does not create a second xdg_toplevel.
+
+The presenter consumes libdecor configure snapshots, keeps maximized and
+fullscreen states distinct, preserves state when a configure omits a state
+snapshot, and handles zero content dimensions without inventing a resize.
+Client decoration controls request close, minimize, maximize/restore, and
+fullscreen; F11 provides a platform-neutral fullscreen toggle. Move and
+resize requests use libdecor's valid seat/pointer serial handling. The
+presenter applies the acknowledged content size and commits the decoration
+state before requesting the Android resize, preserving the existing Android
+buffer generation and release rules.
 
 ## App-mode primary presentation
 
@@ -102,9 +121,12 @@ window close was exercised. A later session verified concurrent Android-backed
 resize on both outputs and an independent Settings resize while DeskClock stayed
 unchanged. The 2026-10-30 create-after-destroy run also reopened Settings as
 task 10/display 4, then DeskClock as task 11/display 5, without restarting the
-shared Android runtime. Visible vertical scroll is verified on Settings and Contacts in both default and
-enhanced runtime modes. Horizontal/touchpad scroll, expanded keyboard focus
-coverage, and post-resize coordinate corner testing remain unverified.
+shared Android runtime. Visible vertical scroll is verified on Settings and
+Contacts in both default and enhanced runtime modes. A native top-left corner
+resize and matching Android source generation are also verified. Horizontal/
+touchpad scroll and live testing on other compositors remain unverified;
+physical-keyboard attribution is not claimed by the synthetic `/dev/uinput`
+tests.
 
 ## Runtime app control (bounded prototype)
 
@@ -135,12 +157,14 @@ local to the owning runtime user's private session. Task crash/ANR reason
 classification is not yet complete; a task that vanishes is reflected as a
 closed slot, so this is not proof that every close was user-initiated.
 
-The presenter binds `xdg_wm_base` at protocol version 3 and its
-`xdg_toplevel.configure` callback ignores the state array. It has no reliable
-minimized/hidden signal or Android task visibility policy. Visibility and
-minimization are managed by whichever Wayland compositor hosts the toplevel;
-no compositor-specific API, KDE/KWin patch, Android task pause, or frame-
-throttling behavior is required or claimed.
+The current presenter binds `xdg_wm_base` at no more than version 3 through
+libdecor and consumes the configure state snapshot. Host minimize/restore was
+visibly exercised with both server-side and client-side controls. One tested
+compositor published `suspended` while minimized; this is recorded as an
+observed protocol state, not a guarantee that every compositor publishes it.
+The Android task remains owned by the broker and is not forcibly paused or
+destroyed on minimize. Presentation continues to obey Wayland frame callback
+backpressure. No Android Activity pause/resume synchronization is claimed.
 
 ## Trusted display broker boundary
 
@@ -208,12 +232,12 @@ non-target output region. Horizontal and dedicated touchpad-source scrolling
 remain open. Physical-keyboard attribution was not tested in those sessions;
 they used `/dev/uinput`.
 
-The 2026-10-31 KWin minimize/restore check showed host-visible content restoring
-with the Contacts fields intact while the other app remained running. It does
-not establish Android Activity pause/resume synchronization. The xdg-shell
-presenter does not consume a reliable minimized-state signal, so it leaves
-minimize behavior to KWin and Android. Details and screenshots are in
-`results/m1e/live/final_input_minimize_acceptance_20261031.json`.
+The earlier 2026-10-31 minimize check is superseded by the 2026-11-01 native
+window integration run: libdecor's visible minimize/restore controls preserved
+the Contacts window and state while Settings remained available, and the
+enhanced run restored the window through the desktop task switcher. This does
+not establish Android Activity pause/resume synchronization. See
+`results/m1e/live/native_window_integration_20261101.json` and its screenshots.
 
 A separate enhanced source-LMKD/cgroup smoke also showed Settings and Contacts
 consuming synthetic text and then shut down with both presenters drained and

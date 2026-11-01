@@ -1,6 +1,6 @@
 # M1E status
 
-Status: **PARTIAL — bounded default/enhanced resize, resize-back, pointer navigation, lifecycle, and regression gates pass; the historical SwiftShader v4 AHardwareBuffer owner and remaining input edges are unresolved**
+Status: **PASS / CLOSED for the supported two-output Wayland desktop contract; historical SwiftShader and untested compatibility paths remain documented residuals**
 
 Date: 2026-11-01
 
@@ -2178,3 +2178,62 @@ specific horizontal/touchpad scroll sources. KWin was used only as the local
 standard-Wayland test driver; AaaS has no KDE/KWin API or patch dependency.
 No generic Android Activity pause/resume synchronization is claimed for host
 minimize/restore.
+
+### Native desktop-window integration completion (2026-11-01)
+
+M1E was reopened to cover the user-facing window behavior that the earlier
+two-output acceptance had omitted. The presenter now delegates its single
+xdg-shell role and decoration lifecycle to libdecor. With the local KWin 6.7.5
+compositor, compositor-owned title bars were visibly present. A separate run
+forced libdecor's Cairo client-side plugin and visibly showed the title,
+minimize, maximize/restore, and close controls. The product has no KDE/KWin API,
+patch, scripting, or product dependency; KWin was the available live test
+compositor. CSD hosts need libdecor plus a compatible installed plugin.
+
+Real pointer interaction verified title-bar movement, right-edge resizing, and
+a top-left corner resize. The corner probe changed the host configure from
+720×1280 to 670×1280 and then 670×1230; Android first presented an older
+670×1280 generation, which was identified as not matching the current
+configure, then presented the matching 670×1230 source with 2688-byte stride.
+The corner-test session stopped normally with 166 imports, submissions, and
+releases and zero outstanding buffers. Maximize/restore, F11 fullscreen entry
+and exit, minimize and desktop restore, visible close, and app-specific
+close/reopen were also exercised. In one CSD fullscreen exit the compositor
+restored 720×1304 rather than 720×1280; the presenter followed that configure
+and the Android source matched. A separate maximize/restore returned to
+720×1280.
+
+The enhanced source-LMKD/cgroup session visibly verified Android Up/Down
+navigation in the Settings list. Adapter records showed Linux KEY_DOWN (108)
+translated to Android DPAD_DOWN (20), and KEY_UP (103) to DPAD_UP (19), with
+ordered down/up events targeted to display 2 and focus generation 3; Contacts
+did not receive the arrow events. The enhanced session ended STOPPED, both
+presenters balanced their buffer ownership with zero outstanding buffers, and
+the delegated session cgroup was removed. Default CSD and single-app corner
+sessions also ended STOPPED with no outstanding presenter buffers.
+
+The decoration screenshots, presenter/input log hashes, state transitions,
+source dimensions, build identities, and test results are in
+[`native_window_integration_20261101.json`](../results/m1e/live/native_window_integration_20261101.json).
+The images are retained under `results/m1e/live/` with their SHA-256 hashes.
+The presenter state regression and DPAD mapping regression passed with the
+current automated suite (215 Python tests, M1A tests, and a forced presenter
+build/test).
+
+#### Updated M1E decision
+
+M1E is **PASS / CLOSED for the supported two-output Wayland desktop contract**.
+The accepted scope includes compositor-negotiated decorations where offered,
+the libdecor CSD fallback, visible window controls, user-driven move/edge and
+corner resize, maximize/restore, fullscreen, minimize/restore, app-specific
+close/reopen, Android-backed geometry transitions, and visible DPAD navigation
+in addition to the previously accepted two-app graphics, focus, resize,
+pointer, scroll, lifecycle, and runtime-mode behavior.
+
+This bounded acceptance does not claim universal compositor compatibility or
+crash freedom. Other compositors were not available for live testing; the
+historical v4 SwiftShader stale-AHardwareBuffer owner remains unknown; the
+Mixed distinct-DMA-BUF path and hardware-specific touchpad sources remain
+unverified. Minimize/restore correctness is user-visible, but no Android
+Activity pause/resume synchronization is claimed. These are recorded as
+residual limitations, not as resolved defects.

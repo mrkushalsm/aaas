@@ -1,6 +1,6 @@
 # M1E architecture evaluation
 
-Status: **two app windows can be arranged, resized, focused, and closed independently; visible text entry and vertical scrolling are bounded live passes; broader focus/lifecycle and graphics stability remain partial**
+Status: **PASS / CLOSED for the bounded two-output native Wayland desktop contract; historical SwiftShader and untested compatibility paths remain residuals**
 Android framework reference: pinned AOSP `frameworks/base` commit
 `99b01a65cc4c104933788b3143285ab6bae65827` from
 `manifests/android16-r1-subset.json`.
@@ -25,8 +25,11 @@ for recorded quick-tile placement and configure-event experiments. Per-window
 close, native resize, and an independently resized second output have since
 been verified. Bounded app-consumed keyboard input and create-after-destroy app
 reopen have since been demonstrated. Per-output vertical scroll consumption
-is live-verified in both runtime modes. Horizontal/touchpad-specific scroll
-and Android lifecycle synchronization with host minimize remain unverified.
+is live-verified in both runtime modes. Native move/resize, server- and
+client-side decorations, maximize/fullscreen/minimize, and restore are now
+bounded live passes through libdecor and standard Wayland. Horizontal/touchpad-
+specific scroll, other-compositor live validation, and Android lifecycle
+synchronization with host minimize remain unverified.
 
 The live Android probe reported one logical display: ID 0, 720×1280, trusted,
 and able to host tasks. Settings was task 8 and top-resumed. A Launcher HOME
@@ -47,9 +50,9 @@ diagnostic command still presents the primary output.
 
 | Candidate | Reuse and rendering | Android policy and security | Cost / principal risk | Assessment |
 |---|---|---|---|---|
-| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. Two outputs have been resized concurrently and then one independently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | Keyboard/focus edge coverage, resize-back/burst/landscape cycles, and Android minimize lifecycle synchronization remain incomplete; visible vertical scroll is verified. | **Side-by-side placement, per-window close, concurrent/independent resize are bounded live passes; overall M1E remains partial.** |
+| **A. One virtual display per app task** | Android models display policy/output separately. Composer3 creates one output transport and presenter per available endpoint. Two outputs have been resized concurrently and then one independently. | The scoped system-UID broker creates trusted, private, own-content displays. Settings and DeskClock launched on separate displays. No general host Binder access is exposed. | The supported two-output Wayland contract is accepted; historical graphics and untested compatibility paths remain documented residuals. | **PASS/CLOSED for bounded two-app native window behavior; latest status and evidence are in `m1e-status.md`.** |
 | **B. Task-level SurfaceControl output** | Android tasks already group an application's Activity stack, which is the right lifecycle unit. But the AaaS host currently receives only the whole-display Composer client target. It cannot obtain a task's independent surface from the current transport. | A task organizer/SurfaceControl bridge would require privileged framework ownership and strict surface/input authorization. Activities, dialogs, transitions, and child windows must remain composed consistently. | Requires task organizer/transaction infrastructure, SurfaceControl capture or reparenting, independent buffer export/release fences, z-order/animation handling, and input routing. Not a direct DMA-BUF stream merely because the Task has a SurfaceControl. | Better long-term if proven capture/export is available, but substantially more invasive and no reuse proof exists. Do not start here. |
-| **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Two distinct tasks and displays were observed concurrently. Both outputs were resized together to 960×1156, then Settings alone to 960×578 with matching source buffers. | Resize-back/burst/landscape and full input-coordinate coverage, Android lifecycle synchronization with minimize, and the historical crash-free stability question remain. Bounded app text entry, vertical scroll isolation, create-after-destroy, and host-visible minimize/restore have live evidence. | **Validated as the current M1E prototype direction**, not yet a finished multi-window design. |
+| **C. Hybrid: task identity on per-task virtual displays** | One Android task is launched onto one virtual display and mapped to a dedicated presenter/toplevel. The primary diagnostic output remains independent. | The display broker is system-owned and creates the display locally. Two distinct tasks and displays were observed concurrently. Both outputs were resized together to 960×1156, then Settings alone to 960×578 with matching source buffers. | SurfaceControl task capture remains a separate architecture option, outside the accepted M1E contract. | **Validated current M1E direction: bounded two-slot runtime with native Wayland controls, Android-backed resize, input, close, and reopen.** |
 
 ## Android 16 source contracts
 
