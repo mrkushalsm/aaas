@@ -206,6 +206,55 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertNotIn('/system/bin/init second_stage &', generated)
         self.assertIn('    echo RUNNING > /aaas_session_status', generated)
 
+    def test_runner_mounts_verified_bluetooth_unavailable_policy_before_init(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rootfs = root / 'rootfs'
+            policy = root / 'bluetooth-policy'
+            self._make_bluetooth_rootfs(rootfs)
+            SESSION.aaas_bluetooth.create_unavailable_policy(rootfs, policy)
+            generated_path = SESSION.make_session_runner(
+                root, bluetooth_policy_dir=policy)
+            generated = generated_path.read_text()
+            compiled = __import__('subprocess').run(
+                [__import__('sys').executable, '-m', 'py_compile', str(generated_path)],
+                capture_output=True, text=True,
+            )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertIn('--ro-bind "', generated)
+        self.assertIn('/vendor/etc/permissions/handheld_core_hardware.xml', generated)
+        self.assertIn('/vendor/etc/init/bluetooth-service-default.rc', generated)
+        self.assertIn('/vendor/etc/vintf/manifest/bluetooth-service-default.xml', generated)
+        self.assertIn('/vendor/etc/init/hw/init.ranchu.rc', generated)
+        self.assertLess(generated.index('/vendor/etc/init/bluetooth-service-default.rc'),
+                        generated.index('exec /system/bin/init second_stage'))
+
+    @staticmethod
+    def _make_bluetooth_rootfs(root):
+        for relative, body in {
+            'vendor/etc/permissions/handheld_core_hardware.xml': (
+                '<permissions><feature name="android.hardware.bluetooth" />'
+                '<feature name="android.hardware.bluetooth_le" />'
+                '<feature name="android.hardware.touchscreen" /></permissions>'),
+            'vendor/etc/permissions/android.hardware.bluetooth.xml': (
+                '<permissions><feature name="android.hardware.bluetooth" /></permissions>'),
+            'vendor/etc/permissions/android.hardware.bluetooth_le.xml': (
+                '<permissions><feature name="android.hardware.bluetooth_le" /></permissions>'),
+            SESSION.aaas_bluetooth.HAL_INIT: 'service vendor.bluetooth-default /bin/false\n',
+            SESSION.aaas_bluetooth.HAL_MANIFEST: (
+                '<manifest version="9.0" type="device"><hal><name>android.hardware.bluetooth'
+                '</name></hal></manifest>'),
+            SESSION.aaas_bluetooth.RANCHU_INIT: (
+                'on property:vendor.qemu.vport.bluetooth=*\n'
+                '    symlink ${vendor.qemu.vport.bluetooth} /dev/bluetooth0\n\n'
+                'service bt_vhci_forwarder /vendor/bin/bt_vhci_forwarder -virtio_console_dev=/dev/bluetooth0\n'
+                '    class main\n    user bluetooth\n    group root bluetooth\n\n'
+                'on property:vendor.qemu.vport.uwb=*\n    start vendor.uwb_hal\n'),
+        }.items():
+            path = Path(root) / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body)
+
     def test_runner_exports_stable_tombstones_before_android_teardown(self):
         import subprocess
         import sys

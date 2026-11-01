@@ -22,6 +22,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aaas_cgroup
+import aaas_bluetooth
 import aaas_resources
 
 
@@ -403,7 +404,8 @@ def parse_display_density(value):
 
 
 def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKAGE,
-                        experimental_virtual_display=False, app_package2=None):
+                        experimental_virtual_display=False, app_package2=None,
+                        bluetooth_policy_dir=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -415,6 +417,21 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             raise ValueError('app2 requires --experimental-virtual-display')
     timeout = '140'
     source = RUNNER.read_text()
+    bluetooth_policy_bind = (
+        aaas_bluetooth.policy_bind_command(bluetooth_policy_dir)
+        if bluetooth_policy_dir is not None else ""
+    )
+    source = replace_once(
+        source,
+        '    wifi_feature_overlay = os.environ.get("AAAS_WIFI_FEATURE_OVERLAY")',
+        '    bluetooth_policy_bind = ' + repr(bluetooth_policy_bind) + '\n'
+        '    wifi_feature_overlay = os.environ.get("AAAS_WIFI_FEATURE_OVERLAY")',
+    )
+    source = replace_once(
+        source,
+        '{wifi_feature_bind}{services_jar_bind}',
+        '{wifi_feature_bind}{bluetooth_policy_bind}{services_jar_bind}',
+    )
     source = replace_once(
         source,
         '    ipc_dir = tmp_dir / "aaas_ipc"',
@@ -1355,6 +1372,12 @@ def main():
     signal.signal(signal.SIGTERM, request_stop)
     session = Path(tempfile.mkdtemp(prefix='m1b84_session_', dir=TMP))
     session.chmod(0o700)
+    bluetooth_policy_dir = session / 'bluetooth-policy'
+    bluetooth_policy_manifest = aaas_bluetooth.create_unavailable_policy(
+        WORKSPACE / 'rootfs_m1b1', bluetooth_policy_dir)
+    (session / 'bluetooth-policy.json').write_text(
+        json.dumps(bluetooth_policy_manifest, indent=2) + '\n')
+    (session / 'bluetooth-policy.json').chmod(0o600)
     provenance_path = session / 'runtime-graphics-provenance.json'
     provenance_path.write_text(json.dumps(graphics_provenance, indent=2) + '\n')
     provenance_path.chmod(0o600)
@@ -1451,7 +1474,8 @@ def main():
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
-                                 app_package2=args.app2)
+                                 app_package2=args.app2,
+                                 bluetooth_policy_dir=bluetooth_policy_dir)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
