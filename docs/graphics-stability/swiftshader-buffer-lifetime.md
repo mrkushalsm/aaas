@@ -148,3 +148,15 @@ retirement identity before any new queue or lifetime change is considered.
 
 This closure is bounded to the cited source, build and exercised paths. It is
 not a universal claim that SwiftShader or Android graphics cannot fail.
+
+## Separate historical v4 defect status
+
+The PASS/CLOSED result above applies only to the earlier current-build ownership
+verification route. It does not close the historical v4 defect. That defect
+remains **OPEN / UNRESOLVED** until its stale-access cause and responsible
+ownership boundary are established and corrected. The 2026-11-02 v4-behavior
+identity-trace replay reproduced a distinct 960×557 guard-page bounds fault and
+healthy 960×578 release ordering in later processes; neither result identifies
+the historical v4 object's submission or retirement fence. See
+[`swiftshader-v4.md`](swiftshader-v4.md) and
+[`v4_idtrace_replay_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_idtrace_replay_20261102.json).

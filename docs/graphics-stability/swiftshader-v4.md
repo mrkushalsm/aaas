@@ -83,3 +83,33 @@ use a bounded run only when the trace can preserve this missing link. Keep the
 production overlay unchanged. The historic v4 tombstone and trace remain
 preserved externally with hashes in
 [`swiftshader_v4_ownership_narrowing_20261102.json`](../../results/graphics-stability/swiftshader_v4_ownership_narrowing_20261102.json).
+
+## 2026-11-02 v4-behavior identity-trace replay
+
+An isolated build reconstructed the pinned v4 diagnostic patch and added the
+existing v10 Vulkan object/submission trace points. Its source patch hash is
+`d7aeebb8b141babb434c0596859edbfd40c3a2c1ce5b838ad454658698b548b7`; overlay
+SHA-256 is `793eebeaea68ee74f7bb9788111c7e5ef6fa9b70f63f9e58e0fc03ae6d1a9fb9`,
+Build ID `bd384358c7d884a1a30bdbb6bee9760b5d9ed257`. The build intentionally
+omitted the later odd-height PixelRoutine correction so its behavior matched
+the v4 source path.
+
+The first replay used 960×557 and crashed in a separate known bounds path. The
+trace links draw 1052 / submission 324 to VkImage 290, view 294, VkDeviceMemory
+291, and AHardwareBuffer `1116691497018` at 960×557. The effective address
+`0x7fc4152f5000` is the first `PROT_NONE` guard page after that mapping; no
+release of memory 291 preceded the fault. The worker draw had no completion
+record. This is an odd-height out-of-bounds access, not evidence about the
+historical even-height 960×578 stale mapping read.
+
+Two subsequent runs with even heights only did not crash: one sequential
+default-mode run and one enhanced-mode paired run. The traced 960×578 targets
+showed draw completion and renderer synchronization before AHardwareBuffer
+release. Two other 720×1280 resources in each trace had no release event before
+trace end and remain unclassified. These current-process observations neither
+prove the historical v4 order nor establish a source correction.
+
+The original v4 defect therefore remains **OPEN / UNRESOLVED**. The current
+build's separate bounded verification record remains unchanged. Full session,
+resource and artifact hashes are in
+[`v4_idtrace_replay_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_idtrace_replay_20261102.json).
