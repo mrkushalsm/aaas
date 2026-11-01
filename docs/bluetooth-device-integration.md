@@ -1,11 +1,25 @@
 # Android Bluetooth device integration plan
 
-Status: **future work; rootless runtime currently cannot start the optional stack**
+Status: **future device integration; rootless runtime reports Bluetooth unavailable cleanly**
 
 This plan is separate from M1E's two-window desktop contract. No Bluetooth
 controller, discovery, pairing, BLE, or GATT capability is claimed.
 
-## Current runtime finding (2026-11-02)
+## Runtime-health resolution (2026-11-02)
+
+The post-M1E Bluetooth runtime-health workstream is **PASS / CLOSED** for the
+supported no-controller rootless configuration. A reproducible per-session
+overlay removes only Bluetooth/Bluetooth LE feature claims and omits the
+unavailable HCI HAL and VHCI forwarder before Android init. Android 16
+therefore follows its normal `SystemServer` no-Bluetooth-feature path; it no
+longer binds or restarts `com.android.bluetooth`. The base image is unchanged,
+no host privilege or scheduling policy is altered, and Bluetooth remains
+unavailable to apps. See
+[`post-m1e-bluetooth-runtime-health.md`](post-m1e-bluetooth-runtime-health.md)
+and [`acceptance.json`](../results/post-m1e/bluetooth-runtime-health/acceptance.json)
+for implementation and live evidence.
+
+## Historical rootless triage (superseded by the runtime policy above)
 
 The Android 16 image includes `Bluetooth.apk` through a system_ext symlink into
 `com.android.bt`, and the matching Android 16 APEX library exists at
