@@ -1,8 +1,97 @@
 # M1E status
 
-Status: **REOPENED / PARTIAL — additional desktop input and performance acceptance is in progress**
+Status: **PASS / CLOSED — supported two-application Wayland desktop scope**
 
-Date: 2026-11-01
+Date: 2026-11-02
+
+## Current acceptance and closure (2026-11-02)
+
+The 2026-11-02 reopen checks are complete. Contacts' hamburger drawer, **Create
+label**, and **Settings** were exercised using real host Wayland pointer events
+in default and enhanced sessions. Both a no-contact list and a list containing
+one session-local synthetic `qaas` contact were tested. Create label opened its
+Android dialog, accepted the deterministic label, and Contacts Settings showed
+its expected options. The populated-list run repeated both menu actions. A
+separate enhanced run without resource diagnostics resized Contacts to a
+matching 470×740 Android source frame before opening Create label and Settings.
+The exact mechanism behind the old Binder touchscreen event that returned
+success without activating the child view remains unidentified; the current
+adapter uses Android's platform touchscreen injector for touch gestures. This
+is a bounded user-visible behavior PASS, not a low-level Binder root-cause
+claim. See [`contacts_menu_final_live_20261102.json`](../results/m1e/live/contacts_menu_final_live_20261102.json).
+
+Initial windows request a comfortable **420×740 logical content geometry** in
+normal windowed mode while Android initially renders a 720×1280 source buffer.
+They do not start maximized or fullscreen. User resizing and the compositor
+remain authoritative. The host screenshot and geometry record are included in
+the Contacts evidence.
+
+Resize requests now use an adaptive settle interval: 60 ms after a fast
+configure cadence and 120 ms after a slower cadence. Bounded fast drag and
+resize-back observations converged to matching Android source frames in about
+138–184 ms from the final configure; a slower drag converged in about 225 ms.
+Compared with a fixed 120 ms fast-drag sample (264 ms) and a fixed 60 ms slow
+drag sample (which caused four intermediate Android resizes), the adaptive
+policy reduced the measured fast-drag delay and avoided repeated slow-drag
+resource changes in the tested traces. A separate enhanced session without
+resource diagnostics converged in 184 ms. These are bounded observations from
+separate sessions, not a controlled benchmark or a universal latency guarantee.
+The final frame remained genuine Android output, including matching dimensions,
+stride, and generation; stale frames stayed rejected. The session summary and
+screenshots are in [`resize_latency_adaptive_20261102.json`](../results/m1e/live/resize_latency_adaptive_20261102.json).
+
+Default session `m1b84_session_qcyqpliw` and enhanced session
+`m1b84_session_09781jtb` each reached `RUNNING`, kept both Android apps
+interactive, and ended `STOPPED`. Both presenters balanced imports, submissions,
+and releases with zero outstanding buffers. The enhanced cgroup was removed.
+The current presenter hash is recorded in the final regression evidence. The
+production SwiftShader overlay retains SHA-256
+`1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`; the
+corrected candidate remains a separate versioned artifact.
+
+Bluetooth is **DOCUMENTED BLOCKER / UNAVAILABLE in this rootless image**. The
+system_ext JNI path is a zero-byte placeholder although the Android-matched
+library exists in the `com.android.bt` APEX. A session-only load experiment
+proved that this path alone is not sufficient: the Bluetooth stack then
+aborted when its `bt_main_thread` SCHED_FIFO request failed with `EPERM`. No
+host capability, global scheduler policy, Android image, or service policy was
+changed. The matching Bluetooth module source is absent locally. The separate
+implementation plan is [`bluetooth-device-integration.md`](bluetooth-device-integration.md), with exact findings in
+[`bluetooth_rootless_triage_20261102.json`](../results/m1e/live/bluetooth_rootless_triage_20261102.json).
+This optional device capability does not block the desktop-window contract and
+is not represented as fixed or supported.
+
+The complete current regression set passed: **222 Python tests**, M1A and
+forced presenter tests, input-adapter build, Composer component tests, display
+broker build, and external workspace guard. See
+[`regression_suite_current_head_20261102.json`](../results/m1e/live/regression_suite_current_head_20261102.json).
+
+### Final M1E decision
+
+M1E is **PASS / CLOSED** for the supported two-application native Wayland
+desktop scope. This closure includes visible native decoration controls,
+move/resize/maximize/fullscreen/minimize/restore behavior, phone-sized initial
+geometry, responsive coalesced native resizing, both Contacts menu workflows,
+independent app input, lifecycle and capacity behavior, default/enhanced
+runtime acceptance, clean shutdown, and passing regressions. It is based on
+bounded live evidence, not a universal crash-freedom claim.
+
+Scope limitations remain explicit: only KWin 6.7.5 was available for live
+compositor testing; libdecor Cairo client fallback and standard protocol
+behavior were tested, but another compositor was not. The local availability
+check and protocol/product-dependency scope are recorded in
+[`wayland_compositor_scope_20261102.json`](../results/m1e/live/wayland_compositor_scope_20261102.json). The historical SwiftShader
+v4 stale-AHardwareBuffer access remains a separate unresolved stability
+investigation and is not claimed fixed by the newer bounded resize runs. Mixed
+distinct-DMA-BUF composition and hardware-specific touchpad sources remain
+unverified. No Android Activity pause/resume synchronization is claimed for
+host minimize/restore. Bluetooth remains unavailable as described above. These
+limitations do not change the supported desktop contract accepted here.
+
+## Historical status and evidence
+
+The following dated entries preserve prior M1E investigations and decisions;
+the current decision above is authoritative.
 
 ## Reopened desktop acceptance: Contacts navigation input (2026-11-01)
 
@@ -2250,9 +2339,9 @@ The presenter state regression and DPAD mapping regression passed with the
 current automated suite (215 Python tests, M1A tests, and a forced presenter
 build/test).
 
-#### Updated M1E decision
+#### Previous M1E decision snapshot (2026-11-01; superseded by current closure)
 
-M1E is **PASS / CLOSED for the supported two-output Wayland desktop contract**.
+At the 2026-11-01 checkpoint, M1E was **PASS / CLOSED** for the bounded supported two-output Wayland desktop contract. The 2026-11-02 reopen checks and current closure above supersede that checkpoint.
 The accepted scope includes compositor-negotiated decorations where offered,
 the libdecor CSD fallback, visible window controls, user-driven move/edge and
 corner resize, maximize/restore, fullscreen, minimize/restore, app-specific
