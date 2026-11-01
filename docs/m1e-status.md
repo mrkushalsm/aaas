@@ -25,6 +25,15 @@ unidentified. Resize responsiveness, default-mode retest, broader pointer
 acceptance, portability, and the remaining reopened gates are still in progress;
 this evidence does not close M1E.
 
+After removing unverified Binder serialization edits, a newly rebuilt adapter
+(SHA-256 `29cc56613dbf4426b5ea19c83370c448d9da50b5b1add5df8ee9f9cd85e0d872`)
+repeated the host Wayland flow in enhanced session `m1b84_session_nyq1mb3f`:
+the drawer opened, Create label accepted the deterministic text `aaas qa 2`
+from host keyboard input, and Save navigated to the new label page. Contacts
+Settings also opened via the drawer and Back returned to the prior label page.
+The fresh-build screenshots and focus-generation/key logs are in
+[`contacts_drawer_narrowed_build_20261101.json`](../results/m1e/live/contacts_drawer_narrowed_build_20261101.json).
+
 ## Preserved baseline
 
 M1E continues to use one shared rootless Android 16 runtime, the system-owned
