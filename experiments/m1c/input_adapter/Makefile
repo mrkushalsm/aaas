@@ -38,7 +38,7 @@ LDFLAGS := -target $(TARGET) -nostdlib -fuse-ld=lld \
 
 all: $(BIN)
 
-$(BIN): $(SRCS) ../../m1a/src/input_v1.h ../../m1a/src/input_state.h inject_binder.h mouse_event_sequence.h pointer_source.h pointer_injection_policy.h event_id.h
+$(BIN): $(SRCS) ../../m1a/src/input_v1.h ../../m1a/src/input_state.h inject_binder.h pointer_source.h pointer_injection_policy.h
 	@mkdir -p $(OUT_DIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c aaas_input_adapter.c -o $(OUT_DIR)/adapter.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c ../../m1a/src/input_v1.c -o $(OUT_DIR)/input_v1.o
@@ -51,7 +51,7 @@ clean:
 
 test:
 	@mkdir -p $(OUT_DIR)
-	$(CC) -std=c11 -Wall -Wextra -Werror -I. tests/test_mouse_event_sequence.c -o $(OUT_DIR)/test-mouse-event-sequence
-	$(OUT_DIR)/test-mouse-event-sequence
+	$(CC) -std=c11 -Wall -Wextra -Werror -I. tests/test_pointer_injection_policy.c -o $(OUT_DIR)/test-pointer-injection-policy
+	$(OUT_DIR)/test-pointer-injection-policy
 
 .PHONY: all clean test

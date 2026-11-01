@@ -1,6 +1,4 @@
 #include "inject_binder.h"
-#include "event_id.h"
-#include "mouse_event_sequence.h"
 
 #include <cstdint>
 #include <limits>
@@ -25,7 +23,6 @@ namespace {
 
 constexpr uint32_t kInjectInputEventTransaction = 11;
 constexpr int32_t kInjectInputEventModeWaitForResult = 1;
-constexpr int32_t kInjectInputEventModeWaitForFinish = 2;
 
 sp<IBinder> *g_input_binder = nullptr;
 int64_t g_down_time_ns = 0;
@@ -54,7 +51,7 @@ void write_motion_event(Parcel &p, int action, int32_t x, int32_t y,
                         int32_t display_id) {
     p.writeInt32(1);       /* pointerCount */
     p.writeInt32(1);       /* sampleCount */
-    p.writeInt32(aaas_motion_event_id(event_id));
+    p.writeInt32((int32_t)(0xc0000000u | (event_id & 0x3fffffffu)));
     p.writeInt32(0);       /* deviceId */
     p.writeUint32(source);
     p.writeInt32(display_id);
@@ -67,17 +64,17 @@ void write_motion_event(Parcel &p, int action, int32_t x, int32_t y,
     p.writeUint32(0);      /* flags */
     p.writeInt32(0);       /* edgeFlags */
     p.writeInt32(0);       /* metaState */
-    /* Match InputShellCommand's DEFAULT_BUTTON_STATE for synthetic taps. */
-    const uint32_t parcel_button_state =
-            (action == AAAS_ACTION_DOWN || action == AAAS_ACTION_UP) ? 0 : button_state;
+    const uint32_t parcel_button_state = action == AAAS_ACTION_UP ? 0 : button_state;
     p.writeInt32((int32_t)parcel_button_state);
     p.writeByte(0);        /* classification */
     write_identity_matrix(p); /* event transform */
-    p.writeFloat(1.0f);    /* InputShellCommand.DEFAULT_PRECISION_X */
-    p.writeFloat(1.0f);    /* InputShellCommand.DEFAULT_PRECISION_Y */
-    /* MotionEvent.obtain() leaves optional raw cursor position invalid. */
-    p.writeFloat(std::numeric_limits<float>::quiet_NaN());
-    p.writeFloat(std::numeric_limits<float>::quiet_NaN());
+    p.writeFloat(0.0f);    /* injected event precision, matching Android builders */
+    p.writeFloat(0.0f);
+    const bool mouse_source = (source & AAAS_SOURCE_MOUSE) == AAAS_SOURCE_MOUSE;
+    const float cursor_x = mouse_source ? (float)x : std::numeric_limits<float>::quiet_NaN();
+    const float cursor_y = mouse_source ? (float)y : std::numeric_limits<float>::quiet_NaN();
+    p.writeFloat(cursor_x); /* absolute cursor position for mouse-class sources */
+    p.writeFloat(cursor_y);
     write_identity_matrix(p); /* raw transform */
     p.writeInt64(down_time_ns); /* downTime */
     p.writeInt32(0);        /* pointer id */
@@ -87,15 +84,13 @@ void write_motion_event(Parcel &p, int action, int32_t x, int32_t y,
     uint64_t bits = 0;
     set_axis(&bits, 0); /* AMOTION_EVENT_AXIS_X from android/input.h */
     set_axis(&bits, 1); /* AMOTION_EVENT_AXIS_Y */
-    set_axis(&bits, 2); /* AXIS_PRESSURE is present even when zero */
-    set_axis(&bits, 3); /* InputShellCommand.DEFAULT_SIZE */
+    if (pressure != 0.0f) set_axis(&bits, 2); /* AMOTION_EVENT_AXIS_PRESSURE */
     if (vscroll != 0.0f) set_axis(&bits, 9); /* AMOTION_EVENT_AXIS_VSCROLL */
     if (hscroll != 0.0f) set_axis(&bits, 10); /* AMOTION_EVENT_AXIS_HSCROLL */
     p.writeInt64((int64_t)bits);
     p.writeFloat((float)x);
     p.writeFloat((float)y);
-    p.writeFloat(pressure);
-    p.writeFloat(1.0f);
+    if (pressure != 0.0f) p.writeFloat(pressure);
     if (vscroll != 0.0f) p.writeFloat(vscroll);
     if (hscroll != 0.0f) p.writeFloat(hscroll);
     p.writeBool(false); /* PointerCoords::isResampled */
@@ -134,10 +129,9 @@ static int binder_transact_event(int action, int32_t x, int32_t y,
     g_last_event_ns = event_ns;
     const bool button_down = action == AAAS_ACTION_DOWN;
     const bool button_up = action == AAAS_ACTION_UP || action == AAAS_ACTION_CANCEL;
-    const bool pointer_source =
-            (source & 0x00000002u) == 0x00000002u; /* SOURCE_CLASS_POINTER */
+    const bool mouse_source = (source & AAAS_SOURCE_MOUSE) == AAAS_SOURCE_MOUSE;
     int64_t down_time_ns = event_ns;
-    const bool gesture_event = pointer_source &&
+    const bool gesture_event = mouse_source &&
             (action == AAAS_ACTION_DOWN || action == AAAS_ACTION_MOVE ||
              action == AAAS_ACTION_UP || action == AAAS_ACTION_CANCEL ||
              action == AAAS_ACTION_BUTTON_PRESS || action == AAAS_ACTION_BUTTON_RELEASE);
@@ -155,10 +149,7 @@ static int binder_transact_event(int action, int32_t x, int32_t y,
     write_motion_event(data, action, x, y, source, tool_type, button_state,
                        action_button, pressure, vscroll, hscroll, down_time_ns,
                        event_ns, event_id, display_id);
-    const bool button_event = action == AAAS_ACTION_DOWN || action == AAAS_ACTION_UP ||
-            action == AAAS_ACTION_BUTTON_PRESS || action == AAAS_ACTION_BUTTON_RELEASE;
-    data.writeInt32(button_event ? kInjectInputEventModeWaitForFinish
-                                 : kInjectInputEventModeWaitForResult);
+    data.writeInt32(kInjectInputEventModeWaitForResult);
 
     status_t status = (*g_input_binder)->transact(
             kInjectInputEventTransaction, data, &reply, 0);
@@ -199,38 +190,37 @@ int aaas_binder_inject(int action, int32_t x, int32_t y,
         if (rc != 0) return rc;
         g_hovering = false;
     }
-    if (action == AAAS_ACTION_DOWN || action == AAAS_ACTION_UP) {
-        int actions[2];
-        const unsigned count = aaas_expand_mouse_button_action(
-                action, action_button, actions);
-        for (unsigned i = 0; i < count; ++i) {
-            const int event_action = actions[i];
-            uint32_t event_button_state = button_state;
-            float event_pressure = pressure;
-            if (event_action == AAAS_ACTION_UP) {
-                event_button_state = 0;
-                event_pressure = 0.0f;
-            } else if (action == AAAS_ACTION_UP &&
-                       event_action == AAAS_ACTION_BUTTON_RELEASE) {
-                event_button_state &= ~action_button;
-                event_pressure = 0.0f;
-            }
-            const int rc = binder_transact_event(
-                    event_action, x, y, source, tool_type, event_button_state,
-                    action_button, event_pressure, 0.0f, 0.0f, event_ns,
-                    base_event_id + i + 1, display_id);
-            if (rc != 0) {
-                if (action == AAAS_ACTION_DOWN && i > 0) {
-                    binder_transact_event(AAAS_ACTION_UP, x, y, source, tool_type,
-                                          0, action_button, 0.0f, 0.0f, 0.0f,
-                                          event_ns, base_event_id + count + 1,
-                                          display_id);
-                }
-                return rc;
-            }
+    if (action == AAAS_ACTION_DOWN) {
+        int rc = binder_transact_event(action, x, y, source, tool_type,
+                                       button_state, action_button, pressure,
+                                       vscroll, hscroll, event_ns, base_event_id + 1,
+                                       display_id);
+        if (rc != 0) return rc;
+        rc = binder_transact_event(AAAS_ACTION_BUTTON_PRESS, x, y, source,
+                                   tool_type, button_state, action_button,
+                                   pressure, 0.0f, 0.0f, event_ns, base_event_id + 2,
+                                   display_id);
+        if (rc != 0) {
+            binder_transact_event(AAAS_ACTION_UP, x, y, source, tool_type,
+                                  0, action_button, 0.0f, 0.0f, 0.0f,
+                                  event_ns, base_event_id + 3, display_id);
+            return rc;
         }
-        if (action == AAAS_ACTION_UP) g_hovering = false;
         return 0;
+    }
+    if (action == AAAS_ACTION_UP) {
+        const uint32_t remaining_buttons = button_state & ~action_button;
+        int rc = binder_transact_event(AAAS_ACTION_BUTTON_RELEASE, x, y, source,
+                                       tool_type, remaining_buttons, action_button,
+                                       0.0f, 0.0f, 0.0f, event_ns, base_event_id + 1,
+                                       display_id);
+        if (rc != 0) return rc;
+        rc = binder_transact_event(action, x, y, source, tool_type,
+                                   0, action_button, pressure,
+                                   vscroll, hscroll, event_ns, base_event_id + 2,
+                                   display_id);
+        if (rc == 0) g_hovering = false;
+        return rc;
     }
 
     int rc = binder_transact_event(action, x, y, source, tool_type,
