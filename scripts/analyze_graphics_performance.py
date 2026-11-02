@@ -138,14 +138,9 @@ def analyze_presenter(path: Path) -> dict[str, Any]:
             "discarded_feedback_events": sum(e.get("event") == "frame_discarded" for e in events),
             "physical_scanout_claimed": False,
         },
-        "frame_samples": [
-            {"generation": k[0], "frame_id": k[1],
-             "profile": v.get("staging_profile"),
-             "commit": v.get("frame_committed"),
-             "presentation": v.get("frame_presented")}
-            for k, v in sorted(frame_events.items())
-            if "staging_profile" in v or "frame_presented" in v
-        ][:64],
+        # Full frame events remain in the hash-addressed session logs. Keep
+        # this report to distributions and aggregate counts so repeated runs
+        # do not copy raw per-frame traces into the repository.
     }
 
 
