@@ -54,6 +54,14 @@
     add-int/lit8 v1, v1, 0x1
     goto :marker_loop
 :marker_done
+    const/16 v2, __ANIMATION_DELAY__
+    if-lez v2, :animation_done
+    iget v3, p0, Lorg/aaas/latencyprobe/MarkerView;->state:I
+    add-int/lit8 v3, v3, 0x1
+    iput v3, p0, Lorg/aaas/latencyprobe/MarkerView;->state:I
+    int-to-long v2, v2
+    invoke-virtual {p0, v2, v3}, Lorg/aaas/latencyprobe/MarkerView;->postInvalidateDelayed(J)V
+:animation_done
     return-void
 .end method
 

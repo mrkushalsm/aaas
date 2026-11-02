@@ -138,6 +138,8 @@ def main() -> int:
     parser.add_argument("--apktool", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--package", default="org.aaas.latencyprobe")
+    parser.add_argument("--animation-hz", type=int, choices=(0, 30, 60), default=0,
+                        help="opt-in continuous sequence-marker rendering cadence")
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", args.package):
         parser.error("--package must be a dotted Android package name")
@@ -151,6 +153,9 @@ def main() -> int:
             text = smali_file.read_text()
             text = text.replace("org.aaas.latencyprobe", args.package)
             text = text.replace("org/aaas/latencyprobe", args.package.replace(".", "/"))
+            if smali_file.name == "MarkerView.smali":
+                delay_ms = 0 if args.animation_hz == 0 else 1000 // args.animation_hz
+                text = text.replace("__ANIMATION_DELAY__", f"0x{delay_ms:x}")
             smali_file.write_text(text)
         (work / "AndroidManifest.xml").write_bytes(binary_manifest(args.package))
         (work / "apktool.yml").write_text(
