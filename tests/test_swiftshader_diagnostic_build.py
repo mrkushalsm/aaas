@@ -30,14 +30,20 @@ class BuildInputTests(unittest.TestCase):
         common = '-D__ANDROID__=1'
         vulkan = f'clang++ {common} VkGetProcAddress.cpp'
         reactor = 'clang++ SubzeroReactor.cpp'
+        pipeline = 'clang++ PixelRoutine.cpp'
         trace = '-DAAAS_SWIFTSHADER_JIT_TRACE=1'
         with self.assertRaisesRegex(ValueError, 'diagnostic tracing'):
-            BUILD.validate_build_definitions([vulkan, reactor], True)
+            BUILD.validate_build_definitions([vulkan, reactor, pipeline], True)
+        with self.assertRaisesRegex(ValueError, 'pipeline build'):
+            BUILD.validate_build_definitions(
+                [vulkan + ' ' + trace, reactor + ' ' + trace, pipeline], True)
         BUILD.validate_build_definitions(
-            [vulkan + ' ' + trace, reactor + ' ' + trace], True)
-        BUILD.validate_build_definitions([vulkan, reactor], False)
+            [vulkan + ' ' + trace, reactor + ' ' + trace,
+             pipeline + ' ' + trace], True)
+        BUILD.validate_build_definitions([vulkan, reactor, pipeline], False)
         with self.assertRaisesRegex(ValueError, 'unexpectedly enables'):
-            BUILD.validate_build_definitions([vulkan + ' ' + trace, reactor], False)
+            BUILD.validate_build_definitions(
+                [vulkan + ' ' + trace, reactor, pipeline], False)
 
     def test_requires_workspace_tmp_output_and_separate_source_build(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -103,6 +103,7 @@ def extract_link_inputs(commands, build, source):
 def validate_build_definitions(commands, diagnostics_enabled):
     proc = next((line for line in commands if 'VkGetProcAddress.cpp' in line), '')
     reactor = next((line for line in commands if 'SubzeroReactor.cpp' in line), '')
+    pipeline = next((line for line in commands if 'PixelRoutine.cpp' in line), '')
     if '-D__ANDROID__=1' not in proc:
         raise ValueError('Android HAL definition is missing from Vulkan build')
     trace_flag = '-DAAAS_SWIFTSHADER_JIT_TRACE=1'
@@ -111,7 +112,9 @@ def validate_build_definitions(commands, diagnostics_enabled):
             raise ValueError('diagnostic tracing is missing from Vulkan build')
         if trace_flag not in reactor:
             raise ValueError('JIT tracing is missing from the Reactor build')
-    elif trace_flag in proc or trace_flag in reactor:
+        if trace_flag not in pipeline:
+            raise ValueError('pixel routine tracing is missing from the pipeline build')
+    elif trace_flag in proc or trace_flag in reactor or trace_flag in pipeline:
         raise ValueError('non-tracing build unexpectedly enables JIT tracing')
 
 
