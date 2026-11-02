@@ -148,6 +148,8 @@ def analyze_inputs(presenter_paths: list[Path], adapter_paths: list[Path]) -> di
     pointer_latencies = []
     key_latencies = []
     pairs = []
+    causal_samples = []
+    causal_rejected = []
     for path, adapter_path in zip(presenter_paths, adapter_paths):
         events, _ = read_json_events(path)
         pointer_sent = {}
@@ -168,6 +170,100 @@ def analyze_inputs(presenter_paths: list[Path], adapter_paths: list[Path]) -> di
                 seq = event.get("sequence")
                 if isinstance(seq, int):
                     adapter_done[seq] = event
+        probes = {int(e.get("input_sequence", e.get("id", 0))): e
+                  for e in events if e.get("event") == "input_probe_started"}
+        frames = {}
+        committed = set()
+        discarded = set()
+        probe_frames: dict[int, list[dict[str, Any]]] = {}
+        for event in events:
+            key = (int(event.get("generation", 0)), int(event.get("id", 0)))
+            if event.get("event") == "frame_presented":
+                frames[key] = event
+            elif event.get("event") == "frame_committed":
+                committed.add(key)
+            elif event.get("event") == "frame_discarded":
+                discarded.add(key)
+            elif event.get("event") == "input_probe_frame":
+                seq = int(event.get("input_sequence", 0))
+                probe_frames.setdefault(seq, []).append(event)
+        seen_responses: set[int] = set()
+        for response in (e for e in events if e.get("event") == "input_response_presented"):
+            seq = int(response.get("input_sequence", 0))
+            key = (int(response.get("generation", 0)), int(response.get("id", 0)))
+            probe = probes.get(seq)
+            injected = adapter_done.get(seq)
+            frame = frames.get(key)
+            reason = None
+            if not probe:
+                reason = "input probe start missing"
+            elif not injected or injected.get("event") != "inject_done" or injected.get("rc") != 0:
+                reason = "matching pointer injection completion missing or failed"
+            elif int(response.get("host_input_ns", -1)) != int(probe.get("host_input_ns", -2)):
+                reason = "input timestamp does not match probe start"
+            elif not frame or int(frame.get("presentation_time_ns", -1)) != int(response.get("presentation_time_ns", -2)):
+                reason = "presentation feedback does not match response frame"
+            elif key not in committed:
+                reason = "response frame lacks Wayland commit"
+            elif key in discarded:
+                reason = "response frame also marked discarded"
+            elif response.get("clock_valid") is not True or not isinstance(response.get("latency_ns"), int):
+                reason = "presentation clock is incompatible or interval invalid"
+            elif frame.get("clock_id_known") is not True or frame.get("presentation_clock_id") != response.get("presentation_clock_id"):
+                reason = "frame feedback clock identity mismatch"
+            elif int(response["presentation_time_ns"]) < int(response["host_input_ns"]):
+                reason = "negative input-to-presentation interval"
+            elif response.get("visual_change") is not True or response.get("roi_hash") == response.get("baseline_hash"):
+                reason = "visual-state change not proven"
+            elif not any((int(pf.get("generation", 0)), int(pf.get("id", 0))) == key and
+                         pf.get("roi_valid") is True and pf.get("changed") is True and
+                         pf.get("roi_hash") == response.get("roi_hash") and
+                         pf.get("baseline_hash") == response.get("baseline_hash")
+                         for pf in probe_frames.get(seq, [])):
+                reason = "response ROI state does not match its source frame probe"
+            elif int(injected.get("request_ns", -1)) != int(response.get("host_input_ns", -2)):
+                reason = "adapter injection sequence has a different source timestamp"
+            elif seq in seen_responses:
+                reason = "input sequence has more than one response frame"
+            else:
+                presented_changes = []
+                for probe_frame in probe_frames.get(seq, []):
+                    probe_key = (int(probe_frame.get("generation", 0)),
+                                 int(probe_frame.get("id", 0)))
+                    presented_frame = frames.get(probe_key)
+                    if (probe_frame.get("roi_valid") is True and
+                            probe_frame.get("changed") is True and
+                            presented_frame and probe_key not in discarded):
+                        presented_changes.append((int(presented_frame.get("presentation_time_ns", -1)),
+                                                  probe_key))
+                if presented_changes:
+                    first_key = min(presented_changes)[1]
+                    if key != first_key:
+                        reason = "response is not the first presented frame with changed ROI"
+                else:
+                    reason = "no presented changed-ROI frame linked to input sequence"
+            if reason:
+                causal_rejected.append({"sequence": seq, "reason": reason,
+                                        "presenter_log": str(path)})
+                continue
+            seen_responses.add(seq)
+            calculated = int(response["presentation_time_ns"]) - int(response["host_input_ns"])
+            if calculated != int(response["latency_ns"]):
+                causal_rejected.append({"sequence": seq,
+                                        "reason": "reported latency arithmetic mismatch",
+                                        "presenter_log": str(path)})
+                continue
+            causal_samples.append({
+                "sequence": seq, "generation": key[0], "frame_id": key[1],
+                "host_input_ns": int(response["host_input_ns"]),
+                "presentation_time_ns": int(response["presentation_time_ns"]),
+                "input_to_presentation_ns": calculated,
+                "display_id": response.get("display_id"),
+                "refresh_ns": frame.get("refresh_ns"),
+                "presentation_clock_id": response.get("presentation_clock_id"),
+                "roi_hash": response.get("roi_hash"),
+                "baseline_hash": response.get("baseline_hash"),
+            })
         pointer = 0
         keyboard = 0
         for seq, host in pointer_sent.items():
@@ -201,8 +297,12 @@ def analyze_inputs(presenter_paths: list[Path], adapter_paths: list[Path]) -> di
         "pointer_packet_to_binder_injection_completion_ns": distribution(pointer_latencies, "ns"),
         "keyboard_packet_sent_to_binder_injection_completion_ns": distribution(key_latencies, "ns"),
         "input_to_affected_presentation": {
-            "status": "not_measured",
-            "reason": "No causal UI-state/frame marker is present in the accepted runtime logs; the next arbitrary presented frame is not proof of an input effect.",
+            "status": "measured" if causal_samples else "not_measured",
+            "accepted_samples": len(causal_samples),
+            "rejected_samples": causal_rejected,
+            "latency_ns": distribution([s["input_to_presentation_ns"] for s in causal_samples], "ns"),
+            "samples": causal_samples,
+            "reason": None if causal_samples else "No response passed input, ROI-change, exact-frame, injection, and presentation-clock correlation.",
         },
     }
 

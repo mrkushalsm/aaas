@@ -57,6 +57,60 @@ class GraphicsPerformanceAnalysisTests(unittest.TestCase):
             self.assertFalse(result["claims"]["input_to_photon_measured"])
             self.assertEqual(result["input"]["input_to_affected_presentation"]["status"], "not_measured")
 
+    def test_causal_input_response_requires_exact_presented_frame_and_clock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            presenter = root / "presenter.log"
+            adapter = root / "adapter.log"
+            events = [
+                {"t_ns": 100, "event": "input_probe_started", "generation": 2,
+                 "id": 7, "input_sequence": 7, "host_input_ns": 100,
+                 "baseline_hash": "aaaa"},
+                {"t_ns": 300, "event": "frame_committed", "generation": 2, "id": 9},
+                {"t_ns": 400, "event": "input_probe_frame", "generation": 2, "id": 9,
+                 "input_sequence": 7, "roi_valid": True, "changed": True,
+                 "roi_hash": "bbbb", "baseline_hash": "aaaa"},
+                {"t_ns": 500, "event": "frame_presented", "generation": 2, "id": 9,
+                 "presentation_time_ns": 500, "presentation_clock_id": 1,
+                 "clock_id_known": True, "refresh_ns": 16666667},
+                {"t_ns": 501, "event": "input_response_presented", "generation": 2, "id": 9,
+                 "input_sequence": 7, "host_input_ns": 100,
+                 "presentation_time_ns": 500, "latency_ns": 400,
+                 "presentation_clock_id": 1, "clock_valid": True,
+                 "visual_change": True, "roi_hash": "bbbb", "baseline_hash": "aaaa"},
+            ]
+            presenter.write_text("".join(json.dumps(event) + "\n" for event in events))
+            adapter.write_text(json.dumps({"t_ns": 150, "event": "inject_done",
+                                           "sequence": 7, "request_ns": 100,
+                                           "done_ns": 150, "rc": 0}) + "\n")
+            result = analyze([presenter], [adapter])["input"]["input_to_affected_presentation"]
+            self.assertEqual(result["status"], "measured")
+            self.assertEqual(result["accepted_samples"], 1)
+            self.assertEqual(result["latency_ns"]["p50"], 400)
+
+            events[4]["presentation_clock_id"] = 2
+            presenter.write_text("".join(json.dumps(event) + "\n" for event in events))
+            result = analyze([presenter], [adapter])["input"]["input_to_affected_presentation"]
+            self.assertEqual(result["accepted_samples"], 0)
+            self.assertIn("frame feedback clock identity mismatch",
+                          result["rejected_samples"][0]["reason"])
+
+            events[4]["presentation_clock_id"] = 1
+            events.extend([
+                {"t_ns": 350, "event": "input_probe_frame", "generation": 2, "id": 8,
+                 "input_sequence": 7, "roi_valid": True, "changed": True,
+                 "roi_hash": "cccc", "baseline_hash": "aaaa"},
+                {"t_ns": 360, "event": "frame_committed", "generation": 2, "id": 8},
+                {"t_ns": 450, "event": "frame_presented", "generation": 2, "id": 8,
+                 "presentation_time_ns": 450, "presentation_clock_id": 1,
+                 "clock_id_known": True, "refresh_ns": 16666667},
+            ])
+            presenter.write_text("".join(json.dumps(event) + "\n" for event in events))
+            result = analyze([presenter], [adapter])["input"]["input_to_affected_presentation"]
+            self.assertEqual(result["accepted_samples"], 0)
+            self.assertIn("not the first presented frame",
+                          result["rejected_samples"][0]["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,12 @@ struct presentation_feedback_context {
     uint32_t generation;
     uint32_t frame_id;
     bool sync_output_seen;
+    uint32_t input_sequence;
+    uint32_t input_display_id;
+    uint64_t input_ns;
+    uint64_t input_roi_hash;
+    uint64_t input_roi_baseline_hash;
+    bool input_roi_changed;
 };
 
 typedef struct {
@@ -105,6 +111,14 @@ struct presenter_app {
     int sock;
     bool trace_buffer_identities;
     bool trace_staging_stages;
+    bool trace_input_roi;
+    uint32_t input_roi_x, input_roi_y, input_roi_width, input_roi_height;
+    uint64_t last_input_roi_hash;
+    bool last_input_roi_hash_valid;
+    uint32_t input_probe_sequence;
+    uint64_t input_probe_ns;
+    uint64_t input_probe_baseline_hash;
+    bool input_probe_baseline_valid;
     uint32_t w, h, gen;
     uint32_t pending_w, pending_h;
     uint32_t initial_w, initial_h;
@@ -326,6 +340,25 @@ static void log_staging_perf(presenter_app *a, const aaas_v2_msg *m,
     (void)a;
 }
 
+static uint64_t input_roi_hash(const uint8_t *src, uint32_t width,
+                              uint32_t height, uint32_t stride,
+                              uint32_t x, uint32_t y,
+                              uint32_t roi_width, uint32_t roi_height) {
+    if (!src || stride < (uint64_t)width * 4 ||
+        x > width || roi_width > width - x ||
+        y > height || roi_height > height - y) return 0;
+    uint64_t hash = UINT64_C(14695981039346656037);
+    size_t bytes = (size_t)roi_width * 4;
+    for (uint32_t row = y; row < y + roi_height; ++row) {
+        const uint8_t *pixel = src + (size_t)row * stride + (size_t)x * 4;
+        for (size_t col = 0; col < bytes; ++col) {
+            hash ^= pixel[col];
+            hash *= UINT64_C(1099511628211);
+        }
+    }
+    return hash;
+}
+
 static uint32_t button_mask(uint32_t button) {
     switch (button) {
     case AAAS_INPUT_BUTTON_LEFT: return 1u << 0;
@@ -460,6 +493,31 @@ static void input_send_packet(presenter_app *a, uint16_t type, int32_t x, int32_
     };
     aaas_input_msg wire;
     aaas_input_to_wire(&wire, &host);
+
+    if (a->trace_input_roi && type == AAAS_INPUT_BUTTON &&
+        state == AAAS_INPUT_BUTTON_PRESSED) {
+        if (a->input_probe_sequence) {
+            char superseded[96];
+            snprintf(superseded, sizeof(superseded),
+                     "\"input_sequence\":%u", a->input_probe_sequence);
+            log_presenter_event("input_probe_superseded", a->gen,
+                                a->input_probe_sequence, superseded);
+        }
+        a->input_probe_sequence = host.sequence;
+        a->input_probe_ns = host.timestamp_ns;
+        a->input_probe_baseline_hash = a->last_input_roi_hash;
+        a->input_probe_baseline_valid = a->last_input_roi_hash_valid;
+        char probe[256];
+        snprintf(probe, sizeof(probe),
+                 "\"input_sequence\":%u,\"host_input_ns\":%llu,"
+                 "\"display_id\":%u,\"baseline_hash\":\"%016llx\","
+                 "\"baseline_valid\":%s",
+                 host.sequence, (unsigned long long)host.timestamp_ns,
+                 host.display_id,
+                 (unsigned long long)a->input_probe_baseline_hash,
+                 a->input_probe_baseline_valid ? "true" : "false");
+        log_presenter_event("input_probe_started", a->gen, host.sequence, probe);
+    }
 
     if ((type == AAAS_INPUT_MOTION || type == AAAS_INPUT_HOVER) &&
         a->input_queue_count > 0) {
@@ -1884,6 +1942,38 @@ static void pres_profiled_presented(void *data, struct wp_presentation_feedback 
     }
     log_presenter_event("frame_presented", context->generation,
                         context->frame_id, extra);
+    if (context->input_sequence && context->input_roi_changed &&
+        a->input_probe_sequence == context->input_sequence) {
+        bool valid_clock = a->presentation_clock_known &&
+            a->presentation_clock_id == (uint32_t)CLOCK_MONOTONIC &&
+            presentation_ns >= context->input_ns;
+        uint64_t latency_ns = valid_clock ? presentation_ns - context->input_ns : 0;
+        char response[384], latency_text[32];
+        if (valid_clock)
+            snprintf(latency_text, sizeof(latency_text), "%llu",
+                     (unsigned long long)latency_ns);
+        else
+            snprintf(latency_text, sizeof(latency_text), "null");
+        snprintf(response, sizeof(response),
+                 "\"input_sequence\":%u,\"host_input_ns\":%llu,"
+                 "\"presentation_time_ns\":%llu,\"latency_ns\":%s,"
+                 "\"presentation_clock_id\":%u,\"clock_valid\":%s,"
+                 "\"display_id\":%u,"
+                 "\"flags\":%u,\"roi_hash\":\"%016llx\","
+                 "\"baseline_hash\":\"%016llx\",\"visual_change\":true",
+                 context->input_sequence,
+                 (unsigned long long)context->input_ns,
+                 (unsigned long long)presentation_ns,
+                 latency_text, a->presentation_clock_id,
+                 valid_clock ? "true" : "false", context->input_display_id, flags,
+                 (unsigned long long)context->input_roi_hash,
+                 (unsigned long long)context->input_roi_baseline_hash);
+        log_presenter_event("input_response_presented", context->generation,
+                            context->frame_id, response);
+        a->input_probe_sequence = 0;
+        a->input_probe_ns = 0;
+        a->input_probe_baseline_valid = false;
+    }
     check_release_timelines(a);
     feedback_context_remove(context);
     wp_presentation_feedback_destroy(f);
@@ -1968,6 +2058,15 @@ static void handle_incoming_buffer(presenter_app *a) {
         log_presenter_event("unexpected_producer_message", m.generation, m.id, NULL);
         return;
     }
+
+    uint32_t input_probe_sequence = a->input_probe_sequence;
+    uint64_t input_probe_ns = a->input_probe_ns;
+    uint64_t input_probe_baseline_hash = a->input_probe_baseline_hash;
+    bool input_probe_baseline_valid = a->input_probe_baseline_valid;
+    uint64_t input_frame_roi_hash = 0;
+    uint64_t input_roi_hash_ns = 0;
+    bool input_frame_roi_valid = false;
+    bool input_frame_roi_changed = false;
 
     bool format_ok = (m.format == DRM_FORMAT_XRGB8888 || m.format == DRM_FORMAT_ARGB8888 ||
                       m.format == DRM_FORMAT_RGBA8888 || m.format == DRM_FORMAT_ABGR8888);
@@ -2161,6 +2260,46 @@ static void handle_incoming_buffer(presenter_app *a) {
                     }
                 }
                 if (src_map != MAP_FAILED) {
+                    if (a->trace_input_roi) {
+                        uint64_t roi_start_ns = monotonic_ns();
+                        input_frame_roi_hash = input_roi_hash(
+                            (const uint8_t *)src_map, m.width, m.height,
+                            m.stride[0], a->input_roi_x, a->input_roi_y,
+                            a->input_roi_width, a->input_roi_height);
+                        input_roi_hash_ns = elapsed_ns(roi_start_ns, monotonic_ns());
+                        input_frame_roi_valid = input_frame_roi_hash != 0;
+                        if (input_probe_sequence && input_probe_baseline_valid &&
+                            input_frame_roi_valid)
+                            input_frame_roi_changed =
+                                input_frame_roi_hash != input_probe_baseline_hash;
+                        if (input_frame_roi_valid) {
+                            a->last_input_roi_hash = input_frame_roi_hash;
+                            a->last_input_roi_hash_valid = true;
+                        } else {
+                            a->last_input_roi_hash_valid = false;
+                        }
+                        if (input_probe_sequence) {
+                            char roi_event[320];
+                            snprintf(roi_event, sizeof(roi_event),
+                                     "\"input_sequence\":%u,\"host_input_ns\":%llu,"
+                                     "\"roi_hash\":\"%016llx\","
+                                     "\"baseline_hash\":\"%016llx\","
+                                     "\"roi_valid\":%s,\"changed\":%s,"
+                                     "\"roi_hash_ns\":%llu,\"roi_x\":%u,"
+                                     "\"roi_y\":%u,\"roi_width\":%u,\"roi_height\":%u",
+                                     input_probe_sequence,
+                                     (unsigned long long)input_probe_ns,
+                                     (unsigned long long)input_frame_roi_hash,
+                                     (unsigned long long)input_probe_baseline_hash,
+                                     input_frame_roi_valid ? "true" : "false",
+                                     input_frame_roi_changed ? "true" : "false",
+                                     (unsigned long long)input_roi_hash_ns,
+                                     a->input_roi_x, a->input_roi_y,
+                                     a->input_roi_width, a->input_roi_height);
+                            log_presenter_event("input_probe_frame", m.generation,
+                                                m.id, roi_event);
+                        }
+                    }
                     uint64_t map_start = a->trace_staging_stages ? monotonic_ns() : 0;
                     dst_map = gbm_bo_map(stage_bo, 0, 0, m.width, m.height,
                                          GBM_BO_TRANSFER_WRITE,
@@ -2505,6 +2644,15 @@ static void handle_incoming_buffer(presenter_app *a) {
             feedback_context->feedback = fb;
             feedback_context->generation = m.generation;
             feedback_context->frame_id = m.id;
+            if (input_probe_sequence && input_probe_baseline_valid &&
+                input_frame_roi_valid && input_frame_roi_changed) {
+                feedback_context->input_sequence = input_probe_sequence;
+                feedback_context->input_display_id = a->input_display_id;
+                feedback_context->input_ns = input_probe_ns;
+                feedback_context->input_roi_hash = input_frame_roi_hash;
+                feedback_context->input_roi_baseline_hash = input_probe_baseline_hash;
+                feedback_context->input_roi_changed = true;
+            }
             feedback_context->next = a->pending_feedback;
             a->pending_feedback = feedback_context;
             a->pending_feedback_count++;
@@ -2660,6 +2808,11 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         .sock = config->sock,
         .trace_buffer_identities = config->trace_buffer_identities,
         .trace_staging_stages = config->trace_staging_stages,
+        .trace_input_roi = config->trace_input_roi,
+        .input_roi_x = config->input_roi_x,
+        .input_roi_y = config->input_roi_y,
+        .input_roi_width = config->input_roi_width,
+        .input_roi_height = config->input_roi_height,
         .w = config->initial_width ? config->initial_width : 640,
         .h = config->initial_height ? config->initial_height : 480,
         .initial_w = config->initial_width ? config->initial_width : 640,

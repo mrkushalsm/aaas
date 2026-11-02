@@ -37,6 +37,7 @@ static void print_usage(const char *prog) {
             "  --resize-request <p>  Session-local Android display resize request\n"
             "  --trace-buffer-identities  Log DMA-BUF backing identity transitions\n"
             "  --trace-staging-stages  Log per-operation staging timing and thread CPU data\n"
+            "  --trace-input-response-roi x,y,w,h  Track a small visible region after pointer input\n"
             "  --help              Show this help message\n",
             prog);
 }
@@ -57,6 +58,8 @@ int main(int argc, char **argv) {
     bool force_implicit = false;
     bool trace_buffer_identities = false;
     bool trace_staging_stages = false;
+    bool trace_input_roi = false;
+    uint32_t input_roi_x = 0, input_roi_y = 0, input_roi_width = 0, input_roi_height = 0;
     uint32_t max_frames = 0;
     bool exit_on_close = false;
     const char *input_socket_path = NULL;
@@ -99,6 +102,17 @@ int main(int argc, char **argv) {
             trace_buffer_identities = true;
         } else if (strcmp(argv[i], "--trace-staging-stages") == 0) {
             trace_staging_stages = true;
+        } else if (strcmp(argv[i], "--trace-input-response-roi") == 0 && i + 1 < argc) {
+            char extra = '\0';
+            if (sscanf(argv[++i], "%u,%u,%u,%u%c", &input_roi_x, &input_roi_y,
+                       &input_roi_width, &input_roi_height, &extra) != 4 ||
+                input_roi_width == 0 || input_roi_height == 0) {
+                fprintf(stderr, "Invalid input response ROI; expected x,y,w,h\n");
+                return 1;
+            }
+            trace_input_roi = true;
+            trace_staging_stages = true;
+            trace_buffer_identities = true;
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -213,6 +227,11 @@ int main(int argc, char **argv) {
             .force_implicit_sync = force_implicit,
             .trace_buffer_identities = trace_buffer_identities,
             .trace_staging_stages = trace_staging_stages,
+            .trace_input_roi = trace_input_roi,
+            .input_roi_x = input_roi_x,
+            .input_roi_y = input_roi_y,
+            .input_roi_width = input_roi_width,
+            .input_roi_height = input_roi_height,
             .max_frames = max_frames,
             .running = &g_running,
             .input_listen_fd = input_server_sock,

@@ -17,6 +17,8 @@ typedef struct {
     bool force_implicit_sync;
     bool trace_buffer_identities;
     bool trace_staging_stages;
+    bool trace_input_roi;
+    uint32_t input_roi_x, input_roi_y, input_roi_width, input_roi_height;
     uint32_t max_frames; /* 0 for infinite */
     const volatile sig_atomic_t *running; /* optional signal-driven shutdown */
 

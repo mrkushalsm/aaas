@@ -1310,6 +1310,8 @@ def main():
                         help='Write read-only host/cgroup snapshots at session start and shutdown')
     parser.add_argument('--trace-staging-stages', action='store_true',
                         help='Opt in to per-operation staging and presenter-thread timing')
+    parser.add_argument('--trace-input-response-roi',
+                        help='Opt in to bounded input-to-presented-frame tracking for source ROI x,y,w,h')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
                         help='Opt in to host/cgroup resource snapshots; optionally sample every N seconds (0 disables periodic samples, max 3600 samples)')
     parser.add_argument('--test-tombstone-capture', action='store_true',
@@ -1325,6 +1327,8 @@ def main():
         parser.error('--diagnostic-composer-overlay requires --experimental-virtual-display')
     if args.trace_staging_stages and not args.experimental_virtual_display:
         parser.error('--trace-staging-stages requires --experimental-virtual-display')
+    if args.trace_input_response_roi and not args.experimental_virtual_display:
+        parser.error('--trace-input-response-roi requires --experimental-virtual-display')
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
     if args.test_tombstone_capture and args.app2:
@@ -1527,6 +1531,8 @@ def main():
         presenter_trace_args.append('--trace-buffer-identities')
     if args.trace_staging_stages:
         presenter_trace_args.append('--trace-staging-stages')
+    if args.trace_input_response_roi:
+        presenter_trace_args.extend(['--trace-input-response-roi', args.trace_input_response_roi])
     state = 'CREATED'
     input_ready_reported = False
     running_session = False
