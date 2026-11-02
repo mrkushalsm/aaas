@@ -1190,7 +1190,9 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
         a->wm_base = wl_registry_bind(r, name, &xdg_wm_base_interface, ver < 3 ? ver : 3);
     } else if (strcmp(iface, "wp_presentation") == 0) {
         a->presentation = wl_registry_bind(r, name, &wp_presentation_interface, 1);
-        wp_presentation_add_listener(a->presentation, &presentation_listener, a);
+        if (a->trace_staging_stages) {
+            wp_presentation_add_listener(a->presentation, &presentation_listener, a);
+        }
     } else if (strcmp(iface, "zwp_linux_dmabuf_v1") == 0 && ver >= 3) {
         a->dmabuf = wl_registry_bind(r, name, &zwp_linux_dmabuf_v1_interface, 3);
     } else if (strcmp(iface, "wp_linux_drm_syncobj_manager_v1") == 0) {
@@ -1795,19 +1797,25 @@ static void pres_presented(void *data, struct wp_presentation_feedback *f,
                            uint32_t refresh, uint32_t seq_hi, uint32_t seq_lo, uint32_t flags) {
     presenter_app *a = data;
     a->presented++;
-    uint64_t sec = ((uint64_t)tv_sec_hi << 32) | tv_sec_lo;
-    uint64_t timestamp_ns = sec * 1000000000ULL + tv_nsec;
-    uint64_t sequence = ((uint64_t)seq_hi << 32) | seq_lo;
-    char extra[320];
-    snprintf(extra, sizeof(extra),
-             "\"flags\":%u,\"presentation_sec\":%llu,\"presentation_nsec\":%u,"
-             "\"presentation_time_ns\":%llu,\"refresh_ns\":%u,\"sequence\":%llu,"
-             "\"presentation_clock_id\":%u,\"clock_id_known\":%s",
-             flags, (unsigned long long)sec, tv_nsec,
-             (unsigned long long)timestamp_ns, refresh,
-             (unsigned long long)sequence, a->presentation_clock_id,
-             a->presentation_clock_known ? "true" : "false");
-    log_presenter_event("frame_presented", a->gen, 0, extra);
+    if (a->trace_staging_stages) {
+        uint64_t sec = ((uint64_t)tv_sec_hi << 32) | tv_sec_lo;
+        uint64_t timestamp_ns = sec * 1000000000ULL + tv_nsec;
+        uint64_t sequence = ((uint64_t)seq_hi << 32) | seq_lo;
+        char extra[320];
+        snprintf(extra, sizeof(extra),
+                 "\"flags\":%u,\"presentation_sec\":%llu,\"presentation_nsec\":%u,"
+                 "\"presentation_time_ns\":%llu,\"refresh_ns\":%u,\"sequence\":%llu,"
+                 "\"presentation_clock_id\":%u,\"clock_id_known\":%s",
+                 flags, (unsigned long long)sec, tv_nsec,
+                 (unsigned long long)timestamp_ns, refresh,
+                 (unsigned long long)sequence, a->presentation_clock_id,
+                 a->presentation_clock_known ? "true" : "false");
+        log_presenter_event("frame_presented", a->gen, 0, extra);
+    } else {
+        char extra[64];
+        snprintf(extra, sizeof(extra), "\"flags\":%u", flags);
+        log_presenter_event("frame_presented", a->gen, 0, extra);
+    }
     check_release_timelines(a);
     wp_presentation_feedback_destroy(f);
 }
