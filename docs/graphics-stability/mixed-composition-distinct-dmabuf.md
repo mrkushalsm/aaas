@@ -121,9 +121,10 @@ The historical production SwiftShader overlay remains
 corrected no-tracing candidate remains
 `e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee`.
 
-At this checkpoint, 232 Python tests, M1A tests, presenter tests, input
-adapter build, isolated Composer tests, display broker build, and workspace
-guard pass. See
+At the 2026-11-02 checkpoint, 232 Python tests, M1A tests, presenter tests,
+input adapter build, isolated Composer tests, display broker build, and
+workspace guard passed. That checkpoint's incomplete resize status is
+superseded by the scoped staged-path acceptance below. See
 [`acceptance.json`](../../results/post-m1e/mixed-composition/acceptance.json)
 for commands, session IDs, evidence paths, hashes, and gate-by-gate status.
 
@@ -139,5 +140,17 @@ for commands, session IDs, evidence paths, hashes, and gate-by-gate status.
   conversion, nonlinear modifiers, transformed/scaled layers, color transforms,
   protected content, or cross-GPU operation.
 
-This workstream is **not PASS/CLOSED** because exact-output presentation,
-mixed-path resize, and several integration gates remain unmet.
+This broad workstream remains **OPEN/BLOCKED** because exact-output
+presentation remains unresolved. The staged resize and dual-display gates
+were later completed as described below.
+
+## Scoped staged-path result (2026-11-03)
+
+The constrained staging path has since completed a separate live acceptance:
+two concurrent mixed displays, mixed/alias coexistence in both directions,
+resize and resize-back, exact visible-pixel checks, and buffer/fence release
+ordering passed in default and enhanced sessions. See
+[`staged-mixed-composition.md`](staged-mixed-composition.md) and its
+[acceptance record](../../results/post-m1e/staged-mixed-composition/acceptance.json).
+This result does not close this broader record: exact Composer-output
+allocation presentation to Wayland remains **OPEN/BLOCKED**.
