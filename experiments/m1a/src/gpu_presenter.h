@@ -16,6 +16,7 @@ typedef struct {
     const char *drm_node;
     bool force_implicit_sync;
     bool trace_buffer_identities;
+    bool trace_staging_stages;
     uint32_t max_frames; /* 0 for infinite */
     const volatile sig_atomic_t *running; /* optional signal-driven shutdown */
 

@@ -1308,6 +1308,8 @@ def main():
                         help='Required SHA-256 for --diagnostic-composer-overlay')
     parser.add_argument('--resource-diagnostics', action='store_true',
                         help='Write read-only host/cgroup snapshots at session start and shutdown')
+    parser.add_argument('--trace-staging-stages', action='store_true',
+                        help='Opt in to per-operation staging and presenter-thread timing')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
                         help='Opt in to host/cgroup resource snapshots; optionally sample every N seconds (0 disables periodic samples, max 3600 samples)')
     parser.add_argument('--test-tombstone-capture', action='store_true',
@@ -1321,6 +1323,8 @@ def main():
         parser.error('--diagnostic-composer-overlay and --diagnostic-composer-sha256 must be used together')
     if args.diagnostic_composer_overlay and not args.experimental_virtual_display:
         parser.error('--diagnostic-composer-overlay requires --experimental-virtual-display')
+    if args.trace_staging_stages and not args.experimental_virtual_display:
+        parser.error('--trace-staging-stages requires --experimental-virtual-display')
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
     if args.test_tombstone_capture and args.app2:
@@ -1518,8 +1522,11 @@ def main():
         if args.app2:
             env['AAAS_VDISPLAY2_INPUT_ADAPTER_LOG'] = str(vdisplay2_input_adapter_log)
     presenter = virtual_presenter = virtual_presenter2 = android = None
-    presenter_trace_args = (['--trace-buffer-identities']
-                            if args.diagnostic_composer_overlay else [])
+    presenter_trace_args = []
+    if args.diagnostic_composer_overlay:
+        presenter_trace_args.append('--trace-buffer-identities')
+    if args.trace_staging_stages:
+        presenter_trace_args.append('--trace-staging-stages')
     state = 'CREATED'
     input_ready_reported = False
     running_session = False
@@ -1722,6 +1729,7 @@ def main():
             if primary_diagnostic:
                 presenter = subprocess.Popen(
                     [str(PRESENTER), '--socket', str(ipc / 'wayland.sock'),
+                     *presenter_trace_args,
                      '--width', presenter_size[0], '--height', presenter_size[1],
                      '--input-socket', str(ipc / 'input.sock'),
                      '--input-session', f'0x{input_session:016x}',

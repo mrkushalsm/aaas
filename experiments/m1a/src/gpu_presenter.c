@@ -38,9 +38,21 @@
 #include <limits.h>
 
 #define MAX_SLOTS 32
+#define MAX_PENDING_PRESENTATION_FEEDBACK 128u
 #define INPUT_QUEUE_CAP 64u
 
 typedef struct presenter_app presenter_app;
+typedef struct presentation_feedback_context presentation_feedback_context;
+
+struct presentation_feedback_context {
+    presenter_app *app;
+    presentation_feedback_context *next;
+    struct wp_presentation_feedback *feedback;
+    uint64_t commit_ns;
+    uint32_t generation;
+    uint32_t frame_id;
+    bool sync_output_seen;
+};
 
 typedef struct {
     struct wl_buffer *wl;
@@ -59,9 +71,40 @@ typedef struct {
     struct gbm_bo *staging_bo;
 } presenter_slot;
 
+typedef struct {
+    int64_t source_stride_bytes;
+    int64_t destination_stride_bytes;
+    int64_t acquire_fence_wait_ns;
+    int64_t acquire_wait_thread_cpu_ns;
+    int64_t staging_pipeline_ns;
+    int64_t gbm_allocate_ns;
+    int64_t source_sync_start_ns;
+    int64_t source_map_ns;
+    int64_t destination_map_ns;
+    int64_t visible_copy_ns;
+    int64_t destination_unmap_ns;
+    int64_t source_unmap_ns;
+    int64_t source_sync_end_ns;
+    int64_t export_ns;
+    int64_t thread_cpu_ns;
+    int64_t voluntary_context_switches;
+    int64_t involuntary_context_switches;
+    int64_t minor_faults;
+    int64_t major_faults;
+    int acquire_wait_result;
+    int acquire_wait_errno;
+    int gbm_allocate_errno;
+    int source_sync_start_errno;
+    int source_map_errno;
+    int destination_map_errno;
+    int source_sync_end_errno;
+    int export_errno;
+} staging_perf_record;
+
 struct presenter_app {
     int sock;
     bool trace_buffer_identities;
+    bool trace_staging_stages;
     uint32_t w, h, gen;
     uint32_t pending_w, pending_h;
     uint32_t initial_w, initial_h;
@@ -96,6 +139,11 @@ struct presenter_app {
     struct libdecor_frame *decor_frame;
     struct zwp_linux_dmabuf_v1 *dmabuf;
     struct wp_presentation *presentation;
+    uint32_t presentation_clock_id;
+    bool presentation_clock_known;
+    presentation_feedback_context *pending_feedback;
+    uint32_t pending_feedback_count;
+    uint64_t presentation_feedback_untracked;
     struct wp_linux_drm_syncobj_manager_v1 *syncobj_mgr;
     struct wp_viewporter *viewporter;
 
@@ -216,6 +264,66 @@ static uint64_t monotonic_ns(void) {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
     return (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+}
+
+static int64_t elapsed_ns(uint64_t start, uint64_t end) {
+    return end >= start ? (int64_t)(end - start) : -1;
+}
+
+static void perf_json_i64(char *out, size_t capacity, size_t *used,
+                          const char *key, int64_t value) {
+    if (*used >= capacity) return;
+    int n = snprintf(out + *used, capacity - *used, "%s\"%s\":",
+                     *used ? "," : "", key);
+    if (n < 0 || (size_t)n >= capacity - *used) { *used = capacity; return; }
+    *used += (size_t)n;
+    n = value >= 0
+        ? snprintf(out + *used, capacity - *used, "%lld", (long long)value)
+        : snprintf(out + *used, capacity - *used, "null");
+    if (n < 0 || (size_t)n >= capacity - *used) { *used = capacity; return; }
+    *used += (size_t)n;
+}
+
+static void log_staging_perf(presenter_app *a, const aaas_v2_msg *m,
+                             const staging_perf_record *p) {
+    char extra[2048];
+    size_t used = 0;
+    perf_json_i64(extra, sizeof(extra), &used, "width", m->width);
+    perf_json_i64(extra, sizeof(extra), &used, "height", m->height);
+    perf_json_i64(extra, sizeof(extra), &used, "format", m->format);
+    perf_json_i64(extra, sizeof(extra), &used, "source_stride_bytes", p->source_stride_bytes);
+    perf_json_i64(extra, sizeof(extra), &used, "destination_stride_bytes", p->destination_stride_bytes);
+    perf_json_i64(extra, sizeof(extra), &used, "acquire_fence_wait_ns", p->acquire_fence_wait_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "acquire_wait_thread_cpu_ns", p->acquire_wait_thread_cpu_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "staging_pipeline_ns", p->staging_pipeline_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "gbm_allocate_ns", p->gbm_allocate_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "source_sync_start_ns", p->source_sync_start_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "source_map_ns", p->source_map_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "destination_map_ns", p->destination_map_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "visible_copy_ns", p->visible_copy_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "destination_unmap_ns", p->destination_unmap_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "source_unmap_ns", p->source_unmap_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "source_sync_end_ns", p->source_sync_end_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "export_ns", p->export_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "thread_cpu_ns", p->thread_cpu_ns);
+    perf_json_i64(extra, sizeof(extra), &used, "voluntary_context_switches", p->voluntary_context_switches);
+    perf_json_i64(extra, sizeof(extra), &used, "involuntary_context_switches", p->involuntary_context_switches);
+    perf_json_i64(extra, sizeof(extra), &used, "minor_faults", p->minor_faults);
+    perf_json_i64(extra, sizeof(extra), &used, "major_faults", p->major_faults);
+    perf_json_i64(extra, sizeof(extra), &used, "acquire_wait_result", p->acquire_wait_result);
+    perf_json_i64(extra, sizeof(extra), &used, "acquire_wait_errno", p->acquire_wait_errno);
+    perf_json_i64(extra, sizeof(extra), &used, "gbm_allocate_errno", p->gbm_allocate_errno);
+    perf_json_i64(extra, sizeof(extra), &used, "source_sync_start_errno", p->source_sync_start_errno);
+    perf_json_i64(extra, sizeof(extra), &used, "source_map_errno", p->source_map_errno);
+    perf_json_i64(extra, sizeof(extra), &used, "destination_map_errno", p->destination_map_errno);
+    perf_json_i64(extra, sizeof(extra), &used, "source_sync_end_errno", p->source_sync_end_errno);
+    perf_json_i64(extra, sizeof(extra), &used, "export_errno", p->export_errno);
+    if (used < sizeof(extra)) {
+        snprintf(extra + used, sizeof(extra) - used,
+                 ",\"clock_domain\":\"CLOCK_MONOTONIC\",\"thread_clock\":\"CLOCK_THREAD_CPUTIME_ID\",\"staging_buffer_lookup\":\"not_used_per_frame_allocation\"");
+    }
+    log_presenter_event("staging_profile", m->generation, m->id, extra);
+    (void)a;
 }
 
 static uint32_t button_mask(uint32_t button) {
@@ -1057,6 +1165,22 @@ static const struct zwp_linux_dmabuf_v1_listener dmabuf_listener = {
     .modifier = dmabuf_modifier
 };
 
+static void pres_clock_id(void *data, struct wp_presentation *presentation,
+                          uint32_t clock_id) {
+    (void)presentation;
+    presenter_app *a = data;
+    a->presentation_clock_id = clock_id;
+    a->presentation_clock_known = true;
+    char extra[96];
+    snprintf(extra, sizeof(extra), "\"clock_id\":%u,\"clock_domain\":\"wp_presentation\"",
+             clock_id);
+    log_presenter_event("presentation_clock", a->gen, 0, extra);
+}
+
+static const struct wp_presentation_listener presentation_listener = {
+    .clock_id = pres_clock_id,
+};
+
 static void registry_global(void *data, struct wl_registry *r, uint32_t name,
                             const char *iface, uint32_t ver) {
     presenter_app *a = data;
@@ -1066,6 +1190,7 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
         a->wm_base = wl_registry_bind(r, name, &xdg_wm_base_interface, ver < 3 ? ver : 3);
     } else if (strcmp(iface, "wp_presentation") == 0) {
         a->presentation = wl_registry_bind(r, name, &wp_presentation_interface, 1);
+        wp_presentation_add_listener(a->presentation, &presentation_listener, a);
     } else if (strcmp(iface, "zwp_linux_dmabuf_v1") == 0 && ver >= 3) {
         a->dmabuf = wl_registry_bind(r, name, &zwp_linux_dmabuf_v1_interface, 3);
     } else if (strcmp(iface, "wp_linux_drm_syncobj_manager_v1") == 0) {
@@ -1668,11 +1793,20 @@ static void pres_sync_output(void *data, struct wp_presentation_feedback *f, str
 static void pres_presented(void *data, struct wp_presentation_feedback *f,
                            uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec,
                            uint32_t refresh, uint32_t seq_hi, uint32_t seq_lo, uint32_t flags) {
-    (void)tv_sec_hi; (void)tv_sec_lo; (void)tv_nsec; (void)refresh; (void)seq_hi; (void)seq_lo;
     presenter_app *a = data;
     a->presented++;
-    char extra[64];
-    snprintf(extra, sizeof(extra), "\"flags\":%u", flags);
+    uint64_t sec = ((uint64_t)tv_sec_hi << 32) | tv_sec_lo;
+    uint64_t timestamp_ns = sec * 1000000000ULL + tv_nsec;
+    uint64_t sequence = ((uint64_t)seq_hi << 32) | seq_lo;
+    char extra[320];
+    snprintf(extra, sizeof(extra),
+             "\"flags\":%u,\"presentation_sec\":%llu,\"presentation_nsec\":%u,"
+             "\"presentation_time_ns\":%llu,\"refresh_ns\":%u,\"sequence\":%llu,"
+             "\"presentation_clock_id\":%u,\"clock_id_known\":%s",
+             flags, (unsigned long long)sec, tv_nsec,
+             (unsigned long long)timestamp_ns, refresh,
+             (unsigned long long)sequence, a->presentation_clock_id,
+             a->presentation_clock_known ? "true" : "false");
     log_presenter_event("frame_presented", a->gen, 0, extra);
     check_release_timelines(a);
     wp_presentation_feedback_destroy(f);
@@ -1689,6 +1823,83 @@ static const struct wp_presentation_feedback_listener pres_feedback_listener = {
     .sync_output = pres_sync_output,
     .presented = pres_presented,
     .discarded = pres_discarded
+};
+
+static void feedback_context_remove(presentation_feedback_context *context) {
+    presenter_app *a = context->app;
+    presentation_feedback_context **cursor = &a->pending_feedback;
+    while (*cursor && *cursor != context) cursor = &(*cursor)->next;
+    if (*cursor == context) {
+        *cursor = context->next;
+        if (a->pending_feedback_count) a->pending_feedback_count--;
+    }
+}
+
+static void pres_profiled_sync_output(void *data,
+                                      struct wp_presentation_feedback *feedback,
+                                      struct wl_output *output) {
+    (void)feedback; (void)output;
+    ((presentation_feedback_context *)data)->sync_output_seen = true;
+}
+
+static void pres_profiled_presented(void *data, struct wp_presentation_feedback *f,
+                                    uint32_t tv_sec_hi, uint32_t tv_sec_lo,
+                                    uint32_t tv_nsec, uint32_t refresh,
+                                    uint32_t seq_hi, uint32_t seq_lo, uint32_t flags) {
+    presentation_feedback_context *context = data;
+    presenter_app *a = context->app;
+    uint64_t sec = ((uint64_t)tv_sec_hi << 32) | tv_sec_lo;
+    uint64_t presentation_ns = sec * 1000000000ULL + tv_nsec;
+    uint64_t sequence = ((uint64_t)seq_hi << 32) | seq_lo;
+    int64_t commit_to_presentation_ns = -1;
+    if (a->presentation_clock_known &&
+        a->presentation_clock_id == (uint32_t)CLOCK_MONOTONIC &&
+        presentation_ns >= context->commit_ns) {
+        commit_to_presentation_ns = (int64_t)(presentation_ns - context->commit_ns);
+    }
+    a->presented++;
+    char extra[448];
+    int n = snprintf(extra, sizeof(extra),
+             "\"flags\":%u,\"presentation_sec\":%llu,\"presentation_nsec\":%u,"
+             "\"presentation_time_ns\":%llu,\"refresh_ns\":%u,\"sequence\":%llu,"
+             "\"presentation_clock_id\":%u,\"clock_id_known\":%s,"
+             "\"sync_output_seen\":%s,\"commit_to_presentation_ns\":",
+             flags, (unsigned long long)sec, tv_nsec,
+             (unsigned long long)presentation_ns, refresh,
+             (unsigned long long)sequence, a->presentation_clock_id,
+             a->presentation_clock_known ? "true" : "false",
+             context->sync_output_seen ? "true" : "false");
+    if (n >= 0 && (size_t)n < sizeof(extra)) {
+        snprintf(extra + n, sizeof(extra) - (size_t)n,
+                 commit_to_presentation_ns >= 0 ? "%lld" : "null",
+                 (long long)commit_to_presentation_ns);
+    }
+    log_presenter_event("frame_presented", context->generation,
+                        context->frame_id, extra);
+    check_release_timelines(a);
+    feedback_context_remove(context);
+    wp_presentation_feedback_destroy(f);
+    free(context);
+}
+
+static void pres_profiled_discarded(void *data, struct wp_presentation_feedback *f) {
+    presentation_feedback_context *context = data;
+    presenter_app *a = context->app;
+    a->discarded++;
+    char extra[96];
+    snprintf(extra, sizeof(extra), "\"sync_output_seen\":%s",
+             context->sync_output_seen ? "true" : "false");
+    log_presenter_event("frame_discarded", context->generation,
+                        context->frame_id, extra);
+    feedback_context_remove(context);
+    wp_presentation_feedback_destroy(f);
+    free(context);
+}
+
+static const struct wp_presentation_feedback_listener pres_profiled_feedback_listener = {
+    .sync_output = pres_profiled_sync_output,
+    .presented = pres_profiled_presented,
+    .discarded = pres_profiled_discarded,
 };
 
 static int modifier_supported(presenter_app *a, uint64_t mod) {
@@ -1852,13 +2063,47 @@ static void handle_incoming_buffer(presenter_app *a) {
     bool is_memfd = (llen > 0 && strncmp(link, "/memfd:", 7) == 0);
 
     if ((is_memfd || a->copy_complete_enabled) && a->gbm) {
-        if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
-            reject_unimported_buffer(a, &m, fds, nfds,
-                                     "acquire_fence_timeout");
-            return;
+        staging_perf_record perf;
+        memset(&perf, 0xff, sizeof(perf));
+        if (a->trace_staging_stages)
+            perf.source_stride_bytes = (int64_t)m.stride[0];
+        struct timespec wait_cpu_start = {0}, wait_cpu_end = {0};
+        uint64_t wait_start_ns = 0;
+        if (a->trace_staging_stages && acquire_fence_fd >= 0) {
+            wait_start_ns = monotonic_ns();
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &wait_cpu_start);
+        }
+        if (acquire_fence_fd >= 0) {
+            int wait_result = sync_file_wait(acquire_fence_fd, 2000);
+            int wait_errno = wait_result == 1 ? 0 : errno;
+            if (a->trace_staging_stages) {
+                perf.acquire_fence_wait_ns = elapsed_ns(wait_start_ns, monotonic_ns());
+                perf.acquire_wait_result = wait_result;
+                perf.acquire_wait_errno = wait_errno;
+                clock_gettime(CLOCK_THREAD_CPUTIME_ID, &wait_cpu_end);
+                perf.acquire_wait_thread_cpu_ns = elapsed_ns(
+                    (uint64_t)wait_cpu_start.tv_sec * 1000000000ULL + wait_cpu_start.tv_nsec,
+                    (uint64_t)wait_cpu_end.tv_sec * 1000000000ULL + wait_cpu_end.tv_nsec);
+            }
+            if (wait_result != 1) {
+                if (a->trace_staging_stages) log_staging_perf(a, &m, &perf);
+                reject_unimported_buffer(a, &m, fds, nfds,
+                                         "acquire_fence_timeout");
+                return;
+            }
+        } else if (a->trace_staging_stages) {
+            perf.acquire_fence_wait_ns = -1;
+            perf.acquire_wait_thread_cpu_ns = -1;
         }
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
+        uint64_t pipeline_start_ns = a->trace_staging_stages ? monotonic_ns() : 0;
+        struct timespec thread_cpu_start = {0}, thread_cpu_end = {0};
+        struct rusage usage_start = {0}, usage_end = {0};
+        bool have_cpu_start = a->trace_staging_stages &&
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &thread_cpu_start) == 0;
+        bool have_usage_start = a->trace_staging_stages &&
+            getrusage(RUSAGE_THREAD, &usage_start) == 0;
 
         uint64_t src_size64 = (uint64_t)m.stride[0] * m.height;
         bool source_sync_started = false;
@@ -1870,50 +2115,102 @@ static void handle_incoming_buffer(presenter_app *a) {
         void *dst_map = NULL;
         if (m.stride[0] >= m.width * 4 && src_size64 > 0 &&
             src_size64 <= SIZE_MAX) {
+            uint64_t stage_start = a->trace_staging_stages ? monotonic_ns() : 0;
             stage_bo = gbm_bo_create(a->gbm, m.width, m.height, m.format,
                                      GBM_BO_USE_LINEAR);
+            int stage_errno = stage_bo ? 0 : errno;
+            if (a->trace_staging_stages) {
+                perf.gbm_allocate_ns = elapsed_ns(stage_start, monotonic_ns());
+                perf.gbm_allocate_errno = stage_errno;
+            }
             if (stage_bo) {
                 stage_stride = gbm_bo_get_stride(stage_bo);
+                if (a->trace_staging_stages)
+                    perf.destination_stride_bytes = stage_stride;
                 if (is_memfd) {
                     source_sync_started = true;
                 } else {
                     struct dma_buf_sync sync = {
                         .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ,
                     };
+                    uint64_t sync_start = a->trace_staging_stages ? monotonic_ns() : 0;
                     source_sync_started = ioctl(dma_fd, DMA_BUF_IOCTL_SYNC,
                                                 &sync) == 0;
+                    int sync_errno = source_sync_started ? 0 : errno;
+                    if (a->trace_staging_stages) {
+                        perf.source_sync_start_ns = elapsed_ns(sync_start, monotonic_ns());
+                        perf.source_sync_start_errno = sync_errno;
+                    }
                 }
                 if (source_sync_started) {
+                    uint64_t map_start = a->trace_staging_stages ? monotonic_ns() : 0;
                     src_map = mmap(NULL, (size_t)src_size64, PROT_READ,
                                    MAP_SHARED, dma_fd, 0);
+                    int map_errno = src_map == MAP_FAILED ? errno : 0;
+                    if (a->trace_staging_stages) {
+                        perf.source_map_ns = elapsed_ns(map_start, monotonic_ns());
+                        perf.source_map_errno = map_errno;
+                    }
                 }
                 if (src_map != MAP_FAILED) {
+                    uint64_t map_start = a->trace_staging_stages ? monotonic_ns() : 0;
                     dst_map = gbm_bo_map(stage_bo, 0, 0, m.width, m.height,
                                          GBM_BO_TRANSFER_WRITE,
                                          &map_stride, &map_data);
+                    int map_errno = dst_map ? 0 : errno;
+                    if (a->trace_staging_stages) {
+                        perf.destination_map_ns = elapsed_ns(map_start, monotonic_ns());
+                        perf.destination_map_errno = map_errno;
+                        if (map_stride) perf.destination_stride_bytes = map_stride;
+                    }
                     if (dst_map && map_stride >= m.width * 4) {
+                        uint64_t copy_start = a->trace_staging_stages ? monotonic_ns() : 0;
                         for (uint32_t y = 0; y < m.height; y++) {
                             memcpy((char*)dst_map + (size_t)y * map_stride,
                                    (char*)src_map + (size_t)y * m.stride[0],
                                    (size_t)m.width * 4);
                         }
+                        if (a->trace_staging_stages)
+                            perf.visible_copy_ns = elapsed_ns(copy_start, monotonic_ns());
                         copied = true;
                     }
-                    if (dst_map) gbm_bo_unmap(stage_bo, map_data);
-                    munmap(src_map, (size_t)src_size64);
+                    if (dst_map) {
+                        uint64_t unmap_start = a->trace_staging_stages ? monotonic_ns() : 0;
+                        gbm_bo_unmap(stage_bo, map_data);
+                        if (a->trace_staging_stages)
+                            perf.destination_unmap_ns = elapsed_ns(unmap_start, monotonic_ns());
+                    }
+                    uint64_t unmap_start = a->trace_staging_stages ? monotonic_ns() : 0;
+                    int unmap_result = munmap(src_map, (size_t)src_size64);
+                    if (a->trace_staging_stages)
+                        perf.source_unmap_ns = elapsed_ns(unmap_start, monotonic_ns());
+                    if (unmap_result != 0) copied = false;
                 }
                 if (!is_memfd && source_sync_started) {
                     struct dma_buf_sync sync = {
                         .flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ,
                     };
-                    if (ioctl(dma_fd, DMA_BUF_IOCTL_SYNC, &sync) != 0) {
+                    uint64_t sync_start = a->trace_staging_stages ? monotonic_ns() : 0;
+                    int sync_result = ioctl(dma_fd, DMA_BUF_IOCTL_SYNC, &sync);
+                    int sync_errno = sync_result == 0 ? 0 : errno;
+                    if (a->trace_staging_stages) {
+                        perf.source_sync_end_ns = elapsed_ns(sync_start, monotonic_ns());
+                        perf.source_sync_end_errno = sync_errno;
+                    }
+                    if (sync_result != 0) {
                         copied = false;
                     }
                 }
             }
         }
 
+        uint64_t export_start = a->trace_staging_stages && copied ? monotonic_ns() : 0;
         int stage_fd = copied ? gbm_bo_get_fd(stage_bo) : -1;
+        int export_errno = !copied ? -1 : (stage_fd >= 0 ? 0 : errno);
+        if (a->trace_staging_stages && copied) {
+            perf.export_ns = elapsed_ns(export_start, monotonic_ns());
+            perf.export_errno = export_errno;
+        }
         if (stage_fd >= 0) {
             dma_fd = stage_fd;
             owned_dma_fd = true;
@@ -1925,6 +2222,7 @@ static void handle_incoming_buffer(presenter_app *a) {
             }
 
             clock_gettime(CLOCK_MONOTONIC, &t1);
+            uint64_t pipeline_end_ns = a->trace_staging_stages ? monotonic_ns() : 0;
             int64_t copy_ns =
                 ((int64_t)t1.tv_sec - (int64_t)t0.tv_sec) * 1000000000LL +
                 ((int64_t)t1.tv_nsec - (int64_t)t0.tv_nsec);
@@ -1934,6 +2232,23 @@ static void handle_incoming_buffer(presenter_app *a) {
                      "\"fallback\":\"cpu_staging_copy\",\"overhead_us\":%llu",
                      (unsigned long long)copy_us);
             log_presenter_event("staging_copy", m.generation, m.id, copy_json);
+
+            if (a->trace_staging_stages) {
+                perf.staging_pipeline_ns = elapsed_ns(pipeline_start_ns, pipeline_end_ns);
+                if (have_cpu_start && clock_gettime(CLOCK_THREAD_CPUTIME_ID,
+                                                     &thread_cpu_end) == 0) {
+                    uint64_t cpu_start_ns = (uint64_t)thread_cpu_start.tv_sec * 1000000000ULL + thread_cpu_start.tv_nsec;
+                    uint64_t cpu_end_ns = (uint64_t)thread_cpu_end.tv_sec * 1000000000ULL + thread_cpu_end.tv_nsec;
+                    perf.thread_cpu_ns = elapsed_ns(cpu_start_ns, cpu_end_ns);
+                }
+                if (have_usage_start && getrusage(RUSAGE_THREAD, &usage_end) == 0) {
+                    perf.voluntary_context_switches = usage_end.ru_nvcsw - usage_start.ru_nvcsw;
+                    perf.involuntary_context_switches = usage_end.ru_nivcsw - usage_start.ru_nivcsw;
+                    perf.minor_faults = usage_end.ru_minflt - usage_start.ru_minflt;
+                    perf.major_faults = usage_end.ru_majflt - usage_start.ru_majflt;
+                }
+                log_staging_perf(a, &m, &perf);
+            }
 
             if (a->copy_complete_enabled) {
                 aaas_v2_msg copied_msg = {
@@ -1956,6 +2271,23 @@ static void handle_incoming_buffer(presenter_app *a) {
                 log_presenter_event("source_copy_complete", m.generation, m.id, NULL);
             }
         } else {
+            if (a->trace_staging_stages) {
+                perf.staging_pipeline_ns = elapsed_ns(pipeline_start_ns, monotonic_ns());
+                if (have_cpu_start && clock_gettime(CLOCK_THREAD_CPUTIME_ID,
+                                                     &thread_cpu_end) == 0) {
+                    uint64_t cpu_start_ns = (uint64_t)thread_cpu_start.tv_sec * 1000000000ULL + thread_cpu_start.tv_nsec;
+                    uint64_t cpu_end_ns = (uint64_t)thread_cpu_end.tv_sec * 1000000000ULL + thread_cpu_end.tv_nsec;
+                    perf.thread_cpu_ns = elapsed_ns(cpu_start_ns, cpu_end_ns);
+                }
+                if (have_usage_start && getrusage(RUSAGE_THREAD, &usage_end) == 0) {
+                    perf.voluntary_context_switches = usage_end.ru_nvcsw - usage_start.ru_nvcsw;
+                    perf.involuntary_context_switches = usage_end.ru_nivcsw - usage_start.ru_nivcsw;
+                    perf.minor_faults = usage_end.ru_minflt - usage_start.ru_minflt;
+                    perf.major_faults = usage_end.ru_majflt - usage_start.ru_majflt;
+                }
+                perf.export_errno = export_errno;
+                log_staging_perf(a, &m, &perf);
+            }
             if (stage_bo) {
                 gbm_bo_destroy(stage_bo);
                 stage_bo = NULL;
@@ -2152,14 +2484,33 @@ static void handle_incoming_buffer(presenter_app *a) {
     wl_surface_attach(a->surface, wl_buf, 0, 0);
     wl_surface_damage_buffer(a->surface, 0, 0, m.width, m.height);
 
+    presentation_feedback_context *feedback_context = NULL;
     if (a->presentation) {
         struct wp_presentation_feedback *fb =
             wp_presentation_feedback(a->presentation, a->surface);
-        wp_presentation_feedback_add_listener(fb, &pres_feedback_listener, a);
+        if (a->trace_staging_stages &&
+            a->pending_feedback_count < MAX_PENDING_PRESENTATION_FEEDBACK) {
+            feedback_context = calloc(1, sizeof(*feedback_context));
+        }
+        if (feedback_context) {
+            feedback_context->app = a;
+            feedback_context->feedback = fb;
+            feedback_context->generation = m.generation;
+            feedback_context->frame_id = m.id;
+            feedback_context->next = a->pending_feedback;
+            a->pending_feedback = feedback_context;
+            a->pending_feedback_count++;
+            wp_presentation_feedback_add_listener(
+                fb, &pres_profiled_feedback_listener, feedback_context);
+        } else {
+            if (a->trace_staging_stages) a->presentation_feedback_untracked++;
+            wp_presentation_feedback_add_listener(fb, &pres_feedback_listener, a);
+        }
     }
 
     wl_surface_commit(a->surface);
     a->submitted++;
+    if (feedback_context) feedback_context->commit_ns = monotonic_ns();
 
     char extra[128];
     snprintf(extra, sizeof(extra),
@@ -2300,6 +2651,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     presenter_app app = {
         .sock = config->sock,
         .trace_buffer_identities = config->trace_buffer_identities,
+        .trace_staging_stages = config->trace_staging_stages,
         .w = config->initial_width ? config->initial_width : 640,
         .h = config->initial_height ? config->initial_height : 480,
         .initial_w = config->initial_width ? config->initial_width : 640,
@@ -2511,10 +2863,12 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
 
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
-    char summary_extra[320];
+    char summary_extra[768];
     snprintf(summary_extra, sizeof(summary_extra),
              "\"imports\":%llu,\"submissions\":%llu,\"releases\":%llu,\"rejected\":%llu,"
              "\"presented\":%llu,\"discarded\":%llu,\"explicit_sync_frames\":%llu,"
+             "\"presentation_clock_id\":%u,\"presentation_clock_known\":%s,"
+             "\"presentation_feedback_untracked\":%llu,\"pending_presentation_feedback\":%u,"
              "\"input_sent\":%llu,\"input_dropped\":%llu,"
              "\"teardown_invalidated\":%llu,\"outstanding\":%u,"
              "\"maxrss_kib\":%ld,\"user_us\":%ld,\"system_us\":%ld",
@@ -2522,6 +2876,10 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
              (unsigned long long)app.released, (unsigned long long)app.rejected,
              (unsigned long long)app.presented, (unsigned long long)app.discarded,
              (unsigned long long)app.explicit_sync_frames,
+             app.presentation_clock_id,
+             app.presentation_clock_known ? "true" : "false",
+             (unsigned long long)app.presentation_feedback_untracked,
+             app.pending_feedback_count,
              (unsigned long long)app.input_sent,
              (unsigned long long)app.input_dropped,
              (unsigned long long)app.teardown_invalidated,
@@ -2530,6 +2888,14 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
              usage.ru_utime.tv_sec * 1000000L + usage.ru_utime.tv_usec,
              usage.ru_stime.tv_sec * 1000000L + usage.ru_stime.tv_usec);
     log_presenter_event("summary", app.gen, 0, summary_extra);
+
+    while (app.pending_feedback) {
+        presentation_feedback_context *context = app.pending_feedback;
+        app.pending_feedback = context->next;
+        if (context->feedback) wp_presentation_feedback_destroy(context->feedback);
+        free(context);
+    }
+    app.pending_feedback_count = 0;
 
     // Cleanup buffer slots and syncobjs
     for (int i = 0; i < MAX_SLOTS; i++) {

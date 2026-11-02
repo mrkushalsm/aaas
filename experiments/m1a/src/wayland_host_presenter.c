@@ -36,6 +36,7 @@ static void print_usage(const char *prog) {
             "  --input-display-id-file <p> Android target display ID file\n"
             "  --resize-request <p>  Session-local Android display resize request\n"
             "  --trace-buffer-identities  Log DMA-BUF backing identity transitions\n"
+            "  --trace-staging-stages  Log per-operation staging timing and thread CPU data\n"
             "  --help              Show this help message\n",
             prog);
 }
@@ -55,6 +56,7 @@ int main(int argc, char **argv) {
     const char *drm_node = "/dev/dri/renderD129";
     bool force_implicit = false;
     bool trace_buffer_identities = false;
+    bool trace_staging_stages = false;
     uint32_t max_frames = 0;
     bool exit_on_close = false;
     const char *input_socket_path = NULL;
@@ -95,6 +97,8 @@ int main(int argc, char **argv) {
             resize_request_path = argv[++i];
         } else if (strcmp(argv[i], "--trace-buffer-identities") == 0) {
             trace_buffer_identities = true;
+        } else if (strcmp(argv[i], "--trace-staging-stages") == 0) {
+            trace_staging_stages = true;
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -208,6 +212,7 @@ int main(int argc, char **argv) {
             .drm_node = drm_node,
             .force_implicit_sync = force_implicit,
             .trace_buffer_identities = trace_buffer_identities,
+            .trace_staging_stages = trace_staging_stages,
             .max_frames = max_frames,
             .running = &g_running,
             .input_listen_fd = input_server_sock,
