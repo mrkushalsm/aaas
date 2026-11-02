@@ -29,7 +29,11 @@ class StagedMixedSessionEvidenceTests(unittest.TestCase):
         composer.write_text(
             "[AaasComposerClient] createVirtualDisplay id=100 size=720x1280 slots=1 format=1\n"
             "[AaasComposerClient] createVirtualDisplay id=101 size=720x1280 slots=1 format=1\n"
+            "[AaasComposerClient] virtual composition display=100 requested_layers=2 selected_device_layer=9\n"
+            "[AaasTransport] Submitting frame id=1 (slot=0, 720x1280, fmt=1, stride=720, dma_fd=3, acq_fd=-1, backing_dev=1, backing_ino=1001, in_flight=1)\n"
             "[AaasComposerClient] virtual output frame display=100 slot=0 generation=1 buffer_id=10 width=720 height=1280 stride=720 dma_dev=1 dma_ino=1001 command=0\n"
+            "[AaasComposerClient] virtual composition display=101 requested_layers=1 selected_device_layer=-1\n"
+            "[AaasTransport] Submitting frame id=1 (slot=0, 720x1280, fmt=1, stride=720, dma_fd=4, acq_fd=-1, backing_dev=1, backing_ino=2001, in_flight=1)\n"
             "[AaasComposerClient] virtual output frame display=101 slot=0 generation=1 buffer_id=20 width=720 height=1280 stride=720 dma_dev=1 dma_ino=2001 command=0\n"
             "[AaasComposerClient] mixed-frame verify display=100 layer=9 src_id=1 dst_id=10 layer_id=11 src=1:9001 dst=1:1001 overlay=1:9101 pixels=exact\n"
             "[AaasComposerClient] mixed-frame verify display=101 layer=19 src_id=2 dst_id=20 layer_id=21 src=1:9002 dst=1:2001 overlay=1:9102 pixels=exact\n"
@@ -60,11 +64,15 @@ class StagedMixedSessionEvidenceTests(unittest.TestCase):
         with temp:
             result = analyze(root, composer, "default")
         self.assertEqual(result["status"], "STOPPED")
+        self.assertEqual(result["mode"], "default")
         self.assertEqual(len(result["presenter_output_correlations"]), 2)
         self.assertEqual(result["presenters"][0]["summary"]["outstanding"], 0)
         sample = result["presenters"][0]["staged_frame_identity_samples"][0]
         self.assertNotEqual(sample["composer_output_backing"], sample["wayland_staging_backing"])
         self.assertLessEqual(sample["frame_commit_ns"], sample["wayland_release_ns"])
+        modes = {p["slot"]: p["staging_pipeline_by_composition"] for p in result["presenters"]}
+        self.assertIn("mixed", modes[1])
+        self.assertIn("alias", modes[2])
 
     def test_rejects_aliasing_staging_allocation(self):
         def alias_stage(slot, events):

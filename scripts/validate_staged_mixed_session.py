@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 import statistics
-from collections import Counter, defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,12 @@ _OUTPUT = re.compile(
 _MIXED = re.compile(
     r"mixed-frame verify display=(\d+) layer=(\d+) .*? "
     r"src=(\d+):(\d+) dst=(\d+):(\d+) .*?pixels=exact"
+)
+_COMPOSITION = re.compile(
+    r"virtual composition display=(\d+) .*selected_device_layer=(-?\d+)"
+)
+_SUBMIT = re.compile(
+    r"Submitting frame id=(\d+) \(slot=\d+, .*backing_dev=(\d+), backing_ino=(\d+)"
 )
 _FATAL = re.compile(r"FATAL EXCEPTION|Fatal signal|ANR in |SIGSEGV")
 
@@ -59,14 +65,29 @@ def analyze(session_dir: Path, composer_log: Path, mode: str) -> dict[str, Any]:
     created: dict[str, tuple[int, int]] = {}
     output_backings: dict[str, set[tuple[int, int]]] = defaultdict(set)
     exact: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    selected_mode: dict[str, str] = {}
+    pending_submission: dict[tuple[int, int], deque[int]] = defaultdict(deque)
+    frame_mode: dict[tuple[int, int, int], str] = {}
     for line in lines:
+        match = _COMPOSITION.search(line)
+        if match:
+            selected_mode[match.group(1)] = "mixed" if int(match.group(2)) != -1 else "alias"
+        match = _SUBMIT.search(line)
+        if match:
+            frame_id, dev, ino = map(int, match.groups())
+            pending_submission[(dev, ino)].append(frame_id)
         match = _CREATE.search(line)
         if match:
             created[match.group(1)] = (int(match.group(2)), int(match.group(3)))
         match = _OUTPUT.search(line)
         if match:
             display = match.group(1)
-            output_backings[display].add((int(match.group(7)), int(match.group(8))))
+            backing = (int(match.group(7)), int(match.group(8)))
+            output_backings[display].add(backing)
+            queued = pending_submission.get(backing)
+            if queued and display in selected_mode:
+                frame_id = queued.popleft()
+                frame_mode[(frame_id, backing[0], backing[1])] = selected_mode[display]
         match = _MIXED.search(line)
         if match:
             display, layer, src_dev, src_ino, dst_dev, dst_ino = match.groups()
@@ -120,6 +141,7 @@ def analyze(session_dir: Path, composer_log: Path, mode: str) -> dict[str, Any]:
 
         staged = 0
         staging_us = []
+        staging_us_by_mode: dict[str, list[int]] = {"alias": [], "mixed": [], "unclassified": []}
         transport_backings = set()
         frame_identities = []
         for key, frame in by_frame.items():
@@ -152,7 +174,7 @@ def analyze(session_dir: Path, composer_log: Path, mode: str) -> dict[str, Any]:
                 "frame_id": key[1],
                 "composer_output_backing": list(source_backing),
                 "wayland_staging_backing": list(staged_backing),
-                "copy_start_ns": int(copy["t_ns"]),
+                "staging_pipeline_complete_ns": int(copy["t_ns"]),
                 "source_copy_complete_ns": int(complete["t_ns"]),
                 "wayland_import_ns": int(imported["t_ns"]),
                 "frame_commit_ns": int(commit["t_ns"]),
@@ -160,7 +182,12 @@ def analyze(session_dir: Path, composer_log: Path, mode: str) -> dict[str, Any]:
                 "explicit_sync": bool(commit.get("explicit_sync")),
             })
             if "overhead_us" in copy:
-                staging_us.append(int(copy["overhead_us"]))
+                measured_us = int(copy["overhead_us"])
+                staging_us.append(measured_us)
+                composition_mode = frame_mode.get(
+                    (key[1], source_backing[0], source_backing[1]), "unclassified"
+                )
+                staging_us_by_mode[composition_mode].append(measured_us)
 
         matched = []
         for display, backings in output_backings.items():
@@ -194,11 +221,23 @@ def analyze(session_dir: Path, composer_log: Path, mode: str) -> dict[str, Any]:
                 frame_identities[index]
                 for index in sorted({0, len(frame_identities) // 2, len(frame_identities) - 1})
             ],
-            "copy_overhead_us": ({
+            "staging_pipeline_us": ({
                 "p50": statistics.median(staging_us),
                 "p95": sorted(staging_us)[int(0.95 * (len(staging_us) - 1))],
                 "max": max(staging_us),
             } if staging_us else None),
+            "staging_pipeline_measurement_scope": (
+                "presenter t0-to-t1 includes GBM allocation, DMA-BUF synchronization, mapping, visible-row copy, and export; acquire-fence wait precedes t0"
+            ),
+            "staging_pipeline_by_composition": {
+                mode: {
+                    "frames": len(values),
+                    "p50": statistics.median(values),
+                    "p95": sorted(values)[int(0.95 * (len(values) - 1))],
+                    "max": max(values),
+                }
+                for mode, values in staging_us_by_mode.items() if values
+            },
         })
 
     logcat = (session_dir / "logcat.log").read_text(errors="replace")
