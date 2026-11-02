@@ -428,6 +428,32 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertLess(generated.index('AAAS_INPUT_ADAPTER_STARTED'),
                         generated.index('=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==='))
 
+    def test_runner_binds_latency_probe_apks_only_when_explicitly_requested(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / 'probe.apk'
+            second = root / 'probe2.apk'
+            first.write_bytes(b'first')
+            second.write_bytes(b'second')
+            default_root = root / 'default'
+            diagnostic_root = root / 'diagnostic'
+            default_root.mkdir()
+            diagnostic_root.mkdir()
+            default = SESSION.make_session_runner(default_root).read_text()
+            generated = SESSION.make_session_runner(
+                diagnostic_root, app_package='org.example.probe',
+                app_package2='org.example.probe2',
+                experimental_virtual_display=True,
+                input_response_probe_apk=first,
+                input_response_probe_apk2=second).read_text()
+        self.assertNotIn('AaasLatencyProbe', default)
+        self.assertIn(f'--ro-bind "{first.resolve()}" '
+                      '/product/app/AaasLatencyProbe/AaasLatencyProbe.apk', generated)
+        self.assertIn(f'--ro-bind "{second.resolve()}" '
+                      '/product/app/AaasLatencyProbe2/AaasLatencyProbe2.apk', generated)
+        self.assertLess(generated.index('--bind "{rootfs}" /'),
+                        generated.index('--dir /product/app/AaasLatencyProbe'))
+
     def test_runner_resolves_the_requested_package_launcher(self):
         with tempfile.TemporaryDirectory() as directory:
             generated = SESSION.make_session_runner(

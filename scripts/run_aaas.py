@@ -405,7 +405,8 @@ def parse_display_density(value):
 
 def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKAGE,
                         experimental_virtual_display=False, app_package2=None,
-                        bluetooth_policy_dir=None):
+                        bluetooth_policy_dir=None, input_response_probe_apk=None,
+                        input_response_probe_apk2=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -415,6 +416,25 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             raise ValueError('app2 must differ from app')
         if not experimental_virtual_display:
             raise ValueError('app2 requires --experimental-virtual-display')
+    input_response_probe_binds = ""
+    probe_apks = [(input_response_probe_apk, "AaasLatencyProbe")]
+    if input_response_probe_apk2 is not None:
+        if app_package2 is None:
+            raise ValueError('--input-response-probe-apk2 requires --app2')
+        probe_apks.append((input_response_probe_apk2, "AaasLatencyProbe2"))
+    for probe_path, overlay_name in probe_apks:
+        if probe_path is None:
+            continue
+        if not experimental_virtual_display:
+            raise ValueError('--input-response-probe-apk requires --experimental-virtual-display')
+        probe_apk = Path(probe_path).resolve()
+        if not probe_apk.is_file():
+            raise ValueError(f'input-response probe APK does not exist: {probe_apk}')
+        input_response_probe_binds += (
+            f'  --dir /product/app/{overlay_name} \\\n'
+            f'  --ro-bind "{probe_apk}" '
+            f'/product/app/{overlay_name}/{overlay_name}.apk \\\n'
+        )
     timeout = '140'
     source = RUNNER.read_text()
     bluetooth_policy_bind = (
@@ -431,6 +451,11 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         source,
         '{wifi_feature_bind}{services_jar_bind}',
         '{wifi_feature_bind}{bluetooth_policy_bind}{services_jar_bind}',
+    )
+    source = replace_once(
+        source,
+        '{mapper_bind}{allocator_bind}',
+        input_response_probe_binds + '{mapper_bind}{allocator_bind}',
     )
     source = replace_once(
         source,
@@ -1312,6 +1337,10 @@ def main():
                         help='Opt in to per-operation staging and presenter-thread timing')
     parser.add_argument('--trace-input-response-roi',
                         help='Opt in to bounded input-to-presented-frame tracking for source ROI x,y,w,h')
+    parser.add_argument('--input-response-probe-apk',
+                        help='diagnostic-only APK overlaid as a system app for input latency measurements')
+    parser.add_argument('--input-response-probe-apk2',
+                        help='optional second diagnostic APK for distinct-package two-display input checks')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
                         help='Opt in to host/cgroup resource snapshots; optionally sample every N seconds (0 disables periodic samples, max 3600 samples)')
     parser.add_argument('--test-tombstone-capture', action='store_true',
@@ -1329,6 +1358,10 @@ def main():
         parser.error('--trace-staging-stages requires --experimental-virtual-display')
     if args.trace_input_response_roi and not args.experimental_virtual_display:
         parser.error('--trace-input-response-roi requires --experimental-virtual-display')
+    if args.input_response_probe_apk and not args.experimental_virtual_display:
+        parser.error('--input-response-probe-apk requires --experimental-virtual-display')
+    if args.input_response_probe_apk2 and not args.app2:
+        parser.error('--input-response-probe-apk2 requires --app2')
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
     if args.test_tombstone_capture and args.app2:
@@ -1500,7 +1533,9 @@ def main():
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
                                  app_package2=args.app2,
-                                 bluetooth_policy_dir=bluetooth_policy_dir)
+                                 bluetooth_policy_dir=bluetooth_policy_dir,
+                                 input_response_probe_apk=args.input_response_probe_apk,
+                                 input_response_probe_apk2=args.input_response_probe_apk2)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
