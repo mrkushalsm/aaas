@@ -52,7 +52,9 @@ Presenter receive-to-commit and commit-to-presentation are available for profile
 
 ## Excluded low-memory input attempt
 
-Session `m1b84_session_swvikvp2` is recorded as **FAILED**, not accepted: Android did not bring Settings to the ready state, so the real-input measurement never began. Host swap free fell from 480,220 kB at startup to 7,616 kB at shutdown-begin; memory pressure rose and Android lowmemorykiller killed Launcher3, Settings, and PermissionController. The failure record and raw log hashes are in the structured acceptance JSON. This attempt is excluded from latency distributions and does not explain the historical 326.704 ms event.
+Session `m1b84_session_swvikvp2` is recorded as **FAILED**, not accepted: Android did not bring Settings to the ready state, so the real-input measurement never began. Android userspace LMKD killed Settings PID 3132 (uid 1000, `oom_score_adj=102`) because the minimum watermark was breached and swap was 1,396 kB, below its 801,380 kB threshold. It also killed other Android processes. Host swap free fell from 480,220 kB at startup to 7,616 kB at shutdown-begin, with elevated memory PSI; the AaaS cgroup had no memory limit and no cgroup OOM events. This was a legitimate pressure response, not evidence of an LMKD policy defect. The failure record and raw log hashes are in the structured acceptance JSON. This attempt is excluded from latency distributions and does not explain the historical 326.704 ms event.
+
+A later default-mode input probe (`m1b84_session_slrcq4l5`) sent real Wayland pointer/key input through the AaaS adapter. Android launched Settings SearchActivity, and the adapter acknowledged packets, but visible Settings pixels remained unchanged; no affected frame could be causally identified. The exploratory full-frame hash cost 3.43–7.49 ms per frame, so its traces are excluded from timing. Input-to-presentation remains **NOT MEASURED**. Raw log hashes and the exact limitation are in `acceptance.json`.
 
 ## Optimization decision and status
 
