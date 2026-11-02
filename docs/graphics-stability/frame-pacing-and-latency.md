@@ -50,6 +50,10 @@ The presenter now records host input packets and sequences; the Android input ad
 
 Presenter receive-to-commit and commit-to-presentation are available for profiled frames. Android application update, SurfaceFlinger composition, Composer output-ready, and Composer mixed-operation timestamps are not emitted on a compatible frame clock in this runtime, so full app-to-display latency is unavailable. No cross-process timestamps are subtracted unless the request timestamp is explicitly copied across the boundary.
 
+## Excluded low-memory input attempt
+
+Session `m1b84_session_swvikvp2` is recorded as **FAILED**, not accepted: Android did not bring Settings to the ready state, so the real-input measurement never began. Host swap free fell from 480,220 kB at startup to 7,616 kB at shutdown-begin; memory pressure rose and Android lowmemorykiller killed Launcher3, Settings, and PermissionController. The failure record and raw log hashes are in the structured acceptance JSON. This attempt is excluded from latency distributions and does not explain the historical 326.704 ms event.
+
 ## Optimization decision and status
 
 No production performance optimization was justified by the bounded measurements. The common path is not shown to violate the host frame budget, and the one large historical stall lacks stage evidence. The instrumentation and analyzer are reusable and opt-in; existing AaaS synchronization and release invariants remain unchanged.
