@@ -1,155 +1,98 @@
-# Historical SwiftShader v4 buffer lifetime investigation
+# Historical SwiftShader v4 fault
 
-Status: **advanced; root cause unresolved**
+Status: **PASS/CLOSED — paired-row bounds defect established and corrected**
 Evidence date: 2026-11-02
-M1E status: unchanged; this investigation is separate from M1E closure.
+M1E and Bluetooth status: unchanged.
 
-## New reconstruction from the preserved crash
+## Causal reconstruction
 
-The v4 crash is a stale access after unmapping, not the separate odd-height
-bounds defect. In SurfaceFlinger PID 222, TID 262 (`Thread<15>`) executed
-`PixelRoutine_00000042`. At routine offset `0x125f`, the 8-byte load
-`movq (%rcx,%rax,1),%xmm1` calculated `0x7f31c8ba4100 + 0xf00`, exactly the
-base `0x7f31c8ba5000` of AHardwareBuffer `3560527888403`. The allocation was
-960x578 with a 3840-byte row stride; if mapped, the computed offset is zero,
-inside its advertised extent. The tombstone says that page was unmapped at the
-fault. The distinct 960x557 paired-row correction does not explain this even-
-height access.
+The historical `m1b84_session_hqgkycni` fault was not a read from the released
+960×578 AHardwareBuffer. It was an out-of-bounds paired-row read from a live
+960×557 color target; its address happened to equal the adjacent, already
+unmapped 960×578 buffer's base. This resolves the previously reported
+stale-buffer interpretation.
 
-The v4 trace records the matching `AAAS_AHB_VK_REF_RELEASE_END` on TID 235,
-the SurfaceFlinger `RenderEngine` thread, 32.5 ms before the crash. The
-AHardwareBuffer usage flags are `0xb00`, which include GPU sampled-image
-(`0x100`), GPU framebuffer (`0x200`), and composer overlay (`0x800`) bits. The
-JIT byte-pattern/source match identifies this particular load in
-`PixelRoutine::writeColor()` while reading the color attachment. Together,
-these facts tie the stale address to an allocation released by the RenderEngine
-thread and later accessed as a color target by a SwiftShader renderer worker.
-They do not name the Vulkan object chain.
+In SurfaceFlinger PID 222, TID 262 executed
+`PixelRoutine_00000042` at routine offset `0x125f`:
 
-At tombstone capture, TID 264 was in
-`CmdEndRendering::execute -> Renderer::synchronize -> marl::Ticket::wait`.
-TID 235 was in ANGLE `GL_Finish -> CommandQueue::finishResourceUse ->
- vk::Device::waitForFences`. Thus renderer work had not drained at the crash
-boundary and the RenderEngine was waiting on a Vulkan fence. Neither stack
-contains an AHardwareBuffer, VkImage, framebuffer, or submission identity, so
-these observations do not prove that either wait governed the released buffer.
-The release event is emitted from SwiftShader's external-memory unlock/release
-path; v4 did not log the owning VkDeviceMemory handle or its destruction call.
+```asm
+movq (%rcx,%rax,1),%xmm1
+```
 
-## What remains unproven
+The original registers give `r8=0x7f31c8ba3400`, `rdx=0xd00`,
+`rcx=0x7f31c8ba4100`, and `rax=0xf00`. The v4 JIT code dump confirms the
+preceding instructions set `rcx = r8 + rdx` and load the row pitch into `rax`.
+The original trace identifies a 960×557 AHardwareBuffer at
+`0x7f31c899a000`, with a 3840-byte row pitch and GPU framebuffer usage. The
+address arithmetic is:
 
-Two ownership explanations remain viable:
+```text
+r8 - target_base = 0x209400 = 556 × 3840
+rdx              = 0x00d00 = 832 × 4
+fault             = target_base + 556 × 3840 + 832 × 4 + 3840
+                  = target_base + 557 × 3840 + 832 × 4
+                  = 0x7f31c8ba5000
+```
 
-1. ANGLE/SurfaceFlinger retired the imported memory while a submitted draw still
-   referenced its color attachment.
-2. SwiftShader retained a target pointer in a renderer job after the caller's
-   Vulkan lifetime boundary had completed.
+The tombstone maps the 557-row target from `0x7f31c899a000` through
+`0x7f31c8ba4fff`, exactly `0x20b000` bytes. The fault address is the first
+byte after that mapping: row 557, pixel 832, beyond a 557-row image.
 
-A third independent source concern is semaphore completion ordering in the
-pinned SwiftShader queue implementation: `Queue::submitQueue()` signals
-semaphores before its optional end-of-task renderer synchronization. The Vulkan
-queue-submit contract requires signal operations to cover the commands in the
-batch ([`vkQueueSubmit`](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueueSubmit.html)). However, the historical v4 trace has no
-queue/submission events, while later v10 runtime traces recorded no
-signal-semaphore events. This ordering concern is not linked to the v4
-AHardwareBuffer and is not claimed as its cause or as an AaaS runtime
-reproduction. No speculative change was made.
+The trace also records a different 960×578 AHardwareBuffer at
+`0x7f31c8ba5000`, released 32.5 ms before the crash. That release explains why
+the one-past-target address was unmapped. It does not make the released buffer
+the object read by the instruction. The 960×557 mapping remained present in the
+tombstone. The earlier inference that the load was at offset zero of the 578
+buffer considered the fault address relative to that buffer but did not account
+for the adjacent live 557 target.
 
-The v10 trace infrastructure already records `AAAS_DRAW_TARGET`, including
-AHardwareBuffer-backed memory, image/view identity, submission, draw, and
-renderer completion. In healthy SurfaceFlinger PID 261, AHardwareBuffer
-`9650791514121` mapped to memory 273, image 272, and view 276 at 960×578. Its
-last recorded target draw (submission 412, draw 1332) completed and renderer
-synchronization returned before view/image destruction and AHardwareBuffer
-unlock/release. This confirms the instrumentation can preserve the full chain
-for a healthy 960×578 target. It is a different SurfaceFlinger process and a
-different AHardwareBuffer; it does not identify or explain the v4 release.
+## Reproduction and correction
 
-## Next required diagnostic observation
+This is the same `PixelRoutine::writeColor()` odd-height paired-row bounds
+defect corrected in commit
+[`f38251d`](../../experiments/m1e/patches/swiftshader_coherent_diagnostic.patch).
+The fix carries the color attachment height into `DrawData`, clamps the
+second-row preservation-read pitch to zero on the last odd-height quad, and
+masks invalid helper-row color/depth/stencil writes.
 
-If this crash recurs, preserve one same-process trace containing all of:
+The independent v41 replay, built with the correction intentionally omitted,
+crashed at the first unmapped byte after its 960×557 target with the same
+`writeColor` paired-row instruction. The replay also had a retired allocation
+at that virtual address, demonstrating why address-only attribution is unsafe.
+The earlier v8 pre-fix run independently linked the faulting JIT access to its
+960×557 VkImage, VkDeviceMemory, draw, and render area.
 
-- The faulting AHardwareBuffer identity and mapping base.
-- Its VkDeviceMemory, VkImage, VkImageView, framebuffer/color-attachment, and
-  draw-target links.
-- Queue submission and renderer worker completion for the faulting draw.
-- The ANGLE/RenderEngine resource-retirement and fence event that caused
-  `vkFreeMemory`/AHardwareBuffer unlock.
-- The virtual-display resize generation associated with the target.
+The corrected no-tracing candidate is
+`m1e_swiftshader_fixed_notrace_v2.so`, SHA-256
+`e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee`, Build ID
+`603ff4f389a1050a89743c1adef98c7a39dfefb4`. Its manifest records pinned
+SwiftShader revision `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5` and source diff
+SHA-256 `49c1ce42f0cb09dd69a81645c9a3bec91a390c958ac3d49ff2bd3edf4df86ece`.
+The default AaaS runner selects this diagnostics-disabled candidate. It passed
+the actual 720×1280 → 960×578 → 960×557 → 960×565 → 720×1280 sequence in both
+default and enhanced LMKD/cgroup sessions. Both ended STOPPED, matched Android
+source frames to requested sizes, survived without SurfaceFlinger or
+system_server fatal events, balanced presenter buffer accounting, and ended
+with zero outstanding buffers. Enhanced-mode cgroup cleanup passed.
 
-The coherent v10 diagnostic build has the target/submission tracing needed for
-that observation. Do not repeat identical resize trials solely to seek a crash;
-use a bounded run only when the trace can preserve this missing link. Keep the
-production overlay unchanged. The historic v4 tombstone and trace remain
-preserved externally with hashes in
-[`swiftshader_v4_ownership_narrowing_20261102.json`](../../results/graphics-stability/swiftshader_v4_ownership_narrowing_20261102.json).
+The v4 run itself remains a historical FAILED session. The original tombstone,
+trace, and JIT code are unchanged. The preserved historical production overlay
+also remains byte-identical at SHA-256
+`1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`.
 
-## 2026-11-02 v4-behavior identity-trace replay
+## Scope and separate questions
 
-An isolated build reconstructed the pinned v4 diagnostic patch and added the
-existing v10 Vulkan object/submission trace points. Its source patch hash is
-`d7aeebb8b141babb434c0596859edbfd40c3a2c1ce5b838ad454658698b548b7`; overlay
-SHA-256 is `793eebeaea68ee74f7bb9788111c7e5ef6fa9b70f63f9e58e0fc03ae6d1a9fb9`,
-Build ID `bd384358c7d884a1a30bdbb6bee9760b5d9ed257`. The build intentionally
-omitted the later odd-height PixelRoutine correction so its behavior matched
-the v4 source path.
+The evidence establishes the actual out-of-bounds mechanism and connects it to
+the existing source correction. It does not establish an additional
+SwiftShader/ANGLE use-after-free, a premature Vulkan retirement defect, or a
+semaphore-ordering defect. No such correction is claimed or needed to explain
+this fault. The independent bounded current-build ownership verification
+record remains intact.
 
-The first replay used 960×557 and crashed in a separate known bounds path. The
-trace links draw 1052 / submission 324 to VkImage 290, view 294, VkDeviceMemory
-291, and AHardwareBuffer `1116691497018` at 960×557. The effective address
-`0x7fc4152f5000` is the first `PROT_NONE` guard page after that mapping; no
-release of memory 291 preceded the fault. The worker draw had no completion
-record. This is an odd-height out-of-bounds access, not evidence about the
-historical even-height 960×578 stale mapping read.
-
-Two subsequent runs with even heights only did not crash: one sequential
-default-mode run and one enhanced-mode paired run. The traced 960×578 targets
-showed draw completion and renderer synchronization before AHardwareBuffer
-release. Two other 720×1280 resources in each trace had no release event before
-trace end and remain unclassified. These current-process observations neither
-prove the historical v4 order nor establish a source correction.
-
-The original v4 defect therefore remains **OPEN / UNRESOLVED**. The current
-build's separate bounded verification record remains unchanged. Full session,
-resource and artifact hashes are in
-[`v4_idtrace_replay_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_idtrace_replay_20261102.json).
-
-## 2026-11-02 ANGLE/SwiftShader completion-path source audit
-
-The available AOSP `external/angle` tag `android-16.0.0_r1` was inspected at
-peeled commit `3dfe967316da2b7307fd86b8ee4add0559c557a1`. This is a source
-reference, not a verified source identity for the historical image's stripped
-`libEGL_angle.so` (Build ID `17c097b042d4b567ce4ba46d9ba2b8ae`). The current
-local Android source subset does not contain the ANGLE checkout needed to
-rebuild that exact library.
-
-In the inspected ANGLE source, `ContextVk::onColorDraw()` calls
-`RenderPassCommandBufferHelper::colorImagesDraw()`, which calls
-`ImageHelper::onRenderPassAttach(mQueueSerial)`. That records the queue serial
-on the attachment image. `ImageHelper::releaseImage()` collects both the
-`VkImage` and its `VkDeviceMemory` against `mUse`; `Renderer::collectGarbage()`
-destroys them only after `hasResourceUseFinished(mUse)` succeeds. `finishImpl()`
-flushes and waits for `mSubmittedResourceUse` before clearing context garbage.
-The AHardwareBuffer sibling imports through a dedicated Vulkan allocation and
-releases its `ImageHelper` through `releaseImage()`.
-
-In the pinned SwiftShader source, `CmdEndRenderPass::execute()` and
-`CmdEndRendering::execute()` call `Renderer::synchronize()` before returning.
-The queue task associated with a Vulkan fence also synchronizes the renderer
-before completing the fence event. This makes the straightforward hypothesis
-that ANGLE simply forgot to mark a color attachment as used less likely for
-these inspected code paths. It does not prove that the historical image used
-this exact ANGLE source, that the faulting attachment followed this path, or
-that the queue serial/fence at the historical release covered the faulting
-draw. The v4 incident still has no VkImage, queue serial, submission, or fence
-identity, and no source correction is justified by this audit alone.
-
-The queue implementation signals Vulkan semaphores before an optional final
-renderer synchronization. The inspected render-pass and dynamic-rendering end
-commands synchronize their draw jobs before command execution returns, while
-the fence path synchronizes before signaling its fence. No v4 signal semaphore
-was identified, so the semaphore ordering remains a separate bounded concern,
-not an explanation of the historical AHardwareBuffer read.
-
-Source hashes, function-level observations, and remaining causal gaps are in
-[`angle_resource_use_audit_20261102.json`](../../results/graphics-stability/buffer-lifetime/angle_resource_use_audit_20261102.json).
+The initial stale-buffer interpretation in
+[`swiftshader_v4_ownership_narrowing_20261102.json`](../../results/graphics-stability/swiftshader_v4_ownership_narrowing_20261102.json),
+and the earlier unresolved conclusion in
+[`v4_idtrace_replay_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_idtrace_replay_20261102.json),
+are preserved as dated analyses and superseded by the register-and-mapping
+reconstruction in
+[`v4_fault_geometry_reconstruction_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_fault_geometry_reconstruction_20261102.json).

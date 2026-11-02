@@ -1,33 +1,31 @@
-# SwiftShader buffer lifetime verification
+# SwiftShader graphics stability and historical v4 fault
 
-Status: **PASS/CLOSED for bounded current-build ownership verification**
-
-Historical v4 incident: **UNRESOLVED**
+Status: **PASS/CLOSED — historical fault mechanism established and corrected**
 
 Evidence date: 2026-11-02
 
 This is a separate post-M1E stability workstream. It does not change the M1E
-closure or the historical incident classification.
+closure or the independent Bluetooth runtime-health decision. The earlier
+bounded current-build ownership verification remains a separate completed
+result.
 
-## Historical v4 observation
+## Historical v4 fault resolution
 
-In session `m1b84_session_hqgkycni`, SurfaceFlinger PID 222, TID 262,
-`PixelRoutine_00000042` executed an 8-byte load at routine offset `0x125f`.
-The effective address was `0x7f31c8ba5000`, the base of AHardwareBuffer
-`3560527888403` (960×578, 3840-byte row stride). The mapping was absent at the
-fault. The matching external-memory release was recorded on RenderEngine TID
-235 approximately 32.5 ms earlier. This is a stale access after unmap at
-allocation offset zero. It is distinct from the corrected odd-height 960×557
-paired-row bounds defect.
+The first interpretation of `0x7f31c8ba5000` as an offset-zero read from the
+released 960×578 AHardwareBuffer was wrong. The v4 tombstone and trace show a
+960×557 framebuffer mapping ending at `0x7f31c8ba4fff`; JIT register arithmetic
+computes the access as row 557, x=832 of that framebuffer. The 960×578
+allocation's base happened to be the next address and was released 32.5 ms
+earlier. See the complete equations, raw artifact hashes, and pre/post runtime
+identities in
+[`v4_fault_geometry_reconstruction_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_fault_geometry_reconstruction_20261102.json).
 
-The tombstone and JIT trace are preserved externally and their existing hashes
-are recorded in
-[`swiftshader_v4_ownership_narrowing_20261102.json`](../../results/graphics-stability/swiftshader_v4_ownership_narrowing_20261102.json).
-The available v4 data does not identify the VkDeviceMemory, image/view,
-framebuffer, queue submission, renderer job, or retirement fence for that
-allocation. It therefore cannot establish whether the caller retired an
-in-flight resource or a worker outlived a valid Vulkan lifetime boundary.
-**No root cause or fix is claimed for that historical process.**
+The causal defect is the odd-height paired-row `PixelRoutine::writeColor()`
+out-of-bounds access, corrected by commit `f38251d`. The historical v4 session
+remains FAILED, but its fault mechanism is now established. This is not evidence
+of a Vulkan/ANGLE stale-resource retirement defect, and no such fix is claimed.
+The earlier analysis records remain preserved and are superseded as explained
+in [`swiftshader-v4.md`](swiftshader-v4.md).
 
 ## Ownership model audited
 
@@ -135,28 +133,18 @@ root cause. Machine-readable summaries and raw log hashes are in
 
 ## Closure decision
 
-**PASS/CLOSED: supported current-build ownership verification; historical v4
-cause unresolved.** The controlled ticket test includes a safe invalid-order
-negative control; same-process v10 tracing joins target allocation identity to
-draw completion, synchronization and release; and the accepted current
-candidate has bounded default/enhanced resize evidence plus fresh two-app
-smoke runs. No source defect that would justify a product fix was demonstrated
-in these current supported paths. The historical v4 stale access remains an
-unresolved incident and is not relabeled fixed. A future recurrence should use
-the v10 identity trace and preserve the associated RenderEngine fence/resource
-retirement identity before any new queue or lifetime change is considered.
+**PASS/CLOSED: the historical v4 JIT out-of-bounds read is causally identified
+and the source correction is active in the default AaaS runtime candidate.**
+The pre-fix behavior was reproduced in isolated 960×557 runs, including the
+same `writeColor` paired-row instruction and mapping-end address calculation.
+The correction clamps the invalid helper-row access and masks invalid writes.
+Default and enhanced runtime runs using the diagnostics-disabled corrected
+candidate completed the complete odd-height resize and resize-back sequence,
+matched Android source buffers, survived without fatal graphics/framework
+events, balanced presenter ownership, and drained to STOPPED. These are bounded
+acceptance results, not a universal no-crash guarantee.
 
-This closure is bounded to the cited source, build and exercised paths. It is
-not a universal claim that SwiftShader or Android graphics cannot fail.
-
-## Separate historical v4 defect status
-
-The PASS/CLOSED result above applies only to the earlier current-build ownership
-verification route. It does not close the historical v4 defect. That defect
-remains **OPEN / UNRESOLVED** until its stale-access cause and responsible
-ownership boundary are established and corrected. The 2026-11-02 v4-behavior
-identity-trace replay reproduced a distinct 960×557 guard-page bounds fault and
-healthy 960×578 release ordering in later processes; neither result identifies
-the historical v4 object's submission or retirement fence. See
-[`swiftshader-v4.md`](swiftshader-v4.md) and
-[`v4_idtrace_replay_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_idtrace_replay_20261102.json).
+The separate ticket-lifetime test and v10 resource traces remain useful current
+ownership evidence, but they were not the causal proof for v4. The semaphore
+ordering observation remains a separate unproven hypothesis and is not
+attributed to this incident.
