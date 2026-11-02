@@ -1302,6 +1302,10 @@ def main():
                         help='Select an isolated framework JAR overlay for experiments')
     parser.add_argument('--diagnostic-framework-sha256',
                         help='Required expected SHA-256 for the diagnostic framework overlay')
+    parser.add_argument('--diagnostic-composer-overlay',
+                        help='Use a hash-checked Composer binary for isolated runtime experiments')
+    parser.add_argument('--diagnostic-composer-sha256',
+                        help='Required SHA-256 for --diagnostic-composer-overlay')
     parser.add_argument('--resource-diagnostics', action='store_true',
                         help='Write read-only host/cgroup snapshots at session start and shutdown')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
@@ -1313,6 +1317,10 @@ def main():
         parser.error('--diagnostic-framework-overlay requires --experimental-virtual-display')
     if args.diagnostic_framework_sha256 and not args.diagnostic_framework_overlay:
         parser.error('--diagnostic-framework-sha256 requires --diagnostic-framework-overlay')
+    if bool(args.diagnostic_composer_overlay) != bool(args.diagnostic_composer_sha256):
+        parser.error('--diagnostic-composer-overlay and --diagnostic-composer-sha256 must be used together')
+    if args.diagnostic_composer_overlay and not args.experimental_virtual_display:
+        parser.error('--diagnostic-composer-overlay requires --experimental-virtual-display')
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
     if args.test_tombstone_capture and args.app2:
@@ -1350,8 +1358,17 @@ def main():
                 '--apktool', str(APKTOOL), '--output', str(VDISPLAY_SERVICES_OVERLAY),
                 '--work-parent', str(TMP), '--receipt', str(VDISPLAY_SERVICES_RECEIPT),
             ], check=True)
-        paths['AAAS_COMPOSER_OVERLAY'] = str(
-            build_multi_output_composer() if args.app2 else COMPOSER_VDISPLAY)
+        if args.diagnostic_composer_overlay:
+            diagnostic_composer = Path(args.diagnostic_composer_overlay).resolve(strict=True)
+            expected_composer_hash = args.diagnostic_composer_sha256.lower()
+            if not re.fullmatch(r'[0-9a-f]{64}', expected_composer_hash):
+                raise RuntimeError('diagnostic Composer SHA-256 must be 64 lowercase hex digits')
+            if sha256(diagnostic_composer) != expected_composer_hash:
+                raise RuntimeError(f'diagnostic Composer checksum changed: {diagnostic_composer}')
+            paths['AAAS_COMPOSER_OVERLAY'] = str(diagnostic_composer)
+        else:
+            paths['AAAS_COMPOSER_OVERLAY'] = str(
+                build_multi_output_composer() if args.app2 else COMPOSER_VDISPLAY)
         paths['AAAS_SERVICES_JAR_OVERLAY'] = str(VDISPLAY_SERVICES_OVERLAY)
     graphics_provenance = collect_graphics_provenance(paths)
     primary_diagnostic = show_primary_diagnostic(args)
@@ -1501,6 +1518,8 @@ def main():
         if args.app2:
             env['AAAS_VDISPLAY2_INPUT_ADAPTER_LOG'] = str(vdisplay2_input_adapter_log)
     presenter = virtual_presenter = virtual_presenter2 = android = None
+    presenter_trace_args = (['--trace-buffer-identities']
+                            if args.diagnostic_composer_overlay else [])
     state = 'CREATED'
     input_ready_reported = False
     running_session = False
@@ -1533,7 +1552,7 @@ def main():
         socket_path.unlink(missing_ok=True)
         with log_path.open('ab') as presenter_log:
             process = subprocess.Popen(
-                [str(PRESENTER), '--socket', str(socket_path),
+                [str(PRESENTER), '--socket', str(socket_path), *presenter_trace_args,
                  '--width', presenter_size[0], '--height', presenter_size[1],
                  '--display-width', display_size[0],
                  '--display-height', display_size[1],
@@ -1723,6 +1742,7 @@ def main():
                 with virtual_log_path.open('wb') as virtual_log:
                     virtual_presenter = subprocess.Popen(
                         [str(PRESENTER), '--socket', str(ipc / 'wayland-vdisplay.sock'),
+                         *presenter_trace_args,
                          '--width', presenter_size[0], '--height', presenter_size[1],
                      '--display-width', display_size[0],
                      '--display-height', display_size[1],
@@ -1745,7 +1765,7 @@ def main():
                     with virtual2_log_path.open('wb') as virtual2_log:
                         virtual_presenter2 = subprocess.Popen(
                             [str(PRESENTER), '--socket',
-                             str(ipc / 'wayland-vdisplay.sock-2'),
+                             str(ipc / 'wayland-vdisplay.sock-2'), *presenter_trace_args,
                              '--width', presenter_size[0], '--height', presenter_size[1],
                              '--display-width', display_size[0],
                              '--display-height', display_size[1],

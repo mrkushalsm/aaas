@@ -15,6 +15,7 @@ typedef struct {
     uint32_t initial_display_height;
     const char *drm_node;
     bool force_implicit_sync;
+    bool trace_buffer_identities;
     uint32_t max_frames; /* 0 for infinite */
     const volatile sig_atomic_t *running; /* optional signal-driven shutdown */
 

@@ -32,6 +32,7 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <linux/dma-buf.h>
 #include <math.h>
 #include <limits.h>
@@ -60,6 +61,7 @@ typedef struct {
 
 struct presenter_app {
     int sock;
+    bool trace_buffer_identities;
     uint32_t w, h, gen;
     uint32_t pending_w, pending_h;
     uint32_t initial_w, initial_h;
@@ -1821,6 +1823,21 @@ static void handle_incoming_buffer(presenter_app *a) {
     int dma_fd = fds[0];
     bool owned_dma_fd = false;
     int acquire_fence_fd = (m.flags & AAAS_V2_FLAG_EXPLICIT_SYNC && nfds > 1) ? fds[1] : -1;
+    if (a->trace_buffer_identities) {
+        struct stat received_stat = {0};
+        const bool received_stat_ok = fstat(dma_fd, &received_stat) == 0;
+        char received_json[192];
+        snprintf(received_json, sizeof(received_json),
+                 "\"width\":%u,\"height\":%u,\"stride_bytes\":%u,"
+                 "\"format\":%u,\"dma_dev\":%llu,\"dma_ino\":%llu,"
+                 "\"fstat_ok\":%s",
+                 m.width, m.height, m.stride[0], m.format,
+                 (unsigned long long)(received_stat_ok ? received_stat.st_dev : 0),
+                 (unsigned long long)(received_stat_ok ? received_stat.st_ino : 0),
+                 received_stat_ok ? "true" : "false");
+        log_presenter_event("transport_buffer_received", m.generation, m.id,
+                            received_json);
+    }
 
     if ((m.flags & AAAS_V2_FLAG_EXPLICIT_SYNC) &&
         (acquire_fence_fd < 0 || !sync_file_is_valid(acquire_fence_fd))) {
@@ -2053,6 +2070,23 @@ static void handle_incoming_buffer(presenter_app *a) {
         return;
     }
 
+    if (a->trace_buffer_identities) {
+        struct stat imported_stat = {0};
+        const bool imported_stat_ok = fstat(dma_fd, &imported_stat) == 0;
+        char import_json[224];
+        snprintf(import_json, sizeof(import_json),
+                 "\"width\":%u,\"height\":%u,\"stride_bytes\":%u,"
+                 "\"format\":%u,\"dma_dev\":%llu,\"dma_ino\":%llu,"
+                 "\"staged_copy\":%s,\"fstat_ok\":%s",
+                 m.width, m.height, m.stride[0], m.format,
+                 (unsigned long long)(imported_stat_ok ? imported_stat.st_dev : 0),
+                 (unsigned long long)(imported_stat_ok ? imported_stat.st_ino : 0),
+                 owned_dma_fd ? "true" : "false",
+                 imported_stat_ok ? "true" : "false");
+        log_presenter_event("wayland_buffer_imported", m.generation, m.id,
+                            import_json);
+    }
+
     if (owned_dma_fd) close(dma_fd);
     close(fds[0]);
     fds[0] = -1;
@@ -2265,6 +2299,7 @@ static void input_teardown(presenter_app *a) {
 int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     presenter_app app = {
         .sock = config->sock,
+        .trace_buffer_identities = config->trace_buffer_identities,
         .w = config->initial_width ? config->initial_width : 640,
         .h = config->initial_height ? config->initial_height : 480,
         .initial_w = config->initial_width ? config->initial_width : 640,

@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <stdarg.h>
+#include <limits>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
@@ -45,6 +46,7 @@
 
 #include "aaas_transport.h"
 #include "linear_copy.h"
+#include "mixed_compose.h"
 #include "virtual_transport_pool.h"
 
 #ifndef AAAS_DISPLAY_WIDTH
@@ -147,6 +149,41 @@ struct VirtualBufferSlot {
     uint64_t generation = 0;
 };
 
+struct VirtualLayerBufferSlot {
+    int dma_fd = -1;
+    int acquire_fence = -1;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t stride = 0;
+    uint32_t format = 0;
+    uint32_t allocation_size = 0;
+    uint64_t buffer_id = 0;
+};
+
+struct VirtualLayerState {
+    int64_t id = 0;
+    int requested_composition = -1;
+    int selected_composition = static_cast<int>(Composition::CLIENT);
+    int buffer_slot = -1;
+    std::vector<VirtualLayerBufferSlot> buffers;
+    bool has_display_frame = false;
+    Rect display_frame;
+    bool has_source_crop = false;
+    FRect source_crop;
+    bool has_blend_mode = false;
+    BlendMode blend_mode = BlendMode::INVALID;
+    bool has_plane_alpha = false;
+    float plane_alpha = 1.0f;
+    bool has_transform = false;
+    Transform transform = Transform::NONE;
+    bool has_z = false;
+    int32_t z = 0;
+    bool has_color_transform = false;
+    bool has_brightness = false;
+    float brightness = 1.0f;
+    bool has_luts = false;
+};
+
 struct VirtualDisplayState {
     std::mutex lock;
     bool destroyed = false;
@@ -155,6 +192,7 @@ struct VirtualDisplayState {
     PixelFormat format = PixelFormat::UNSPECIFIED;
     std::vector<VirtualBufferSlot> output_slots;
     VirtualBufferSlot client_target[64];
+    std::unordered_map<int64_t, VirtualLayerState> layers;
     int current_output_slot = -1;
     int current_client_slot = -1;
     int transport_slot = -1;
@@ -349,12 +387,23 @@ public:
     }
 
     ::ndk::ScopedAStatus createLayer(int64_t in_display, int32_t in_bufferSlotCount, int64_t* _aidl_return) override {
-        (void)in_bufferSlotCount;
+        if (in_bufferSlotCount < 1 || in_bufferSlotCount > 256) {
+            return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_BAD_PARAMETER);
+        }
         int64_t layerId = mNextLayerId++;
         {
             std::lock_guard<std::mutex> lock(mLayerLock);
             mLayerDisplays.emplace(layerId, in_display);
         }
+#if defined(AAAS_ENABLE_MIXED_COMPOSITION_TEST)
+        if (auto state = findVirtualDisplay(in_display)) {
+            std::lock_guard<std::mutex> state_lock(state->lock);
+            VirtualLayerState layer;
+            layer.id = layerId;
+            layer.buffers.resize(static_cast<size_t>(in_bufferSlotCount));
+            state->layers.emplace(layerId, std::move(layer));
+        }
+#endif
         mNeedsValidation = true;
         kmsg_log("[AaasComposerClient] createLayer(display=%ld, slotCount=%d) -> layerId=%ld\n",
                  (long)in_display, in_bufferSlotCount, (long)layerId);
@@ -370,6 +419,19 @@ public:
                 mLayerDisplays.erase(it);
             }
         }
+#if defined(AAAS_ENABLE_MIXED_COMPOSITION_TEST)
+        if (auto state = findVirtualDisplay(in_display)) {
+            std::lock_guard<std::mutex> state_lock(state->lock);
+            auto it = state->layers.find(in_layer);
+            if (it != state->layers.end()) {
+                for (auto& slot : it->second.buffers) {
+                    if (slot.dma_fd >= 0) close(slot.dma_fd);
+                    if (slot.acquire_fence >= 0) close(slot.acquire_fence);
+                }
+                state->layers.erase(it);
+            }
+        }
+#endif
         mNeedsValidation = true;
         kmsg_log("[AaasComposerClient] destroyLayer(display=%ld, layerId=%ld)\n", (long)in_display, (long)in_layer);
         return ::ndk::ScopedAStatus::ok();
@@ -377,6 +439,7 @@ public:
 
     ::ndk::ScopedAStatus executeCommands(const std::vector<DisplayCommand>& in_commands, std::vector<CommandResultPayload>* _aidl_return) override {
         kmsg_log("[AaasComposerClient] executeCommands: count=%zu\n", in_commands.size());
+        static std::atomic<uint32_t> virtual_composition_diagnostics = 0;
         size_t command_index = 0;
         for (const auto& cmd : in_commands) {
             kmsg_log("  [cmd] display=%lld val=%d accept=%d pres=%d presOrVal=%d ct=%d layers=%zu\n",
@@ -390,8 +453,33 @@ public:
                 if (has_h && !l.buffer->handle->fds.empty()) {
                     fd = l.buffer->handle->fds[0].get();
                 }
-                kmsg_log("    [layer] id=%lld buf=%d slot=%d has_h=%d fd=%d\n",
-                         (long long)l.layer, l.buffer.has_value(), slot, has_h, fd);
+                const int requested_composition = l.composition.has_value()
+                        ? static_cast<int>(l.composition->composition) : -1;
+                if (cmd.display >= 100 &&
+                    virtual_composition_diagnostics.fetch_add(
+                            1, std::memory_order_relaxed) < 64) {
+                    const auto& frame = l.displayFrame;
+                    const auto& crop = l.sourceCrop;
+                    const int blend = l.blendMode.has_value()
+                            ? static_cast<int>(l.blendMode->blendMode) : -1;
+                    const int transform = l.transform.has_value()
+                            ? static_cast<int>(l.transform->transform) : -1;
+                    const float alpha = l.planeAlpha.has_value()
+                            ? l.planeAlpha->alpha : -1.0f;
+                    const int32_t z = l.z.has_value() ? l.z->z : -1;
+                    kmsg_log("    [layer] id=%lld composition=%d buf=%d slot=%d has_h=%d fd=%d frame=%d,%d,%d,%d crop=%.2f,%.2f,%.2f,%.2f blend=%d alpha=%.3f transform=%d z=%d\n",
+                             (long long)l.layer, requested_composition,
+                             l.buffer.has_value(), slot, has_h, fd,
+                             frame.has_value() ? frame->left : -1,
+                             frame.has_value() ? frame->top : -1,
+                             frame.has_value() ? frame->right : -1,
+                             frame.has_value() ? frame->bottom : -1,
+                             crop.has_value() ? crop->left : -1.0f,
+                             crop.has_value() ? crop->top : -1.0f,
+                             crop.has_value() ? crop->right : -1.0f,
+                             crop.has_value() ? crop->bottom : -1.0f,
+                             blend, alpha, transform, z);
+                }
                 if (fd >= 0 && l.buffer->handle->ints.size() >= 8 && (uint32_t)l.buffer->handle->ints[0] == 0x61616173) {
                     uint32_t w = (uint32_t)l.buffer->handle->ints[1];
                     uint32_t h = (uint32_t)l.buffer->handle->ints[2];
@@ -412,6 +500,12 @@ public:
                         munmap(ptr, sz);
                     }
                 }
+#if defined(AAAS_ENABLE_MIXED_COMPOSITION_TEST)
+                if (auto virtual_state = findVirtualDisplay(cmd.display)) {
+                    std::lock_guard<std::mutex> state_lock(virtual_state->lock);
+                    if (!virtual_state->destroyed) updateVirtualLayer(*virtual_state, l);
+                }
+#endif
             }
             // 1. Process client target if provided
             if (cmd.clientTarget.has_value()) {
@@ -506,7 +600,27 @@ public:
             if (cmd.validateDisplay) {
                 ChangedCompositionTypes cct;
                 cct.display = cmd.display;
-                {
+                if (auto virtual_state = findVirtualDisplay(cmd.display)) {
+                    std::lock_guard<std::mutex> state_lock(virtual_state->lock);
+                    VirtualLayerState* device_layer =
+                            virtual_state->destroyed ? nullptr : selectTestDeviceLayer(*virtual_state);
+                    for (auto& [layer_id, layer] : virtual_state->layers) {
+                        const int selected = device_layer && device_layer->id == layer_id
+                                ? static_cast<int>(Composition::DEVICE)
+                                : static_cast<int>(Composition::CLIENT);
+                        layer.selected_composition = selected;
+                        if (layer.requested_composition == selected) {
+                            continue;
+                        }
+                        ChangedCompositionLayer ccl;
+                        ccl.layer = layer_id;
+                        ccl.composition = static_cast<Composition>(selected);
+                        cct.layers.push_back(ccl);
+                    }
+                    kmsg_log("[AaasComposerClient] virtual composition display=%lld requested_layers=%zu selected_device_layer=%lld\n",
+                             (long long)cmd.display, virtual_state->layers.size(),
+                             device_layer ? (long long)device_layer->id : -1LL);
+                } else {
                     std::lock_guard<std::mutex> lock(mLayerLock);
                     for (const auto& [layerId, ownerDisplay] : mLayerDisplays) {
                         if (ownerDisplay != cmd.display) continue;
@@ -531,7 +645,27 @@ public:
 
                 ChangedCompositionTypes cct;
                 cct.display = cmd.display;
-                {
+                if (auto virtual_state = findVirtualDisplay(cmd.display)) {
+                    std::lock_guard<std::mutex> state_lock(virtual_state->lock);
+                    VirtualLayerState* device_layer =
+                            virtual_state->destroyed ? nullptr : selectTestDeviceLayer(*virtual_state);
+                    for (auto& [layer_id, layer] : virtual_state->layers) {
+                        const int selected = device_layer && device_layer->id == layer_id
+                                ? static_cast<int>(Composition::DEVICE)
+                                : static_cast<int>(Composition::CLIENT);
+                        layer.selected_composition = selected;
+                        if (layer.requested_composition == selected) {
+                            continue;
+                        }
+                        ChangedCompositionLayer ccl;
+                        ccl.layer = layer_id;
+                        ccl.composition = static_cast<Composition>(selected);
+                        cct.layers.push_back(ccl);
+                    }
+                    kmsg_log("[AaasComposerClient] virtual composition display=%lld requested_layers=%zu selected_device_layer=%lld\n",
+                             (long long)cmd.display, virtual_state->layers.size(),
+                             device_layer ? (long long)device_layer->id : -1LL);
+                } else {
                     std::lock_guard<std::mutex> lock(mLayerLock);
                     for (const auto& [layerId, ownerDisplay] : mLayerDisplays) {
                         if (ownerDisplay != cmd.display) continue;
@@ -669,6 +803,14 @@ private:
     static void closeVirtualDisplayState(VirtualDisplayState& state) {
         for (auto& slot : state.output_slots) closeVirtualSlot(slot);
         for (auto& slot : state.client_target) closeVirtualSlot(slot);
+        for (auto& [layer_id, layer] : state.layers) {
+            (void)layer_id;
+            for (auto& slot : layer.buffers) {
+                if (slot.dma_fd >= 0) close(slot.dma_fd);
+                if (slot.acquire_fence >= 0) close(slot.acquire_fence);
+            }
+        }
+        state.layers.clear();
         state.current_output_slot = -1;
         state.current_client_slot = -1;
     }
@@ -732,6 +874,203 @@ private:
         return true;
     }
 
+    static void updateVirtualLayer(VirtualDisplayState& state,
+                                   const LayerCommand& command) {
+        auto [it, inserted] = state.layers.try_emplace(command.layer);
+        VirtualLayerState& layer = it->second;
+        if (inserted) layer.id = command.layer;
+        if (command.composition.has_value()) {
+            layer.requested_composition =
+                    static_cast<int>(command.composition->composition);
+        }
+        if (command.displayFrame.has_value()) {
+            layer.display_frame = *command.displayFrame;
+            layer.has_display_frame = true;
+        }
+        if (command.sourceCrop.has_value()) {
+            layer.source_crop = *command.sourceCrop;
+            layer.has_source_crop = true;
+        }
+        if (command.blendMode.has_value()) {
+            layer.blend_mode = command.blendMode->blendMode;
+            layer.has_blend_mode = true;
+        }
+        if (command.planeAlpha.has_value()) {
+            layer.plane_alpha = command.planeAlpha->alpha;
+            layer.has_plane_alpha = true;
+        }
+        if (command.transform.has_value()) {
+            layer.transform = command.transform->transform;
+            layer.has_transform = true;
+        }
+        if (command.z.has_value()) {
+            layer.z = command.z->z;
+            layer.has_z = true;
+        }
+        if (command.colorTransform.has_value()) layer.has_color_transform = true;
+        if (command.brightness.has_value()) {
+            layer.has_brightness = true;
+            layer.brightness = command.brightness->brightness;
+        }
+        if (command.luts.has_value()) layer.has_luts = true;
+
+        if (command.bufferSlotsToClear.has_value()) {
+            for (int32_t slot_index : *command.bufferSlotsToClear) {
+                if (slot_index < 0 || static_cast<size_t>(slot_index) >= layer.buffers.size()) continue;
+                auto& slot = layer.buffers[static_cast<size_t>(slot_index)];
+                if (slot.dma_fd >= 0) close(slot.dma_fd);
+                if (slot.acquire_fence >= 0) close(slot.acquire_fence);
+                slot = VirtualLayerBufferSlot{};
+            }
+        }
+        if (!command.buffer.has_value()) return;
+
+        const Buffer& buffer = *command.buffer;
+        if (buffer.slot < 0 || static_cast<size_t>(buffer.slot) >= layer.buffers.size()) return;
+        VirtualLayerBufferSlot& slot = layer.buffers[static_cast<size_t>(buffer.slot)];
+        int new_fence = buffer.fence.get() >= 0 ? dup(buffer.fence.get()) : -1;
+        if (buffer.fence.get() >= 0 && new_fence < 0) return;
+
+        if (buffer.handle.has_value()) {
+            const auto& handle = *buffer.handle;
+            if (handle.fds.empty() || handle.fds[0].get() < 0 || handle.ints.size() < 8 ||
+                static_cast<uint32_t>(handle.ints[0]) != 0x61616173) {
+                if (new_fence >= 0) close(new_fence);
+                return;
+            }
+            const uint32_t width = static_cast<uint32_t>(handle.ints[1]);
+            const uint32_t height = static_cast<uint32_t>(handle.ints[2]);
+            const uint32_t stride = static_cast<uint32_t>(handle.ints[3]);
+            const uint32_t format = static_cast<uint32_t>(handle.ints[4]);
+            const uint32_t allocation_size = static_cast<uint32_t>(handle.ints[7]);
+            if (width == 0 || height == 0 || width > 4096 || height > 4096 ||
+                stride < width || allocation_size == 0 ||
+                (format != static_cast<uint32_t>(PixelFormat::RGBA_8888) &&
+                 format != static_cast<uint32_t>(PixelFormat::BGRA_8888)) ||
+                static_cast<uint64_t>(stride) * height * 4 > allocation_size) {
+                if (new_fence >= 0) close(new_fence);
+                return;
+            }
+            const int new_dma = dup(handle.fds[0].get());
+            if (new_dma < 0) {
+                if (new_fence >= 0) close(new_fence);
+                return;
+            }
+            if (slot.dma_fd >= 0) close(slot.dma_fd);
+            slot.dma_fd = new_dma;
+            slot.width = width;
+            slot.height = height;
+            slot.stride = stride;
+            slot.format = format;
+            slot.allocation_size = allocation_size;
+            slot.buffer_id = handle.ints.size() >= 10
+                    ? (static_cast<uint64_t>(static_cast<uint32_t>(handle.ints[9])) << 32) |
+                              static_cast<uint32_t>(handle.ints[8])
+                    : 0;
+        }
+        if (slot.dma_fd < 0) {
+            if (new_fence >= 0) close(new_fence);
+            return;
+        }
+        if (slot.acquire_fence >= 0) close(slot.acquire_fence);
+        slot.acquire_fence = new_fence;
+        layer.buffer_slot = buffer.slot;
+    }
+
+    static VirtualLayerBufferSlot* layerBuffer(VirtualLayerState& layer) {
+        if (layer.buffer_slot < 0 ||
+            static_cast<size_t>(layer.buffer_slot) >= layer.buffers.size()) return nullptr;
+        auto& slot = layer.buffers[static_cast<size_t>(layer.buffer_slot)];
+        return slot.dma_fd >= 0 ? &slot : nullptr;
+    }
+
+    static const VirtualLayerBufferSlot* layerBuffer(const VirtualLayerState& layer) {
+        if (layer.buffer_slot < 0 ||
+            static_cast<size_t>(layer.buffer_slot) >= layer.buffers.size()) return nullptr;
+        const auto& slot = layer.buffers[static_cast<size_t>(layer.buffer_slot)];
+        return slot.dma_fd >= 0 ? &slot : nullptr;
+    }
+
+    static bool integralCoordinate(float value) {
+        if (value != value || value < 0.0f || value > 4096.0f) return false;
+        return static_cast<float>(static_cast<uint32_t>(value)) == value;
+    }
+
+    static bool supportsTestDeviceLayer(const VirtualDisplayState& state,
+                                        const VirtualLayerState& layer) {
+        if ((layer.requested_composition != static_cast<int>(Composition::DEVICE) &&
+             layer.requested_composition != static_cast<int>(Composition::CLIENT)) ||
+            !layer.has_display_frame || !layer.has_source_crop || !layer.has_blend_mode ||
+            !layer.has_z || layer.has_color_transform ||
+            (layer.has_brightness && layer.brightness != 1.0f) || layer.has_luts ||
+            (layer.has_transform && layer.transform != Transform::NONE) ||
+            layer.plane_alpha != layer.plane_alpha || layer.plane_alpha < 0.0f ||
+            layer.plane_alpha > 1.0f ||
+            (layer.blend_mode != BlendMode::NONE &&
+             layer.blend_mode != BlendMode::PREMULTIPLIED &&
+             layer.blend_mode != BlendMode::COVERAGE)) return false;
+        if (layer.blend_mode == BlendMode::NONE && layer.plane_alpha != 1.0f) return false;
+        const auto* buffer = layerBuffer(layer);
+        if (!buffer ||
+            (buffer->format != static_cast<uint32_t>(PixelFormat::RGBA_8888) &&
+             buffer->format != static_cast<uint32_t>(PixelFormat::BGRA_8888))) return false;
+        const auto& frame = layer.display_frame;
+        const auto& crop = layer.source_crop;
+        if (frame.left < 0 || frame.top < 0 || frame.right > state.width ||
+            frame.bottom > state.height || frame.right <= frame.left || frame.bottom <= frame.top ||
+            crop.left < 0.0f || crop.top < 0.0f ||
+            !integralCoordinate(crop.left) || !integralCoordinate(crop.top) ||
+            !integralCoordinate(crop.right) || !integralCoordinate(crop.bottom) ||
+            crop.right <= crop.left || crop.bottom <= crop.top ||
+            crop.right > buffer->width || crop.bottom > buffer->height ||
+            crop.right - crop.left != frame.right - frame.left ||
+            crop.bottom - crop.top != frame.bottom - frame.top) return false;
+        return true;
+    }
+
+    static VirtualLayerState* selectTestDeviceLayer(VirtualDisplayState& state) {
+#if defined(AAAS_ENABLE_MIXED_COMPOSITION_TEST)
+        static std::atomic<uint32_t> selection_diagnostics = 0;
+        VirtualLayerState* candidate = nullptr;
+        size_t layer_count = 0;
+        for (auto& [id, layer] : state.layers) {
+            ++layer_count;
+            const bool supported = supportsTestDeviceLayer(state, layer);
+            if (selection_diagnostics.fetch_add(1, std::memory_order_relaxed) < 32) {
+                const auto* buffer = layerBuffer(layer);
+                kmsg_log("[AaasComposerClient] mixed-test eligibility layer=%lld supported=%d request=%d buffer_slot=%d buffer=%dx%d stride=%u fmt=%u alloc=%u frame=%d,%d,%d,%d crop=%.2f,%.2f,%.2f,%.2f blend=%d alpha=%.3f transform=%d z=%d extra=%d%d%d brightness=%.3f display=%dx%d\n",
+                         (long long)id, supported ? 1 : 0,
+                         layer.requested_composition, layer.buffer_slot,
+                         buffer ? buffer->width : 0, buffer ? buffer->height : 0,
+                         buffer ? buffer->stride : 0, buffer ? buffer->format : 0,
+                         buffer ? buffer->allocation_size : 0,
+                         layer.display_frame.left, layer.display_frame.top,
+                         layer.display_frame.right, layer.display_frame.bottom,
+                         layer.source_crop.left, layer.source_crop.top,
+                         layer.source_crop.right, layer.source_crop.bottom,
+                         static_cast<int>(layer.blend_mode), layer.plane_alpha,
+                         static_cast<int>(layer.transform), layer.z,
+                         layer.has_color_transform, layer.has_brightness, layer.has_luts,
+                         layer.brightness, state.width, state.height);
+            }
+            if (supported &&
+                (!candidate || layer.z > candidate->z)) candidate = &layer;
+        }
+        // Mixed composition must retain at least one CLIENT layer. Promoting
+        // the only layer to DEVICE makes SurfaceFlinger omit ClientTarget,
+        // which is outside this diagnostic client-target-copy contract.
+        if (!candidate || layer_count < 2) return nullptr;
+        for (const auto& [id, layer] : state.layers) {
+            if (id == candidate->id) continue;
+            if (!layer.has_display_frame || !layer.has_z || layer.z >= candidate->z) return nullptr;
+        }
+        return candidate;
+#else
+        (void)state;
+        return nullptr;
+#endif
+    }
+
     static bool waitAcquireFence(int fd, int timeout_ms) {
         if (fd < 0) return true;
         struct pollfd pfd = {fd, POLLIN, 0};
@@ -751,16 +1090,23 @@ private:
     bool presentVirtualDisplayFrame(int64_t display, VirtualDisplayState& state,
                                     size_t command_index,
                                     std::vector<CommandResultPayload>* results) {
-        if (state.current_output_slot < 0 || state.current_client_slot < 0 ||
-            static_cast<size_t>(state.current_output_slot) >= state.output_slots.size()) {
+        if (state.current_client_slot < 0 ||
+            static_cast<size_t>(state.current_client_slot) >= 64) {
             if (state.empty_frame_diagnostics++ < 3) {
-                kmsg_log("[AaasComposerClient] virtual display %lld has no output/client target yet\n",
+                kmsg_log("[AaasComposerClient] virtual display %lld has no client target yet\n",
                          (long long)display);
             }
             return false;
         }
-        auto& output = state.output_slots[state.current_output_slot];
         auto& source = state.client_target[state.current_client_slot];
+        const bool has_output_buffer = state.current_output_slot >= 0 &&
+                static_cast<size_t>(state.current_output_slot) < state.output_slots.size() &&
+                state.output_slots[state.current_output_slot].dma_fd >= 0;
+        // SurfaceFlinger omits virtualDisplayOutputBuffer for pure client
+        // composition. In that AIDL path the ClientTarget is the complete
+        // display image and is forwarded as the output allocation.
+        auto& output = has_output_buffer
+                ? state.output_slots[state.current_output_slot] : source;
         if (output.dma_fd < 0 || source.dma_fd < 0 || output.width != source.width ||
             output.height != source.height || output.width != static_cast<uint32_t>(state.width) ||
             output.height != static_cast<uint32_t>(state.height) || output.format != source.format) {
@@ -795,13 +1141,53 @@ private:
                      (long long)display);
             return false;
         }
+        VirtualLayerState* device_layer = nullptr;
+        for (auto& [layer_id, layer] : state.layers) {
+            (void)layer_id;
+            if (layer.selected_composition != static_cast<int>(Composition::DEVICE)) continue;
+            if (device_layer) {
+                kmsg_log("[AaasComposerClient] virtual display %lld has multiple selected device layers\n",
+                         (long long)display);
+                return false;
+            }
+            device_layer = &layer;
+        }
+        if (device_layer && !has_output_buffer) {
+            kmsg_log("[AaasComposerClient] virtual display %lld selected device composition without an output buffer\n",
+                     (long long)display);
+            return false;
+        }
+        VirtualLayerBufferSlot* device_buffer = nullptr;
+        if (device_layer) {
+            if (!supportsTestDeviceLayer(state, *device_layer) || aliases ||
+                device_layer->buffer_slot < 0) {
+                kmsg_log("[AaasComposerClient] virtual display %lld selected device layer is not safely composable\n",
+                         (long long)display);
+                return false;
+            }
+            device_buffer = layerBuffer(*device_layer);
+            if (!device_buffer || device_buffer->format != output.format) return false;
+            struct stat layer_stat = {};
+            if (fstat(device_buffer->dma_fd, &layer_stat) != 0 ||
+                (layer_stat.st_dev == source_stat.st_dev && layer_stat.st_ino == source_stat.st_ino) ||
+                (layer_stat.st_dev == out_stat.st_dev && layer_stat.st_ino == out_stat.st_ino)) {
+                kmsg_log("[AaasComposerClient] virtual display %lld device layer backing aliases another composition allocation\n",
+                         (long long)display);
+                return false;
+            }
+        }
         if (!waitAcquireFence(source.acquire_fence, 1000) ||
-            !waitAcquireFence(output.acquire_fence, 1000)) {
+            !waitAcquireFence(output.acquire_fence, 1000) ||
+            (device_buffer && !waitAcquireFence(device_buffer->acquire_fence, 1000))) {
             kmsg_log("[AaasComposerClient] virtual display %lld acquire fence timeout\n",
                      (long long)display);
             return false;
         }
 
+        const size_t size_limit = std::numeric_limits<size_t>::max();
+        if (source.stride == 0 || output.stride == 0 ||
+            source.height > size_limit / (static_cast<size_t>(source.stride) * 4) ||
+            output.height > size_limit / (static_cast<size_t>(output.stride) * 4)) return false;
         const size_t source_size = static_cast<size_t>(source.stride) * source.height * 4;
         const size_t output_size = static_cast<size_t>(output.stride) * output.height * 4;
         if (source_size == 0 || source_size > source.allocation_size ||
@@ -823,14 +1209,54 @@ private:
                          (long long)display, errno);
                 return false;
             }
+            bool layer_sync_started = false;
+            if (device_buffer) {
+                if (!syncDmaBufCpu(device_buffer->dma_fd,
+                                   DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ)) {
+                    const int sync_error = errno;
+                    syncDmaBufCpu(source.dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+                    kmsg_log("[AaasComposerClient] virtual display %lld device layer CPU-read sync failed errno=%d\n",
+                             (long long)display, sync_error);
+                    return false;
+                }
+                layer_sync_started = true;
+            }
             if (!syncDmaBufCpu(output.dma_fd, DMA_BUF_SYNC_START | DMA_BUF_SYNC_WRITE)) {
                 const int sync_error = errno;
+                if (layer_sync_started) {
+                    syncDmaBufCpu(device_buffer->dma_fd,
+                                  DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+                }
                 syncDmaBufCpu(source.dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
                 kmsg_log("[AaasComposerClient] virtual display %lld output CPU-write sync failed errno=%d\n",
                          (long long)display, sync_error);
                 return false;
             }
             void* src = mmap(nullptr, source_size, PROT_READ, MAP_SHARED, source.dma_fd, 0);
+            size_t device_size = 0;
+            void* layer_ptr = MAP_FAILED;
+            if (device_buffer) {
+                if (device_buffer->stride == 0 ||
+                    device_buffer->height > size_limit /
+                            (static_cast<size_t>(device_buffer->stride) * 4)) {
+                    if (src != MAP_FAILED) munmap(src, source_size);
+                    syncDmaBufCpu(output.dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE);
+                    syncDmaBufCpu(device_buffer->dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+                    syncDmaBufCpu(source.dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+                    return false;
+                }
+                device_size = static_cast<size_t>(device_buffer->stride) *
+                              device_buffer->height * 4;
+                if (device_size == 0 || device_size > device_buffer->allocation_size) {
+                    if (src != MAP_FAILED) munmap(src, source_size);
+                    syncDmaBufCpu(output.dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE);
+                    syncDmaBufCpu(device_buffer->dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+                    syncDmaBufCpu(source.dma_fd, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+                    return false;
+                }
+                layer_ptr = mmap(nullptr, device_size, PROT_READ, MAP_SHARED,
+                                 device_buffer->dma_fd, 0);
+            }
             void* dst = MAP_FAILED;
             bool copied = false;
             if (src != MAP_FAILED) {
@@ -838,24 +1264,80 @@ private:
                 if (dst != MAP_FAILED) {
                     copied = copyLinearRows(src, source.stride, dst, output.stride,
                                             state.width, state.height, 4);
+                    if (copied && device_layer && layer_ptr != MAP_FAILED) {
+                        const auto& frame_rect = device_layer->display_frame;
+                        const auto& crop_rect = device_layer->source_crop;
+                        const AaasBlendMode blend_mode =
+                                static_cast<AaasBlendMode>(device_layer->blend_mode);
+                        copied = composeLinearLayer(
+                                layer_ptr, device_buffer->width, device_buffer->height,
+                                device_buffer->stride, dst, output.width, output.height,
+                                output.stride, static_cast<size_t>(crop_rect.left),
+                                static_cast<size_t>(crop_rect.top),
+                                static_cast<size_t>(frame_rect.left),
+                                static_cast<size_t>(frame_rect.top),
+                                static_cast<size_t>(frame_rect.right - frame_rect.left),
+                                static_cast<size_t>(frame_rect.bottom - frame_rect.top),
+                                blend_mode, device_layer->plane_alpha);
+                    }
+                    if (device_layer && layer_ptr == MAP_FAILED) copied = false;
+#if defined(AAAS_ENABLE_MIXED_COMPOSITION_TEST)
+                    if (copied && device_layer) {
+                        copied = verifyLinearLayerResult(
+                                src, output.width, output.height, source.stride,
+                                layer_ptr, device_buffer->width, device_buffer->height,
+                                device_buffer->stride,
+                                static_cast<size_t>(device_layer->source_crop.left),
+                                static_cast<size_t>(device_layer->source_crop.top),
+                                static_cast<size_t>(device_layer->display_frame.left),
+                                static_cast<size_t>(device_layer->display_frame.top),
+                                static_cast<size_t>(device_layer->display_frame.right -
+                                                    device_layer->display_frame.left),
+                                static_cast<size_t>(device_layer->display_frame.bottom -
+                                                    device_layer->display_frame.top),
+                                static_cast<AaasBlendMode>(device_layer->blend_mode),
+                                device_layer->plane_alpha, dst, output.stride);
+                        struct stat layer_stat = {};
+                        const bool have_layer_stat =
+                                fstat(device_buffer->dma_fd, &layer_stat) == 0;
+                        kmsg_log("[AaasComposerClient] mixed-frame verify display=%lld layer=%lld src_id=%llu dst_id=%llu layer_id=%llu src=%llu:%llu dst=%llu:%llu overlay=%llu:%llu pixels=%s\n",
+                                 (long long)display, (long long)device_layer->id,
+                                 (unsigned long long)source.buffer_id,
+                                 (unsigned long long)output.buffer_id,
+                                 (unsigned long long)device_buffer->buffer_id,
+                                 (unsigned long long)source_stat.st_dev,
+                                 (unsigned long long)source_stat.st_ino,
+                                 (unsigned long long)out_stat.st_dev,
+                                 (unsigned long long)out_stat.st_ino,
+                                 (unsigned long long)(have_layer_stat ? layer_stat.st_dev : 0),
+                                 (unsigned long long)(have_layer_stat ? layer_stat.st_ino : 0),
+                                 copied ? "exact" : "mismatch");
+                    }
+#endif
                 }
             }
             if (dst != MAP_FAILED) munmap(dst, output_size);
+            if (layer_ptr != MAP_FAILED) munmap(layer_ptr, device_size);
             if (src != MAP_FAILED) munmap(src, source_size);
             const bool output_sync_ok = syncDmaBufCpu(output.dma_fd,
                     DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE);
             const bool source_sync_ok = syncDmaBufCpu(source.dma_fd,
                     DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
-            if (!copied || !output_sync_ok || !source_sync_ok) {
-                kmsg_log("[AaasComposerClient] virtual display %lld distinct-backing copy failed copied=%d out_sync=%d src_sync=%d errno=%d\n",
+            const bool layer_sync_ok = !layer_sync_started ||
+                    syncDmaBufCpu(device_buffer->dma_fd,
+                                  DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+            if (!copied || !output_sync_ok || !source_sync_ok || !layer_sync_ok) {
+                kmsg_log("[AaasComposerClient] virtual display %lld distinct-backing compose failed copied=%d out_sync=%d src_sync=%d layer_sync=%d errno=%d\n",
                          (long long)display, copied ? 1 : 0,
-                         output_sync_ok ? 1 : 0, source_sync_ok ? 1 : 0, errno);
+                         output_sync_ok ? 1 : 0, source_sync_ok ? 1 : 0,
+                         layer_sync_ok ? 1 : 0, errno);
                 return false;
             }
         }
 
         AaasBufferSlot frame = {};
-        frame.slot = static_cast<uint32_t>(state.current_output_slot);
+        frame.slot = static_cast<uint32_t>(has_output_buffer
+                ? state.current_output_slot : state.current_client_slot);
         frame.id = frame.slot + 1;
         frame.dma_fd = output.dma_fd;
         frame.width = output.width;
@@ -884,6 +1366,10 @@ private:
             close(source.acquire_fence);
             source.acquire_fence = -1;
         }
+        if (device_buffer && device_buffer->acquire_fence >= 0) {
+            close(device_buffer->acquire_fence);
+            device_buffer->acquire_fence = -1;
+        }
         if (release_fence < 0) release_fence = create_signaled_fence();
         PresentFence present;
         present.display = display;
@@ -892,6 +1378,12 @@ private:
             std::move(present)));
         ReleaseFences releases;
         releases.display = display;
+        if (device_layer) {
+            ReleaseFences::Layer layer_release;
+            layer_release.layer = device_layer->id;
+            layer_release.fence = ::ndk::ScopedFileDescriptor(create_signaled_fence());
+            releases.layers.push_back(std::move(layer_release));
+        }
         results->push_back(CommandResultPayload::make<CommandResultPayload::Tag::releaseFences>(
             std::move(releases)));
         struct stat dma_stat = {};

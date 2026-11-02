@@ -163,7 +163,13 @@ bool AaasTransport::connectSocket() {
     hello.magic = AAAS_V2_MAGIC;
     hello.version = AAAS_V2_VERSION;
     hello.type = AAAS_V2_HELLO;
+#if defined(AAAS_ENABLE_MIXED_DIRECT_IMPORT_TEST)
+    // Diagnostic-only direct-import probe. This cannot safely reuse a single
+    // SurfaceFlinger output allocation until Wayland releases it.
+    hello.flags = 0;
+#else
     hello.flags = AAAS_V2_FLAG_COPY_COMPLETE;
+#endif
     if (aaas_v2_send(mSockFd, &hello, nullptr, 0) != 0) {
         transport_log("[AaasTransport] Failed to send HELLO: %s\n", strerror(errno));
         close(mSockFd);
