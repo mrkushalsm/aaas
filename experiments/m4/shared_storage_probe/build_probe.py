@@ -29,7 +29,13 @@ def main() -> int:
     parser.add_argument('--keystore', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--operation', choices=('create', 'open'), default='create')
+    parser.add_argument('--target-sdk', type=int, default=28,
+                        help='Android target SDK (default: 28 for historical baseline)')
+    parser.add_argument('--apksig', type=Path,
+                        help='apksig JAR; required for target SDK 30 or newer')
     args = parser.parse_args()
+    if args.target_sdk >= 30 and args.apksig is None:
+        parser.error('--apksig is required for target SDK 30 or newer')
     source = Path(__file__).resolve().parent
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='aaas-storage-apk-') as temp:
@@ -42,10 +48,11 @@ def main() -> int:
             text = text.replace('org/aaas/latencyprobe', PACKAGE.replace('.', '/'))
             smali_file.write_text(text)
         (work / 'AndroidManifest.xml').write_bytes(binary_manifest(
-            PACKAGE, target_sdk=28, requested_permissions=PERMISSIONS))
+            PACKAGE, target_sdk=args.target_sdk, requested_permissions=PERMISSIONS))
         (work / 'apktool.yml').write_text(
             'version: 3.0.3\napkFileName: AaasStorageProbe.apk\n'
-            'sdkInfo:\n  minSdkVersion: 28\n  targetSdkVersion: 28\n'
+            f'sdkInfo:\n  minSdkVersion: {min(args.target_sdk, 28)}\n'
+            f'  targetSdkVersion: {args.target_sdk}\n'
             'versionInfo:\n  versionCode: 1\n  versionName: 1.0\n')
         run(['java', '-jar', str(args.apktool), 'b', '--no-apk', str(work)])
         dex = work / 'build/apk/classes.dex'
@@ -55,10 +62,18 @@ def main() -> int:
         with zipfile.ZipFile(unsigned, 'w') as apk:
             apk.write(work / 'AndroidManifest.xml', 'AndroidManifest.xml')
             apk.write(dex, 'classes.dex')
-        run(['jarsigner', '-keystore', str(args.keystore), '-storepass', 'android',
-             '-keypass', 'android', '-sigalg', 'SHA256withRSA', '-digestalg',
-             'SHA-256', str(unsigned), 'storage-probe'])
-        shutil.copy2(unsigned, args.output)
+        if args.apksig is None:
+            run(['jarsigner', '-keystore', str(args.keystore), '-storepass', 'android',
+                 '-keypass', 'android', '-sigalg', 'SHA256withRSA', '-digestalg',
+                 'SHA-256', str(unsigned), 'storage-probe'])
+            shutil.copy2(unsigned, args.output)
+        else:
+            apksig = args.apksig.resolve(strict=True)
+            signer_source = source / 'ApkSign.java'
+            run(['javac', '-cp', str(apksig), '-d', str(work), str(signer_source)])
+            run(['java', '-cp', f'{work}:{apksig}', 'ApkSign',
+                 str(args.keystore.resolve(strict=True)), 'android',
+                 'storage-probe', str(unsigned), str(args.output.resolve())])
     print(f'APK SHA-256: {hashlib.sha256(args.output.read_bytes()).hexdigest()}')
     return 0
 
