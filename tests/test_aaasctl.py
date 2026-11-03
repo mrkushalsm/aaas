@@ -13,6 +13,43 @@ import aaasctl
 
 
 class AaasControlClientTests(unittest.TestCase):
+    def test_storage_scan_sends_a_relative_shared_path_to_the_active_session(self):
+        class Connection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def sendall(self, payload):
+                self.payload = payload
+
+            def recv(self, _size):
+                return b'{"ok":true,"state":"completed","uri":"content://media/id/1"}\n'
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'Download').mkdir()
+            (root / 'Download' / 'item.png').write_bytes(b'png fixture')
+            connection = Connection()
+            output = StringIO()
+            with patch.object(aaasctl.aaas_storage, 'backing_path', return_value=root), \
+                    patch.object(aaasctl, 'active_control_socket', return_value=connection), \
+                    patch('sys.stdout', output):
+                self.assertEqual(aaasctl.main(['storage', 'scan', 'Download/item.png']), 0)
+            self.assertEqual(json.loads(connection.payload), {
+                'op': 'storage_scan', 'path': 'Download/item.png'})
+
+    def test_storage_scan_rejects_paths_outside_public_shared_storage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'Android' / 'data').mkdir(parents=True)
+            output = StringIO()
+            with patch.object(aaasctl.aaas_storage, 'backing_path', return_value=root), \
+                    patch('sys.stdout', output), patch('sys.stderr', StringIO()):
+                self.assertEqual(aaasctl.main(['storage', 'scan', '../secret']), 1)
+                self.assertEqual(aaasctl.main(['storage', 'scan', 'Android/data/item.jpg']), 1)
+
     def test_storage_sync_explicitly_does_not_claim_mediastore_scan(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

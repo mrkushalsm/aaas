@@ -50,6 +50,9 @@ def main(argv=None):
     storage_sub.add_parser('status', help='show the shared-storage directory state')
     storage_sub.add_parser(
         'sync', help='repair host ACL access (does not scan Android MediaStore)')
+    scan = storage_sub.add_parser(
+        'scan', help='ask the active Android session to index one shared media file')
+    scan.add_argument('path', help='relative path under the shared Android storage root')
     subparsers.add_parser('stop', help='stop the shared AaaS runtime')
     args = parser.parse_args(argv)
 
@@ -59,6 +62,24 @@ def main(argv=None):
         if args.storage_operation == 'path':
             print(path)
             return 0
+        if args.storage_operation == 'scan':
+            try:
+                scanned_path = aaas_storage.validate_media_scan_path(args.path, path)
+                relative = scanned_path.relative_to(path.resolve(strict=True)).as_posix()
+                connection = active_control_socket()
+                with connection:
+                    connection.sendall(json.dumps(
+                        {'op': 'storage_scan', 'path': relative},
+                        separators=(',', ':')).encode('utf-8') + b'\n')
+                    response = connection.recv(4097)
+                if len(response) > 4096:
+                    raise RuntimeError('session returned an oversized response')
+                result = json.loads(response.decode('utf-8'))
+                print(json.dumps(result, indent=2))
+                return 0 if result.get('ok') else 1
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+                print(f'aaasctl: MediaStore scan failed: {error}', file=sys.stderr)
+                return 1
         try:
             if args.storage_operation == 'sync':
                 aaas_storage.ensure_host_access(media_root)

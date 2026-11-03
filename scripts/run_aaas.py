@@ -6,6 +6,7 @@ launcher transforms a hash-checked copy rather than editing that runner.
 """
 
 import argparse
+import base64
 import fcntl
 import hashlib
 import json
@@ -1345,6 +1346,38 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '        break\n'
             '      fi\n'
         )
+        if diagnostic_storage_apk is not None:
+            readiness_and_watch += (
+                '      if [ -s /dev/aaas/storage_scan_request ]; then\n'
+                '        read SCAN_ID SCAN_PATH_B64 < /dev/aaas/storage_scan_request\n'
+                '        : > /dev/aaas/storage_scan_request\n'
+                '        case "$SCAN_ID" in ""|*[!0-9a-f]*) SCAN_ID=invalid ;; esac\n'
+                '        SCAN_PATH=$(printf "%s" "$SCAN_PATH_B64" | '
+                '/system/bin/toybox base64 -d 2>/dev/null)\n'
+                '        case "$SCAN_PATH" in\n'
+                '          /storage/emulated/0/*)\n'
+                '            case "$SCAN_PATH" in *"/../"*|*"/.."|*"/Android/data/"*|'
+                '*"/Android/data"|*"/Android/obb/"*|*"/Android/obb")\n'
+                '              echo "failed $SCAN_ID invalid_path" > /dev/aaas/storage_scan_ack ;;\n'
+                '            *)\n'
+                '              /system/bin/cmd activity force-stop --user 0 org.aaas.storagetest '
+                '>> /aaas_session_commands 2>&1\n'
+                '              if /system/bin/cmd activity start-activity -W --user 0 '
+                '--display "$VD_ID" -n org.aaas.storagetest/.ProbeActivity '
+                '--es aaas.scanPath "$SCAN_PATH" >> /aaas_session_commands 2>&1; then\n'
+                '                echo "started $SCAN_ID $SCAN_PATH" '
+                '> /dev/aaas/storage_scan_ack\n'
+                '              else\n'
+                '                echo "failed $SCAN_ID launch" > /dev/aaas/storage_scan_ack\n'
+                '              fi\n'
+                '              ;;\n'
+                '            esac\n'
+                '            ;;\n'
+                '          *) echo "failed $SCAN_ID invalid_path" '
+                '> /dev/aaas/storage_scan_ack ;;\n'
+                '        esac\n'
+                '      fi\n'
+            )
         if app_package2 is not None:
             for slot in (1, 2):
                 suffix = '' if slot == 1 else '2'
@@ -2165,6 +2198,58 @@ def main():
                         'detail': ack[:160] or 'timeout'}
             return {'ok': True, 'slot': slot, 'package': package,
                     'state': 'STOPPING'}
+        if op == 'storage_scan':
+            if (not args.experimental_virtual_display or
+                    args.diagnostic_storage_apk is None):
+                return {'ok': False, 'error': 'storage_scan_helper_unavailable'}
+            try:
+                relative_path = request.get('path')
+                host_path = aaas_storage.validate_media_scan_path(
+                    relative_path, shared_storage_path)
+                relative_path = host_path.relative_to(
+                    Path(shared_storage_path).resolve(strict=True)).as_posix()
+            except (TypeError, ValueError, OSError) as error:
+                return {'ok': False, 'error': 'invalid_storage_scan_path',
+                        'detail': str(error)[:160]}
+            android_path = '/storage/emulated/0/' + relative_path
+            request_id = os.urandom(8).hex()
+            encoded_path = base64.b64encode(android_path.encode('utf-8')).decode('ascii')
+            request_path = ipc / 'storage_scan_request'
+            ack_path = ipc / 'storage_scan_ack'
+            ack_path.write_text('')
+            try:
+                log_offset = logcat.stat().st_size
+            except OSError:
+                log_offset = 0
+            atomic_control_write(request_path, f'{request_id} {encoded_path}')
+            deadline = time.monotonic() + 12
+            ack = ''
+            while time.monotonic() < deadline:
+                ack = ack_path.read_text().strip()
+                if ack.startswith((f'started {request_id} ', f'failed {request_id} ')):
+                    break
+                time.sleep(.05)
+            if not ack.startswith(f'started {request_id} '):
+                return {'ok': False, 'error': 'storage_scan_launch_failed',
+                        'detail': ack[:160] or 'timeout'}
+            marker = f'ANDROID_FILE_SCAN_COMPLETE path={android_path} uri='
+            deadline = time.monotonic() + 35
+            while time.monotonic() < deadline:
+                try:
+                    with logcat.open('rb') as stream:
+                        stream.seek(log_offset)
+                        content = stream.read().decode('utf-8', 'replace')
+                except OSError:
+                    content = ''
+                matches = [line for line in content.splitlines() if marker in line]
+                if matches:
+                    line = matches[-1]
+                    uri = line.split(marker, 1)[1].strip()
+                    return {'ok': True, 'path': relative_path, 'uri': uri,
+                            'state': 'completed'}
+                time.sleep(.1)
+            return {'ok': False, 'error': 'storage_scan_timeout',
+                    'path': relative_path}
         if op != 'launch':
             return {'ok': False, 'error': 'unsupported_operation'}
         try:

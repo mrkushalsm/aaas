@@ -11,6 +11,28 @@ import aaas_storage
 
 
 class SharedStorageBackingTests(unittest.TestCase):
+    def test_validate_media_scan_path_allows_missing_leaf_for_deletion_reconcile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'Download').mkdir()
+            self.assertEqual(
+                aaas_storage.validate_media_scan_path(
+                    'Download/missing image.png', root),
+                root / 'Download/missing image.png')
+
+    def test_validate_media_scan_path_rejects_traversal_private_and_symlink_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'Download').mkdir()
+            (root / 'Android' / 'data').mkdir(parents=True)
+            (root / 'outside').mkdir()
+            (root / 'Download' / 'escape.png').symlink_to(root / 'outside')
+            for value in ('../outside/file.png', '/tmp/file.png',
+                          'Android/data/private.jpg', 'Android/obb/game.obb',
+                          'Download/escape.png', 'Download/invalid\nname.png'):
+                with self.subTest(path=value), self.assertRaises(ValueError):
+                    aaas_storage.validate_media_scan_path(value, root)
+
     def test_prepare_creates_private_parent_and_stable_user_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)

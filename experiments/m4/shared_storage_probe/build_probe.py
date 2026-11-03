@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 from experiments.perf.input_latency_probe.build_probe import binary_manifest
 
 PACKAGE = 'org.aaas.storagetest'
-PERMISSIONS = ()
+PERMISSIONS = ('android.permission.READ_MEDIA_IMAGES',)
 
 
 def run(command: list[str]) -> None:

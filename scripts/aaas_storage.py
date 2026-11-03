@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import shutil
@@ -19,6 +20,35 @@ PUBLIC_STORAGE_DIRECTORIES = (
     'Music', 'Notifications', 'Pictures', 'Podcasts', 'Ringtones',
 )
 ANDROID_STORAGE_DIRECTORIES = ('data', 'media', 'obb')
+STORAGE_SCAN_COMPONENT = re.compile(r'[^/\x00-\x1f\x7f]+')
+
+
+def validate_media_scan_path(relative_path, root=None):
+    """Resolve one public shared-storage path without following symlinks."""
+    if not isinstance(relative_path, str) or not relative_path or '\\' in relative_path:
+        raise ValueError('storage scan path must be a non-empty relative POSIX path')
+    parts = relative_path.split('/')
+    if any(part in ('', '.', '..') or not STORAGE_SCAN_COMPONENT.fullmatch(part)
+           for part in parts):
+        raise ValueError('storage scan path contains an invalid component')
+    if parts[0].casefold() == 'android' and len(parts) > 1 and parts[1].casefold() in ('data', 'obb'):
+        raise ValueError('Android/data and Android/obb are not host-scannable')
+    storage_root = Path(root or backing_path()).resolve(strict=True)
+    candidate = storage_root
+    for index, part in enumerate(parts):
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValueError('storage scan path must not contain symlinks')
+        if index < len(parts) - 1 and (not candidate.exists() or not candidate.is_dir()):
+            raise ValueError('storage scan parent directory does not exist')
+    parent = candidate.parent.resolve(strict=True)
+    try:
+        parent.relative_to(storage_root)
+    except ValueError as error:
+        raise ValueError('storage scan path escapes the shared-storage root') from error
+    if candidate.exists() and not candidate.is_file():
+        raise ValueError('storage scan target must be a regular file')
+    return candidate
 
 
 def backing_path(workspace=None):

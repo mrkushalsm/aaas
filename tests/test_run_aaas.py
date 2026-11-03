@@ -658,6 +658,23 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertNotIn('/product/app/AaasStorageProbe', generated)
         self.assertIn('AaaSStorageInstall', generated)
 
+    def test_storage_probe_runner_exposes_bounded_public_api_media_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'storage-probe.apk'
+            apk.write_bytes(b'diagnostic apk fixture')
+            (root / 'session').mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            generated = SESSION.make_session_runner(
+                root / 'session', app_package='org.aaas.storagetest',
+                experimental_virtual_display=True,
+                diagnostic_storage_apk=apk,
+                shared_storage_dir=root / 'media' / '0').read_text()
+        self.assertIn('storage_scan_request', generated)
+        self.assertIn('aaas.scanPath', generated)
+        self.assertIn('storage_scan_ack', generated)
+        self.assertIn('/Android/data', generated)
+
     def test_arbitrary_apk_install_uses_an_ordinary_user_package_path(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
