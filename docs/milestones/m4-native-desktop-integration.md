@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. The shared-storage slice is now accepted: ordinary Android SAF read/create and MediaStore `external_primary` attach/query work through the existing persistent backing and vold/FUSE path. Mandatory host audio, clipboard, and notification forwarding remain incomplete, so canonical M4 is not closed. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. The shared-storage core passed controlled ordinary-app SAF read/create, MediaStore `external_primary` attach/query, and persistence tests. Storage hardening and real-application acceptance remain `PARTIAL/OPEN`: live host-side MediaStore reconciliation is absent, a modern-target SAF byte-read did not complete, and VLC/mpv/BFE file operations remain unproven. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -10,7 +10,7 @@ The supported baseline is the rootless Android 16 x86_64 runtime under KWin on W
 
 [`scripts/aaas_desktop.py`](../../scripts/aaas_desktop.py) writes a per-user freedesktop launcher after validating the Android package ID. Its `launch` command serializes cold starts, waits for the runner's explicit `RUNNING` status, launches into an active session when available, and reuses the existing two-slot runner. A cold launch uses one preinstalled system app as a temporary second-slot bootstrap and requests its orderly app stop once the requested application is running. The helper window is released before the launcher command succeeds. `aaasctl stop-app SLOT` requests Android `force-stop` and lets the existing window lifecycle close the associated display/presenter.
 
-## Shared-storage slice: accepted
+## Shared-storage core and hardening status
 
 [`docs/storage/android-shared-storage.md`](../storage/android-shared-storage.md)
 documents the selected direct-directory architecture and live tests. The stable
@@ -45,6 +45,25 @@ Android is stopped. See [storage design and evidence](../storage/android-shared-
 and `results/m4/acceptance.json`. The Android-to-XDG file-picker bridge remains
 deferred; Android continues using its native picker and URI permissions.
 
+The controlled core evidence remains valid, but the wider storage integration
+is not closed. During the 2026-11-04 follow-up, a target-SDK 35 ordinary APK
+installed and opened DocumentsUI, but did not complete a ContentResolver read.
+VLC installed/launched and loaded ARM64 `libvlc.so` and `libvlcjni.so` through
+Berberis; its direct file URI path requested `MANAGE_EXTERNAL_STORAGE`, which
+was not granted, and no decode was verified. mpv launched but no file read or
+decode was verified. BFE installed/launched as an ordinary app, but its
+manifest requests `MANAGE_EXTERNAL_STORAGE`; no broad grant or file/archive
+operation was performed. These are partial application observations, not
+storage-success claims. Details and hashes are in
+`results/m4/acceptance.json` under `storage_hardening_follow_up`.
+
+Host-originated changes made while Android is active are still not reconciled
+into MediaStore by AaaS. `aaasctl storage sync` repairs host ACLs only; its
+help/output now explicitly says it does not scan MediaStore. The Android
+startup `REASON_MOUNTED` scan remains the verified reconciliation path. The
+NTFS3 project-quota xattr limitation and the incomplete app-level symlink
+matrix are also retained as open storage-hardening work.
+
 The two-output runner now keeps Android warm for a bounded idle grace period after the last managed app closes. The product default is 60 seconds and the test override is bounded to 1–3600 seconds. Any app becoming active resets the timer; the existing launch control can reuse the runtime during the grace period. This policy applies to the existing two-output session; a running Android runtime consumes resources during that interval. Fully stopped means no AaaS runner/presenter processes.
 
 Application discovery/catalog generation, launcher cleanup on Android uninstall, and concurrent-launch race stress coverage remain open.
@@ -72,7 +91,7 @@ Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`;
 | User desktop launcher | Per-user entries and runner invocation exercised | Partial: app discovery/catalog and uninstall cleanup are absent |
 | Host audio playback | PipeWire 1.6.9, WirePlumber, and pipewire-pulse are active on host. Android AudioFlinger and Ranchu audio HAL exist, but runner does not connect a host PCM endpoint or transport samples. | Not implemented; no playback proof |
 | Microphone | Host audio source exists; Android runner does not expose a scoped host capture stream. | Not implemented; no authorization/revocation proof |
-| Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Ordinary-app SAF read/create, byte-exact host readback, and MediaStore `external_primary` attach/query passed after the session-local lifecycle repair. | **PASS — shared-storage slice only**; overall M4 remains open |
+| Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Controlled ordinary-app SAF and mount-time MediaStore tests passed. Live host mutation sync, current-target app read/write, and real-app workflows remain incomplete. | **Core PASS; hardening PARTIAL/OPEN** |
 | Android-to-XDG picker bridge | This capability is explicitly deferred; Android continues using its built-in picker and shared-storage APIs. | Deferred; not a storage-slice acceptance gate |
 | Clipboard | Wayland presenter has no data-device clipboard bridge to Android ClipboardManager. | Not implemented |
 | Notifications | Host DBus notification service and Android NotificationManager exist, but no AaaS forwarding listener/adapter exists. | Not implemented |
@@ -88,4 +107,4 @@ No broad host home mount or host device bind was added. No host microphone or ca
 
 ## Verification
 
-`python3 -m unittest discover -s tests -q` passed all 256 tests after lifecycle changes. Python compilation, JSON validation, `git diff --check`, desktop-entry validation and `python3 scripts/android_workspace.py --workspace /run/media/mrkus/Homework/aaas-workspace check` passed. The guard recorded 57,316,179,968 bytes used against an 80 GiB ceiling, with 313,557,131,264 bytes free against a 20 GiB reserve. No AaaS runner/presenter processes remained after the live sessions.
+The historical lifecycle run passed 256 tests. On 2026-11-04, the full Python suite passed 268 tests after adding ordinary APK installation and clarifying ACL-only `storage sync` behavior. A fresh M3 Native Bridge run returned `M3 ARM64 Native Bridge PASS mask=255` with JNI values and clean shutdown. A fresh M2 smoke run placed Settings and Contacts on separate displays, stopped Contacts independently while Settings remained RUNNING, then shut down cleanly. These are smoke/regression checks, not a rerun of the full M2 acceptance. Python compilation, JSON validation, `git diff --check`, and the workspace guard passed. The final guard observed 58,693,074,944 bytes used against an 80 GiB ceiling, with 312,180,211,712 bytes free against a 20 GiB reserve. No AaaS runner/presenter processes remained after the live sessions.

@@ -200,3 +200,92 @@ audio, clipboard, notifications, launcher catalog work, and other lifecycle
 gates are independent outstanding requirements. Immediate MediaStore updates
 for host edits made while Android remains active are not verified; mount-time
 scan/reconciliation is verified.
+
+## Hardening and real-application follow-up (2026-11-04)
+
+The controlled shared-storage core remains accepted based on the historical
+ordinary-app SAF read/create, `external_primary` attachment, mount-time scan,
+byte checks, and restart evidence above. This follow-up does **not** close the
+broader storage integration: live host changes are still not reconciled into
+MediaStore while Android remains active, and current real-app/modern-target
+workflows have not completed end to end.
+
+### MediaStore consistency boundary
+
+The verified contract remains mount/startup reconciliation. `python3
+scripts/aaasctl.py storage sync` repairs host ACL access; it does not initiate a
+MediaProvider scan. No AaaS live-session scan request was implemented or
+verified in this follow-up. Do not infer MediaStore indexing from Linux or
+Android shell directory listing. A follow-up must issue a supported Android
+MediaProvider scan request while the session is active and query the actual
+MediaStore rows after host create, update, rename, and delete operations. It
+must avoid editing the MediaProvider database and avoid periodic recursive
+scanning.
+
+### Transcoding behavior
+
+The existing session-local `services.jar` correction retains a conservative
+`false` default for optional HEVC transcoding discovery while preserving
+explicit property and DeviceConfig overrides. Existing acceptance attributes
+the startup hang to synchronous `MediaCodecList` capability discovery on the
+ordered StorageManagerService handler waiting for media service initialization,
+which blocked user-unlock completion; NTFS3 `media_rw` ACL repair was a second,
+independent requirement for SAF writes. The exact source commit matching the
+installed Android image is not available, so analysis is against the
+`android16-release` source branch. This follow-up did not establish HEVC
+capability enumeration or override behavior. VLC's ARM64 libraries loaded, but
+it requested `MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`; no permission was
+granted and no video decode was claimed. The default workaround's media
+compatibility therefore remains only partially characterized.
+
+### Modern API and third-party results
+
+A target SDK 35 diagnostic APK installed as an ordinary package and launched
+`ACTION_OPEN_DOCUMENT`; DocumentsUI opened, but its initial Downloads-provider
+view did not expose the intended fixture and no byte-checked ContentResolver
+read completed. This is picker-launch evidence, not modern SAF acceptance.
+
+- **VLC:** ordinary app launched; Berberis loaded `libvlc.so` and
+  `libvlcjni.so`. A direct file URI caused VLC to request the broad all-files
+  setting. It was not granted; file read, decode, seek, pause/resume, and frame
+  presentation remain unverified.
+- **mpv:** ordinary app launched and the synthetic video was present during
+  the session's mount scan, but file read/decode/frame presentation was not
+  verified.
+- **BFE:** ordinary `/data/app` installation and MainActivity launch passed.
+  The APK declares `MANAGE_EXTERNAL_STORAGE`; it was not granted. File mutation
+  and archive operations were not performed.
+
+The original APKs were not modified. These results do not replace or rewrite
+historical Post-M3 observations. New session logs and hashes are recorded in
+`results/m4/acceptance.json` under `storage_hardening_follow_up`.
+
+### Filesystem and security limits
+
+MediaProvider again logged an NTFS3 project-quota xattr error for synthetic
+media. Core reads, SAF writes, and mount-time MediaStore indexing passed in the
+previous acceptance, but quota tagging/accounting and StorageStatsManager
+behavior remain uncharacterized. The previous single synthetic host-only
+symlink test only established that one target was not visible through the
+Android rootfs bind namespace. It did not prove general symlink safety through
+DocumentsUI or arbitrary Android app APIs. No broad permissions, all-files
+access, host-home bind, or additional filesystem mount was introduced.
+
+The target SDK option added to the probe builder requires an APK Signature
+Scheme v2-or-newer signature for modern target installation; legacy v1-only
+signing is rejected by this Android 16 image. The generic runner APK install
+option uses a read-only bind and ordinary `pm install`, and does not confer
+system privileges.
+
+### Current status
+
+- Shared-storage core: **PASS** (previous controlled acceptance).
+- Hardening and real-application compatibility: **PARTIAL/OPEN**.
+- Overall shared-storage integration: **PARTIAL/OPEN**.
+- Canonical M4: **PARTIAL/OPEN**.
+
+Open storage gates include active-session MediaStore synchronization, a
+byte-verified modern-target SAF read/write cycle, real app file operations for
+VLC/mpv/BFE, and fuller NTFS3 quota and symlink characterization. Canonical M4
+also separately retains audio, clipboard, notifications, and launcher-catalog
+work.
