@@ -780,6 +780,11 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('app2_launch_ack', generated)
         self.assertIn('start-activity -W --display "$REQ_DISPLAY"', generated)
         self.assertIn('APP_PACKAGE2="$REQ_PACKAGE"', generated)
+        self.assertIn('app1_stop_request', generated)
+        self.assertIn('app2_stop_request', generated)
+        self.assertIn('app2_forced_closed', generated)
+        self.assertIn('cmd activity force-stop --user 0 "$STOP_PACKAGE"', generated)
+        self.assertIn('cmd activity stack remove "$STOP_TASK_ID"', generated)
         self.assertIn('vdisplay_create_',
                       (SCRIPT.parents[1] /
                        'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text())
@@ -793,7 +798,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn("control_server.bind(str(control_path))", launcher)
         self.assertIn("'capacity_exhausted'", launcher)
         self.assertIn("'capacity_requires_two_output_session'", launcher)
-        for command in ('list', 'launch', 'close', 'stop'):
+        for command in ('list', 'launch', 'close', 'stop-app', 'stop'):
             self.assertIn(f"add_parser('{command}'", control)
 
     def test_dynamic_presenter_clears_previous_resize_before_reopen(self):

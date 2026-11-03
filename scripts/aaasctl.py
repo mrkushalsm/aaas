@@ -37,6 +37,8 @@ def main(argv=None):
     launch.add_argument('package')
     close = subparsers.add_parser('close', help='close an app window by bounded slot')
     close.add_argument('slot', type=int, choices=(1, 2))
+    stop_app = subparsers.add_parser('stop-app', help='stop Android app in a window slot')
+    stop_app.add_argument('slot', type=int, choices=(1, 2))
     subparsers.add_parser('stop', help='stop the shared AaaS runtime')
     args = parser.parse_args(argv)
 
@@ -45,8 +47,10 @@ def main(argv=None):
     request = {'op': args.operation}
     if args.operation == 'launch':
         request['package'] = args.package
-    elif args.operation == 'close':
+    elif args.operation in ('close', 'stop-app'):
         request['slot'] = args.slot
+        if args.operation == 'stop-app':
+            request['op'] = 'stop_app'
     try:
         connection = active_control_socket()
         with connection:

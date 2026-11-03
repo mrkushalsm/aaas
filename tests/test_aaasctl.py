@@ -1,4 +1,5 @@
 import json
+from io import StringIO
 from pathlib import Path
 import socket
 import sys
@@ -12,6 +13,27 @@ import aaasctl
 
 
 class AaasControlClientTests(unittest.TestCase):
+    def test_stop_app_maps_to_runner_stop_request(self):
+        class Connection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def sendall(self, payload):
+                self.payload = payload
+
+            def recv(self, _size):
+                return b'{"ok":true}\n'
+
+        connection = Connection()
+        output = StringIO()
+        with patch.object(aaasctl, 'active_control_socket', return_value=connection), \
+                patch('sys.stdout', output):
+            self.assertEqual(aaasctl.main(['stop-app', '2']), 0)
+        self.assertEqual(json.loads(connection.payload), {'op': 'stop_app', 'slot': 2})
+
     def test_finds_only_a_connectable_session_socket(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

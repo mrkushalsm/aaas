@@ -1037,6 +1037,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         + (
         '    # Track the Android activity/task lifecycle; process names may be custom.\n'
         '    aaas_app_task_alive() {{\n'
+        '      [ "$(/system/bin/toybox cat /dev/aaas/app1_forced_closed 2>/dev/null)" '
+        '!= "$APP_PACKAGE" ] || return 1\n'
         '      /system/bin/dumpsys activity activities | '
         '/system/bin/toybox grep -F "u0 $APP_PACKAGE/" >/dev/null 2>&1\n'
         '    }}\n'
@@ -1095,6 +1097,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '! aaas_app_task_alive; then\n',
             '    }}\n'
             '    aaas_app2_task_alive() {{\n'
+            '      [ "$(/system/bin/toybox cat /dev/aaas/app2_forced_closed 2>/dev/null)" '
+            '!= "$APP_PACKAGE2" ] || return 1\n'
             '      /system/bin/dumpsys activity activities | '
             '/system/bin/toybox grep -F "u0 $APP_PACKAGE2/" >/dev/null 2>&1\n'
             '    }}\n'
@@ -1154,6 +1158,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                     '        *)\n'
                     f'          {app_variable}="$REQ_PACKAGE"\n'
                     f'          {display_variable}="$REQ_DISPLAY"\n'
+                    f'          : > /dev/aaas/app{slot}_forced_closed\n'
                     '          APP_COMPONENT=$(/system/bin/cmd package resolve-activity --brief '
                     '--user 0 -a android.intent.action.MAIN '
                     '-c android.intent.category.LAUNCHER -p "$REQ_PACKAGE" 2>&1 | '
@@ -1176,6 +1181,38 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                     f'> /dev/aaas/app{slot}_launch_ack\n'
                     '          else\n'
                     f'            echo "failed $REQ_ID launch" > /dev/aaas/app{slot}_launch_ack\n'
+                    '          fi\n'
+                    '          ;;\n'
+                    '        esac\n'
+                    '      fi\n'
+                    f'      if [ -s /dev/aaas/app{slot}_stop_request ]; then\n'
+                    f'        read STOP_ID STOP_PACKAGE < /dev/aaas/app{slot}_stop_request\n'
+                    f'        : > /dev/aaas/app{slot}_stop_request\n'
+                    '        case "$STOP_ID" in ""|*[!0-9a-f]*) STOP_ID=invalid ;; esac\n'
+                    '        case "$STOP_PACKAGE" in *[!A-Za-z0-9._]*|.*|*..*|*.) '
+                    f'echo "failed invalid_package" > /dev/aaas/app{slot}_stop_ack ;;\n'
+                    '        *)\n'
+                    f'          if [ "$STOP_PACKAGE" = "${app_variable}" ] && '
+                    '/system/bin/cmd activity force-stop --user 0 "$STOP_PACKAGE" '
+                    '>> /aaas_session_commands 2>&1; then\n'
+                    '            STOP_TASK_LINE=$(/system/bin/dumpsys activity activities | '
+                    '/system/bin/toybox grep -F "u0 $STOP_PACKAGE/" | '
+                    '/system/bin/toybox tail -n 1)\n'
+                    '            STOP_TASK_ID=$(echo "$STOP_TASK_LINE" | '
+                    '/system/bin/toybox sed "s/.* t//; s/[^0-9].*//")\n'
+                    '            if [ -n "$STOP_TASK_ID" ]; then\n'
+                    '              case "$STOP_TASK_ID" in\n'
+                    '                *[!0-9]*) : ;;\n'
+                    '                *)\n'
+                    '/system/bin/cmd activity stack remove "$STOP_TASK_ID" '
+                    '>> /aaas_session_commands 2>&1 || true\n'
+                    '                  ;;\n'
+                    '              esac\n'
+                    '            fi\n'
+                    f'            echo "$STOP_PACKAGE" > /dev/aaas/app{slot}_forced_closed\n'
+                    f'            echo "stopped $STOP_ID $STOP_PACKAGE" > /dev/aaas/app{slot}_stop_ack\n'
+                    '          else\n'
+                    f'            echo "failed $STOP_ID force_stop" > /dev/aaas/app{slot}_stop_ack\n'
                     '          fi\n'
                     '          ;;\n'
                     '        esac\n'
@@ -1686,7 +1723,9 @@ def main():
                          f'vdisplay_control_ack_{index}', f'app{index}_state',
                          f'vdisplay_focus_{index}', f'vdisplay_focus_ack_{index}',
                          f'vdisplay_create_{index}', f'vdisplay_create_ack_{index}',
-                         f'app{index}_launch_request', f'app{index}_launch_ack'):
+                         f'app{index}_launch_request', f'app{index}_launch_ack',
+                         f'app{index}_stop_request', f'app{index}_stop_ack',
+                         f'app{index}_forced_closed'):
                 path = ipc / name
                 path.write_text('')
                 path.chmod(0o666)
@@ -1857,6 +1896,30 @@ def main():
                 return {'ok': False, 'error': 'window_not_running'}
             terminate_process_group(process)
             return {'ok': True, 'slot': slot, 'state': 'CLOSING'}
+        if op == 'stop_app':
+            slot = request.get('slot')
+            if slot not in (1, 2) or slot_packages[slot] is None:
+                return {'ok': False, 'error': 'invalid_slot'}
+            package = slot_packages[slot]
+            process = virtual_presenter if slot == 1 else virtual_presenter2
+            if process is None or process.poll() is not None:
+                return {'ok': False, 'error': 'window_not_running'}
+            request_id = os.urandom(8).hex()
+            atomic_control_write(ipc / f'app{slot}_stop_request',
+                                 f'{request_id} {package}')
+            deadline = time.monotonic() + 15
+            ack = ''
+            while time.monotonic() < deadline:
+                ack = (ipc / f'app{slot}_stop_ack').read_text().strip()
+                if ack.startswith((f'stopped {request_id} ',
+                                   f'failed {request_id} ')):
+                    break
+                time.sleep(.05)
+            if not ack.startswith(f'stopped {request_id} '):
+                return {'ok': False, 'error': 'app_stop_failed',
+                        'detail': ack[:160] or 'timeout'}
+            return {'ok': True, 'slot': slot, 'package': package,
+                    'state': 'STOPPING'}
         if op != 'launch':
             return {'ok': False, 'error': 'unsupported_operation'}
         try:
