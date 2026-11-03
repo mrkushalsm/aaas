@@ -1,4 +1,9 @@
-# M1 experiments and stop gates
+# M1 technical experiments and stop gates
+
+This is a historical technical experiment plan, not the product milestone
+roadmap. Map experiments to the canonical M0–M6 objectives in
+[`docs/roadmap.md`](roadmap.md); lettered experiment labels do not define new
+top-level milestones.
 
 Order reflects dependencies; each result gets a dated directory with command transcript, exact source IDs, host capture, stdout/stderr, and a pass/fail/blocked decision.
 

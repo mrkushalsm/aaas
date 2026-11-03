@@ -1,5 +1,9 @@
 # M1E plan: app-first Android windows on Wayland
 
+M1E is a technical subdivision whose independent desktop-window outcome maps
+to canonical product [M2](roadmap.md). M1E's
+lettered phases and status do not redefine canonical milestone numbering.
+
 Status: **IN PROGRESS — two app tasks/displays/output streams are live; independent window management remains pending**
 Baseline for this continuation: `162321b` (`master`)
 Preservation record: `results/m1e/preservation_manifest.json`
