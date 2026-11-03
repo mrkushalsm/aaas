@@ -1,11 +1,10 @@
 # Android shared storage on Linux
 
-**M4 storage slice: PARTIAL/OPEN.** The persistent Linux directory and Android
-emulated-storage mount are connected. Host-created files are visible through
-Android's `/storage/emulated/0` FUSE view, and that data survives Android
-shutdown and restart. Android app writes, SAF document creation, and MediaStore
-indexing are currently blocked by the runtime's storage-volume lifecycle state;
-this document does not claim bidirectional application-level acceptance.
+**M4 shared-storage integration: PASS.** The persistent Linux directory,
+Android's emulated-storage FUSE mount, ordinary application SAF access, and
+MediaStore external volume have been verified end to end. Canonical M4 remains
+`PARTIAL/OPEN` because its separate audio, clipboard, notifications, and
+launcher-catalog requirements remain incomplete.
 
 ## Current topology
 
@@ -98,32 +97,46 @@ When Android is stopped, this backing directory remains available to Linux.
 Android's FUSE mount is session-owned and disappears with the Android session;
 the host files persist. A subsequent AaaS session rebinds the same parent.
 
-## Android boundary and current limitation
+## Android lifecycle repair and application boundary
 
 Android exposes the directory through its normal emulated storage path, not by
 replacing Android's file picker. Android apps must continue to use their usual
 filesystem, SAF, DocumentsUI, and MediaStore APIs with Android's ordinary
 permissions.
 
-The live runtime showed `VolumeInfo{emulated;0}` in `MOUNTED` state and the
-FUSE mount was present, but `dumpsys mount` reported `CE unlocked users: [0]`
-and `System unlocked users: []`. Android's MediaProvider consequently had only
-its `internal` database volume and logged `Volume external_primary not found`.
-A normally installed, controlled app's public-storage write failed with
-`EPERM`; the Android DocumentsUI `ACTION_CREATE_DOCUMENT` flow displayed “Failed
-to save document.” A supported `MEDIA_MOUNTED` broadcast did not repair the
-missing MediaProvider volume. The Android user manager reported user 0 as
-`RUNNING_UNLOCKED`, so a later integration must resolve the discrepancy between
-that state and StorageManagerService's system-unlocked user list before claiming
-normal Android-side read/write or MediaStore coherence.
+Before repair, user 0 was `RUNNING_UNLOCKED` and CE-unlocked and `emulated;0`
+was mounted, but StorageManagerService reported `System unlocked users: []`;
+MediaProvider only exposed `internal`. The cause was a system-server handler
+ordering deadlock in the AaaS profile: `StorageManagerService.handleSystemReady()`
+synchronously performed optional HEVC codec discovery on its ordered storage
+handler. Here `MediaCodecList` waited for media service startup. UserManager's
+unlock completion was queued to that same handler, so storage completion and
+external volume attach could not run. Android 16 source confirms that
+`handleSystemReady()` calls `configureTranscoding()`, which calls
+`isHevcDecoderSupported()` ([StorageManagerService](https://android.googlesource.com/platform/frameworks/base/+/android16-release/services/core/java/com/android/server/StorageManagerService.java)).
 
-The corresponding Android 16 implementation is in
-[StorageManagerService](https://android.googlesource.com/platform/frameworks/base/+/android16-release/services/core/java/com/android/server/StorageManagerService.java): user-unlock completion updates the system-unlocked-user state and drives volume state propagation. The observed mismatch is therefore recorded as a runtime lifecycle defect inferred from the live service state and that implementation, not as proof that the direct host backing is inaccessible.
+The reversible session overlay now uses `false` as the optional transcoding
+default, retaining explicit system-property and DeviceConfig overrides. This
+avoids codec discovery on the ordered handler. Live snapshots now show
+`System unlocked users: [0]`; vold reports `emulated;0 MOUNTED`; MediaProvider
+attaches `external_primary` and scans it. No fixed sleep, fabricated lifecycle
+callback, base-image mutation, scoped-storage bypass, or MediaProvider database
+edit was used.
 
-This blocker is independent of the host directory's ACL and of Linux-to-Android
-visibility. No broad storage permission, Android permission bypass, direct
-MediaProvider database edit, or custom picker/provider was added. The SAF-to-XDG
-picker bridge remains explicitly deferred.
+A second, independent NTFS3 ACL issue surfaced after the volume attached.
+MediaProvider needed group write/search access to set its `user.*` xattrs and
+maintain external-volume state. The shared root and public folders now receive
+the mapped `media_rw` group permissions plus the existing host-user ACL. The
+change is limited to those shared paths. `Android/data` and `Android/obb`
+remain mode 0700 with no host-user ACL.
+
+The live test app is an ordinary `/data/app` package (`org.aaas.storagetest`,
+target SDK 28), not a system app. It completed both `ACTION_CREATE_DOCUMENT` and
+`ACTION_OPEN_DOCUMENT`; ContentResolver wrote and read exact bytes through
+DownloadsProvider URIs. A MediaStore query on
+`content://media/external_primary/file` returned the Linux-created fixture.
+Normal app permissions and URI grants remain in force. App-private directories
+were not exposed. The SAF-to-XDG picker bridge remains explicitly deferred.
 
 ## Verified and unverified behavior
 
@@ -143,26 +156,47 @@ Verified in live sessions:
 - Linux host access through `Android/data` and `Android/obb` was denied.
 - The user-level Linux path remains accessible while Android is stopped.
 
-Not accepted:
+Verified after repair:
 
-- Android application direct file reads or writes through its normal storage
-  APIs; direct app write was denied with `EPERM`.
-- Android SAF `CREATE_DOCUMENT`; DocumentsUI failed to create the file.
-- MediaStore discovery/update after host create, modify, rename, or delete; the
-  `external_primary` volume was absent.
-- Android-originated file creation and byte-exact Linux readback.
-- User-created symlink resolution as a cross-OS security guarantee.
-- VLC, mpv, or BFE follow-up. Their earlier storage-blocked observations remain
-  historical and were not rewritten by this incomplete integration.
-- Interactive human validation in Dolphin, Nautilus, or Thunar. The directory
-  is an ordinary local filesystem path; no GUI usability claim is made.
+- Ordinary app `ACTION_CREATE_DOCUMENT` completed and wrote
+  `Download/aaas-storage-android-to-host.txt`; host readback matched SHA-256
+  `72ca9c361c0e9ae87d818cb60ac61817154973a3a86ae91f27c454218fe72238`.
+- Ordinary app `ACTION_OPEN_DOCUMENT` returned a Downloads content URI.
+  ContentResolver read the host-created fixture and logged
+  `ANDROID_SAF_READ_OK` after exact byte comparison.
+- MediaStore `external_primary` attached and indexed shared-storage entries,
+  including the host fixture (`_id=1000009001` in the recorded query).
+- A host edit from fixture v1 to v2 was read by the app in a later session; the
+  v2 host SHA-256 was
+  `4a077084728a18f2627f1f67d48820de9a0aea0e8b14179d1f704b5707b89213`.
+- MediaProvider scanned the shared volume on mount. Host edits and a rename were
+  indexed on the next clean session; deleting the renamed test fixture caused
+  the next mount scan to report one deletion and the MediaStore query no longer
+  returned its row. Immediate indexing for host edits during an active Android
+  session is not claimed. Restart the Android session to trigger the verified
+  mount scan; `aaasctl storage sync` repairs ACLs only and does not request a
+  MediaStore scan.
+- Android logs a nonfatal warning when it cannot assign a project-quota xattr
+  on NTFS3 (`Invalid argument`). SAF reads/writes, MediaStore indexing, and
+  persistence still pass. Project quota tagging is not supported by this
+  backing filesystem and remains a known limitation.
+- Host access to `Android/data` and `Android/obb` remains denied. The test app
+  uses picker URI grants; no broad Android permission was granted.
+- A synthetic symlink in shared storage targeting a host-only sentinel was
+  inaccessible from the same Android-rootfs bind namespace (`ENOENT`); the
+  sentinel and symlink were removed. This establishes the mount-namespace
+  boundary, but does not claim application-specific symlink behavior through
+  DocumentsUI.
+- Human testing in Dolphin/Nautilus/Thunar remains untested; the host path is
+  an ordinary local directory.
 
 ## Evidence and next work
 
 Structured observations, session IDs, checksums, and raw-log hashes are in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json). Raw runtime
 logs and controlled fixtures remain under the external AaaS workspace, not in
-Git. The storage slice stays `PARTIAL/OPEN` until Android app-level reads and
-writes, SAF access, and storage-index consistency pass. Canonical M4 also
-remains `PARTIAL/OPEN`; audio, clipboard, notifications, and launcher catalog
-work are independent outstanding M4 gates.
+Git. The shared-storage slice is `PASS`. Canonical M4 remains `PARTIAL/OPEN`;
+audio, clipboard, notifications, launcher catalog work, and other lifecycle
+gates are independent outstanding requirements. Immediate MediaStore updates
+for host edits made while Android remains active are not verified; mount-time
+scan/reconciliation is verified.

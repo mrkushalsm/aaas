@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. The shared-storage slice now exposes a persistent Linux directory and Android's emulated-storage FUSE view, but normal Android application writes, SAF document creation, and MediaStore indexing remain blocked by the runtime's missing `external_primary` volume state. Mandatory host audio, clipboard, and notification forwarding are also incomplete, so M4 is not closed. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. The shared-storage slice is now accepted: ordinary Android SAF read/create and MediaStore `external_primary` attach/query work through the existing persistent backing and vold/FUSE path. Mandatory host audio, clipboard, and notification forwarding remain incomplete, so canonical M4 is not closed. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -10,7 +10,7 @@ The supported baseline is the rootless Android 16 x86_64 runtime under KWin on W
 
 [`scripts/aaas_desktop.py`](../../scripts/aaas_desktop.py) writes a per-user freedesktop launcher after validating the Android package ID. Its `launch` command serializes cold starts, waits for the runner's explicit `RUNNING` status, launches into an active session when available, and reuses the existing two-slot runner. A cold launch uses one preinstalled system app as a temporary second-slot bootstrap and requests its orderly app stop once the requested application is running. The helper window is released before the launcher command succeeds. `aaasctl stop-app SLOT` requests Android `force-stop` and lets the existing window lifecycle close the associated display/presenter.
 
-## Shared-storage slice: partial
+## Shared-storage slice: accepted
 
 [`docs/storage/android-shared-storage.md`](../storage/android-shared-storage.md)
 documents the selected direct-directory architecture and live tests. The stable
@@ -23,15 +23,27 @@ were read through that FUSE view with exact hashes. A binary file and Linux
 rename remained visible after a clean Android shutdown and a fresh runtime
 start. Host access through `Android/data` and `Android/obb` was denied.
 
-The Android-to-host half is not accepted. A normally installed controlled app
-got `EPERM` writing `/storage/emulated/0`, and its SAF `ACTION_CREATE_DOCUMENT`
-flow failed. Android reports `emulated;0` mounted and the user as
-`RUNNING_UNLOCKED`, but `dumpsys mount` shows `System unlocked users: []`;
-MediaProvider logs `Volume external_primary not found`. Until that Android
-storage lifecycle state is corrected, scoped app writes and MediaStore
-consistency are unverified. This is a bounded storage integration defect, not
-an XDG picker requirement. The Android-to-XDG file-picker bridge remains
-deferred.
+The first storage-app runs established two related blockers. Android user 0 was
+`RUNNING_UNLOCKED` and CE-unlocked, while StorageManagerService still showed
+`System unlocked users: []`; MediaProvider consequently had no
+`external_primary`. The system-server storage handler was blocked in optional
+HEVC support discovery (`MediaCodecList`) while user-unlock completion was
+queued to the same handler. The session-local `services.jar` overlay now uses
+a conservative `false` transcoding default and retains explicit property and
+DeviceConfig overrides. The handler can then complete user unlock and attach
+the external emulated volume. A second NTFS3 ACL correction grants the mapped
+`media_rw` group write/search and xattr access only on the shared root/public
+directories; `Android/data` and `Android/obb` remain private.
+
+The repaired runtime was validated with an ordinary `/data/app` storage probe.
+Android `ACTION_CREATE_DOCUMENT` wrote a file that Linux read back
+byte-exactly; `ACTION_OPEN_DOCUMENT` returned a Downloads content URI and
+ContentResolver read the host-created file byte-exactly. MediaProvider attached
+and scanned `external_primary`, and the external MediaStore query returned the
+fixture. The external folder tree persists and is available to Linux while
+Android is stopped. See [storage design and evidence](../storage/android-shared-storage.md)
+and `results/m4/acceptance.json`. The Android-to-XDG file-picker bridge remains
+deferred; Android continues using its native picker and URI permissions.
 
 The two-output runner now keeps Android warm for a bounded idle grace period after the last managed app closes. The product default is 60 seconds and the test override is bounded to 1–3600 seconds. Any app becoming active resets the timer; the existing launch control can reuse the runtime during the grace period. This policy applies to the existing two-output session; a running Android runtime consumes resources during that interval. Fully stopped means no AaaS runner/presenter processes.
 
@@ -60,7 +72,7 @@ Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`;
 | User desktop launcher | Per-user entries and runner invocation exercised | Partial: app discovery/catalog and uninstall cleanup are absent |
 | Host audio playback | PipeWire 1.6.9, WirePlumber, and pipewire-pulse are active on host. Android AudioFlinger and Ranchu audio HAL exist, but runner does not connect a host PCM endpoint or transport samples. | Not implemented; no playback proof |
 | Microphone | Host audio source exists; Android runner does not expose a scoped host capture stream. | Not implemented; no authorization/revocation proof |
-| Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Host-created files are byte-exact in Android's shell/FUSE view and persist across a clean runtime restart. | Partial: Android application reads/writes and SAF fail because MediaProvider lacks `external_primary`; see [storage evidence](../../results/m4/acceptance.json) and [topology](../storage/android-shared-storage.md) |
+| Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Ordinary-app SAF read/create, byte-exact host readback, and MediaStore `external_primary` attach/query passed after the session-local lifecycle repair. | **PASS — shared-storage slice only**; overall M4 remains open |
 | Android-to-XDG picker bridge | This capability is explicitly deferred; Android continues using its built-in picker and shared-storage APIs. | Deferred; not a storage-slice acceptance gate |
 | Clipboard | Wayland presenter has no data-device clipboard bridge to Android ClipboardManager. | Not implemented |
 | Notifications | Host DBus notification service and Android NotificationManager exist, but no AaaS forwarding listener/adapter exists. | Not implemented |
