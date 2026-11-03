@@ -563,10 +563,13 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         experimental_virtual_display=False, app_package2=None,
                         bluetooth_policy_dir=None, input_response_probe_apk=None,
                         input_response_probe_apk2=None,
-                        native_bridge_overlay=None, capture_app_tombstones=False):
+                        native_bridge_overlay=None, capture_app_tombstones=False,
+                        idle_timeout_seconds=60):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
+    if not isinstance(idle_timeout_seconds, int) or not 1 <= idle_timeout_seconds <= 3600:
+        raise ValueError('idle timeout must be between 1 and 3600 seconds')
     if app_package2 is not None:
         app_package2 = validate_app_package(app_package2)
         if app_package2 == app_package:
@@ -1058,6 +1061,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         readiness_and_watch = readiness_and_watch.replace(
             '    echo RUNNING > /aaas_session_status\n',
             '    echo RUNNING > /aaas_session_status\n'
+            f'    AAAS_IDLE_TIMEOUT_SECONDS={idle_timeout_seconds}\n'
+            '    AAAS_IDLE_SINCE=0\n'
             '    AAAS_SURFACEFLINGER_INITIAL_PID=$(/system/bin/toybox pidof surfaceflinger)\n'
             '    (\n'
             '      while [ "$(/system/bin/toybox cat /aaas_session_status)" = RUNNING ]; do\n'
@@ -1108,7 +1113,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         )
         readiness_and_watch = readiness_and_watch.replace(
             '&& aaas_app_task_alive',
-            '&& (aaas_app_task_alive || aaas_app2_task_alive)', 1)
+            '&& [ "$(/system/bin/toybox cat /aaas_session_status)" != "STOPPING" ]', 1)
     if experimental_virtual_display:
         readiness_and_watch += (
             ' && [ "$(/system/bin/toybox cat /aaas_session_status)" != "STOPPING" ]; do\n'
@@ -1229,6 +1234,19 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 'if [ -n "$VDISPLAY2_INPUT_ADAPTER_PID" ]; then '
                 '/system/bin/toybox kill "$VDISPLAY2_INPUT_ADAPTER_PID" 2>/dev/null || true; '
                 'VDISPLAY2_INPUT_ADAPTER_PID=; fi; fi\n'
+                '      if aaas_app_task_alive || aaas_app2_task_alive; then AAAS_IDLE_SINCE=0; '
+                'else\n'
+                '        AAAS_IDLE_NOW=$(/system/bin/toybox date +%s)\n'
+                '        if [ "$AAAS_IDLE_SINCE" -eq 0 ]; then\n'
+                '          AAAS_IDLE_SINCE=$AAAS_IDLE_NOW\n'
+                '          echo "AAAS_IDLE_STARTED timeout=$AAAS_IDLE_TIMEOUT_SECONDS" '
+                '>> /aaas_session_commands\n'
+                '        elif [ "$((AAAS_IDLE_NOW - AAAS_IDLE_SINCE))" -ge '
+                '"$AAAS_IDLE_TIMEOUT_SECONDS" ]; then\n'
+                '          echo AAAS_IDLE_TIMEOUT_REACHED >> /aaas_session_commands\n'
+                '          echo STOPPING > /aaas_session_status\n'
+                '        fi\n'
+                '      fi\n'
                 '      /system/bin/toybox sleep 1\n'
             )
         else:
@@ -1534,6 +1552,9 @@ def main():
     parser.add_argument('--app2',
                         help='optional second installed app for the experimental '
                              'two-display prototype')
+    parser.add_argument('--idle-timeout-seconds', type=int, default=60,
+                        help='stop an idle two-output runtime after this many seconds '
+                             '(1..3600; default: 60)')
     parser.add_argument('--software-keyboard', action='store_true',
                         help='Allow Android to show its software keyboard (mobile/accessibility mode)')
     parser.add_argument('--experimental-virtual-display', action='store_true',
@@ -1780,7 +1801,8 @@ def main():
                                  input_response_probe_apk=args.input_response_probe_apk,
                                  input_response_probe_apk2=args.input_response_probe_apk2,
                                  native_bridge_overlay=native_bridge_overlay,
-                                 capture_app_tombstones=args.diagnostic_capture_app_tombstones)
+                                 capture_app_tombstones=args.diagnostic_capture_app_tombstones,
+                                 idle_timeout_seconds=args.idle_timeout_seconds)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(

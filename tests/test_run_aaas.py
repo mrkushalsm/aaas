@@ -763,10 +763,26 @@ class ForegroundRunnerTests(unittest.TestCase):
                 Path(directory), experimental_virtual_display=True,
                 app_package='com.android.settings', app_package2='com.android.deskclock'
             ).read_text()
-        self.assertIn('(aaas_app_task_alive || aaas_app2_task_alive)', generated)
+        self.assertIn('AAAS_IDLE_TIMEOUT_SECONDS=60', generated)
+        self.assertIn('while [ "$(/system/bin/getprop sys.boot_completed)" = "1" ]', generated)
+        self.assertIn('AAAS_IDLE_STARTED timeout=$AAAS_IDLE_TIMEOUT_SECONDS', generated)
+        self.assertIn('AAAS_IDLE_TIMEOUT_REACHED', generated)
+        self.assertIn('if aaas_app_task_alive || aaas_app2_task_alive; then AAAS_IDLE_SINCE=0',
+                      generated)
         self.assertIn('echo CLOSED > /dev/aaas/app1_state', generated)
         self.assertIn('echo CLOSED > /dev/aaas/app2_state', generated)
         self.assertIn('! aaas_app_task_alive && ! aaas_app2_task_alive', generated)
+
+    def test_idle_timeout_is_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'between 1 and 3600'):
+                SESSION.make_session_runner(Path(directory), idle_timeout_seconds=0)
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True,
+                app_package='com.android.settings', app_package2='com.android.deskclock',
+                idle_timeout_seconds=2
+            ).read_text()
+        self.assertIn('AAAS_IDLE_TIMEOUT_SECONDS=2', generated)
 
     def test_two_output_session_handles_bounded_dynamic_relaunch_requests(self):
         with tempfile.TemporaryDirectory() as directory:
