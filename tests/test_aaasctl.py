@@ -13,6 +13,26 @@ import aaasctl
 
 
 class AaasControlClientTests(unittest.TestCase):
+    def test_storage_sync_explicitly_does_not_claim_mediastore_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            media_root = root / 'android-media'
+            backing = media_root / '0'
+            backing.mkdir(parents=True)
+            host_acl = {
+                f'user:{aaasctl.os.getuid()}:rwx',
+                f'default:user:{aaasctl.os.getuid()}:rwx',
+            }
+            output = StringIO()
+            with patch.object(aaasctl.aaas_storage, 'backing_path', return_value=backing), \
+                    patch.object(aaasctl.aaas_storage, 'media_root_path', return_value=media_root), \
+                    patch.object(aaasctl.aaas_storage, 'ensure_host_access'), \
+                    patch.object(aaasctl.aaas_storage, '_acl_entries', return_value=host_acl), \
+                    patch('sys.stdout', output):
+                self.assertEqual(aaasctl.main(['storage', 'sync']), 0)
+            self.assertIn('ACLs are synchronized', output.getvalue())
+            self.assertIn('MediaStore was not scanned', output.getvalue())
+
     def test_stop_app_maps_to_runner_stop_request(self):
         class Connection:
             def __enter__(self):

@@ -49,7 +49,7 @@ def main(argv=None):
         'path', help='print the persistent Linux path backing Android shared storage')
     storage_sub.add_parser('status', help='show the shared-storage directory state')
     storage_sub.add_parser(
-        'sync', help='restore host ACL access on Android public shared folders')
+        'sync', help='repair host ACL access (does not scan Android MediaStore)')
     subparsers.add_parser('stop', help='stop the shared AaaS runtime')
     args = parser.parse_args(argv)
 
@@ -90,7 +90,8 @@ def main(argv=None):
         }
         print(json.dumps(result, indent=2))
         if args.storage_operation == 'sync' and acl_ready:
-            print('AaaS shared-storage host ACLs are synchronized.')
+            print('AaaS shared-storage host ACLs are synchronized; '
+                  'Android MediaStore was not scanned.')
         return 0 if (result['exists'] and result['media_root_exists']
                      and acl_ready and result['host_accessible']) else 1
 
