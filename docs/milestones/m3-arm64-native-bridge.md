@@ -1,52 +1,57 @@
-# M3 entry — ARM64 Native Bridge feasibility
+# M3 — ARM64 Native Bridge feasibility
 
-**Status: READY — not implemented.** Canonical scope is defined by [Plan A](../roadmap.md). This document prepares the entry gate only.
+**Status: PASS/CLOSED.** This document follows [canonical Plan A](../roadmap.md); it does not refer to the historical zero-copy M3 in Plan C. The implementation is a bounded feasibility proof, not universal ARM64 application compatibility.
 
-## Objective and first experiment
+## Objective and entry prerequisites
 
-Execute a deterministic ARM64 shared-library function inside the existing
-x86_64 Android runtime through Android Native Bridge, then verify calls across
-a Java/JNI boundary. The first experiment should use a minimal ARM64 `.so` and
-an ARM64-only diagnostic APK with no x86_64 native-library fallback. A
-successful loader message is insufficient; the test must execute a known
-function and validate its exact result from Java.
+Execute a genuine ARM64 shared library through Android Native Bridge inside the existing x86_64 Android runtime and verify Java/JNI values. The existing Android 16 runtime, ART, Zygote, x86_64 applications, KWin window path, runtime overlays, logs, and tombstone capture met the M3 entry requirements. M3 did not modify the base image or graphics implementation.
 
-## Entry prerequisites
+## Candidate decision
 
-- The Android 16 x86_64 runtime boots and runs installed APKs in the shared
-  AaaS session.
-- ART, Zygote, framework services and JNI-backed runtime components operate
-  for existing x86_64 applications.
-- The accepted M2 KWin two-window path is available for observing the
-  diagnostic app in AaaS.
-- `run_aaas.py` supports session-local APK/framework overlays; runtime logs,
-  tombstones and binary provenance are retained per session.
-- Android base image replacement is unnecessary for initial feasibility work.
+| Candidate | Evidence and decision |
+|---|---|
+| Digitalis / Berberis ARM64-to-x86_64 | Selected. Digitalis source is Apache-2.0 and targets Android 16/API 36. The verified prebuilt bundle was obtained from Refract commit `ddef6e6ae7de37dd3e400d6a07d3f18cb21a0ebc`; its manifest pins `digitalis` revision `a6edb72029cd25cb616bdee1a12b2d64e3a6a3ae` and `platform_frameworks_libs_binary_translation` revision `9e7f4407e0e32a582fe2a56f87492443ca55d6fa`. The bundle marks Digitalis/Berberis as Apache-2.0 and records per-component guest-library notices. Its translator has three Refract source patches; no bundle binaries are checked into AaaS. The exact binary and bundle checksums are in the M3 acceptance JSON. |
+| Teto | Not selected. The inspected Droidloom `droidloom` revision `365d035faed6734fa07e47c33b92e9cbac17569b` is Apache-2.0 and describes itself as an experimental ARM64 Android derivative of Digitalis/Berberis. It offered no independent Android 16 Native Bridge path with stronger integration evidence; its README warns compatibility remains experimental. |
+| AOSP Berberis | Not selected by itself. The Android 16 ARM64-to-x86_64 backend used here is the Digitalis fork; upstream Berberis work alone does not supply the required ARM64 host backend. |
+| Houdini / `libndk_translation` | Rejected for this milestone: proprietary artifacts were unavailable in the runtime and did not offer source/license provenance suitable for this integration. |
 
-These prerequisites are supported by existing M1 runtime evidence, current M2
-acceptance, and the session overlay/provenance mechanism. ARM64 execution itself
-has not been tested here.
+The release bundle is pinned and acquired reproducibly using its exact Refract Git commit and 74-entry SHA256SUMS manifest. A full Android platform source build was not attempted: the documented full AOSP checkout/build storage requirement exceeds AaaS's 80 GiB workspace ceiling. This is a prebuilt acquisition, not a claim that the translator binary was rebuilt from source. Do not redistribute the external bundle without rechecking its component notices and applicable license terms.
 
-## Candidate evaluation
+## Integration
 
-At M3 start, inspect actual local source/release availability, Android 16
-Native Bridge integration requirements, ABI coverage, maintenance state, and
-license compatibility for Digitalis, Teto, and other viable implementations.
-Do not assume any candidate is compatible from documentation or a successful
-load alone. Record pinned revisions, build inputs, licensing, and any Android
-image/API changes before selecting a candidate. Prefer isolated session
-overlays; keep translation separate from graphics changes and remain rootless.
+Android Native Bridge is enabled only with the opt-in `--diagnostic-native-bridge-overlay` runner option and the experimental virtual-display path. The runner rejects bundles outside workspace `tmp`, verifies all 74 checksums and safe paths, constructs a temporary merged system view using hard links, and removes it after process teardown. Init sees these session-only properties before Zygote:
 
-## Acceptance sequence
+- `ro.dalvik.vm.native.bridge=libberberis_arm64.so`
+- `ro.dalvik.vm.isa.arm64=x86_64`
+- `ro.product.cpu.abilist=x86_64,arm64-v8a`
+- `ro.product.cpu.abilist64=x86_64,arm64-v8a`
+- `ro.enable.native.bridge.exec=0` (JNI Native Bridge is enabled; binfmt execution is not needed)
 
-1. Detect and load the ARM64 `.so` through Android Native Bridge.
-2. Execute deterministic exported functions and verify exact arguments/results.
-3. Call ARM64 code through JNI; verify Java arguments and returned values.
-4. Test supported callbacks plus basic JNI object/string interactions.
-5. Run an ARM64-only diagnostic APK with no x86_64 native fallback.
-6. Record app/runtime health, crashes, translator and image provenance, ABI
-   limitations, and basic execution cost after functional correctness passes.
+Native x86_64 stays first and remains usable. The Android 16 `libnativebridge` loads Digitalis's exported `NativeBridgeItf`; the bridge callback table is version 8. The live log records the Zygote `-XX:NativeBridge` option and NativeBridge `DlOpen`/JNI library-load success. The overlay does not change `rootfs_m1b1`.
 
-M3 can start independently of M5 performance and M6 compositor portability.
-No ARM64 translator or translated application is claimed to work by this
-readiness decision.
+## Diagnostic application and result
+
+Source: [native bridge probe](../../experiments/m3/native_bridge_probe/README.md). The generated APK package is `org.aaas.latencyprobe`; the only native library is `lib/arm64-v8a/libm3probe.so`. It is ELF64/AArch64, has no DT_NEEDED dependencies, and the APK has no x86 or x86_64 native fallback.
+
+The ARM64 JNI function validates and returns a result string only after the following operations pass: `7,3 → 77`; `1234567890123,9 → 38271604593822`; `2.0,4.0 → 7.0`; UTF string `AaaS M3` round-trip; Java int array `[1,2,3,4] → 10`; callback `14 → 42`; negative-input error `-1 → -22`; and four NEON lanes `[1,2,3,4]+[4,3,2,1] → [5,5,5,5]`. The Activity compares the complete returned string against its independent expected value before logging/displaying PASS. The observed Android log was `M3 ARM64 Native Bridge PASS mask=255 int=77 array=10 callback=42 error=-22 long=38271604593822 double=7.0 neon=5x4 echo=AaaS M3`.
+
+## Acceptance summary
+
+| Gate | Result |
+|---|---|
+| Candidate, API, license and pinned provenance review | PASS |
+| Android Native Bridge active before app process | PASS |
+| Genuine ARM64 ELF executed through JNI | PASS |
+| Exact Java-observed primitive, string, array, callback, error and NEON results | PASS |
+| ARM64-only APK recognized and launched by PackageManager | PASS |
+| AaaS Android virtual display and native KWin Wayland presenter | PASS |
+| JIT evidence in application process | PASS — `/memfd:exec` mappings captured while the app ran |
+| Native x86_64 regression | PASS — Settings and Contacts launched concurrently with the bridge enabled |
+| Runtime/presenter cleanup | PASS — stopped sessions, 0 outstanding presenter buffers, temporary overlay removed |
+| Full Android-platform source rebuild | Not performed; the pinned, hash-verified prebuilt bundle was used |
+
+Session IDs, exact hashes, result values, runtime fingerprint, presenter accounting, test commands, and external log locations are in [`results/m3/acceptance.json`](../../results/m3/acceptance.json). Large raw logs remain in the external AaaS workspace.
+
+## Supported scope and limitations
+
+Verified: the tested Android 16/API 36 x86_64 image, Digitalis/Berberis Native Bridge initialization, one ARM64 JNI library, the listed scalar/array/string/callback/NEON cases, an ARM64-only diagnostic APK, and the existing KWin AaaS app-window path. Native x86_64 Settings and Contacts still launch. The test does not establish arbitrary ARM64 APK compatibility, all JNI features, all instruction extensions, translated threads, vendor/graphics guest libraries, ARM64 standalone executable/binfmt operation, or performance comparable to native ARM64. M5 graphics performance and M6 compositor portability remain open; M4 is next.

@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import signal
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -60,6 +61,89 @@ SESSION_STATUS_VALUES = {'STARTING', 'RUNNING', 'STOPPING', 'STOPPED', 'FAILED'}
 
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def validate_native_bridge_bundle(path):
+    bundle = Path(path).resolve(strict=True)
+    try:
+        bundle.relative_to(TMP.resolve())
+    except ValueError as error:
+        raise ValueError('Native Bridge bundle must be inside the AaaS workspace tmp directory') from error
+    sums = bundle / 'SHA256SUMS'
+    if not sums.is_file():
+        raise ValueError(f'Native Bridge bundle has no SHA256SUMS: {bundle}')
+    entries = []
+    for line in sums.read_text().splitlines():
+        if not line.strip():
+            continue
+        match = re.fullmatch(r'([0-9a-fA-F]{64})  (.+)', line)
+        if not match:
+            raise ValueError(f'invalid Native Bridge checksum line: {line!r}')
+        digest, relative = match.groups()
+        relpath = Path(relative)
+        if relpath.is_absolute() or '..' in relpath.parts or not relative.startswith('system/'):
+            raise ValueError(f'unsafe Native Bridge artifact path: {relative}')
+        artifact = (bundle / relpath).resolve(strict=True)
+        if not artifact.is_file() or bundle not in artifact.parents:
+            raise ValueError(f'invalid Native Bridge artifact: {relative}')
+        if sha256(artifact) != digest.lower():
+            raise ValueError(f'Native Bridge checksum mismatch: {relative}')
+        entries.append((relpath, artifact))
+    if len(entries) != 74:
+        raise ValueError(f'expected 74 pinned Native Bridge artifacts, found {len(entries)}')
+    for required in ('system/lib64/libberberis_arm64.so',
+                     'system/lib64/libberberis_exec_region.so',
+                     'system/etc/ld.config.arm64.txt',
+                     'system/lib64/arm64/libc.so'):
+        if not any(str(relative) == required for relative, _ in entries):
+            raise ValueError(f'Native Bridge bundle is missing {required}')
+    return bundle, entries
+
+
+def prepare_native_bridge_overlay(bundle, entries, session):
+    rootfs_system = WORKSPACE / 'rootfs_m1b1/system'
+    overlay_system = session / 'native_bridge_overlay/system'
+    for subtree in ('bin', 'etc', 'lib64'):
+        shutil.copytree(rootfs_system / subtree, overlay_system / subtree,
+                        symlinks=True, copy_function=os.link)
+    for relative, source in entries:
+        parts = relative.parts
+        target = overlay_system.joinpath(*parts[1:])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        shutil.copy2(source, target)
+
+    original_props = rootfs_system / 'build.prop'
+    text = original_props.read_text()
+    overrides = {
+        'ro.dalvik.vm.native.bridge': 'libberberis_arm64.so',
+        'ro.dalvik.vm.isa.arm64': 'x86_64',
+        'ro.enable.native.bridge.exec': '0',
+        'ro.product.cpu.abilist': 'x86_64,arm64-v8a',
+        'ro.product.cpu.abilist64': 'x86_64,arm64-v8a',
+        'ro.system.product.cpu.abilist': 'x86_64,arm64-v8a',
+        'ro.system.product.cpu.abilist64': 'x86_64,arm64-v8a',
+    }
+    for name, value in overrides.items():
+        pattern = re.compile(rf'^{re.escape(name)}=.*$', re.MULTILINE)
+        text, count = pattern.subn(f'{name}={value}', text)
+        if count == 0:
+            text += f'\n{name}={value}\n'
+    props = overlay_system / 'build.prop'
+    props.write_text(text)
+    provenance = {
+        'bundle': str(bundle),
+        'manifest_sha256': sha256(bundle / 'MANIFEST.txt'),
+        'checksum_manifest_sha256': sha256(bundle / 'SHA256SUMS'),
+        'artifacts': {str(relative): sha256(source) for relative, source in entries},
+        'properties': overrides,
+        'integration': 'session-local hard-link merge; Android base image unchanged',
+    }
+    provenance_path = Path(session) / 'native-bridge-config.json'
+    provenance_path.write_text(json.dumps(provenance, indent=2) + '\n')
+    provenance_path.chmod(0o600)
+    return session / 'native_bridge_overlay'
 
 
 def write_status_sentinel(path, value):
@@ -406,7 +490,8 @@ def parse_display_density(value):
 def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKAGE,
                         experimental_virtual_display=False, app_package2=None,
                         bluetooth_policy_dir=None, input_response_probe_apk=None,
-                        input_response_probe_apk2=None):
+                        input_response_probe_apk2=None,
+                        native_bridge_overlay=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -417,6 +502,15 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         if not experimental_virtual_display:
             raise ValueError('app2 requires --experimental-virtual-display')
     input_response_probe_binds = ""
+    native_bridge_binds = ""
+    if native_bridge_overlay is not None:
+        overlay = Path(native_bridge_overlay).resolve(strict=True)
+        native_bridge_binds = (
+            f'  --ro-bind "{overlay / "system/bin"}" /system/bin \\\n'
+            f'  --ro-bind "{overlay / "system/etc"}" /system/etc \\\n'
+            f'  --ro-bind "{overlay / "system/lib64"}" /system/lib64 \\\n'
+            f'  --ro-bind "{overlay / "system/build.prop"}" /system/build.prop \\\n'
+        )
     probe_apks = [(input_response_probe_apk, "AaasLatencyProbe")]
     if input_response_probe_apk2 is not None:
         if app_package2 is None:
@@ -455,7 +549,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     source = replace_once(
         source,
         '{mapper_bind}{allocator_bind}',
-        input_response_probe_binds + '{mapper_bind}{allocator_bind}',
+        native_bridge_binds + input_response_probe_binds + '{mapper_bind}{allocator_bind}',
     )
     source = replace_once(
         source,
@@ -1341,11 +1435,22 @@ def main():
                         help='diagnostic-only APK overlaid as a system app for input latency measurements')
     parser.add_argument('--input-response-probe-apk2',
                         help='optional second diagnostic APK for distinct-package two-display input checks')
+    parser.add_argument('--diagnostic-native-bridge-overlay',
+                        help='hash-verified Android Native Bridge bundle for isolated ARM64 tests')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
                         help='Opt in to host/cgroup resource snapshots; optionally sample every N seconds (0 disables periodic samples, max 3600 samples)')
     parser.add_argument('--test-tombstone-capture', action='store_true',
                         help=argparse.SUPPRESS)
     args = parser.parse_args()
+    native_bridge_bundle = native_bridge_entries = None
+    if args.diagnostic_native_bridge_overlay:
+        if not args.experimental_virtual_display:
+            parser.error('--diagnostic-native-bridge-overlay requires --experimental-virtual-display')
+        try:
+            native_bridge_bundle, native_bridge_entries = validate_native_bridge_bundle(
+                args.diagnostic_native_bridge_overlay)
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
     if args.diagnostic_framework_overlay and not args.experimental_virtual_display:
         parser.error('--diagnostic-framework-overlay requires --experimental-virtual-display')
     if args.diagnostic_framework_sha256 and not args.diagnostic_framework_overlay:
@@ -1430,6 +1535,10 @@ def main():
     signal.signal(signal.SIGTERM, request_stop)
     session = Path(tempfile.mkdtemp(prefix='m1b84_session_', dir=TMP))
     session.chmod(0o700)
+    native_bridge_overlay = None
+    if native_bridge_bundle is not None:
+        native_bridge_overlay = prepare_native_bridge_overlay(
+            native_bridge_bundle, native_bridge_entries, session)
     bluetooth_policy_dir = session / 'bluetooth-policy'
     bluetooth_policy_manifest = aaas_bluetooth.create_unavailable_policy(
         WORKSPACE / 'rootfs_m1b1', bluetooth_policy_dir)
@@ -1535,7 +1644,8 @@ def main():
                                  app_package2=args.app2,
                                  bluetooth_policy_dir=bluetooth_policy_dir,
                                  input_response_probe_apk=args.input_response_probe_apk,
-                                 input_response_probe_apk2=args.input_response_probe_apk2)
+                                 input_response_probe_apk2=args.input_response_probe_apk2,
+                                 native_bridge_overlay=native_bridge_overlay)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -2112,6 +2222,14 @@ def main():
                 print(f'AaaS: resource snapshots recorded in {session}', flush=True)
             except OSError as error:
                 print(f'AaaS: final resource snapshot unavailable: {error}',
+                      file=sys.stderr, flush=True)
+        if native_bridge_overlay is not None and native_bridge_overlay.exists():
+            try:
+                shutil.rmtree(native_bridge_overlay)
+                print('AaaS: session-local Native Bridge overlay removed', flush=True)
+            except OSError as error:
+                cleanup_failed = True
+                print(f'AaaS: Native Bridge overlay cleanup failed: {error}',
                       file=sys.stderr, flush=True)
         terminal_failed = (failed_before_cleanup or state == 'FAILED' or cleanup_failed)
         if terminal_failed:

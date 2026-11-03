@@ -18,7 +18,7 @@ Run two Android applications as separately manageable Linux desktop windows. Eac
 
 ## M3 — ARM64 Native Bridge feasibility
 
-Load and execute a small ARM64 shared library through Android Native Bridge on x86_64, including a Java/JNI boundary test. Evaluate viable translators and Android integration, execute deterministic ARM64 functions, verify JNI arguments/returns, investigate callbacks and common JNI operations, and record ABI/translation limits and ARM64-only APK feasibility. A load log alone is not acceptance: translated ARM64 execution is required.
+Load and execute a small ARM64 shared library through Android Native Bridge on x86_64, including a Java/JNI boundary test. Evaluate viable translators and Android integration, execute deterministic ARM64 functions, verify JNI arguments/returns, investigate callbacks and common JNI operations, and record ABI/translation limits and ARM64-only APK feasibility. A load log alone is not acceptance: translated ARM64 execution is required. **Status: PASS/CLOSED** for the bounded Android 16/Digitalis feasibility proof; see the [M3 acceptance record](../results/m3/acceptance.json) and [implementation details](milestones/m3-arm64-native-bridge.md). This does not claim universal ARM64 application compatibility.
 
 ## M4 — Native desktop integration
 
@@ -63,7 +63,8 @@ Package AaaS for Linux desktops; provide installation, upgrade/removal, dependen
 - [Plan B — implementation guidance](roadmaps/implementation-guidance.md)
 - [Plan C — historical research](roadmaps/historical-research.md)
 - [M2 acceptance record](milestones/m2-independent-desktop-windows.md)
-- [M3 Native Bridge entry criteria](milestones/m3-arm64-native-bridge.md)
+- [M3 Native Bridge implementation and acceptance](milestones/m3-arm64-native-bridge.md)
+- [M3 structured acceptance](../results/m3/acceptance.json)
 - [M5 frame pacing and latency](graphics-stability/frame-pacing-and-latency.md)
 - [M6 compositor portability](graphics-stability/cross-compositor-portability.md)
 
@@ -74,7 +75,7 @@ Package AaaS for Linux desktops; provide installation, upgrade/removal, dependen
 | M0 | Incomplete; see [M0 status](m0-status.md). Runtime progress does not close the research/build-lock criteria. |
 | M1 | Existing x86_64 Android runtime and APK execution are established. |
 | M2 | PASS/CLOSED; see [M2 acceptance](milestones/m2-independent-desktop-windows.md). |
-| M3 | READY to start; Native Bridge implementation has not begun. |
+| M3 | PASS/CLOSED for the bounded Android 16 Native Bridge feasibility proof; arbitrary ARM64 app compatibility is not claimed. |
 | M4 | Future product integration work; Bluetooth hardware optional/deferred. |
 | M5 | PARTIAL/OPEN; graphics performance and historical tail-latency work remain separate. |
 | M6 | PARTIAL/OPEN; KWin/Weston/Sway portability is not fully accepted; Hyprland/Mutter unverified. |

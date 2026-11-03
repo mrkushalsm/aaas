@@ -69,6 +69,71 @@ class DiagnosticOverlayManifestTests(unittest.TestCase):
                     SESSION.validate_diagnostic_vulkan_overlay(overlay)
 
 
+class NativeBridgeOverlayTests(unittest.TestCase):
+    def _bundle(self, root):
+        import hashlib
+        bundle = Path(root) / 'bundle'
+        required = {
+            'system/lib64/libberberis_arm64.so': b'host translator',
+            'system/lib64/libberberis_exec_region.so': b'exec region',
+            'system/etc/ld.config.arm64.txt': b'guest linker config',
+            'system/lib64/arm64/libc.so': b'guest libc',
+        }
+        for index in range(70):
+            required[f'system/lib64/libproxy{index}.so'] = f'proxy {index}'.encode()
+        lines = []
+        for name, data in sorted(required.items()):
+            path = bundle / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            lines.append(f'{hashlib.sha256(data).hexdigest()}  {name}')
+        (bundle / 'SHA256SUMS').write_text('\n'.join(lines) + '\n')
+        (bundle / 'MANIFEST.txt').write_text('fixture\n')
+        return bundle
+
+    def test_validates_and_builds_session_local_hardlink_overlay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = self._bundle(root)
+            base = root / 'rootfs/rootfs_m1b1/system'
+            for subtree in ('bin', 'etc', 'lib64'):
+                (base / subtree).mkdir(parents=True)
+                (base / subtree / 'base-file').write_text('base')
+            (base / 'build.prop').write_text(
+                'ro.dalvik.vm.native.bridge=0\nro.product.cpu.abi=x86_64\n')
+            session = root / 'session'
+            session.mkdir()
+            with patch.object(SESSION, 'TMP', root), \
+                    patch.object(SESSION, 'WORKSPACE', root / 'rootfs'):
+                verified_bundle, entries = SESSION.validate_native_bridge_bundle(bundle)
+                overlay = SESSION.prepare_native_bridge_overlay(
+                    verified_bundle, entries, session)
+                generated = SESSION.make_session_runner(
+                    session, experimental_virtual_display=True,
+                    native_bridge_overlay=overlay).read_text()
+            props = (overlay / 'system/build.prop').read_text()
+            self.assertIn('ro.dalvik.vm.native.bridge=libberberis_arm64.so', props)
+            self.assertIn('ro.product.cpu.abilist=x86_64,arm64-v8a', props)
+            self.assertIn('ro.enable.native.bridge.exec=0', props)
+            self.assertIn(f'--ro-bind "{overlay / "system/lib64"}" /system/lib64', generated)
+            self.assertTrue((overlay / 'system/lib64/libberberis_arm64.so').is_file())
+            self.assertEqual((base / 'build.prop').read_text(),
+                             'ro.dalvik.vm.native.bridge=0\nro.product.cpu.abi=x86_64\n')
+
+    def test_rejects_checksum_mismatch_and_path_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = self._bundle(directory)
+            with patch.object(SESSION, 'TMP', Path(directory)):
+                artifact = bundle / 'system/lib64/libberberis_arm64.so'
+                artifact.write_bytes(b'tampered')
+                with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                    SESSION.validate_native_bridge_bundle(bundle)
+                sums = bundle / 'SHA256SUMS'
+                sums.write_text(sums.read_text().replace('system/lib64/libberberis_arm64.so',
+                                                         'system/../../unsafe'))
+                with self.assertRaisesRegex(ValueError, 'unsafe'):
+                    SESSION.validate_native_bridge_bundle(bundle)
+
 class ForegroundRunnerTests(unittest.TestCase):
     def test_two_app_mode_builds_capacity_two_composer(self):
         with tempfile.TemporaryDirectory() as directory:
