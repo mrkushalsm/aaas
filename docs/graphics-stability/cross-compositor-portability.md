@@ -22,6 +22,10 @@ Under Sway, both 420×740 floating windows rendered Android source frames at 720
 
 The resize request and Android display metrics therefore succeeded, but the output-buffer dimensions did not converge. This work did not identify the deeper SurfaceFlinger/Composer cause or apply a production fix. Sway is not accepted for full window-resize portability until that path is corrected and retested.
 
+### Resize trace follow-up (2026-11-03)
+
+A fresh correctly-targeted Sway session (`m1b84_session_eflnwr94`) narrowed the failure boundary. Composer destroyed virtual display 100 and created display 102 at 500×740. SurfaceFlinger later supplied 500×740 layer buffers to display 102, but its present commands had no client target and no virtual output frame was transported. The presenter therefore had no compatible new-generation frame to accept. This shows the failure is not simply a stale 720×1280 allocation cache; the reason SurfaceFlinger/Composer omitted the client target/output buffer is still unknown. A temporary broker ordering change was tested and reverted because it did not alter the behavior. No production workaround was retained and validation remains enabled. The trace ended STOPPED with the other display running and zero outstanding presenter buffers. Log hashes and paths are in the structured acceptance record.
+
 ## Environment and evidence
 
 Weston and Sway package trees were extracted under the external AaaS workspace and run as nested compositors. Android image, Composer, SwiftShader, and host compositor were not replaced. This tests protocol and DMA-BUF interoperability in nested software-rendered environments; it does not establish performance equivalence with native KWin output or universal Wayland compatibility. Hyprland and Mutter were absent and remain out of scope for the verified KWin/Weston/Sway baseline.

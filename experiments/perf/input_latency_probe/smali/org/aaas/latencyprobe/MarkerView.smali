@@ -3,6 +3,8 @@
 
 .field private state:I
 .field private paint:Landroid/graphics/Paint;
+.field private draw_count:I
+.field private last_animation_ns:J
 
 .method public constructor <init>(Landroid/content/Context;)V
     .locals 1
@@ -54,13 +56,32 @@
     add-int/lit8 v1, v1, 0x1
     goto :marker_loop
 :marker_done
-    const/16 v2, __ANIMATION_DELAY__
-    if-lez v2, :animation_done
+    const-wide v2, __ANIMATION_PERIOD_NS__
+    const-wide/16 v0, 0x0
+    cmp-long v1, v2, v0
+    if-lez v1, :animation_done
+    iget v0, p0, Lorg/aaas/latencyprobe/MarkerView;->draw_count:I
+    add-int/lit8 v0, v0, 0x1
+    iput v0, p0, Lorg/aaas/latencyprobe/MarkerView;->draw_count:I
+    const/16 v1, 0x3c
+    rem-int v1, v0, v1
+    if-nez v1, :animation_tick
+    const-string v1, "AaaASFrameProbe"
+    const-string v0, "draw_checkpoint"
+    invoke-static {v1, v0}, Landroid/util/Log;->i(Ljava/lang/String;Ljava/lang/String;)I
+:animation_tick
+    invoke-static {}, Ljava/lang/System;->nanoTime()J
+    move-result-wide v4
+    iget-wide v6, p0, Lorg/aaas/latencyprobe/MarkerView;->last_animation_ns:J
+    sub-long v8, v4, v6
+    cmp-long v10, v8, v2
+    if-ltz v10, :animation_schedule
+    iput-wide v4, p0, Lorg/aaas/latencyprobe/MarkerView;->last_animation_ns:J
     iget v3, p0, Lorg/aaas/latencyprobe/MarkerView;->state:I
     add-int/lit8 v3, v3, 0x1
     iput v3, p0, Lorg/aaas/latencyprobe/MarkerView;->state:I
-    int-to-long v2, v2
-    invoke-virtual {p0, v2, v3}, Lorg/aaas/latencyprobe/MarkerView;->postInvalidateDelayed(J)V
+:animation_schedule
+    invoke-virtual {p0}, Lorg/aaas/latencyprobe/MarkerView;->postInvalidateOnAnimation()V
 :animation_done
     return-void
 .end method

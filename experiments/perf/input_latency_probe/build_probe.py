@@ -154,8 +154,9 @@ def main() -> int:
             text = text.replace("org.aaas.latencyprobe", args.package)
             text = text.replace("org/aaas/latencyprobe", args.package.replace(".", "/"))
             if smali_file.name == "MarkerView.smali":
-                delay_ms = 0 if args.animation_hz == 0 else 1000 // args.animation_hz
-                text = text.replace("__ANIMATION_DELAY__", f"0x{delay_ms:x}")
+                period_ns = 0 if args.animation_hz == 0 else 1_000_000_000 // args.animation_hz
+                text = text.replace("__ANIMATION_PERIOD_NS__",
+                                    f"0x{period_ns:x}")
             smali_file.write_text(text)
         (work / "AndroidManifest.xml").write_bytes(binary_manifest(args.package))
         (work / "apktool.yml").write_text(
