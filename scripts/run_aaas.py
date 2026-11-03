@@ -567,7 +567,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         native_bridge_overlay=None, capture_app_tombstones=False,
                         idle_timeout_seconds=60, shared_storage_dir=None,
                         diagnostic_storage_apk=None,
-                        diagnostic_storage_open=False):
+                        diagnostic_storage_open=False, install_apk=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -582,6 +582,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     input_response_probe_binds = ""
     native_bridge_binds = ""
     diagnostic_storage_apk_bind = ""
+    ordinary_apk_bind = ""
     if diagnostic_storage_apk is not None:
         storage_apk = Path(diagnostic_storage_apk).resolve(strict=True)
         if not storage_apk.is_file() or storage_apk.suffix.lower() != '.apk':
@@ -591,6 +592,16 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         diagnostic_storage_apk_bind = (
             f'  --ro-bind {shlex.quote(str(storage_apk))} '
             '/aaas-storage-probe.apk \\\n'
+        )
+    if install_apk is not None:
+        ordinary_apk = Path(install_apk).resolve(strict=True)
+        if not ordinary_apk.is_file() or ordinary_apk.suffix.lower() != '.apk':
+            raise ValueError('application install input must be an APK file')
+        if diagnostic_storage_apk is not None:
+            raise ValueError('use either a storage probe APK or an ordinary APK')
+        ordinary_apk_bind = (
+            f'  --ro-bind {shlex.quote(str(ordinary_apk))} '
+            '/aaas-install-apk.apk \\\n'
         )
     if native_bridge_overlay is not None:
         overlay = Path(native_bridge_overlay).resolve(strict=True)
@@ -717,6 +728,15 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '      exit 1\n'
                 '    fi\n'
             )
+        if install_apk is not None:
+            storage_probe += (
+                '    echo "=== INSTALLING ORDINARY USER APK ===" >> /aaas_session_commands\n'
+                '    INSTALL_OUTPUT=$(/system/bin/pm install -r /aaas-install-apk.apk 2>&1)\n'
+                '    INSTALL_STATUS=$?\n'
+                '    echo "AAAS_USER_APK_INSTALL status=$INSTALL_STATUS result=$INSTALL_OUTPUT" '
+                '>> /aaas_session_commands\n'
+                '    if [ "$INSTALL_STATUS" -ne 0 ]; then echo FAILED > /aaas_session_status; exit 1; fi\n'
+            )
         source = replace_once(
             source,
             '    echo "=== TESTING ACTIVITY LAUNCH (SETTINGS) ==="',
@@ -742,6 +762,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         source,
         '{mapper_bind}{allocator_bind}',
         native_bridge_binds + input_response_probe_binds + diagnostic_storage_apk_bind
+        + ordinary_apk_bind
         + '{mapper_bind}{allocator_bind}',
     )
     source = replace_once(
@@ -1768,6 +1789,8 @@ def main():
                         help='optional second diagnostic APK for distinct-package two-display input checks')
     parser.add_argument('--diagnostic-storage-apk',
                         help='install the controlled storage probe as an ordinary /data/app package')
+    parser.add_argument('--install-apk',
+                        help='install an APK as an ordinary user package before launch')
     parser.add_argument('--diagnostic-storage-open', action='store_true',
                         help='select the first file in DocumentsUI for the storage diagnostic APK')
     parser.add_argument('--diagnostic-native-bridge-overlay',
@@ -1812,6 +1835,8 @@ def main():
         parser.error('--diagnostic-storage-apk requires --app org.aaas.storagetest')
     if args.diagnostic_storage_open and not args.diagnostic_storage_apk:
         parser.error('--diagnostic-storage-open requires --diagnostic-storage-apk')
+    if args.install_apk and args.diagnostic_storage_apk:
+        parser.error('--install-apk and --diagnostic-storage-apk are mutually exclusive')
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
     if args.test_tombstone_capture and args.app2:
@@ -1999,7 +2024,8 @@ def main():
                                  idle_timeout_seconds=args.idle_timeout_seconds,
                                  shared_storage_dir=shared_storage_path,
                                  diagnostic_storage_apk=args.diagnostic_storage_apk,
-                                 diagnostic_storage_open=args.diagnostic_storage_open)
+                                 diagnostic_storage_open=args.diagnostic_storage_open,
+                                 install_apk=args.install_apk)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(

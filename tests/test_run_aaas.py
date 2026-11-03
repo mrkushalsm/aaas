@@ -658,6 +658,34 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertNotIn('/product/app/AaasStorageProbe', generated)
         self.assertIn('AaaSStorageInstall', generated)
 
+    def test_arbitrary_apk_install_uses_an_ordinary_user_package_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'vlc.apk'
+            apk.write_bytes(b'ordinary apk fixture')
+            (root / 'session').mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            generated = SESSION.make_session_runner(
+                root / 'session', app_package='org.videolan.vlc',
+                install_apk=apk, shared_storage_dir=root / 'media' / '0').read_text()
+        self.assertIn(f'--ro-bind {apk.resolve()} /aaas-install-apk.apk', generated)
+        self.assertIn('pm install -r /aaas-install-apk.apk', generated)
+        self.assertIn('AAAS_USER_APK_INSTALL', generated)
+        self.assertNotIn('/product/app/AaasStorageProbe', generated)
+
+    def test_storage_probe_and_generic_apk_install_are_exclusive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'probe.apk'
+            apk.write_bytes(b'fixture')
+            (root / 'session').mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, 'either a storage probe'):
+                SESSION.make_session_runner(
+                    root / 'session', app_package='org.aaas.storagetest',
+                    diagnostic_storage_apk=apk, install_apk=apk,
+                    shared_storage_dir=root / 'media' / '0')
+
     def test_storage_open_probe_uses_picker_and_queries_external_primary(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
