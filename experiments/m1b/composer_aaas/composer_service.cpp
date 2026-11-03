@@ -395,7 +395,11 @@ public:
             std::lock_guard<std::mutex> lock(mLayerLock);
             mLayerDisplays.emplace(layerId, in_display);
         }
-#if defined(AAAS_ENABLE_MIXED_COMPOSITION_TEST)
+        // Virtual displays in the normal staged path accept SurfaceFlinger
+        // client targets only. Track their layers in every build so validate
+        // can explicitly negotiate CLIENT when SurfaceFlinger recreates the
+        // virtual display after a resize. The optional mixed test may still
+        // select one supported DEVICE layer below.
         if (auto state = findVirtualDisplay(in_display)) {
             std::lock_guard<std::mutex> state_lock(state->lock);
             VirtualLayerState layer;
@@ -403,7 +407,6 @@ public:
             layer.buffers.resize(static_cast<size_t>(in_bufferSlotCount));
             state->layers.emplace(layerId, std::move(layer));
         }
-#endif
         mNeedsValidation = true;
         kmsg_log("[AaasComposerClient] createLayer(display=%ld, slotCount=%d) -> layerId=%ld\n",
                  (long)in_display, in_bufferSlotCount, (long)layerId);
@@ -419,7 +422,6 @@ public:
                 mLayerDisplays.erase(it);
             }
         }
-#if defined(AAAS_ENABLE_MIXED_COMPOSITION_TEST)
         if (auto state = findVirtualDisplay(in_display)) {
             std::lock_guard<std::mutex> state_lock(state->lock);
             auto it = state->layers.find(in_layer);
@@ -431,7 +433,6 @@ public:
                 state->layers.erase(it);
             }
         }
-#endif
         mNeedsValidation = true;
         kmsg_log("[AaasComposerClient] destroyLayer(display=%ld, layerId=%ld)\n", (long)in_display, (long)in_layer);
         return ::ndk::ScopedAStatus::ok();
@@ -500,12 +501,10 @@ public:
                         munmap(ptr, sz);
                     }
                 }
-#if defined(AAAS_ENABLE_MIXED_COMPOSITION_TEST)
                 if (auto virtual_state = findVirtualDisplay(cmd.display)) {
                     std::lock_guard<std::mutex> state_lock(virtual_state->lock);
                     if (!virtual_state->destroyed) updateVirtualLayer(*virtual_state, l);
                 }
-#endif
             }
             // 1. Process client target if provided
             if (cmd.clientTarget.has_value()) {
