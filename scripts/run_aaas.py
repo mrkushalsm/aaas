@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aaas_cgroup
@@ -100,7 +101,7 @@ def validate_native_bridge_bundle(path):
     return bundle, entries
 
 
-def prepare_native_bridge_overlay(bundle, entries, session):
+def prepare_native_bridge_overlay(bundle, entries, session, arm64_first=False):
     rootfs_system = WORKSPACE / 'rootfs_m1b1/system'
     overlay_system = session / 'native_bridge_overlay/system'
     for subtree in ('bin', 'etc', 'lib64'):
@@ -116,14 +117,15 @@ def prepare_native_bridge_overlay(bundle, entries, session):
 
     original_props = rootfs_system / 'build.prop'
     text = original_props.read_text()
+    abi_order = 'arm64-v8a,x86_64' if arm64_first else 'x86_64,arm64-v8a'
     overrides = {
         'ro.dalvik.vm.native.bridge': 'libberberis_arm64.so',
         'ro.dalvik.vm.isa.arm64': 'x86_64',
         'ro.enable.native.bridge.exec': '0',
-        'ro.product.cpu.abilist': 'x86_64,arm64-v8a',
-        'ro.product.cpu.abilist64': 'x86_64,arm64-v8a',
-        'ro.system.product.cpu.abilist': 'x86_64,arm64-v8a',
-        'ro.system.product.cpu.abilist64': 'x86_64,arm64-v8a',
+        'ro.product.cpu.abilist': abi_order,
+        'ro.product.cpu.abilist64': abi_order,
+        'ro.system.product.cpu.abilist': abi_order,
+        'ro.system.product.cpu.abilist64': abi_order,
     }
     for name, value in overrides.items():
         pattern = re.compile(rf'^{re.escape(name)}=.*$', re.MULTILINE)
@@ -144,6 +146,76 @@ def prepare_native_bridge_overlay(bundle, entries, session):
     provenance_path.write_text(json.dumps(provenance, indent=2) + '\n')
     provenance_path.chmod(0o600)
     return session / 'native_bridge_overlay'
+
+
+def prepare_diagnostic_apk_native_libraries(apk_path, session, overlay_name):
+    """Stage APK native libraries in the preinstalled system-app layout.
+
+    System APKs are not installed into /data/app, so Android cannot extract
+    compressed JNI libraries during PackageManager installation. Preserve the
+    original APK and provide a session-local, read-only library directory.
+    """
+    abi_directories = {
+        'arm64-v8a': 'arm64',
+        'armeabi-v7a': 'arm',
+        'x86': 'x86',
+        'x86_64': 'x86_64',
+    }
+    root = Path(session) / 'diagnostic-apk-native-libs' / overlay_name
+    libraries = []
+    total_size = 0
+    with zipfile.ZipFile(apk_path) as apk:
+        seen = set()
+        for info in apk.infolist():
+            if info.is_dir() or not info.filename.startswith('lib/') or not info.filename.endswith('.so'):
+                continue
+            parts = Path(info.filename).parts
+            if (len(parts) != 3 or parts[0] != 'lib' or '..' in parts
+                    or parts[1] not in abi_directories or not parts[2]
+                    or '/' in parts[2] or '\\' in parts[2]):
+                raise ValueError(f'unsafe or unsupported APK native-library path: {info.filename}')
+            if info.filename in seen:
+                raise ValueError(f'duplicate APK native-library entry: {info.filename}')
+            seen.add(info.filename)
+            total_size += info.file_size
+            if total_size > 1024 * 1024 * 1024:
+                raise ValueError('APK native libraries exceed the 1 GiB session extraction limit')
+            data = apk.read(info)
+            if len(data) < 20 or data[:4] != b'\x7fELF':
+                raise ValueError(f'APK native library is not ELF: {info.filename}')
+            elf_class, elf_data = data[4], data[5]
+            machine = int.from_bytes(data[18:20], 'little' if elf_data == 1 else 'big')
+            expected = {
+                'arm64-v8a': (2, 183),
+                'armeabi-v7a': (1, 40),
+                'x86': (1, 3),
+                'x86_64': (2, 62),
+            }[parts[1]]
+            if (elf_class, machine) != expected:
+                raise ValueError(f'APK library ABI/ELF mismatch: {info.filename}')
+            directory = root / abi_directories[parts[1]]
+            directory.mkdir(parents=True, exist_ok=True)
+            target = directory / parts[2]
+            target.write_bytes(data)
+            target.chmod(0o755)
+            libraries.append({
+                'apk_entry': info.filename,
+                'staged_path': str(target),
+                'size_bytes': len(data),
+                'sha256': hashlib.sha256(data).hexdigest(),
+                'elf_class': elf_class,
+                'elf_machine': machine,
+            })
+    manifest = {
+        'source_apk': str(Path(apk_path).resolve()),
+        'source_apk_sha256': sha256(apk_path),
+        'overlay_name': overlay_name,
+        'staging': 'session-local extracted libraries; source APK remains read-only and unchanged',
+        'libraries': libraries,
+    }
+    (Path(session) / f'{overlay_name}-native-libraries.json').write_text(
+        json.dumps(manifest, indent=2) + '\n')
+    return root if libraries else None, manifest
 
 
 def write_status_sentinel(path, value):
@@ -491,7 +563,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         experimental_virtual_display=False, app_package2=None,
                         bluetooth_policy_dir=None, input_response_probe_apk=None,
                         input_response_probe_apk2=None,
-                        native_bridge_overlay=None):
+                        native_bridge_overlay=None, capture_app_tombstones=False):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -524,11 +596,19 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         probe_apk = Path(probe_path).resolve()
         if not probe_apk.is_file():
             raise ValueError(f'input-response probe APK does not exist: {probe_apk}')
+        native_lib_root, native_lib_manifest = prepare_diagnostic_apk_native_libraries(
+            probe_apk, session, overlay_name)
         input_response_probe_binds += (
             f'  --dir /product/app/{overlay_name} \\\n'
             f'  --ro-bind "{probe_apk}" '
             f'/product/app/{overlay_name}/{overlay_name}.apk \\\n'
         )
+        if native_lib_root is not None:
+            input_response_probe_binds += (
+                f'  --dir /product/app/{overlay_name}/lib \\\n'
+                f'  --ro-bind "{native_lib_root}" '
+                f'/product/app/{overlay_name}/lib \\\n'
+            )
     timeout = '140'
     source = RUNNER.read_text()
     bluetooth_policy_bind = (
@@ -593,6 +673,11 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    fi\n'
             '    exec /system/bin/init second_stage',
         )
+    tombstone_application_filter = (
+        "          if ! /system/bin/toybox grep -Fq \"Cmdline: /system/bin/surfaceflinger\" \"$text_source\" && {{\n"
+        "              [ -z \"$test_pid\" ] || ! /system/bin/toybox grep -Fq \"pid: $test_pid,\" \"$text_source\";\n"
+        "            }}; then continue; fi\n"
+    )
     tombstone_capture_worker = (
         "    (\n"
         "      /system/bin/toybox umask 077\n"
@@ -655,6 +740,9 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         "      done\n"
         "    ) >/dev/null 2>&1 &\n"
     )
+    if capture_app_tombstones:
+        tombstone_capture_worker = tombstone_capture_worker.replace(
+            tombstone_application_filter, '')
     source = replace_once(
         source, '    exec /system/bin/init second_stage',
         tombstone_capture_worker + '    exec /system/bin/init second_stage',
@@ -1437,6 +1525,10 @@ def main():
                         help='optional second diagnostic APK for distinct-package two-display input checks')
     parser.add_argument('--diagnostic-native-bridge-overlay',
                         help='hash-verified Android Native Bridge bundle for isolated ARM64 tests')
+    parser.add_argument('--diagnostic-native-bridge-arm64-first', action='store_true',
+                        help='prefer arm64-v8a when an APK contains multiple native ABIs')
+    parser.add_argument('--diagnostic-capture-app-tombstones', action='store_true',
+                        help='opt in to private export of app crash tombstones for compatibility debugging')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
                         help='Opt in to host/cgroup resource snapshots; optionally sample every N seconds (0 disables periodic samples, max 3600 samples)')
     parser.add_argument('--test-tombstone-capture', action='store_true',
@@ -1451,6 +1543,8 @@ def main():
                 args.diagnostic_native_bridge_overlay)
         except (OSError, ValueError) as error:
             parser.error(str(error))
+    elif args.diagnostic_native_bridge_arm64_first:
+        parser.error('--diagnostic-native-bridge-arm64-first requires --diagnostic-native-bridge-overlay')
     if args.diagnostic_framework_overlay and not args.experimental_virtual_display:
         parser.error('--diagnostic-framework-overlay requires --experimental-virtual-display')
     if args.diagnostic_framework_sha256 and not args.diagnostic_framework_overlay:
@@ -1538,7 +1632,8 @@ def main():
     native_bridge_overlay = None
     if native_bridge_bundle is not None:
         native_bridge_overlay = prepare_native_bridge_overlay(
-            native_bridge_bundle, native_bridge_entries, session)
+            native_bridge_bundle, native_bridge_entries, session,
+            arm64_first=args.diagnostic_native_bridge_arm64_first)
     bluetooth_policy_dir = session / 'bluetooth-policy'
     bluetooth_policy_manifest = aaas_bluetooth.create_unavailable_policy(
         WORKSPACE / 'rootfs_m1b1', bluetooth_policy_dir)
@@ -1645,7 +1740,8 @@ def main():
                                  bluetooth_policy_dir=bluetooth_policy_dir,
                                  input_response_probe_apk=args.input_response_probe_apk,
                                  input_response_probe_apk2=args.input_response_probe_apk2,
-                                 native_bridge_overlay=native_bridge_overlay)
+                                 native_bridge_overlay=native_bridge_overlay,
+                                 capture_app_tombstones=args.diagnostic_capture_app_tombstones)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -2230,6 +2326,15 @@ def main():
             except OSError as error:
                 cleanup_failed = True
                 print(f'AaaS: Native Bridge overlay cleanup failed: {error}',
+                      file=sys.stderr, flush=True)
+        diagnostic_native_libs = session / 'diagnostic-apk-native-libs'
+        if diagnostic_native_libs.exists():
+            try:
+                shutil.rmtree(diagnostic_native_libs)
+                print('AaaS: session-local diagnostic APK libraries removed', flush=True)
+            except OSError as error:
+                cleanup_failed = True
+                print(f'AaaS: diagnostic APK library cleanup failed: {error}',
                       file=sys.stderr, flush=True)
         terminal_failed = (failed_before_cleanup or state == 'FAILED' or cleanup_failed)
         if terminal_failed:

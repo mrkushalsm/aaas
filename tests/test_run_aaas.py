@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from unittest.mock import patch
 
 
@@ -120,6 +121,27 @@ class NativeBridgeOverlayTests(unittest.TestCase):
             self.assertEqual((base / 'build.prop').read_text(),
                              'ro.dalvik.vm.native.bridge=0\nro.product.cpu.abi=x86_64\n')
 
+    def test_arm64_first_abi_order_is_opt_in_and_session_local(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = self._bundle(root)
+            base = root / 'rootfs/rootfs_m1b1/system'
+            for subtree in ('bin', 'etc', 'lib64'):
+                (base / subtree).mkdir(parents=True)
+            (base / 'build.prop').write_text('ro.product.cpu.abi=x86_64\n')
+            session = root / 'session'
+            session.mkdir()
+            with patch.object(SESSION, 'TMP', root), \
+                    patch.object(SESSION, 'WORKSPACE', root / 'rootfs'):
+                verified, entries = SESSION.validate_native_bridge_bundle(bundle)
+                overlay = SESSION.prepare_native_bridge_overlay(
+                    verified, entries, session, arm64_first=True)
+            props = (overlay / 'system/build.prop').read_text()
+            self.assertIn('ro.product.cpu.abilist=arm64-v8a,x86_64', props)
+            self.assertIn('ro.product.cpu.abilist64=arm64-v8a,x86_64', props)
+            self.assertIn('ro.product.cpu.abi=x86_64', props)
+            self.assertEqual((base / 'build.prop').read_text(), 'ro.product.cpu.abi=x86_64\n')
+
     def test_rejects_checksum_mismatch_and_path_traversal(self):
         with tempfile.TemporaryDirectory() as directory:
             bundle = self._bundle(directory)
@@ -128,6 +150,48 @@ class NativeBridgeOverlayTests(unittest.TestCase):
                 artifact.write_bytes(b'tampered')
                 with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
                     SESSION.validate_native_bridge_bundle(bundle)
+
+
+class DiagnosticApkNativeLibraryTests(unittest.TestCase):
+    @staticmethod
+    def _elf64_arm64():
+        data = bytearray(20)
+        data[:6] = b'\x7fELF\x02\x01'
+        data[18:20] = (183).to_bytes(2, 'little')
+        return bytes(data)
+
+    def test_stages_compressed_arm64_library_in_system_app_layout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'third-party.apk'
+            payload = self._elf64_arm64()
+            with zipfile.ZipFile(apk, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr('lib/arm64-v8a/libmain.so', payload)
+            staged, manifest = SESSION.prepare_diagnostic_apk_native_libraries(
+                apk, root / 'session', 'AaasLatencyProbe')
+            library = staged / 'arm64/libmain.so'
+            self.assertEqual(library.read_bytes(), payload)
+            self.assertEqual(manifest['libraries'][0]['apk_entry'],
+                             'lib/arm64-v8a/libmain.so')
+            self.assertEqual(manifest['source_apk_sha256'], SESSION.sha256(apk))
+
+    def test_rejects_path_traversal_and_elf_abi_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'bad.apk'
+            with zipfile.ZipFile(apk, 'w') as archive:
+                archive.writestr('lib/arm64-v8a/../libmain.so', self._elf64_arm64())
+            with self.assertRaisesRegex(ValueError, 'unsafe or unsupported'):
+                SESSION.prepare_diagnostic_apk_native_libraries(
+                    apk, root / 'session', 'AaasLatencyProbe')
+            apk2 = root / 'bad-elf.apk'
+            wrong_arch = bytearray(self._elf64_arm64())
+            wrong_arch[18:20] = (62).to_bytes(2, 'little')
+            with zipfile.ZipFile(apk2, 'w') as archive:
+                archive.writestr('lib/arm64-v8a/libmain.so', wrong_arch)
+            with self.assertRaisesRegex(ValueError, 'ABI/ELF mismatch'):
+                SESSION.prepare_diagnostic_apk_native_libraries(
+                    apk2, root / 'session2', 'AaasLatencyProbe')
                 sums = bundle / 'SHA256SUMS'
                 sums.write_text(sums.read_text().replace('system/lib64/libberberis_arm64.so',
                                                          'system/../../unsafe'))
@@ -348,6 +412,21 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('pid: $test_pid,', generated)
         self.assertIn('os.chmod(tombstone_dir, 0o700)', generated)
 
+    def test_app_tombstone_export_is_explicit_and_private(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'limited').mkdir()
+            (root / 'expanded').mkdir()
+            limited = SESSION.make_session_runner(
+                root / 'limited', experimental_virtual_display=True).read_text()
+            expanded = SESSION.make_session_runner(
+                root / 'expanded', experimental_virtual_display=True,
+                capture_app_tombstones=True).read_text()
+        self.assertIn('Cmdline: /system/bin/surfaceflinger', limited)
+        self.assertNotIn('Cmdline: /system/bin/surfaceflinger', expanded)
+        self.assertIn('os.chmod(tombstone_dir, 0o700)', expanded)
+        self.assertIn('chmod 0600', expanded)
+
     def test_failure_classifier_ignores_framework_death_command_source(self):
         with tempfile.TemporaryDirectory() as directory:
             command_log = Path(directory) / 'commands.log'
@@ -498,8 +577,12 @@ class ForegroundRunnerTests(unittest.TestCase):
             root = Path(directory)
             first = root / 'probe.apk'
             second = root / 'probe2.apk'
-            first.write_bytes(b'first')
-            second.write_bytes(b'second')
+            with zipfile.ZipFile(first, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr('lib/arm64-v8a/libfirst.so',
+                                 DiagnosticApkNativeLibraryTests._elf64_arm64())
+            with zipfile.ZipFile(second, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr('lib/arm64-v8a/libsecond.so',
+                                 DiagnosticApkNativeLibraryTests._elf64_arm64())
             default_root = root / 'default'
             diagnostic_root = root / 'diagnostic'
             default_root.mkdir()
@@ -516,6 +599,9 @@ class ForegroundRunnerTests(unittest.TestCase):
                       '/product/app/AaasLatencyProbe/AaasLatencyProbe.apk', generated)
         self.assertIn(f'--ro-bind "{second.resolve()}" '
                       '/product/app/AaasLatencyProbe2/AaasLatencyProbe2.apk', generated)
+        self.assertIn('--ro-bind "' + str(diagnostic_root / 'diagnostic-apk-native-libs' /
+                                           'AaasLatencyProbe') + '" '
+                      '/product/app/AaasLatencyProbe/lib', generated)
         self.assertLess(generated.index('--bind "{rootfs}" /'),
                         generated.index('--dir /product/app/AaasLatencyProbe'))
 
