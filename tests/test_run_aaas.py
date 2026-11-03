@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import shlex
 import tempfile
 import threading
 import time
@@ -334,6 +335,27 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('    exec /system/bin/init second_stage', generated)
         self.assertNotIn('/system/bin/init second_stage &', generated)
         self.assertIn('    echo RUNNING > /aaas_session_status', generated)
+
+    def test_runner_binds_persistent_shared_storage_and_starts_storaged(self):
+        with tempfile.TemporaryDirectory(prefix='aaas storage ') as directory:
+            root = Path(directory)
+            shared = root / 'persistent' / 'android-media' / '0'
+            shared.mkdir(parents=True)
+            session = root / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(
+                session, shared_storage_dir=shared).read_text()
+        self.assertIn('--dir /data/media', generated)
+        self.assertIn(f'--bind {shlex.quote(str(shared.parent))} /data/media',
+                      generated)
+        self.assertLess(generated.index('--tmpfs /data'),
+                        generated.index('{shared_storage_bind}'))
+        self.assertIn('{fuse_bind}  --dev-bind /dev/dri /dev/dri', generated)
+        self.assertLess(generated.index('/system/bin/start storaged'),
+                        generated.index('/system/bin/start vold'))
+        self.assertIn('/system/bin/sm mount "emulated;0"', generated)
+        self.assertNotIn('aaas-storage-android-to-host.txt', generated)
+        self.assertNotIn('aaas-storage-host-to-android.txt', generated)
 
     def test_runner_mounts_verified_bluetooth_unavailable_policy_before_init(self):
         with tempfile.TemporaryDirectory() as directory:

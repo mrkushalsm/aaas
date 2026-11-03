@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aaas_cgroup
 import aaas_bluetooth
 import aaas_resources
+import aaas_storage
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -564,7 +565,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         bluetooth_policy_dir=None, input_response_probe_apk=None,
                         input_response_probe_apk2=None,
                         native_bridge_overlay=None, capture_app_tombstones=False,
-                        idle_timeout_seconds=60):
+                        idle_timeout_seconds=60, shared_storage_dir=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -614,6 +615,75 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             )
     timeout = '140'
     source = RUNNER.read_text()
+    if shared_storage_dir is not None:
+        shared_storage_dir = Path(shared_storage_dir).resolve(strict=True)
+        if not shared_storage_dir.is_dir():
+            raise ValueError('shared storage backing must be a directory')
+        storage_bind = (
+            '  --dir /data/media \\\n'
+            f'  --bind {shlex.quote(str(shared_storage_dir.parent))} /data/media \\\n'
+        )
+        source = replace_once(
+            source,
+            '    runner_script = tmp_dir /',
+            f'    shared_storage_bind = {storage_bind!r}\n'
+            '    fuse_bind = (("  --dev-bind /dev/fuse /dev/fuse " + chr(92) + "\\n") '
+            'if Path("/dev/fuse").exists() else "")\n'
+            '    runner_script = tmp_dir /',
+        )
+        storage_anchor = '  --tmpfs /data ' + '\\\\' + '\n'
+        source = replace_once(
+            source,
+            storage_anchor,
+            storage_anchor + '{shared_storage_bind}',
+        )
+        source = replace_once(
+            source,
+            '{tun_bind}  --dev-bind /dev/dri /dev/dri',
+            '{tun_bind}{fuse_bind}  --dev-bind /dev/dri /dev/dri',
+        )
+        source = replace_once(
+            source,
+            '    /system/bin/start vold\n',
+            '    /system/bin/start storaged\n'
+            '    /system/bin/start vold\n',
+        )
+        storage_probe = (
+            '    echo "=== AAAS SHARED STORAGE INITIALIZATION ===" >> /aaas_session_commands\n'
+            '    if [ -r /data/system/environ/classpath ]; then\n'
+            '      while read -r AAAS_EXPORT_KIND AAAS_EXPORT_NAME AAAS_EXPORT_VALUE; do\n'
+            '        if [ "$AAAS_EXPORT_KIND" = export ] && '
+            '[ -n "$AAAS_EXPORT_NAME" ] && [ -n "$AAAS_EXPORT_VALUE" ]; then\n'
+            '          export "$AAAS_EXPORT_NAME=$AAAS_EXPORT_VALUE"\n'
+            '        fi\n'
+            '      done < /data/system/environ/classpath\n'
+            '      if [ -n "$BOOTCLASSPATH" ] && '
+            '[ -n "$DEX2OATBOOTCLASSPATH" ]; then\n'
+            '        echo AAAS_ANDROID_CLASSPATH_EXPORTS_LOADED >> /aaas_session_commands\n'
+            '      else\n'
+            '        echo AAAS_ANDROID_CLASSPATH_EXPORTS_INVALID >> /aaas_session_commands\n'
+            '      fi\n'
+            '    else\n'
+            '      echo AAAS_ANDROID_CLASSPATH_EXPORTS_MISSING >> /aaas_session_commands\n'
+            '    fi\n'
+            '    /system/bin/cmd -l >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/sm list-volumes all >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/sm mount "emulated;0" >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/toybox sleep 2\n'
+            '    /system/bin/sm list-volumes all >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/dumpsys mount | /system/bin/toybox grep -E '
+            '"emulated;0|System unlocked users|CE unlocked users" >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/toybox mount | /system/bin/toybox grep -E '
+            '"fuse|/data/media|/storage" >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/toybox ls -ld /data/media/0 '
+            '/storage/emulated/0 /storage/emulated/0/Documents >> /aaas_session_commands 2>&1\n'
+        )
+        source = replace_once(
+            source,
+            '    echo "=== TESTING ACTIVITY LAUNCH (SETTINGS) ==="',
+            storage_probe +
+            '    echo "=== TESTING ACTIVITY LAUNCH (SETTINGS) ==="',
+        )
     bluetooth_policy_bind = (
         aaas_bluetooth.policy_bind_command(bluetooth_policy_dir)
         if bluetooth_policy_dir is not None else ""
@@ -1793,6 +1863,7 @@ def main():
         except OSError as error:
             print(f'AaaS: resource snapshot unavailable: {error}',
                   file=sys.stderr, flush=True)
+    shared_storage_path = aaas_storage.prepare_backing_directory(WORKSPACE)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
@@ -1802,7 +1873,8 @@ def main():
                                  input_response_probe_apk2=args.input_response_probe_apk2,
                                  native_bridge_overlay=native_bridge_overlay,
                                  capture_app_tombstones=args.diagnostic_capture_app_tombstones,
-                                 idle_timeout_seconds=args.idle_timeout_seconds)
+                                 idle_timeout_seconds=args.idle_timeout_seconds,
+                                 shared_storage_dir=shared_storage_path)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -2153,6 +2225,15 @@ def main():
                 if status.read_text().strip() == 'RUNNING':
                     transition('RUNNING')
                     running_session = True
+                    try:
+                        aaas_storage.ensure_host_access(
+                            aaas_storage.media_root_path(WORKSPACE))
+                        aaas_storage.ensure_host_access(shared_storage_path)
+                        print(f'AaaS shared Android storage: {shared_storage_path}',
+                              flush=True)
+                    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                        print(f'AaaS shared storage ACL unavailable: {error}',
+                              file=sys.stderr, flush=True)
                     if policy is not None:
                         policy_monitor = aaas_cgroup.ProcessPolicyMonitor(
                             policy, policy_log)

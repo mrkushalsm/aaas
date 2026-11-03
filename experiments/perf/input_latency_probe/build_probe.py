@@ -84,7 +84,8 @@ def end_element(strings: list[str], tag: str) -> bytes:
     return xml_node(0x0103, struct.pack("<II", NO_INDEX, strings.index(tag)))
 
 
-def binary_manifest(package_name: str) -> bytes:
+def binary_manifest(package_name: str, *, target_sdk: int | None = None,
+                    requested_permissions: tuple[str, ...] = ()) -> bytes:
     strings = [
         "android", ANDROID_NS, "manifest", "package", package_name,
         "versionCode", "versionName", "1.0", "uses-sdk", "minSdkVersion",
@@ -121,12 +122,63 @@ def binary_manifest(package_name: str) -> bytes:
         end_element(strings, "manifest"),
         namespace(0x0101, 0, 1),
     ]
+    if target_sdk is not None or requested_permissions:
+        if target_sdk is None or not 1 <= target_sdk <= 0x7fffffff:
+            raise ValueError('target_sdk must be a positive integer when extending manifest')
+        extra_strings = ['uses-sdk', 'uses-permission', *requested_permissions]
+        strings.extend(value for value in extra_strings if value not in strings)
+        nodes = [
+            namespace(0x0100, 0, 1),
+            start_element(strings, 'manifest', [
+                (None, 'package', package_name),
+                ('android', 'versionCode', 1), ('android', 'versionName', '1.0'),
+            ]),
+            start_element(strings, 'uses-sdk', [
+                ('android', 'minSdkVersion', min(target_sdk, 28)),
+                ('android', 'targetSdkVersion', target_sdk),
+            ]),
+            end_element(strings, 'uses-sdk'),
+        ]
+        nodes.extend(
+            node
+            for permission in requested_permissions
+            for node in (
+                start_element(strings, 'uses-permission', [
+                    ('android', 'name', permission),
+                ]),
+                end_element(strings, 'uses-permission'),
+            )
+        )
+        nodes.extend([
+            start_element(strings, 'application', [
+                ('android', 'hasCode', True), ('android', 'label', 'AaaS Input Probe'),
+            ]),
+            start_element(strings, 'activity', [
+                ('android', 'name', '.ProbeActivity'), ('android', 'exported', True),
+                ('android', 'label', 'AaaS Input Probe'),
+            ]),
+            start_element(strings, 'intent-filter', []),
+            start_element(strings, 'action', [
+                ('android', 'name', 'android.intent.action.MAIN'),
+            ]),
+            end_element(strings, 'action'),
+            start_element(strings, 'category', [
+                ('android', 'name', 'android.intent.category.LAUNCHER'),
+            ]),
+            end_element(strings, 'category'),
+            end_element(strings, 'intent-filter'),
+            end_element(strings, 'activity'),
+            end_element(strings, 'application'),
+            end_element(strings, 'manifest'),
+            namespace(0x0101, 0, 1),
+        ])
     attr_ids = {
         "label": 0x01010001, "name": 0x01010003, "hasCode": 0x0101000C,
         "exported": 0x01010010, "minSdkVersion": 0x0101020C,
         "versionCode": 0x0101021B, "versionName": 0x0101021C,
         "targetSdkVersion": 0x01010270,
     }
+    attr_ids['targetSdkVersion'] = 0x01010270
     resource_map = chunk(0x0180, 8, b"".join(
         struct.pack("<I", attr_ids.get(value, 0)) for value in strings))
     body = string_pool(strings) + resource_map + b"".join(nodes)
