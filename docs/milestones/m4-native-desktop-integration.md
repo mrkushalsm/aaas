@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. The shared-storage core passed controlled ordinary-app SAF read/create, MediaStore `external_primary` attach/query, and persistence tests. Storage hardening and real-application acceptance remain `PARTIAL/OPEN`: live host-side MediaStore reconciliation is absent, a modern-target SAF byte-read did not complete, and VLC/mpv/BFE file operations remain unproven. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. The latest storage continuation completed target-SDK 35 SAF reads/writes, app-process persisted-grant reuse, a bounded active-session MediaStore scan path, VLC and mpv document opens, and BFE file creation. The scan helper is currently available only when the diagnostic probe is installed; ordinary sessions do not yet have a general sync helper. BFE also exposed an ACL startup failure that prevented host access to its first created directory. Storage integration therefore remains PARTIAL/OPEN. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -45,24 +45,30 @@ Android is stopped. See [storage design and evidence](../storage/android-shared-
 and `results/m4/acceptance.json`. The Android-to-XDG file-picker bridge remains
 deferred; Android continues using its native picker and URI permissions.
 
-The controlled core evidence remains valid, but the wider storage integration
-is not closed. During the 2026-11-04 follow-up, a target-SDK 35 ordinary APK
-installed and opened DocumentsUI, but did not complete a ContentResolver read.
-VLC installed/launched and loaded ARM64 `libvlc.so` and `libvlcjni.so` through
-Berberis; its direct file URI path requested `MANAGE_EXTERNAL_STORAGE`, which
-was not granted, and no decode was verified. mpv launched but no file read or
-decode was verified. BFE installed/launched as an ordinary app, but its
-manifest requests `MANAGE_EXTERNAL_STORAGE`; no broad grant or file/archive
-operation was performed. These are partial application observations, not
-storage-success claims. Details and hashes are in
-`results/m4/acceptance.json` under `storage_hardening_follow_up`.
+The earlier target-SDK 35 picker-only attempt, unverified VLC/mpv/BFE runs, and
+mount-only MediaStore evidence are preserved in the historical
+`storage_hardening_follow_up` record. The latest results are appended as a
+separate run in `results/m4/acceptance.json`; they do not rewrite those earlier
+observations. `aaasctl storage sync` still repairs ACLs only. The new
+`aaasctl storage scan RELATIVE_PATH` operation is verified in diagnostic-probe
+sessions, but needs a normal-session integration before it is a general
+product feature. The NTFS3 quota-xattr limitation and incomplete symlink
+matrix remain open.
 
-Host-originated changes made while Android is active are still not reconciled
-into MediaStore by AaaS. `aaasctl storage sync` repairs host ACLs only; its
-help/output now explicitly says it does not scan MediaStore. The Android
-startup `REASON_MOUNTED` scan remains the verified reconciliation path. The
-NTFS3 project-quota xattr limitation and the incomplete app-level symlink
-matrix are also retained as open storage-hardening work.
+The current run's target-SDK 35 APK used v3 signing and completed a byte-checked
+SAF open and create. Its persistable document grant survived an app process
+force-stop/relaunch, not yet an Android runtime restart. During active session
+`m1b84_session_r50c_zzw`, `MediaScannerConnection` reconciled a host PNG create,
+update, rename, and delete with actual MediaStore queries. VLC opened and read
+the selected MP4 samples through its document flow; mpv opened the SAF tree URI
+and initialized its H.264 decoder/surface. Neither run established a visible
+video frame. BFE created a file after its package-specific all-files permission
+was explicitly enabled, but a startup `newuidmap` ACL-repair failure left its
+first app-created directory inaccessible to the host until `storage sync`.
+This ACL edge and diagnostic-only scan availability keep shared-storage
+integration PARTIAL/OPEN. Exact APK hashes, session IDs, scan URIs, and raw log
+hashes are in the latest `latest_storage_continuation` record in the acceptance
+JSON.
 
 The two-output runner now keeps Android warm for a bounded idle grace period after the last managed app closes. The product default is 60 seconds and the test override is bounded to 1–3600 seconds. Any app becoming active resets the timer; the existing launch control can reuse the runtime during the grace period. This policy applies to the existing two-output session; a running Android runtime consumes resources during that interval. Fully stopped means no AaaS runner/presenter processes.
 

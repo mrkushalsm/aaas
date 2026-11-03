@@ -1,6 +1,6 @@
 # Android shared storage on Linux
 
-**M4 shared-storage integration: PASS.** The persistent Linux directory,
+**M4 shared-storage core: PASS; integration: PARTIAL/OPEN.** The persistent Linux directory,
 Android's emulated-storage FUSE mount, ordinary application SAF access, and
 MediaStore external volume have been verified end to end. Canonical M4 remains
 `PARTIAL/OPEN` because its separate audio, clipboard, notifications, and
@@ -195,13 +195,67 @@ Verified after repair:
 Structured observations, session IDs, checksums, and raw-log hashes are in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json). Raw runtime
 logs and controlled fixtures remain under the external AaaS workspace, not in
-Git. The shared-storage slice is `PASS`. Canonical M4 remains `PARTIAL/OPEN`;
-audio, clipboard, notifications, launcher catalog work, and other lifecycle
-gates are independent outstanding requirements. Immediate MediaStore updates
-for host edits made while Android remains active are not verified; mount-time
-scan/reconciliation is verified.
+Git. The shared-storage core is `PASS`; the wider storage integration is
+`PARTIAL/OPEN`. The latest explicit scan is live-verified in the diagnostic
+session only. Canonical M4 remains `PARTIAL/OPEN`; audio, clipboard,
+notifications, launcher catalog work, and other lifecycle gates are separate.
 
 ## Hardening and real-application follow-up (2026-11-04)
+
+### Latest continuation
+
+The latest run starts from `4423fd2ee2363d5558c8b0f93f2990478261e919`.
+The controlled target-SDK 35 probe was corrected to start DocumentsUI at the
+shared-storage Documents provider. The exact v3-signed APK installed as an
+ordinary `/data/app` package. `ACTION_OPEN_DOCUMENT` returned a URI and
+ContentResolver read the host fixture byte-exactly (SHA-256
+`4a077084728a18f2627f1f67d48820de9a0aea0e8b14179d1f704b5707b89213`).
+`ACTION_CREATE_DOCUMENT` wrote through ContentResolver and Linux read back
+SHA-256 `72ca9c361c0e9ae87d818cb60ac61817154973a3a86ae91f27c454218fe72238`.
+A persistable URI grant survived force-stop and relaunch of the app. Android
+runtime restart persistence of that grant was not tested.
+
+An explicit `aaasctl storage scan RELATIVE_PATH` path now asks a running
+session's ordinary Android probe to invoke public `MediaScannerConnection`
+and waits for its scan callback. In one uninterrupted Android session, host
+create, update, rename and delete were each reconciled and checked through
+actual MediaStore queries. Rename reconciliation scanned the new path and the
+missing old path; the stale old MediaStore row disappeared. The helper is
+currently enabled only in sessions launched with `--diagnostic-storage-apk`;
+ordinary sessions report that the helper is unavailable. This is a verified
+diagnostic integration path, not yet a general user-session MediaStore sync
+feature. `storage sync` continues to repair ACLs only.
+
+Real application follow-up:
+
+- **VLC:** ordinary APK, selected the synthetic MP4 through its native
+  DocumentsUI flow. ARM64 libVLC opened the content descriptor, parsed MP4 and
+  H.264 metadata, and read video samples. VLC disabled video stream selection;
+  decoder execution and visible frames were not verified. Storage read: PASS;
+  playback: PARTIAL.
+- **mpv:** ordinary APK, selected the file using its SAF tree flow and granted
+  access through DocumentsUI. mpv opened the content URI, loaded ARM64
+  `libmpv.so` through Berberis, selected Android's H.264 MediaCodec decoder,
+  and initialized a surface. A visible frame, seek, and pause/resume were not
+  verified. Storage open: PASS; presentation: PARTIAL.
+- **Banners File Explorer:** ordinary APK; its declared all-files permission
+  was enabled through Android's package-specific Settings screen for this
+  test. It created a directory and file. The initial app-created directory
+  lacked the host UID default ACL because session startup logged
+  `newuidmap ... Operation not permitted` while repairing storage ACLs. A
+  subsequent explicit `storage sync` repaired the shared root defaults, and a
+  later app-created directory inherited host access. This startup ACL failure
+  means the real-app integration is still PARTIAL; no archive operation was
+  verified.
+
+The active scan helper and app results are detailed in the latest run record
+in `results/m4/acceptance.json`. Scan log hashes are `8b295a03f36d689b1e30e0e56c9d8c83bf752d8e75509903b860648036c54fed` (logcat) and
+`652e5bee2dd890a29148fce5f7071c8dd426a51ceb22f90ed40151deb151a8b6` (commands).
+VLC log hash: `f7dd77f839ddd8cd016f0e0af3c3e0835fdcba38b0c8935a8f1bf6506905b743`;
+mpv: `b65b0a7753f895cad553b6473288e5c0e9282e9a33663e56a0741d70bc6074bd`;
+BFE: `7a7826267e9d3519d67fc581eb00647ef81f2bfe781ad5b4b5d65768c3d637d6`.
+
+### Previous follow-up observations
 
 The controlled shared-storage core remains accepted based on the historical
 ordinary-app SAF read/create, `external_primary` attachment, mount-time scan,
@@ -268,8 +322,12 @@ previous acceptance, but quota tagging/accounting and StorageStatsManager
 behavior remain uncharacterized. The previous single synthetic host-only
 symlink test only established that one target was not visible through the
 Android rootfs bind namespace. It did not prove general symlink safety through
-DocumentsUI or arbitrary Android app APIs. No broad permissions, all-files
-access, host-home bind, or additional filesystem mount was introduced.
+DocumentsUI or arbitrary Android app APIs. The earlier follow-up introduced
+no broad permission or all-files grant. In the latest isolated BFE test, its
+declared package-specific all-files access was explicitly enabled in Android
+Settings and the test session was then stopped; no unrelated package was
+granted that access. No host-home bind or additional filesystem mount was
+introduced.
 
 The target SDK option added to the probe builder requires an APK Signature
 Scheme v2-or-newer signature for modern target installation; legacy v1-only
@@ -284,8 +342,11 @@ system privileges.
 - Overall shared-storage integration: **PARTIAL/OPEN**.
 - Canonical M4: **PARTIAL/OPEN**.
 
-Open storage gates include active-session MediaStore synchronization, a
-byte-verified modern-target SAF read/write cycle, real app file operations for
-VLC/mpv/BFE, and fuller NTFS3 quota and symlink characterization. Canonical M4
-also separately retains audio, clipboard, notifications, and launcher-catalog
-work.
+Open storage gates include exposing MediaStore scan control in ordinary
+sessions, resolving the observed startup ACL failure before app-created
+directories are relied on from Linux, BFE archive validation, full frame and
+decoder behavior for the real media apps, and fuller NTFS3 quota and symlink
+characterization. The target-SDK 35 SAF read/write and app-process grant
+checks, active-session diagnostic scan, and VLC/mpv document reads described
+above are now verified. Canonical M4 also separately retains audio, clipboard,
+notifications, and launcher-catalog work.
