@@ -10,6 +10,40 @@ SPEC.loader.exec_module(PATCHER)
 
 
 class DisplayContentModePatchTests(unittest.TestCase):
+    def test_transcoding_uses_safe_default_without_codec_query(self):
+        source = '''.method public final configureTranscoding()V
+    .locals 3
+    invoke-virtual {p0}, Lcom/android/server/StorageManagerService;->isHevcDecoderSupported()Z
+
+    move-result v0
+    const-string/jumbo v1, "persist.sys.fuse.transcode_user_control"
+    invoke-static {v1, v0}, Landroid/os/SystemProperties;->getBoolean(Ljava/lang/String;Z)Z
+    const-string/jumbo v2, "transcode_enabled"
+    invoke-static {v1, v2, v0}, Landroid/provider/DeviceConfig;->getBoolean(Ljava/lang/String;Ljava/lang/String;Z)Z
+    return-void
+.end method'''
+        patched = PATCHER.patch_storage_transcoding_default(source)
+        self.assertNotIn("isHevcDecoderSupported()Z", patched)
+        self.assertIn("const/4 v0, 0x0", patched)
+        self.assertIn("persist.sys.fuse.transcode_user_control", patched)
+        self.assertIn("DeviceConfig;->getBoolean", patched)
+
+    def test_transcoding_patch_rejects_unexpected_or_repeated_input(self):
+        with self.assertRaisesRegex(RuntimeError, "signature mismatch"):
+            PATCHER.patch_storage_transcoding_default(".method public other()V\n.end method")
+        source = '''.method public final configureTranscoding()V
+    .locals 1
+    invoke-virtual {p0}, Lcom/android/server/StorageManagerService;->isHevcDecoderSupported()Z
+
+    move-result v0
+.end method'''
+        patched = PATCHER.patch_storage_transcoding_default(source)
+        with self.assertRaisesRegex(RuntimeError, "already patched"):
+            PATCHER.patch_storage_transcoding_default(patched)
+        with self.assertRaisesRegex(RuntimeError, "codec-query block mismatch"):
+            PATCHER.patch_storage_transcoding_default(
+                source.replace("isHevcDecoderSupported()Z", "not-a-codec-query()Z"))
+
     def test_only_pinned_method_gains_explicit_opt_in(self):
         source = '''.method public isDisplayContentModeManagementEnabled()Z
     .locals 0

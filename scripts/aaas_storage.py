@@ -171,14 +171,16 @@ def _acl_entries(path):
 
 
 def _ensure_public_directory_acls(path):
-    """Set access/default ACLs only on Android's top-level public folders."""
+    """Preserve media_rw access and host access on shared public storage only."""
     uid = os.getuid()
     present = [name for name in PUBLIC_STORAGE_DIRECTORIES
                if (path / name).is_dir() and not (path / name).is_symlink()]
-    if not present:
-        return
-    expected = {f'user:{uid}:rwx', f'default:user:{uid}:rwx'}
-    if all(expected.issubset(set(_acl_entries(path / name))) for name in present):
+    targets = [path, *(path / name for name in present)]
+    expected = {
+        f'user:{uid}:rwx', f'default:user:{uid}:rwx',
+        'group::rwx', 'default:group::rwx',
+    }
+    if all(expected.issubset(set(_acl_entries(target))) for target in targets):
         return
     if path.stat().st_uid == uid:
         _apply_acl_as_host(path, present)
@@ -196,7 +198,8 @@ def _set_acl(path, uid, directories=()):
     targets = [path, *(path / name for name in directories)]
     for target in targets:
         subprocess.run(
-            ['setfacl', '-m', f'u:{uid}:rwx,d:u:{uid}:rwx', str(target)],
+            ['setfacl', '-m',
+             f'u:{uid}:rwx,d:u:{uid}:rwx,g::rwx,d:g::rwx', str(target)],
             check=True, capture_output=True, text=True,
         )
 
@@ -204,10 +207,10 @@ def _set_acl(path, uid, directories=()):
 def _apply_acl_as_mapped_media_rw(path, directories=()):
     """Use the existing rootless Android UID mapping to adjust only ACLs."""
     acl_script = (
-        'setfacl -m u:0:rwx,d:u:0:rwx . || exit; '
+        'setfacl -m u:0:rwx,d:u:0:rwx,g::rwx,d:g::rwx . || exit; '
         'for name in "$@"; do '
         '[ -d "$name" ] && [ ! -L "$name" ] || continue; '
-        'setfacl -m u:0:rwx,d:u:0:rwx -- "$name" || exit; '
+        'setfacl -m u:0:rwx,d:u:0:rwx,g::rwx,d:g::rwx -- "$name" || exit; '
         'done'
     )
     command = (

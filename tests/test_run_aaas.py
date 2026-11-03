@@ -640,6 +640,53 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('No launchable activity for com.example.reader', generated)
         self.assertNotIn('start-activity -W -n com.android.settings/.Settings', generated)
 
+    def test_storage_probe_is_installed_as_an_ordinary_user_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'storage-probe.apk'
+            apk.write_bytes(b'diagnostic apk fixture')
+            (root / 'session').mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            generated = SESSION.make_session_runner(
+                root / 'session', app_package='org.aaas.storagetest',
+                diagnostic_storage_apk=apk,
+                shared_storage_dir=root / 'media' / '0').read_text()
+        self.assertIn(f'--ro-bind {apk.resolve()} '
+                      '/aaas-storage-probe.apk', generated)
+        self.assertIn('/system/bin/pm install -r '
+                      '/aaas-storage-probe.apk', generated)
+        self.assertNotIn('/product/app/AaasStorageProbe', generated)
+        self.assertIn('AaaSStorageInstall', generated)
+
+    def test_storage_open_probe_uses_picker_and_queries_external_primary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'storage-open-probe.apk'
+            apk.write_bytes(b'diagnostic apk fixture')
+            (root / 'session').mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            generated = SESSION.make_session_runner(
+                root / 'session', app_package='org.aaas.storagetest',
+                experimental_virtual_display=True,
+                diagnostic_storage_apk=apk, diagnostic_storage_open=True,
+                shared_storage_dir=root / 'media' / '0').read_text()
+        self.assertIn('tap 160 430', generated)
+        self.assertIn('tap 640 1240', generated)
+        self.assertIn('content://media/external_primary/file', generated)
+        self.assertIn('--projection _id:_display_name', generated)
+        self.assertNotIn('AAAS_STORAGE_PROBE_OUTPUT_FILE_PRESENT', generated)
+
+    def test_storage_probe_cannot_be_misrouted_to_another_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'storage-probe.apk'
+            apk.write_bytes(b'diagnostic apk fixture')
+            (root / 'session').mkdir()
+            with self.assertRaisesRegex(ValueError, 'requires --app'):
+                SESSION.make_session_runner(
+                    root / 'session', app_package='com.android.settings',
+                    diagnostic_storage_apk=apk)
+
     def test_app_package_validation_rejects_shell_syntax(self):
         for package in ('com.example;reboot', 'com.example/app', 'android', '', None):
             with self.subTest(package=package):

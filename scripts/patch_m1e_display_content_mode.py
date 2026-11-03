@@ -91,6 +91,34 @@ def patch_alarm_fallback(source):
     return patched[:start] + "    :cond_4\n\n" + patched[end:]
 
 
+def patch_storage_transcoding_default(source):
+    """Avoid a boot-time codec-service query while keeping explicit overrides.
+
+    StorageManagerService runs this query on its ordered storage handler. In the
+    rootless emulator profile MediaCodecList can block on MediaPlayerService;
+    that prevents the same handler from completing user unlock. Transcoding is
+    an optional optimization, so use the conservative false default while
+    preserving the existing system-property and DeviceConfig overrides.
+    """
+    signature = ".method public final configureTranscoding()V"
+    query = '''    invoke-virtual {p0}, Lcom/android/server/StorageManagerService;->isHevcDecoderSupported()Z
+
+    move-result v0'''
+    replacement = "    const/4 v0, 0x0"
+    if source.count(signature) != 1:
+        raise RuntimeError("StorageManagerService transcoding method signature mismatch")
+    start = source.index(signature)
+    end = source.index(".end method", start)
+    method = source[start:end]
+    if "AaaS conservative transcoding default" in method:
+        raise RuntimeError("StorageManagerService transcoding default is already patched")
+    if method.count(query) != 1:
+        raise RuntimeError("StorageManagerService codec-query block mismatch")
+    method = method.replace(query,
+                            replacement + "\n\n    # AaaS conservative transcoding default", 1)
+    return source[:start] + method + source[end:]
+
+
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -142,6 +170,11 @@ def build_overlay(original, apktool, output, work_parent=None):
         if not alarm_smali.is_file():
             raise RuntimeError(f"pinned AlarmHandler class not found: {alarm_smali}")
         alarm_smali.write_text(patch_alarm_fallback(alarm_smali.read_text()))
+        storage_smali = decoded / "smali/com/android/server/StorageManagerService.smali"
+        if not storage_smali.is_file():
+            raise RuntimeError(f"StorageManagerService class not found: {storage_smali}")
+        storage_smali.write_text(
+            patch_storage_transcoding_default(storage_smali.read_text()))
         subprocess.run(["java", "-jar", str(apktool), "b", str(decoded),
                         "-o", str(rebuilt)], check=True)
         with zipfile.ZipFile(rebuilt) as built:
@@ -177,6 +210,9 @@ def build_overlay(original, apktool, output, work_parent=None):
         "alarm_handler_class": str(ALARM_HANDLER_CLASS),
         "alarm_source_patch": str(ALARM_PATCH.relative_to(ROOT)),
         "alarm_source_patch_sha256": sha256(ALARM_PATCH),
+        "storage_transcoding_default": (
+            "false; explicit persist.sys.fuse and DeviceConfig overrides remain honored"
+        ),
         "default_behavior": "stock Aconfig flag unless the experimental session sets the property",
         "apktool_sha256": APKTOOL_SHA256,
     }

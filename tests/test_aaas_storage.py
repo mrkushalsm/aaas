@@ -32,6 +32,19 @@ class SharedStorageBackingTests(unittest.TestCase):
                     check=True, capture_output=True, text=True).stdout.splitlines()
                 self.assertIn(f'user:{os.getuid()}:rwx', acl)
                 self.assertIn(f'default:user:{os.getuid()}:rwx', acl)
+                self.assertIn('group::rwx', acl)
+                self.assertIn('default:group::rwx', acl)
+                public_acl = subprocess.run(
+                    ['getfacl', '--omit-header', '--numeric',
+                     str(path / 'Documents')],
+                    check=True, capture_output=True, text=True).stdout.splitlines()
+                self.assertIn('group::rwx', public_acl)
+                self.assertIn('default:group::rwx', public_acl)
+                private_acl = subprocess.run(
+                    ['getfacl', '--omit-header', '--numeric',
+                     str(path / 'Android' / 'data')],
+                    check=True, capture_output=True, text=True).stdout.splitlines()
+                self.assertIn('group::---', private_acl)
             self.assertEqual(aaas_storage.prepare_backing_directory(workspace), path)
             # The app-specific Android/data and Android/obb directories are
             # deliberately private to media_rw. Restore test cleanup access.

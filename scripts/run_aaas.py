@@ -565,7 +565,9 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         bluetooth_policy_dir=None, input_response_probe_apk=None,
                         input_response_probe_apk2=None,
                         native_bridge_overlay=None, capture_app_tombstones=False,
-                        idle_timeout_seconds=60, shared_storage_dir=None):
+                        idle_timeout_seconds=60, shared_storage_dir=None,
+                        diagnostic_storage_apk=None,
+                        diagnostic_storage_open=False):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -579,6 +581,17 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             raise ValueError('app2 requires --experimental-virtual-display')
     input_response_probe_binds = ""
     native_bridge_binds = ""
+    diagnostic_storage_apk_bind = ""
+    if diagnostic_storage_apk is not None:
+        storage_apk = Path(diagnostic_storage_apk).resolve(strict=True)
+        if not storage_apk.is_file() or storage_apk.suffix.lower() != '.apk':
+            raise ValueError('diagnostic storage package must be an APK file')
+        if app_package != 'org.aaas.storagetest':
+            raise ValueError('--diagnostic-storage-apk requires --app org.aaas.storagetest')
+        diagnostic_storage_apk_bind = (
+            f'  --ro-bind {shlex.quote(str(storage_apk))} '
+            '/aaas-storage-probe.apk \\\n'
+        )
     if native_bridge_overlay is not None:
         overlay = Path(native_bridge_overlay).resolve(strict=True)
         native_bridge_binds = (
@@ -668,16 +681,42 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    fi\n'
             '    /system/bin/cmd -l >> /aaas_session_commands 2>&1\n'
             '    /system/bin/sm list-volumes all >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/dumpsys mount | /system/bin/toybox grep -E '
+            '"System unlocked users|CE unlocked users|emulated;0" | '
+            'while read -r AAAS_STORAGE_LINE; do '
+            '/system/bin/log -t AaaSStorageState "$AAAS_STORAGE_LINE"; done\n'
             '    /system/bin/sm mount "emulated;0" >> /aaas_session_commands 2>&1\n'
             '    /system/bin/toybox sleep 2\n'
             '    /system/bin/sm list-volumes all >> /aaas_session_commands 2>&1\n'
             '    /system/bin/dumpsys mount | /system/bin/toybox grep -E '
             '"emulated;0|System unlocked users|CE unlocked users" >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/dumpsys mount | /system/bin/toybox grep -E '
+            '"System unlocked users|CE unlocked users|emulated;0" | '
+            'while read -r AAAS_STORAGE_LINE; do '
+            '/system/bin/log -t AaaSStorageState "$AAAS_STORAGE_LINE"; done\n'
+            '    /system/bin/dumpsys media.provider | /system/bin/toybox grep -i '
+            'external_primary | while read -r AAAS_STORAGE_LINE; do '
+            '/system/bin/log -t AaaSStorageState "$AAAS_STORAGE_LINE"; done\n'
             '    /system/bin/toybox mount | /system/bin/toybox grep -E '
             '"fuse|/data/media|/storage" >> /aaas_session_commands 2>&1\n'
             '    /system/bin/toybox ls -ld /data/media/0 '
             '/storage/emulated/0 /storage/emulated/0/Documents >> /aaas_session_commands 2>&1\n'
         )
+        if diagnostic_storage_apk is not None:
+            storage_probe += (
+                '    echo "=== INSTALLING ORDINARY STORAGE DIAGNOSTIC APK ===" >> /aaas_session_commands\n'
+                '    STORAGE_INSTALL_OUTPUT=$(/system/bin/pm install -r '
+                '/aaas-storage-probe.apk 2>&1)\n'
+                '    STORAGE_INSTALL_STATUS=$?\n'
+                '    /system/bin/log -t AaaSStorageInstall '
+                '"status=$STORAGE_INSTALL_STATUS result=$STORAGE_INSTALL_OUTPUT"\n'
+                '    if [ "$STORAGE_INSTALL_STATUS" -ne 0 ]; then\n'
+                '      echo "AAAS_STORAGE_PROBE_INSTALL_FAILED $STORAGE_INSTALL_OUTPUT" '
+                '>> /aaas_session_commands\n'
+                '      echo FAILED > /aaas_session_status\n'
+                '      exit 1\n'
+                '    fi\n'
+            )
         source = replace_once(
             source,
             '    echo "=== TESTING ACTIVITY LAUNCH (SETTINGS) ==="',
@@ -702,7 +741,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     source = replace_once(
         source,
         '{mapper_bind}{allocator_bind}',
-        native_bridge_binds + input_response_probe_binds + '{mapper_bind}{allocator_bind}',
+        native_bridge_binds + input_response_probe_binds + diagnostic_storage_apk_bind
+        + '{mapper_bind}{allocator_bind}',
     )
     source = replace_once(
         source,
@@ -1051,6 +1091,79 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '"displayId=$VD_ID|AaaS application output|com.android.settings|Taskbar|StatusBar" '
             '>> /aaas_session_commands 2>&1',
         )
+        if diagnostic_storage_apk is not None:
+            picker_input = (
+                '      STORAGE_INPUT_OUTPUT=$(/system/bin/cmd input -d "$VD_ID" tap 160 430 2>&1)\n'
+                '      STORAGE_INPUT_STATUS=$?\n'
+                '      echo "AAAS_STORAGE_OPEN_SELECT status=$STORAGE_INPUT_STATUS output=$STORAGE_INPUT_OUTPUT" '
+                '>> /aaas_session_commands\n'
+                '      /system/bin/toybox sleep 5\n'
+                '      STORAGE_INPUT_OUTPUT=$(/system/bin/cmd input -d "$VD_ID" tap 640 1240 2>&1)\n'
+                '      STORAGE_INPUT_STATUS=$?\n'
+                '      echo "AAAS_STORAGE_OPEN_CONFIRM status=$STORAGE_INPUT_STATUS output=$STORAGE_INPUT_OUTPUT" '
+                '>> /aaas_session_commands\n'
+            ) if diagnostic_storage_open else (
+                '      STORAGE_INPUT_OUTPUT=$(/system/bin/cmd input -d "$VD_ID" tap 640 1240 2>&1)\n'
+                '      STORAGE_INPUT_STATUS=$?\n'
+                '      echo "AAAS_STORAGE_INPUT status=$STORAGE_INPUT_STATUS output=$STORAGE_INPUT_OUTPUT" '
+                '>> /aaas_session_commands\n'
+            )
+            output_file_check = (
+                '' if diagnostic_storage_open else
+                '      if [ -f /storage/emulated/0/Download/aaas-storage-android-to-host.txt ]; then\n'
+                '        /system/bin/toybox sha256sum '
+                '/storage/emulated/0/Download/aaas-storage-android-to-host.txt '
+                '>> /aaas_session_commands 2>&1\n'
+                '        echo AAAS_STORAGE_PROBE_OUTPUT_FILE_PRESENT >> /aaas_session_commands\n'
+                '      else\n'
+                '        echo AAAS_STORAGE_PROBE_OUTPUT_FILE_MISSING >> /aaas_session_commands\n'
+                '      fi\n'
+            )
+            media_store_query = (
+                '      echo "=== MEDIASTORE SHARED-FILE QUERY ===" >> /aaas_session_commands\n'
+                '      /system/bin/content query --user 0 '
+                '--uri content://media/external_primary/file '
+                '--projection _id:_display_name '
+                '>> /aaas_session_commands 2>&1\n'
+            )
+            probe_replacement = ''.join([
+                '    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
+                '>> /aaas_session_commands\n'
+                '    echo "AAAS_STORAGE_PROBE_UI_AUTOMATION_BEGIN" >> /aaas_session_commands\n'
+                '    STORAGE_PICKER_WAIT=0\n'
+                '    while ! /system/bin/dumpsys activity activities | '
+                '/system/bin/toybox grep -Fq "com.android.documentsui/.picker.PickActivity" && '
+                '[ "$STORAGE_PICKER_WAIT" -lt 30 ]; do\n'
+                '      /system/bin/toybox sleep 1\n'
+                '      STORAGE_PICKER_WAIT=$((STORAGE_PICKER_WAIT + 1))\n'
+                '    done\n'
+                '    if [ "$STORAGE_PICKER_WAIT" -lt 30 ]; then\n'
+                '      # Activity visibility precedes picker layout/input readiness.\n'
+                '      /system/bin/toybox sleep 3\n',
+                picker_input,
+                '      /system/bin/toybox sleep 5\n'
+                '      /system/bin/dumpsys activity activities | '
+                '/system/bin/toybox grep -E "mResumedActivity|com.android.documentsui" '
+                '>> /aaas_session_commands 2>&1\n'
+                '      /system/bin/logcat -d -s AaasStorageProbe:I AaasStorageProbe:E '
+                '>> /aaas_session_commands 2>&1\n',
+                output_file_check,
+                media_store_query,
+                ('      echo AAAS_STORAGE_PROBE_OPEN_TAPS_SENT >> /aaas_session_commands\n'
+                 if diagnostic_storage_open else
+                 '      echo AAAS_STORAGE_PROBE_SAVE_TAP_SENT >> /aaas_session_commands\n'),
+                '    else\n'
+                '      echo AAAS_STORAGE_PROBE_PICKER_NOT_FOUND >> /aaas_session_commands\n'
+                '    fi\n'
+                '    echo "=== SECONDARY DISPLAY TASK STATE ===" >> /aaas_session_commands',
+            ])
+            source = replace_once(
+                source,
+                '    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
+                '>> /aaas_session_commands\n'
+                '    echo "=== SECONDARY DISPLAY TASK STATE ===" >> /aaas_session_commands',
+                probe_replacement,
+            )
         if app_package2 is not None:
             source = replace_once(
                 source,
@@ -1422,6 +1535,8 @@ def vdisplay_services_overlay_is_current():
                 'AlarmHandler delegates due alarms to deliverAlarmsLocked and reschedules')
             and receipt.get('alarm_source_patch_sha256') == sha256(
                 ROOT / 'patches/m1e/alarm-listener-fallback.patch')
+            and receipt.get('storage_transcoding_default') == (
+                'false; explicit persist.sys.fuse and DeviceConfig overrides remain honored')
         )
     except (OSError, ValueError, KeyError):
         return False
@@ -1651,6 +1766,10 @@ def main():
                         help='diagnostic-only APK overlaid as a system app for input latency measurements')
     parser.add_argument('--input-response-probe-apk2',
                         help='optional second diagnostic APK for distinct-package two-display input checks')
+    parser.add_argument('--diagnostic-storage-apk',
+                        help='install the controlled storage probe as an ordinary /data/app package')
+    parser.add_argument('--diagnostic-storage-open', action='store_true',
+                        help='select the first file in DocumentsUI for the storage diagnostic APK')
     parser.add_argument('--diagnostic-native-bridge-overlay',
                         help='hash-verified Android Native Bridge bundle for isolated ARM64 tests')
     parser.add_argument('--diagnostic-native-bridge-arm64-first', action='store_true',
@@ -1689,6 +1808,10 @@ def main():
         parser.error('--input-response-probe-apk requires --experimental-virtual-display')
     if args.input_response_probe_apk2 and not args.app2:
         parser.error('--input-response-probe-apk2 requires --app2')
+    if args.diagnostic_storage_apk and args.app != 'org.aaas.storagetest':
+        parser.error('--diagnostic-storage-apk requires --app org.aaas.storagetest')
+    if args.diagnostic_storage_open and not args.diagnostic_storage_apk:
+        parser.error('--diagnostic-storage-open requires --diagnostic-storage-apk')
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
     if args.test_tombstone_capture and args.app2:
@@ -1874,7 +1997,9 @@ def main():
                                  native_bridge_overlay=native_bridge_overlay,
                                  capture_app_tombstones=args.diagnostic_capture_app_tombstones,
                                  idle_timeout_seconds=args.idle_timeout_seconds,
-                                 shared_storage_dir=shared_storage_path)
+                                 shared_storage_dir=shared_storage_path,
+                                 diagnostic_storage_apk=args.diagnostic_storage_apk,
+                                 diagnostic_storage_open=args.diagnostic_storage_open)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(

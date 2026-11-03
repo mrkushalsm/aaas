@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a small ordinary APK that writes one public shared-storage fixture."""
+"""Build a small ordinary APK for SAF shared-storage read/write checks."""
 from __future__ import annotations
 
 import argparse
@@ -28,12 +28,14 @@ def main() -> int:
     parser.add_argument('--apktool', type=Path, required=True)
     parser.add_argument('--keystore', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--operation', choices=('create', 'open'), default='create')
     args = parser.parse_args()
     source = Path(__file__).resolve().parent
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='aaas-storage-apk-') as temp:
         work = Path(temp)
-        shutil.copytree(source / 'smali', work / 'smali')
+        smali_source = source / ('smali-open' if args.operation == 'open' else 'smali')
+        shutil.copytree(smali_source, work / 'smali')
         for smali_file in (work / 'smali').rglob('*.smali'):
             text = smali_file.read_text()
             text = text.replace('org.aaas.latencyprobe', PACKAGE)
