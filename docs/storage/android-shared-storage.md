@@ -424,6 +424,31 @@ visible frame presentation is not required for storage and was not established
 here. These limits keep **M4 shared-storage integration PARTIAL/OPEN** even
 though its core remains **PASS**. Canonical M4 remains `PARTIAL/OPEN`.
 
+### Remount and ACL recovery follow-up (2026-11-05)
+
+After the external NTFS3 volume was remounted, `android-media` retained its
+mapped `media_rw` owner but no longer had an effective host-user ACL. The
+normal `storage sync` helper could not reach the child path because it tried
+to resolve it through host-private ancestors as the mapped identity. The
+repair now bind-mounts only the exact shared-media directory into a disposable
+rootless mount namespace, applies the ACL as its mapped owner, and tears the
+namespace down. It does not add access to sibling userdata. A new rootless
+fixture test and a live `storage sync` both pass; live `storage status` reports
+`host_acl_ready=true` and `host_accessible=true`. Host list/read/write checks
+for `Android/data` and `Android/obb` remain denied.
+
+The remounted volume is not safe for Android runtime testing: the kernel marks
+NTFS3 volume `/dev/sda2` dirty, recommends `chkdsk`, and logs MFT sequence
+mismatches (the cause is not independently established). Two disposable files
+from the interrupted test session return `EINVAL` even on `lstat` and cannot
+be unlinked. No filesystem repair or mount-option change was attempted.
+Consequently the workspace
+guard fails while accounting those entries. Android remains stopped; no
+runtime restart, BFE archive operation, or live persistence test was attempted
+against the damaged volume. The current code can repair the ACL, but overall
+storage acceptance remains `PARTIAL/OPEN` pending filesystem repair and a
+fresh workspace-guard pass.
+
 ### Android private-data path and SQLite validation (2026-11-05)
 
 The ordinary target-SDK 35 probe observed that its `/data/user/0` and

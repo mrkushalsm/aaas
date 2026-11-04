@@ -236,3 +236,28 @@ workspace guard could not be rerun. The session's AaaS-owned container and
 presenter processes were terminated; only a bounded follow-up after the
 workspace is available can complete the remaining filesystem, security, and
 archive acceptance. Canonical M4 remains `PARTIAL/OPEN`.
+
+### External-volume remount follow-up (2026-11-05)
+
+After the volume was mounted again, `storage sync` initially failed because the
+mapped media owner could not resolve the shared-media path through host-private
+ancestors. The ACL repair now bind-mounts only the target directory into its
+temporary rootless mount namespace. A mapped-owner fixture and the live
+`storage sync` pass; `storage status` reports host ACL/access ready, and
+`Android/data`/`Android/obb` remain unreadable and unwritable to the host user.
+
+The live NTFS3 volume is marked dirty and the kernel reports MFT sequence
+mismatches; cause was not independently established and no filesystem repair
+was attempted. Exact disposable PNG/ZIP fixtures from the interrupted run return
+`EINVAL` on metadata access and cannot be removed. The workspace guard fails
+closed while accounting them, so Android was not restarted and BFE/SAF live
+tests were not attempted. Storage integration remains `PARTIAL/OPEN`; repair
+the filesystem and rerun the workspace guard before resuming live acceptance.
+
+The mapped-owner ACL recovery was committed as `868bbe8` and verified by the
+focused storage tests and live ACL/status commands. The complete Python suite
+then ran 282 tests successfully with one skip: its workspace-dependent lock
+test skips when the real workspace guard is unhealthy. The guard itself still
+fails on the NTFS3 `EINVAL` entry, and this skip does not certify workspace or
+runtime health. No AaaS runtime, presenter, session-control, bwrap, or ACL
+helper process remained after verification.

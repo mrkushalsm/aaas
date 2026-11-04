@@ -253,3 +253,19 @@ The SQLite JSON evidence SHA-256 is
 Raw logs remain outside Git under
 `/run/media/mrkus/Homework/aaas-workspace/tmp/`; hashes and session references
 are in [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+
+### External-volume remount follow-up (2026-11-05)
+
+The Homework volume became mounted again as NTFS3, but the kernel reported the
+volume dirty, recommended `chkdsk`, and logged MFT sequence mismatches; the
+cause was not independently established. Two
+exact test-created entries from the interrupted session return `EINVAL` on
+`lstat`, read and unlink. Workspace accounting therefore fails closed, and no
+Android runtime was started against the volume. The shared-media ACL repair
+was hardened to use an exact-directory bind in a temporary rootless mount
+namespace; its isolated mapped-owner test and live `aaasctl storage sync`
+passed, without changing ownership or granting host read/write/list access to
+`Android/data` or `Android/obb`. This repairs shared-media reachability but
+does not repair the NTFS volume or validate persistent userdata after the
+remount. No repair, forced remount, or mount-option change was attempted.
+Filesystem repair is required before runtime acceptance can resume.
