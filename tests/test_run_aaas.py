@@ -357,6 +357,25 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertNotIn('aaas-storage-android-to-host.txt', generated)
         self.assertNotIn('aaas-storage-host-to-android.txt', generated)
 
+    def test_runner_binds_persistent_userdata_before_shared_media(self):
+        with tempfile.TemporaryDirectory(prefix='aaas userdata ') as directory:
+            root = Path(directory)
+            userdata = root / 'userdata' / 'data'
+            shared = root / 'shared' / 'android-media' / '0'
+            userdata.mkdir(parents=True)
+            shared.mkdir(parents=True)
+            session = root / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(
+                session, shared_storage_dir=shared,
+                persistent_userdata_dir=userdata).read_text()
+        bind = f'--bind {shlex.quote(str(userdata))} /data'
+        media_bind = f'--bind {shlex.quote(str(shared.parent))} /data/media'
+        self.assertIn(bind, generated)
+        self.assertNotIn('--tmpfs /data', generated)
+        self.assertLess(generated.index(bind), generated.index('{shared_storage_bind}'))
+        self.assertIn(media_bind, generated)
+
     def test_runner_mounts_verified_bluetooth_unavailable_policy_before_init(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

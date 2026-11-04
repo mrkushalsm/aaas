@@ -28,6 +28,7 @@ import aaas_cgroup
 import aaas_bluetooth
 import aaas_resources
 import aaas_storage
+import aaas_userdata
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -574,7 +575,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         idle_timeout_seconds=60, shared_storage_dir=None,
                         diagnostic_storage_apk=None,
                         diagnostic_storage_open=False, install_apk=None,
-                        storage_scan_apk=None):
+                        storage_scan_apk=None, persistent_userdata_dir=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -672,9 +673,16 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    runner_script = tmp_dir /',
         )
         storage_anchor = '  --tmpfs /data ' + '\\\\' + '\n'
+        if persistent_userdata_dir is not None:
+            userdata_path = Path(persistent_userdata_dir)
+            if userdata_path.is_symlink() or not userdata_path.is_dir():
+                raise ValueError('persistent Android userdata must be a real directory')
+            userdata_path = userdata_path.resolve(strict=True)
+            storage_anchor = (
+                f'  --bind {shlex.quote(str(userdata_path))} /data ' + '\\\\' + '\n')
         source = replace_once(
             source,
-            storage_anchor,
+            '  --tmpfs /data ' + '\\\\' + '\n',
             storage_anchor + '{shared_storage_bind}',
         )
         source = replace_once(
@@ -2194,6 +2202,7 @@ def main():
             print(f'AaaS: resource snapshot unavailable: {error}',
                   file=sys.stderr, flush=True)
     shared_storage_path = aaas_storage.prepare_backing_directory(WORKSPACE)
+    persistent_userdata_path = aaas_userdata.prepare_userdata_directory(WORKSPACE)
     scan_builder = ROOT / 'experiments/m4/storage_scan_helper/build_scan_helper.py'
     subprocess.run([
         sys.executable, str(scan_builder), '--apktool', str(APKTOOL),
@@ -2214,7 +2223,8 @@ def main():
                                  diagnostic_storage_apk=args.diagnostic_storage_apk,
                                  diagnostic_storage_open=args.diagnostic_storage_open,
                                  install_apk=args.install_apk,
-                                 storage_scan_apk=storage_scan_apk)
+                                 storage_scan_apk=storage_scan_apk,
+                                 persistent_userdata_dir=persistent_userdata_path)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -2685,6 +2695,7 @@ def main():
                     running_session = True
                     print(f'AaaS shared Android storage: {shared_storage_path}',
                           flush=True)
+                    print('AaaS persistent Android userdata is active.', flush=True)
                     if policy is not None:
                         policy_monitor = aaas_cgroup.ProcessPolicyMonitor(
                             policy, policy_log)

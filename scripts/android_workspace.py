@@ -14,6 +14,11 @@ import sys
 import time
 import uuid
 
+try:
+    from . import aaas_userdata
+except ImportError:
+    import aaas_userdata
+
 GIB = 1 << 30
 MARKER = '.aaas-workspace.json'
 LAYOUT = ('images', 'sources', 'out', 'cache', 'logs', 'tmp', 'mnt')
@@ -37,7 +42,11 @@ def mount_identity(target):
 def allocated_bytes(root):
     total = 0
     seen = set()
+    private_userdata = Path(root) / aaas_userdata.DIRECTORY_NAME
+    scan_private_userdata = private_userdata.is_dir() and not private_userdata.is_symlink()
     for base, dirs, files in os.walk(root, followlinks=False):
+        if scan_private_userdata and Path(base) == Path(root):
+            dirs[:] = [name for name in dirs if name != aaas_userdata.DIRECTORY_NAME]
         for name in dirs + files:
             path = os.path.join(base, name)
             st = os.lstat(path)
@@ -45,6 +54,8 @@ def allocated_bytes(root):
             if key not in seen:
                 seen.add(key)
                 total += st.st_blocks * 512
+    if scan_private_userdata:
+        total += aaas_userdata.allocated_bytes_rootless(private_userdata)
     return total
 
 

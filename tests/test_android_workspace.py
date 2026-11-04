@@ -43,6 +43,16 @@ class WorkspaceGuardTest(unittest.TestCase):
         self.assertEqual(guard.allocated_bytes(self.workspace),
                          st.st_blocks * 512 + (self.workspace / guard.MARKER).stat().st_blocks * 512)
 
+    def test_private_userdata_is_counted_by_mapped_read_only_scan(self):
+        private = self.workspace / guard.aaas_userdata.DIRECTORY_NAME
+        private.mkdir()
+        (private / 'data').mkdir()
+        with patch.object(guard.aaas_userdata, 'allocated_bytes_rootless',
+                          return_value=8192) as scan:
+            result = guard.allocated_bytes(self.workspace)
+        scan.assert_called_once_with(private)
+        self.assertGreaterEqual(result, 8192)
+
     def test_stops_child_after_actual_growth(self):
         self.marker.update(budget_gib=4, reserve_gib=1, working_ceiling_gib=2)
         (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
