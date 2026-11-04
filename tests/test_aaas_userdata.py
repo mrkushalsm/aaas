@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,6 +10,10 @@ import aaas_userdata
 
 
 class PersistentUserdataTests(unittest.TestCase):
+    def test_proc_start_time_parser_handles_current_process(self):
+        start_time = aaas_userdata._proc_start_time(os.getpid())
+        self.assertTrue(start_time.isdigit())
+
     def test_initializes_private_directory_and_reuses_it(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)

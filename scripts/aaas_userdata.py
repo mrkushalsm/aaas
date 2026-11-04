@@ -157,27 +157,66 @@ print(total)
         text=True, start_new_session=True,
     )
     try:
+        parent_userns = os.stat('/proc/self/ns/user').st_ino
+        process_start = _proc_start_time(process.pid)
         deadline = time.monotonic() + 3
+        child_userns = None
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise UserdataError('rootless userdata accounting helper exited early')
             try:
-                mapping = Path(f'/proc/{process.pid}/uid_map').read_text().strip()
+                proc = Path(f'/proc/{process.pid}')
+                if _proc_start_time(process.pid) != process_start:
+                    raise UserdataError(
+                        'rootless userdata accounting helper PID identity changed')
+                namespace = os.stat(proc / 'ns/user').st_ino
             except FileNotFoundError:
-                mapping = ''
-            if mapping:
+                namespace = parent_userns
+            if namespace != parent_userns:
+                child_userns = namespace
                 break
             time.sleep(.01)
         else:
-            raise TimeoutError('rootless userdata accounting UID map timed out')
-        subprocess.run(
-            ['newuidmap', str(process.pid), '0', str(os.getuid()), '1',
-             '1', '100000', '65535'], check=True, capture_output=True, text=True,
-        )
-        subprocess.run(
-            ['newgidmap', str(process.pid), '0', str(os.getgid()), '1',
-             '1', '100000', '65535'], check=True, capture_output=True, text=True,
-        )
+            raise TimeoutError(
+                'rootless userdata accounting user namespace did not initialize')
+
+        def map_identity(helper, *ranges):
+            if process.poll() is not None:
+                raise UserdataError(
+                    f'rootless userdata accounting helper exited before {helper}')
+            proc = Path(f'/proc/{process.pid}')
+            if (_proc_start_time(process.pid) != process_start
+                    or os.stat(proc / 'ns/user').st_ino != child_userns):
+                raise UserdataError(
+                    f'rootless userdata accounting helper identity changed before {helper}')
+            completed = subprocess.run(
+                [helper, str(process.pid), *ranges],
+                check=False, capture_output=True, text=True,
+            )
+            if completed.returncode:
+                detail = completed.stderr.strip() or completed.stdout.strip()
+                raise UserdataError(
+                    f'{helper} failed for userdata accounting PID {process.pid} '
+                    f'(userns {child_userns}): {detail or completed.returncode}')
+            if (_proc_start_time(process.pid) != process_start
+                    or os.stat(proc / 'ns/user').st_ino != child_userns):
+                raise UserdataError(
+                    f'rootless userdata accounting helper identity changed after {helper}')
+
+        map_identity('newuidmap', '0', str(os.getuid()), '1',
+                     '1', '100000', '65535')
+        expected_uid_map = f'0 {os.getuid()} 1\n1 100000 65535'
+        actual_uid_map = Path(f'/proc/{process.pid}/uid_map').read_text().strip()
+        if ' '.join(actual_uid_map.split()) != ' '.join(expected_uid_map.split()):
+            raise UserdataError(
+                f'rootless userdata accounting UID map is unexpected: {actual_uid_map}')
+        map_identity('newgidmap', '0', str(os.getgid()), '1',
+                     '1', '100000', '65535')
+        expected_gid_map = f'0 {os.getgid()} 1\n1 100000 65535'
+        actual_gid_map = Path(f'/proc/{process.pid}/gid_map').read_text().strip()
+        if ' '.join(actual_gid_map.split()) != ' '.join(expected_gid_map.split()):
+            raise UserdataError(
+                f'rootless userdata accounting GID map is unexpected: {actual_gid_map}')
         process.stdin.write('ready\n')
         process.stdin.flush()
         stdout, stderr = process.communicate(timeout=30)
@@ -192,3 +231,11 @@ print(total)
                 pass
             process.wait(timeout=5)
         raise
+
+
+def _proc_start_time(pid):
+    """Return Linux process start ticks without splitting a spaced comm field."""
+    record = Path(f'/proc/{pid}/stat').read_text()
+    fields_after_comm = record[record.rfind(')') + 1:].split()
+    # stat field 22 (starttime); the tail starts at field 3.
+    return fields_after_comm[19]
