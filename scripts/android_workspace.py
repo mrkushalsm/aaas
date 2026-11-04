@@ -31,12 +31,62 @@ class WorkspaceError(RuntimeError):
 def mount_identity(target):
     result = subprocess.run(
         ['findmnt', '-T', str(target), '-n', '-o', 'TARGET,SOURCE,FSTYPE,UUID'],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=3,
     )
     fields = result.stdout.strip().split()
     if len(fields) != 4:
         raise WorkspaceError(f'cannot identify mount for {target}')
     return dict(zip(('target', 'source', 'filesystem', 'uuid'), fields))
+
+
+def validate_mounted_workspace(workspace, sentinels=()):
+    """Cheaply verify the active mount and critical backing paths.
+
+    This intentionally does not repeat allocated-byte accounting. Call
+    ``check`` before starting work, then use this bounded identity/access probe
+    from an existing foreground session loop to detect mount loss.
+    """
+    workspace = Path(workspace).absolute()
+    marker_path = workspace / MARKER
+    if workspace.is_symlink() or not workspace.is_dir():
+        raise WorkspaceError(f'workspace backing is unavailable: {workspace}')
+    if marker_path.is_symlink() or not marker_path.is_file():
+        raise WorkspaceError(f'missing or unsafe workspace marker: {marker_path}')
+    try:
+        marker = json.loads(marker_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as error:
+        raise WorkspaceError(f'cannot read workspace marker: {error}') from error
+    if marker.get('schema') != 1 or not marker.get('workspace_id'):
+        raise WorkspaceError('invalid workspace marker')
+    target = Path(marker.get('mount_target', '')).absolute()
+    if not workspace.is_relative_to(target) or workspace == target:
+        raise WorkspaceError('workspace is outside the recorded external mount')
+    actual = mount_identity(target)
+    if actual['target'] != str(target):
+        raise WorkspaceError(f'external disk is not mounted at {target}')
+    if actual['uuid'] != marker.get('mount_uuid') or actual['filesystem'] != marker.get('filesystem'):
+        raise WorkspaceError('external disk identity changed')
+    if not os.access(workspace, os.W_OK | os.X_OK):
+        raise WorkspaceError('workspace is not writable')
+    try:
+        workspace_stat = workspace.stat()
+        stat = os.statvfs(target)
+    except OSError as error:
+        raise WorkspaceError(f'workspace filesystem is unavailable: {error}') from error
+    free = stat.f_bavail * stat.f_frsize
+    reserve = int(marker.get('reserve_gib', 20)) * GIB
+    if free < reserve:
+        raise WorkspaceError(
+            f'workspace free space below reserve: free={free} reserve={reserve}')
+    for raw_path in sentinels:
+        path = Path(raw_path)
+        try:
+            info = path.lstat()
+        except OSError as error:
+            raise WorkspaceError(f'workspace backing unavailable at {path}: {error}') from error
+        if path.is_symlink() or info.st_dev != workspace_stat.st_dev:
+            raise WorkspaceError(f'workspace backing changed or escaped at {path}')
+    return {'mount': actual, 'free_bytes': free, 'workspace': str(workspace)}
 
 
 def allocated_bytes(root):

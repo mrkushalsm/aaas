@@ -35,6 +35,30 @@ class WorkspaceGuardTest(unittest.TestCase):
             with self.assertRaisesRegex(guard.WorkspaceError, 'identity changed'):
                 guard.check(self.workspace)
 
+    def test_runtime_mount_probe_accepts_expected_mount_and_sentinels(self):
+        userdata = self.workspace / 'android-userdata' / 'data'
+        shared = self.workspace / 'shared-storage' / 'android-media'
+        userdata.mkdir(parents=True)
+        shared.mkdir(parents=True)
+        with patch.object(guard, 'mount_identity', return_value=self.identity):
+            with patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(
+                    f_bavail=100, f_frsize=guard.GIB)):
+                result = guard.validate_mounted_workspace(
+                    self.workspace, sentinels=(userdata, shared))
+        self.assertEqual(result['mount']['uuid'], 'test-uuid')
+        self.assertGreater(result['free_bytes'], 0)
+
+    def test_runtime_mount_probe_rejects_changed_mount_and_missing_backing(self):
+        with patch.object(guard, 'mount_identity', return_value={**self.identity, 'target': '/'}):
+            with self.assertRaisesRegex(guard.WorkspaceError, 'not mounted'):
+                guard.validate_mounted_workspace(self.workspace)
+        missing = self.workspace / 'android-userdata' / 'data'
+        with patch.object(guard, 'mount_identity', return_value=self.identity):
+            with patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(
+                    f_bavail=100, f_frsize=guard.GIB)):
+                with self.assertRaisesRegex(guard.WorkspaceError, 'backing unavailable'):
+                    guard.validate_mounted_workspace(self.workspace, sentinels=(missing,))
+
     def test_hardlinks_count_once(self):
         first = self.workspace / 'first'
         first.write_bytes(b'abc')

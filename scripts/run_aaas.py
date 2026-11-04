@@ -29,6 +29,7 @@ import aaas_bluetooth
 import aaas_resources
 import aaas_storage
 import aaas_userdata
+import android_workspace
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -66,6 +67,7 @@ VDC_OVERLAY_SHA256 = 'b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e58
 DEFAULT_APP_PACKAGE = 'com.android.settings'
 APP_PACKAGE_PATTERN = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 SESSION_STATUS_VALUES = {'STARTING', 'RUNNING', 'STOPPING', 'STOPPED', 'FAILED'}
+WORKSPACE_HEALTH_INTERVAL_SECONDS = 1.0
 
 
 def sha256(path):
@@ -1830,8 +1832,8 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     if check.returncode:
         raise RuntimeError(check.stdout + check.stderr)
     mount = json.loads(check.stdout)['mount']
-    if mount['source'] != '/dev/sda2' or mount['filesystem'] != 'ntfs3':
-        raise RuntimeError(f'unexpected workspace mount: {mount}')
+    if mount['filesystem'] != 'ntfs3' or not mount.get('uuid'):
+        raise RuntimeError(f'unexpected workspace filesystem: {mount}')
     if not PRESENTER.is_file():
         raise RuntimeError(f'build the presenter first: {PRESENTER}')
     if not INPUT_ADAPTER.is_file():
@@ -2571,8 +2573,34 @@ def main():
         nonlocal state
         state = new_state
         # Keep the state journal and bind-mounted Android sentinel in step.
-        write_session_state(session, status, new_state)
+        try:
+            write_session_state(session, status, new_state)
+        except OSError as error:
+            print(f'AaaS: session state could not be persisted: {error}',
+                  file=sys.stderr, flush=True)
         print(f'AaaS: {new_state} ({session})', flush=True)
+
+    next_workspace_health_check = 0.0
+
+    def validate_runtime_workspace():
+        nonlocal next_workspace_health_check
+        now = time.monotonic()
+        if now < next_workspace_health_check:
+            return
+        userdata_root = persistent_userdata_path.parent
+        sentinels = (
+            userdata_root / aaas_userdata.MANIFEST_NAME,
+            persistent_userdata_path,
+            aaas_storage.media_root_path(WORKSPACE),
+            shared_storage_path,
+        )
+        try:
+            android_workspace.validate_mounted_workspace(WORKSPACE, sentinels)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            raise RuntimeError(
+                f'external workspace backing became unavailable; stopping Android: {error}'
+            ) from error
+        next_workspace_health_check = now + WORKSPACE_HEALTH_INTERVAL_SECONDS
 
     try:
         transition('PREPARING')
@@ -2644,6 +2672,9 @@ def main():
                         if virtual_presenter2.poll() is not None or time.monotonic() >= deadline:
                             raise RuntimeError('second virtual display presenter did not start')
                         time.sleep(.1)
+            # Recheck the complete budget and mount identity immediately before
+            # Android can write persistent userdata.
+            android_workspace.check(WORKSPACE)
             transition('STARTING_ANDROID')
             android = subprocess.Popen([sys.executable, str(runner)], env=env,
                                        stdout=android_log, stderr=subprocess.STDOUT,
@@ -2652,6 +2683,7 @@ def main():
             storage_acl_preflight_done = False
             deadline = time.monotonic() + args.startup_timeout + 20
             while not stop:
+                validate_runtime_workspace()
                 if presenter is not None and presenter.poll() is not None:
                     raise RuntimeError(f'presenter exited before {args.app} became ready')
                 if virtual_presenter is not None and virtual_presenter.poll() is not None:
@@ -2738,6 +2770,7 @@ def main():
                 time.sleep(.25)
             warned_degraded = False
             while not stop and state == 'RUNNING':
+                validate_runtime_workspace()
                 if status.read_text().strip() == 'FAILED':
                     reason = classify_session_failure(session_commands)
                     raise RuntimeError(f'Android runtime failed: {reason}')
@@ -2875,7 +2908,11 @@ def main():
                       file=sys.stderr, flush=True)
         if control_server is not None:
             control_server.close()
-            control_path.unlink(missing_ok=True)
+            try:
+                control_path.unlink(missing_ok=True)
+            except OSError as error:
+                print(f'AaaS: cannot remove session control socket: {error}',
+                      file=sys.stderr, flush=True)
         try:
             failed_before_cleanup = (state == 'FAILED' or
                                      status.read_text().strip() == 'FAILED')
@@ -2886,11 +2923,20 @@ def main():
             # Exporting the bounded Android tombstone ring can take several
             # seconds when the runtime has unrelated crashing vendor services.
             # Keep the wait finite while allowing the watcher to finish copies.
-            capture_status = request_tombstone_capture(ipc, timeout=10.0)
+            try:
+                capture_status = request_tombstone_capture(ipc, timeout=10.0)
+            except OSError as error:
+                capture_status = 'workspace_unavailable'
+                print(f'AaaS: tombstone capture request unavailable: {error}',
+                      file=sys.stderr, flush=True)
         else:
             capture_status = 'runtime_unavailable'
         if android is not None and android.poll() is None:
-            write_status_sentinel(status, 'STOPPING')
+            try:
+                write_status_sentinel(status, 'STOPPING')
+            except OSError as error:
+                print(f'AaaS: cannot persist STOPPING status: {error}',
+                      file=sys.stderr, flush=True)
 
         if args.experimental_virtual_display and android is not None:
             shutdown_file = ipc / 'display_broker_shutdown'
@@ -2917,8 +2963,12 @@ def main():
                 cleanup_failed = True
                 print(f'AaaS: process cleanup failed: {error}',
                       file=sys.stderr, flush=True)
-        write_crash_artifact_manifest(session, tombstone_dir, capture_status,
-                                      graphics_provenance)
+        try:
+            write_crash_artifact_manifest(session, tombstone_dir, capture_status,
+                                          graphics_provenance)
+        except OSError as error:
+            print(f'AaaS: crash-artifact manifest unavailable: {error}',
+                  file=sys.stderr, flush=True)
         if policy is not None:
             summary = policy_monitor.summary() if policy_monitor is not None else {}
             try:
@@ -2927,8 +2977,13 @@ def main():
                 cleanup = {'removed': False,
                            'failures': {'shutdown': f'{type(error).__name__}: {error}'}}
             summary['cleanup'] = cleanup
-            (session / 'policy-summary.json').write_text(
-                json.dumps(summary, indent=1, default=str) + '\n')
+            try:
+                (session / 'policy-summary.json').write_text(
+                    json.dumps(summary, indent=1, default=str) + '\n')
+            except OSError as error:
+                cleanup_failed = True
+                print(f'AaaS: memory policy summary unavailable: {error}',
+                      file=sys.stderr, flush=True)
             if cleanup['failures']:
                 cleanup_failed = True
                 print(f'AaaS: memory policy cleanup issues: {cleanup["failures"]}',
@@ -2970,7 +3025,13 @@ def main():
                 transition('FAILED')
         elif state != 'STOPPED':
             transition('STOPPED')
-        final_status = finalize_status_sentinel(status, failed=terminal_failed)
+        try:
+            final_status = finalize_status_sentinel(status, failed=terminal_failed)
+        except OSError as error:
+            final_status = 'unavailable_workspace'
+            cleanup_failed = True
+            print(f'AaaS: terminal status could not be persisted: {error}',
+                  file=sys.stderr, flush=True)
         print(f'AaaS: session status {final_status}', flush=True)
         print(f'AaaS logs: {session}', flush=True)
         os.close(lock_fd)
