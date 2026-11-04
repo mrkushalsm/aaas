@@ -1028,6 +1028,13 @@ class ForegroundRunnerTests(unittest.TestCase):
         import sys
         if not SESSION.TMP.is_dir():
             self.skipTest('external AaaS workspace is not mounted')
+        guard = subprocess.run(
+            [sys.executable, str(SCRIPT.parents[1] / 'scripts/android_workspace.py'),
+             '--workspace', str(SESSION.WORKSPACE), 'check'],
+            capture_output=True, text=True,
+        )
+        if guard.returncode:
+            self.skipTest('external AaaS workspace guard is not healthy')
         lock_path = SESSION.TMP / '.aaas_session.lock'
         lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
