@@ -47,6 +47,11 @@ VDISPLAY_SERVICES_RECEIPT = TMP / 'm1e_services_alarm_fallback.json'
 FRAMEWORK_TRANSITION_OVERLAY = TMP / 'm1e_framework_transition_input.jar'
 FRAMEWORK_TRANSITION_RECEIPT = TMP / 'm1e_framework_transition_input.json'
 APKTOOL = TMP / 'apktool_3.0.3.jar'
+APKSIG = TMP / 'apksig-8.9.1.jar'
+STORAGE_SCAN_KEYSTORE = TMP / 'm4-storage-probe/storage-probe.keystore'
+STORAGE_SCAN_APK = TMP / 'storage-scan-helper/AaaSStorageScan.apk'
+STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
+STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
 RUNNER_SHA256 = '2e93ad37536fc0cd84b434a646545583115bdd84d67eb0439fa05ae6e7e73b8e'
@@ -568,7 +573,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         native_bridge_overlay=None, capture_app_tombstones=False,
                         idle_timeout_seconds=60, shared_storage_dir=None,
                         diagnostic_storage_apk=None,
-                        diagnostic_storage_open=False, install_apk=None):
+                        diagnostic_storage_open=False, install_apk=None,
+                        storage_scan_apk=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -583,6 +589,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     input_response_probe_binds = ""
     native_bridge_binds = ""
     diagnostic_storage_apk_bind = ""
+    storage_scan_apk_bind = ""
     ordinary_apk_bind = ""
     if diagnostic_storage_apk is not None:
         storage_apk = Path(diagnostic_storage_apk).resolve(strict=True)
@@ -593,6 +600,14 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         diagnostic_storage_apk_bind = (
             f'  --ro-bind {shlex.quote(str(storage_apk))} '
             '/aaas-storage-probe.apk \\\n'
+        )
+    if storage_scan_apk is not None:
+        scan_apk = Path(storage_scan_apk).resolve(strict=True)
+        if not scan_apk.is_file() or scan_apk.suffix.lower() != '.apk':
+            raise ValueError('storage scan helper must be an APK file')
+        storage_scan_apk_bind = (
+            f'  --ro-bind {shlex.quote(str(scan_apk))} '
+            '/aaas-storage-scan-helper.apk \\\n'
         )
     if install_apk is not None:
         ordinary_apk = Path(install_apk).resolve(strict=True)
@@ -729,6 +744,37 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '      exit 1\n'
                 '    fi\n'
             )
+        if storage_scan_apk is not None:
+            storage_probe += (
+                '    echo "=== INSTALLING SESSION STORAGE SCAN SERVICE ===" >> /aaas_session_commands\n'
+                '    SCAN_INSTALL_OUTPUT=$(/system/bin/pm install -r '
+                '/aaas-storage-scan-helper.apk 2>&1)\n'
+                '    SCAN_INSTALL_STATUS=$?\n'
+                '    /system/bin/log -t AaaSStorageScan '
+                '"install_status=$SCAN_INSTALL_STATUS result=$SCAN_INSTALL_OUTPUT"\n'
+                '    if [ "$SCAN_INSTALL_STATUS" -ne 0 ]; then\n'
+                '      echo "AAAS_STORAGE_SCAN_INSTALL_FAILED $SCAN_INSTALL_OUTPUT" '
+                '>> /aaas_session_commands\n'
+                '      echo FAILED > /aaas_session_status\n'
+                '      exit 1\n'
+                '    fi\n'
+            )
+        if shared_storage_dir is not None:
+            storage_probe += (
+                '    echo check > /dev/aaas/storage_acl_request\n'
+                '    ACL_WAIT=0\n'
+                '    while [ ! -s /dev/aaas/storage_acl_ack ] && [ "$ACL_WAIT" -lt 150 ]; do\n'
+                '      /system/bin/toybox sleep 0.1\n'
+                '      ACL_WAIT=$((ACL_WAIT + 1))\n'
+                '    done\n'
+                '    ACL_RESULT=$(/system/bin/toybox cat /dev/aaas/storage_acl_ack 2>/dev/null)\n'
+                '    if [ "$ACL_RESULT" != ready ]; then\n'
+                '      echo "AAAS_STORAGE_ACL_PREFLIGHT_FAILED $ACL_RESULT" >> /aaas_session_commands\n'
+                '      echo FAILED > /aaas_session_status\n'
+                '      exit 1\n'
+                '    fi\n'
+                '    echo AAAS_STORAGE_ACL_PREFLIGHT_READY >> /aaas_session_commands\n'
+            )
         if install_apk is not None:
             storage_probe += (
                 '    echo "=== INSTALLING ORDINARY USER APK ===" >> /aaas_session_commands\n'
@@ -763,6 +809,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         source,
         '{mapper_bind}{allocator_bind}',
         native_bridge_binds + input_response_probe_binds + diagnostic_storage_apk_bind
+        + storage_scan_apk_bind
         + ordinary_apk_bind
         + '{mapper_bind}{allocator_bind}',
     )
@@ -1346,7 +1393,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '        break\n'
             '      fi\n'
         )
-        if diagnostic_storage_apk is not None:
+        if storage_scan_apk is not None:
             readiness_and_watch += (
                 '      if [ -s /dev/aaas/storage_scan_request ]; then\n'
                 '        read SCAN_ID SCAN_PATH_B64 < /dev/aaas/storage_scan_request\n'
@@ -1360,15 +1407,19 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '*"/Android/data"|*"/Android/obb/"*|*"/Android/obb")\n'
                 '              echo "failed $SCAN_ID invalid_path" > /dev/aaas/storage_scan_ack ;;\n'
                 '            *)\n'
-                '              /system/bin/cmd activity force-stop --user 0 org.aaas.storagetest '
-                '>> /aaas_session_commands 2>&1\n'
-                '              if /system/bin/cmd activity start-activity -W --user 0 '
-                '--display "$VD_ID" -n org.aaas.storagetest/.ProbeActivity '
-                '--es aaas.scanPath "$SCAN_PATH" >> /aaas_session_commands 2>&1; then\n'
+                '              SCAN_SERVICE_OUTPUT=$(/system/bin/am broadcast '
+                '--include-stopped-packages --user 0 '
+                '-n org.aaas.storagescan/.ScanReceiver '
+                '--es path "$SCAN_PATH" --es requestId "$SCAN_ID" 2>&1)\n'
+                '              SCAN_SERVICE_STATUS=$?\n'
+                '              echo "AAAS_STORAGE_SCAN_SERVICE status=$SCAN_SERVICE_STATUS output=$SCAN_SERVICE_OUTPUT" '
+                '>> /aaas_session_commands\n'
+                '              if [ "$SCAN_SERVICE_STATUS" -eq 0 ]; then\n'
                 '                echo "started $SCAN_ID $SCAN_PATH" '
                 '> /dev/aaas/storage_scan_ack\n'
                 '              else\n'
-                '                echo "failed $SCAN_ID launch" > /dev/aaas/storage_scan_ack\n'
+                '                echo "failed $SCAN_ID launch $SCAN_SERVICE_OUTPUT" '
+                '> /dev/aaas/storage_scan_ack\n'
                 '              fi\n'
                 '              ;;\n'
                 '            esac\n'
@@ -1376,6 +1427,22 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '          *) echo "failed $SCAN_ID invalid_path" '
                 '> /dev/aaas/storage_scan_ack ;;\n'
                 '        esac\n'
+                '      fi\n'
+                '      if [ -s /dev/aaas/storage_scan_query_request ]; then\n'
+                '        read QUERY_ID QUERY_URI_B64 < /dev/aaas/storage_scan_query_request\n'
+                '        : > /dev/aaas/storage_scan_query_request\n'
+                '        QUERY_URI=$(printf "%s" "$QUERY_URI_B64" | '
+                '/system/bin/toybox base64 -d 2>/dev/null)\n'
+                '        case "$QUERY_URI" in content://media/*)\n'
+                '          QUERY_OUTPUT=$(/system/bin/content query '
+                '--uri "$QUERY_URI" --projection _id:_display_name:_data 2>&1)\n'
+                '          QUERY_STATUS=$? ;;\n'
+                '          *) QUERY_OUTPUT=invalid_content_uri; QUERY_STATUS=2 ;;\n'
+                '        esac\n'
+                '        QUERY_OUTPUT_B64=$(printf "%s" "$QUERY_OUTPUT" | '
+                '/system/bin/toybox base64 | /system/bin/toybox tr -d "\\n")\n'
+                '        echo "$QUERY_ID $QUERY_STATUS $QUERY_OUTPUT_B64" '
+                '> /dev/aaas/storage_scan_query_ack\n'
                 '      fi\n'
             )
         if app_package2 is not None:
@@ -1542,8 +1609,54 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    fi\n'
         )
     else:
+        readiness_and_watch += '; do\n'
+        if storage_scan_apk is not None:
+            readiness_and_watch += (
+                '      if [ -s /dev/aaas/storage_scan_request ]; then\n'
+                '        read SCAN_ID SCAN_PATH_B64 < /dev/aaas/storage_scan_request\n'
+                '        : > /dev/aaas/storage_scan_request\n'
+                '        case "$SCAN_ID" in ""|*[!0-9a-f]*) SCAN_ID=invalid ;; esac\n'
+                '        SCAN_PATH=$(printf "%s" "$SCAN_PATH_B64" | '
+                '/system/bin/toybox base64 -d 2>/dev/null)\n'
+                '        case "$SCAN_PATH" in /storage/emulated/0/*)\n'
+                '          case "$SCAN_PATH" in *"/../"*|*"/.."|*"/Android/data/"*|'
+                '*"/Android/data"|*"/Android/obb/"*|*"/Android/obb")\n'
+                '            echo "failed $SCAN_ID invalid_path" > /dev/aaas/storage_scan_ack ;;\n'
+                '          *)\n'
+                '            SCAN_SERVICE_OUTPUT=$(/system/bin/am broadcast '
+                '--include-stopped-packages --user 0 '
+                '-n org.aaas.storagescan/.ScanReceiver '
+                '--es path "$SCAN_PATH" --es requestId "$SCAN_ID" 2>&1)\n'
+                '            SCAN_SERVICE_STATUS=$?\n'
+                '            echo "AAAS_STORAGE_SCAN_SERVICE status=$SCAN_SERVICE_STATUS output=$SCAN_SERVICE_OUTPUT" '
+                '>> /aaas_session_commands\n'
+                '            if [ "$SCAN_SERVICE_STATUS" -eq 0 ]; then\n'
+                '              echo "started $SCAN_ID $SCAN_PATH" > /dev/aaas/storage_scan_ack\n'
+                '            else\n'
+                '              echo "failed $SCAN_ID launch $SCAN_SERVICE_OUTPUT" > /dev/aaas/storage_scan_ack\n'
+                '            fi ;;\n'
+                '          esac ;;\n'
+                '          *) echo "failed $SCAN_ID invalid_path" > /dev/aaas/storage_scan_ack ;;\n'
+                '        esac\n'
+                '      fi\n'
+                '      if [ -s /dev/aaas/storage_scan_query_request ]; then\n'
+                '        read QUERY_ID QUERY_URI_B64 < /dev/aaas/storage_scan_query_request\n'
+                '        : > /dev/aaas/storage_scan_query_request\n'
+                '        QUERY_URI=$(printf "%s" "$QUERY_URI_B64" | '
+                '/system/bin/toybox base64 -d 2>/dev/null)\n'
+                '        case "$QUERY_URI" in content://media/*)\n'
+                '          QUERY_OUTPUT=$(/system/bin/content query '
+                '--uri "$QUERY_URI" --projection _id:_display_name:_data 2>&1)\n'
+                '          QUERY_STATUS=$? ;;\n'
+                '          *) QUERY_OUTPUT=invalid_content_uri; QUERY_STATUS=2 ;;\n'
+                '        esac\n'
+                '        QUERY_OUTPUT_B64=$(printf "%s" "$QUERY_OUTPUT" | '
+                '/system/bin/toybox base64 | /system/bin/toybox tr -d "\\n")\n'
+                '        echo "$QUERY_ID $QUERY_STATUS $QUERY_OUTPUT_B64" '
+                '> /dev/aaas/storage_scan_query_ack\n'
+                '      fi\n'
+            )
         readiness_and_watch += (
-            '; do\n'
             '      /system/bin/toybox sleep 2\n'
             '    done\n'
             '    echo FAILED > /aaas_session_status\n'
@@ -1594,6 +1707,33 @@ def vdisplay_services_overlay_is_current():
         )
     except (OSError, ValueError, KeyError):
         return False
+
+
+def storage_services_overlay_is_current():
+    try:
+        receipt = json.loads(STORAGE_SERVICES_RECEIPT.read_text())
+        original = TMP / 'm1b8_services_battery_mobile_diagnostic.jar'
+        return (
+            STORAGE_SERVICES_OVERLAY.is_file()
+            and receipt.get('input_sha256') == sha256(original)
+            and receipt.get('output_sha256') == sha256(STORAGE_SERVICES_OVERLAY)
+            and receipt.get('apktool_sha256') == sha256(APKTOOL)
+            and receipt.get('default') == (
+                'false; system property and DeviceConfig overrides preserved')
+        )
+    except (OSError, ValueError, KeyError):
+        return False
+
+
+def build_storage_services_overlay():
+    if not storage_services_overlay_is_current():
+        subprocess.run([
+            sys.executable, str(ROOT / 'scripts/build_m4_storage_services_overlay.py'),
+            '--original', str(TMP / 'm1b8_services_battery_mobile_diagnostic.jar'),
+            '--apktool', str(APKTOOL), '--output', str(STORAGE_SERVICES_OVERLAY),
+            '--receipt', str(STORAGE_SERVICES_RECEIPT), '--work-parent', str(TMP),
+        ], check=True)
+    return STORAGE_SERVICES_OVERLAY
 
 
 def framework_transition_overlay_is_current():
@@ -1895,6 +2035,8 @@ def main():
                                 diagnostic_vulkan_overlay=args.diagnostic_vulkan_overlay,
                                 diagnostic_framework_overlay=args.diagnostic_framework_overlay,
                                 diagnostic_framework_sha256=args.diagnostic_framework_sha256)
+    if not args.experimental_virtual_display:
+        paths['AAAS_SERVICES_JAR_OVERLAY'] = str(build_storage_services_overlay())
     if args.experimental_virtual_display:
         if not COMPOSER_VDISPLAY.is_file() or not VDISPLAY_BROKER_DEX.is_file():
             raise RuntimeError('build the M1E virtual-display Composer and broker first')
@@ -1953,6 +2095,7 @@ def main():
     provenance_path.write_text(json.dumps(graphics_provenance, indent=2) + '\n')
     provenance_path.chmod(0o600)
     prefix = f'm1b84_session_{os.getpid()}_'
+    storage_scan_apk = STORAGE_SCAN_APK
     tombstone_dir = session / 'tombstones'
     tombstone_dir.mkdir(mode=0o700)
     ipc = session / 'ipc'
@@ -2001,6 +2144,12 @@ def main():
                 path = ipc / name
                 path.write_text('')
                 path.chmod(0o666)
+    if storage_scan_apk is not None:
+        for name in ('storage_scan_request', 'storage_scan_ack',
+                     'storage_scan_query_request', 'storage_scan_query_ack'):
+            path = ipc / name
+            path.write_text('')
+            path.chmod(0o666)
     for name in ('tombstone_capture_request', 'tombstone_capture_ack',
                  'tombstone_capture_test_pid',
                  'tombstone_capture_test_result'):
@@ -2045,6 +2194,12 @@ def main():
             print(f'AaaS: resource snapshot unavailable: {error}',
                   file=sys.stderr, flush=True)
     shared_storage_path = aaas_storage.prepare_backing_directory(WORKSPACE)
+    scan_builder = ROOT / 'experiments/m4/storage_scan_helper/build_scan_helper.py'
+    subprocess.run([
+        sys.executable, str(scan_builder), '--apktool', str(APKTOOL),
+        '--apksig', str(APKSIG), '--keystore', str(STORAGE_SCAN_KEYSTORE),
+        '--output', str(STORAGE_SCAN_APK),
+    ], check=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
@@ -2058,7 +2213,8 @@ def main():
                                  shared_storage_dir=shared_storage_path,
                                  diagnostic_storage_apk=args.diagnostic_storage_apk,
                                  diagnostic_storage_open=args.diagnostic_storage_open,
-                                 install_apk=args.install_apk)
+                                 install_apk=args.install_apk,
+                                 storage_scan_apk=storage_scan_apk)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -2097,6 +2253,7 @@ def main():
     window_close_requested = {1: None, 2: None}
     slot_packages = {1: args.app, 2: args.app2}
     slot_lifecycle_generation = {1: 0, 2: 0}
+    storage_scan_uris = {}
     control_path = ipc / 'aaas-control.sock'
     control_server = None
     capture_status = 'not_requested'
@@ -2199,8 +2356,7 @@ def main():
             return {'ok': True, 'slot': slot, 'package': package,
                     'state': 'STOPPING'}
         if op == 'storage_scan':
-            if (not args.experimental_virtual_display or
-                    args.diagnostic_storage_apk is None):
+            if storage_scan_apk is None:
                 return {'ok': False, 'error': 'storage_scan_helper_unavailable'}
             try:
                 relative_path = request.get('path')
@@ -2212,6 +2368,7 @@ def main():
                 return {'ok': False, 'error': 'invalid_storage_scan_path',
                         'detail': str(error)[:160]}
             android_path = '/storage/emulated/0/' + relative_path
+            expected_present = host_path.is_file()
             request_id = os.urandom(8).hex()
             encoded_path = base64.b64encode(android_path.encode('utf-8')).decode('ascii')
             request_path = ipc / 'storage_scan_request'
@@ -2232,8 +2389,9 @@ def main():
             if not ack.startswith(f'started {request_id} '):
                 return {'ok': False, 'error': 'storage_scan_launch_failed',
                         'detail': ack[:160] or 'timeout'}
-            marker = f'ANDROID_FILE_SCAN_COMPLETE path={android_path} uri='
+            marker = f'ANDROID_FILE_SCAN_COMPLETE id={request_id} path={android_path} uri='
             deadline = time.monotonic() + 35
+            uri = None
             while time.monotonic() < deadline:
                 try:
                     with logcat.open('rb') as stream:
@@ -2245,11 +2403,55 @@ def main():
                 if matches:
                     line = matches[-1]
                     uri = line.split(marker, 1)[1].strip()
-                    return {'ok': True, 'path': relative_path, 'uri': uri,
-                            'state': 'completed'}
+                    break
                 time.sleep(.1)
-            return {'ok': False, 'error': 'storage_scan_timeout',
-                    'path': relative_path}
+            if uri is None:
+                return {'ok': False, 'error': 'storage_scan_timeout',
+                        'path': relative_path}
+            previous_uri = storage_scan_uris.get(relative_path)
+            query_uri = uri if uri.startswith('content://media/') else previous_uri
+            if query_uri is None:
+                return {'ok': False, 'error': 'storage_scan_no_query_uri',
+                        'path': relative_path, 'uri': uri}
+            query_request = ipc / 'storage_scan_query_request'
+            query_ack = ipc / 'storage_scan_query_ack'
+            atomic_control_write(query_request,
+                                 f'{request_id} {base64.b64encode(query_uri.encode()).decode()}')
+            query_deadline = time.monotonic() + 15
+            query_result = ''
+            while time.monotonic() < query_deadline:
+                query_result = query_ack.read_text().strip()
+                if query_result.startswith(request_id + ' '):
+                    break
+                time.sleep(.05)
+            query_parts = query_result.split(' ', 2)
+            if len(query_parts) != 3 or query_parts[0] != request_id:
+                return {'ok': False, 'error': 'storage_scan_query_timeout',
+                        'path': relative_path}
+            try:
+                query_status = int(query_parts[1])
+                query_output = base64.b64decode(query_parts[2]).decode(
+                    'utf-8', 'replace')
+            except (ValueError, base64.binascii.Error):
+                return {'ok': False, 'error': 'storage_scan_query_invalid_response',
+                        'path': relative_path}
+            if query_status != 0:
+                return {'ok': False, 'error': 'storage_scan_query_failed',
+                        'path': relative_path, 'detail': query_output[:240]}
+            present = 'No result found.' not in query_output
+            if present != expected_present:
+                return {'ok': False, 'error': 'storage_scan_reconciliation_pending',
+                        'path': relative_path, 'uri': uri,
+                        'expected_present': expected_present,
+                        'mediastore_present': present,
+                        'mediastore_query': query_output[:1000]}
+            if present:
+                storage_scan_uris[relative_path] = uri
+            else:
+                storage_scan_uris.pop(relative_path, None)
+            return {'ok': True, 'path': relative_path, 'uri': uri,
+                    'state': 'completed', 'mediastore_present': present,
+                    'mediastore_query': query_output[:1000]}
         if op != 'launch':
             return {'ok': False, 'error': 'unsupported_operation'}
         try:
@@ -2347,7 +2549,7 @@ def main():
             return {'ok': False, 'error': 'launch_failed',
                     'detail': str(error)[:240]}
 
-    if args.experimental_virtual_display:
+    if storage_scan_apk is not None:
         control_path.unlink(missing_ok=True)
         control_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         control_server.bind(str(control_path))
@@ -2437,6 +2639,7 @@ def main():
                                        stdout=android_log, stderr=subprocess.STDOUT,
                                        start_new_session=True)
             transition('WAITING_FOR_FRAMEWORK')
+            storage_acl_preflight_done = False
             deadline = time.monotonic() + args.startup_timeout + 20
             while not stop:
                 if presenter is not None and presenter.poll() is not None:
@@ -2447,6 +2650,25 @@ def main():
                     raise RuntimeError('second virtual display presenter exited before Android startup')
                 if android.poll() is not None:
                     raise RuntimeError(f'Android exited before {args.app} became ready')
+                acl_request = ipc / 'storage_acl_request'
+                acl_ack = ipc / 'storage_acl_ack'
+                if (not storage_acl_preflight_done and shared_storage_path is not None
+                        and acl_request.is_file()):
+                    try:
+                        request_value = acl_request.read_text().strip()
+                        if request_value != 'check':
+                            raise RuntimeError('invalid Android storage ACL preflight request')
+                        aaas_storage.ensure_host_access(
+                            aaas_storage.media_root_path(WORKSPACE))
+                        aaas_storage.ensure_host_access(shared_storage_path)
+                        acl_ack.write_text('ready')
+                        storage_acl_preflight_done = True
+                        print('AaaS shared storage ACL verified before app launch.',
+                              flush=True)
+                    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                        acl_ack.write_text('failed')
+                        raise RuntimeError(
+                            f'shared-storage ACL preflight failed before app launch: {error}') from error
                 if not input_ready_reported and INPUT_ADAPTER.is_file():
                     try:
                         size = input_adapter_log.stat().st_size
@@ -2461,15 +2683,8 @@ def main():
                 if status.read_text().strip() == 'RUNNING':
                     transition('RUNNING')
                     running_session = True
-                    try:
-                        aaas_storage.ensure_host_access(
-                            aaas_storage.media_root_path(WORKSPACE))
-                        aaas_storage.ensure_host_access(shared_storage_path)
-                        print(f'AaaS shared Android storage: {shared_storage_path}',
-                              flush=True)
-                    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-                        print(f'AaaS shared storage ACL unavailable: {error}',
-                              file=sys.stderr, flush=True)
+                    print(f'AaaS shared Android storage: {shared_storage_path}',
+                          flush=True)
                     if policy is not None:
                         policy_monitor = aaas_cgroup.ProcessPolicyMonitor(
                             policy, policy_log)

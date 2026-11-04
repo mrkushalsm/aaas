@@ -127,7 +127,7 @@ def _ensure_android_storage_directories(path):
 
 def _run_mapped_storage_command(path, script, mode):
     process = subprocess.Popen(
-        ['unshare', '-U', '-m', '-f', '/bin/sh', '-c', script,
+        ['unshare', '-U', '-m', '/bin/sh', '-c', script,
          'aaas-storage-prepare', str(path), mode],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, start_new_session=True,
@@ -138,7 +138,7 @@ def _run_mapped_storage_command(path, script, mode):
             if process.poll() is not None:
                 raise RuntimeError('rootless storage helper exited before UID mapping')
             try:
-                if Path(f'/proc/{process.pid}/uid_map').read_text().strip():
+                if not Path(f'/proc/{process.pid}/uid_map').read_text().strip():
                     break
             except FileNotFoundError:
                 pass
@@ -250,7 +250,7 @@ def _apply_acl_as_mapped_media_rw(path, directories=()):
         + ''.join(f' {shlex.quote(name)}' for name in directories)
     )
     process = subprocess.Popen(
-        ['unshare', '-U', '-m', '-f', '/bin/sh', '-c', command,
+        ['unshare', '-U', '-m', '/bin/sh', '-c', command,
          'aaas-storage-acl', str(path)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, start_new_session=True,
@@ -261,7 +261,7 @@ def _apply_acl_as_mapped_media_rw(path, directories=()):
             if process.poll() is not None:
                 raise RuntimeError('rootless ACL helper exited before UID mapping')
             try:
-                if Path(f'/proc/{process.pid}/uid_map').read_text().strip():
+                if not Path(f'/proc/{process.pid}/uid_map').read_text().strip():
                     break
             except FileNotFoundError:
                 pass

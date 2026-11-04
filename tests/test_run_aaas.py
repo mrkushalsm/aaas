@@ -661,19 +661,44 @@ class ForegroundRunnerTests(unittest.TestCase):
     def test_storage_probe_runner_exposes_bounded_public_api_media_scan(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            apk = root / 'storage-probe.apk'
-            apk.write_bytes(b'diagnostic apk fixture')
+            apk = root / 'storage-scan-helper.apk'
+            apk.write_bytes(b'ordinary scan service fixture')
             (root / 'session').mkdir()
             (root / 'media' / '0').mkdir(parents=True)
             generated = SESSION.make_session_runner(
-                root / 'session', app_package='org.aaas.storagetest',
+                root / 'session', app_package='com.android.settings',
                 experimental_virtual_display=True,
-                diagnostic_storage_apk=apk,
+                storage_scan_apk=apk,
                 shared_storage_dir=root / 'media' / '0').read_text()
+        self.assertIn(f'--ro-bind {apk.resolve()} /aaas-storage-scan-helper.apk', generated)
         self.assertIn('storage_scan_request', generated)
-        self.assertIn('aaas.scanPath', generated)
+        self.assertIn('org.aaas.storagescan/.ScanReceiver', generated)
+        self.assertIn('am broadcast --include-stopped-packages --user 0', generated)
         self.assertIn('storage_scan_ack', generated)
+        self.assertIn('storage_scan_query_request', generated)
+        self.assertIn('content query --uri "$QUERY_URI"', generated)
         self.assertIn('/Android/data', generated)
+        self.assertIn('AAAS_STORAGE_ACL_PREFLIGHT_READY', generated)
+        self.assertIn('SCAN_INSTALL_STATUS', generated)
+
+    def test_normal_runner_exposes_media_scan_without_diagnostic_flags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'storage-scan-helper.apk'
+            apk.write_bytes(b'ordinary scan service fixture')
+            (root / 'session').mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            generated = SESSION.make_session_runner(
+                root / 'session', app_package='com.android.settings',
+                storage_scan_apk=apk,
+                shared_storage_dir=root / 'media' / '0').read_text()
+        self.assertIn('INSTALLING SESSION STORAGE SCAN SERVICE', generated)
+        self.assertIn('while [ "$(/system/bin/getprop sys.boot_completed)', generated)
+        self.assertIn('while [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
+                      '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
+                      'aaas_app_task_alive; do', generated)
+        self.assertIn('org.aaas.storagescan/.ScanReceiver', generated)
+        self.assertIn('storage_scan_query_request', generated)
 
     def test_arbitrary_apk_install_uses_an_ordinary_user_package_path(self):
         with tempfile.TemporaryDirectory() as directory:

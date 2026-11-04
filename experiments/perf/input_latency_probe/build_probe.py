@@ -85,15 +85,27 @@ def end_element(strings: list[str], tag: str) -> bytes:
 
 
 def binary_manifest(package_name: str, *, target_sdk: int | None = None,
-                    requested_permissions: tuple[str, ...] = ()) -> bytes:
+                    requested_permissions: tuple[str, ...] = (),
+                    services: tuple[tuple[str, str], ...] = (),
+                    receivers: tuple[tuple[str, str], ...] = (),
+                    include_launcher: bool = True) -> bytes:
     strings = [
         "android", ANDROID_NS, "manifest", "package", package_name,
         "versionCode", "versionName", "1.0", "uses-sdk", "minSdkVersion",
         "targetSdkVersion", "application", "hasCode", "label", "AaaS Input Probe",
         "activity", "name", ".ProbeActivity", "exported", "intent-filter",
+        "permission", "service", "receiver",
         "action", "category", "android.intent.action.MAIN",
         "android.intent.category.LAUNCHER",
     ]
+    for service_name, service_permission in services:
+        for value in (service_name, service_permission):
+            if value not in strings:
+                strings.append(value)
+    for receiver_name, receiver_permission in receivers:
+        for value in (receiver_name, receiver_permission):
+            if value not in strings:
+                strings.append(value)
     nodes = [
         namespace(0x0100, 0, 1),
         start_element(strings, "manifest", [
@@ -122,7 +134,7 @@ def binary_manifest(package_name: str, *, target_sdk: int | None = None,
         end_element(strings, "manifest"),
         namespace(0x0101, 0, 1),
     ]
-    if target_sdk is not None or requested_permissions:
+    if target_sdk is not None or requested_permissions or services or receivers or not include_launcher:
         if target_sdk is None or not 1 <= target_sdk <= 0x7fffffff:
             raise ValueError('target_sdk must be a positive integer when extending manifest')
         extra_strings = ['uses-sdk', 'uses-permission', *requested_permissions]
@@ -149,25 +161,46 @@ def binary_manifest(package_name: str, *, target_sdk: int | None = None,
                 end_element(strings, 'uses-permission'),
             )
         )
+        nodes.append(start_element(strings, 'application', [
+            ('android', 'hasCode', True), ('android', 'label', 'AaaS Input Probe'),
+        ]))
+        if include_launcher:
+            nodes.extend([
+                start_element(strings, 'activity', [
+                    ('android', 'name', '.ProbeActivity'), ('android', 'exported', True),
+                    ('android', 'label', 'AaaS Input Probe'),
+                ]),
+                start_element(strings, 'intent-filter', []),
+                start_element(strings, 'action', [
+                    ('android', 'name', 'android.intent.action.MAIN'),
+                ]),
+                end_element(strings, 'action'),
+                start_element(strings, 'category', [
+                    ('android', 'name', 'android.intent.category.LAUNCHER'),
+                ]),
+                end_element(strings, 'category'),
+                end_element(strings, 'intent-filter'),
+                end_element(strings, 'activity'),
+            ])
+        for service_name, service_permission in services:
+            nodes.extend([
+                start_element(strings, 'service', [
+                    ('android', 'name', service_name),
+                    ('android', 'exported', True),
+                    ('android', 'permission', service_permission),
+                ]),
+                end_element(strings, 'service'),
+            ])
+        for receiver_name, receiver_permission in receivers:
+            nodes.extend([
+                start_element(strings, 'receiver', [
+                    ('android', 'name', receiver_name),
+                    ('android', 'exported', True),
+                    ('android', 'permission', receiver_permission),
+                ]),
+                end_element(strings, 'receiver'),
+            ])
         nodes.extend([
-            start_element(strings, 'application', [
-                ('android', 'hasCode', True), ('android', 'label', 'AaaS Input Probe'),
-            ]),
-            start_element(strings, 'activity', [
-                ('android', 'name', '.ProbeActivity'), ('android', 'exported', True),
-                ('android', 'label', 'AaaS Input Probe'),
-            ]),
-            start_element(strings, 'intent-filter', []),
-            start_element(strings, 'action', [
-                ('android', 'name', 'android.intent.action.MAIN'),
-            ]),
-            end_element(strings, 'action'),
-            start_element(strings, 'category', [
-                ('android', 'name', 'android.intent.category.LAUNCHER'),
-            ]),
-            end_element(strings, 'category'),
-            end_element(strings, 'intent-filter'),
-            end_element(strings, 'activity'),
             end_element(strings, 'application'),
             end_element(strings, 'manifest'),
             namespace(0x0101, 0, 1),
@@ -175,6 +208,7 @@ def binary_manifest(package_name: str, *, target_sdk: int | None = None,
     attr_ids = {
         "label": 0x01010001, "name": 0x01010003, "hasCode": 0x0101000C,
         "exported": 0x01010010, "minSdkVersion": 0x0101020C,
+        "permission": 0x01010006,
         "versionCode": 0x0101021B, "versionName": 0x0101021C,
         "targetSdkVersion": 0x01010270,
     }
