@@ -105,6 +105,9 @@ Android path alias or mount relationship between those locations needs a live
 namespace inspection. This discrepancy does not negate the observed
 ContentResolver read after restart, but it limits the on-disk topology claim.
 
+That path question was resolved by the live app-namespace inspection recorded
+below; the earlier statement is retained as a historical observation.
+
 The package, UID, preference, and probe's persisted URI read survived full
 runtime restarts. This does not yet test Android-app SQLite, package
 update/uninstall, runtime-permission persistence, cache semantics, or
@@ -119,6 +122,75 @@ manifest SHA-256 is
 
 The app URI grant was not separately revoked in the live session; revocation
 semantics remain unverified. The persisted preference is test data only.
+
+## Android app-data and SQLite follow-up (2026-11-05)
+
+The target-SDK 35 probe was extended to log Android `Context` paths and
+mountinfo, create private files, and exercise Android's `SQLiteDatabase` API.
+The exact v1 APK SHA-256 was
+`df4d9b87d0cd0360d56ff66c604faa3ad8df018f0920c8b294ebc0be9725d9d6`; the
+same-signed v2 update APK SHA-256 was
+`2bd267c4ccbd1b546f4bc4051540e927f703d9acd325c19d8a6db8852747dcc9`. Both
+were target SDK 35 and passed `jarsigner -verify`; v2 used versionCode 2 and
+versionName 2.0. The probe was an ordinary installed `/data/app` package.
+
+In Android app process `org.aaas.storagetest` (UID 10150), `Context.getDataDir()`
+reported `/data/user/0/org.aaas.storagetest`, while canonical resolution
+reported `/data/data/org.aaas.storagetest`. `Os.stat()` on both paths returned
+device 2050 and inode 273322, with UID/GID 10150. This confirms the same live
+package directory, not merely matching path strings. The paths are not a
+symlink alias: process mountinfo showed Android's NTFS3 bind at
+`/data/user/0`, a tmpfs mount at `/data/data`, and a package-specific bind from
+the persistent backing's `data/data/org.aaas.storagetest` to
+`/data/data/org.aaas.storagetest`. The app-facing files, cache, database and
+device-protected paths resolved to their expected package locations. Android
+also returned
+`/storage/emulated/0/Android/data/org.aaas.storagetest/files` for
+`getExternalFilesDir(null)` after the volume became available.
+
+The probe wrote an internal file, cache file, device-protected file, and
+app-specific external file. On later full runtime starts, the app read and
+matched the deterministic contents. Their SHA-256 digests (Base64-encoded by
+the app logger) were respectively `9Y8q8BC3p/a7orqAL0d8BekkY3u8ZxFLWxUViAUeKMI=`,
+`oSYP9jfrev0rp+LBfr8/7Be3qIDsnFUvvXvMkLZ8jCc=`,
+`2UDptPpGd8MVvkytr593IaIOyMfYbtTXsz/iAKOUpTc=`, and
+`Y+xXB2bqZTQbnVnRQn7v2pNSnHBYoTcNWQJswC/2hko=`. This records clean-restart
+retention in this profile; it does not claim Android will retain cache after
+legitimate eviction.
+
+Android SQLite created `aaas-lifecycle.db`, schema version 1, inserted 100
+deterministic records and one package-version record in a transaction, enabled
+WAL, checked `PRAGMA integrity_check`, checkpointed, and closed. For v1 the
+app logged 101 rows, `integrity=ok`, WAL enabled, and logical row digest
+`FSl2HiBhF6/e7o1gV1Gnnfx4OptSYiCj3j0C0moycx4=`. That state matched after a
+complete runtime restart. PackageManager then updated the app to v2 using the
+same signing identity. Android logged installation completion, retained UID
+10150, and the app's existing files and database survived; v2 added its
+version-specific row, giving 102 rows and digest
+`oeofMLVU0pFdinj0k8M4glVbWD8KCC+/hOd6AAZGYRI=`. After another complete
+runtime restart, v2 again reported 102 rows, the same digest, and
+`integrity=ok`. WAL was enabled and passive checkpoint returned busy=0. This
+validates Android SQLite committed-data durability for this controlled app and
+filesystem profile. An Android app process killed during an uncommitted
+transaction was not tested; the earlier host-SQLite interruption test remains
+separate evidence.
+
+The active-run Android logs were held on the external workspace. That volume
+became unavailable during the later BFE attempt; therefore the logs could not
+be copied or hashed after the event. The observations above were captured from
+the live log output during the sessions, and raw log hashes are unavailable
+for this continuation. BFE's session-control files returned `EIO`; its
+AaaS-owned runtime and presenter were terminated, but the archive workflow
+could not complete. A small host-created ZIP fixture was left on the
+unavailable workspace for safe cleanup after the volume is restored.
+
+Package update across v1 to v2 is verified. Package uninstall/reinstall,
+runtime permission grant and revocation, SAF grant revocation, app-to-app
+private-data denial, Android StorageStatsManager accuracy, full symlink matrix,
+and BFE archive creation/extraction remain unverified. The external workspace
+was unmounted at the end of this continuation, so the workspace guard and
+additional live Android tests could not be rerun. The storage integration
+classification remains `PARTIAL/OPEN`.
 
 ## Known limitations and recovery
 

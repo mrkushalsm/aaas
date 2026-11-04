@@ -424,6 +424,25 @@ visible frame presentation is not required for storage and was not established
 here. These limits keep **M4 shared-storage integration PARTIAL/OPEN** even
 though its core remains **PASS**. Canonical M4 remains `PARTIAL/OPEN`.
 
+### Android private-data path and SQLite validation (2026-11-05)
+
+The ordinary target-SDK 35 probe observed that its `/data/user/0` and
+`/data/data` package paths resolve to the same device/inode in the application
+namespace. Mountinfo shows Android's per-user and per-package binds from the
+persistent userdata tree; neither app data duplication nor an AaaS-created
+symlink was found. The probe's private files, cache, device-protected file,
+app-specific external file, and Android SQLite WAL database survived clean
+runtime restarts. A same-signed PackageManager update from version 1 to 2
+retained UID 10150 and its committed database rows. Exact details and digests
+are in [persistent-userdata documentation](android-persistent-userdata.md).
+
+This follow-up does not close app-to-app isolation, Android runtime permission
+revocation, SAF URI grant revocation, StorageStatsManager accounting, full
+symlink behavior, or BFE archive testing. The external workspace volume
+became unavailable during a BFE run; that run is excluded from archive
+acceptance and the broader shared-storage classification remains
+`PARTIAL/OPEN`.
+
 ## Persistent-userdata reliability continuation (2026-11-04)
 
 The workspace accounting helper was corrected to wait for the target user

@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. Later storage continuations added ordinary-session MediaStore reconciliation, deterministic ACL initialization, and persistent Android userdata; the tested SDK 35 probe's package, UID, app preference, and persisted SAF read survived full runtime restart. Storage integration remains PARTIAL/OPEN because BFE archive output, complete symlink coverage, and NTFS3 quota/accounting behavior remain unverified. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. Later storage continuations added ordinary-session MediaStore reconciliation, deterministic ACL initialization, and persistent Android userdata. The SDK 35 probe's app-data paths resolve to the same live package inode, and Android SQLite/WAL committed rows, private files, PackageManager UID, and a same-signed v1-to-v2 update survived full runtime restarts. Storage integration remains PARTIAL/OPEN because permission and grant revocation, app-to-app isolation, BFE archive output, complete symlink coverage, and NTFS3 quota/accounting behavior remain unverified. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -201,11 +201,38 @@ retrying permission errors. Trace hash and sample details are in
 `results/m4/acceptance.json`.
 
 A Linux-host SQLite probe on NTFS3 passed WAL commit, checkpoint, bounded
-uncommitted-WAL interruption/recovery, and integrity checks. This is filesystem
-evidence, not validation of Android app SQLite or Android crash durability. The
-stopped data tree also shows `packages.list` naming `/data/user/0` while the
-test preference physically resides under `/data/data` and stopped
-`data/user/0` is empty; live namespace path aliasing remains to be inspected.
+uncommitted-WAL interruption/recovery, and integrity checks. At that time this
+was not validation of Android app SQLite; the 2026-11-05 follow-up below adds
+that live evidence. The earlier stopped-tree observation that
+`packages.list` names `/data/user/0` while the preference physically resides
+under `/data/data` is resolved by the live bind/path evidence recorded below.
 The 2026-11-04 full Python suite now passes 281 tests. No fresh M2/M3 campaign
 was run during this continuation; prior regression records remain historical.
 Shared-storage integration and canonical M4 remain `PARTIAL/OPEN`.
+
+### Android userdata reliability follow-up (2026-11-05)
+
+An ordinary target-SDK 35 app logged the live `/data/data` and `/data/user/0`
+relationships. Both package paths had device 2050/inode 273322 and resolved to
+`/data/data/org.aaas.storagetest`; mountinfo shows the expected `/data/user/0`
+and package-private binds from persistent userdata. The probe created an
+Android-native SQLite database using the Android API, enabled WAL, and checked
+`integrity_check`. Version 1 retained 101 deterministic rows across a complete
+runtime restart; PackageManager updated the same-signed app to version 2 at
+the same UID (10150), preserving its app files and adding the expected version
+row; the 102-row database and digest survived another complete runtime
+restart. Internal, cache, device-protected, and app-specific external files
+were also read and matched after restart. This advances persistent userdata
+correctness but does not test interrupted Android transactions, permissions,
+SAF grant revocation, or package uninstall/reinstall.
+
+The follow-up built commits `1fb6668` and `eb8cfec`, which add the controlled
+Android private-data/SQLite probe and skip the single-instance lock unit test
+when its external workspace mount is absent. The full Python suite then ran
+281 tests successfully with 7 skips; no fresh full M2/M3 campaigns were run.
+The workspace volume disappeared during the subsequent BFE archive attempt.
+Its session returned `EIO`, so the archive attempt is excluded and the
+workspace guard could not be rerun. The session's AaaS-owned container and
+presenter processes were terminated; only a bounded follow-up after the
+workspace is available can complete the remaining filesystem, security, and
+archive acceptance. Canonical M4 remains `PARTIAL/OPEN`.
