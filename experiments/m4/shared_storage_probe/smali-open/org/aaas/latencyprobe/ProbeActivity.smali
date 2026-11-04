@@ -50,6 +50,12 @@
     const-string v1, "aaas.uri"
     invoke-virtual {v0, v1}, Landroid/content/Intent;->getStringExtra(Ljava/lang/String;)Ljava/lang/String;
     move-result-object v1
+    if-eqz v1, :load_persisted_uri
+    invoke-direct {p0, v1}, Lorg/aaas/latencyprobe/ProbeActivity;->verifyPersistedUri(Ljava/lang/String;)V
+    return-void
+    :load_persisted_uri
+    invoke-direct {p0}, Lorg/aaas/latencyprobe/ProbeActivity;->loadPersistedUri()Ljava/lang/String;
+    move-result-object v1
     if-eqz v1, :open_picker
     invoke-direct {p0, v1}, Lorg/aaas/latencyprobe/ProbeActivity;->verifyPersistedUri(Ljava/lang/String;)V
     return-void
@@ -72,6 +78,34 @@
     const/16 v1, 0x38
     invoke-virtual {p0, v0, v1}, Landroid/app/Activity;->startActivityForResult(Landroid/content/Intent;I)V
     return-void
+.end method
+
+.method private savePersistedUri(Ljava/lang/String;)V
+    .locals 3
+    const-string v0, "aaas-storage"
+    const/4 v1, 0x0
+    invoke-virtual {p0, v0, v1}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
+    move-result-object v0
+    invoke-interface {v0}, Landroid/content/SharedPreferences;->edit()Landroid/content/SharedPreferences$Editor;
+    move-result-object v0
+    const-string v1, "persisted-uri"
+    invoke-interface {v0, v1, p1}, Landroid/content/SharedPreferences$Editor;->putString(Ljava/lang/String;Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;
+    move-result-object v0
+    invoke-interface {v0}, Landroid/content/SharedPreferences$Editor;->apply()V
+    return-void
+.end method
+
+.method private loadPersistedUri()Ljava/lang/String;
+    .locals 3
+    const-string v0, "aaas-storage"
+    const/4 v1, 0x0
+    invoke-virtual {p0, v0, v1}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
+    move-result-object v0
+    const-string v1, "persisted-uri"
+    const/4 v2, 0x0
+    invoke-interface {v0, v1, v2}, Landroid/content/SharedPreferences;->getString(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v0
+    return-object v0
 .end method
 
 .method private scanFile(Ljava/lang/String;)V
@@ -253,6 +287,7 @@
     :persistable_done
     invoke-virtual {v0}, Landroid/net/Uri;->toString()Ljava/lang/String;
     move-result-object v5
+    invoke-direct {p0, v5}, Lorg/aaas/latencyprobe/ProbeActivity;->savePersistedUri(Ljava/lang/String;)V
     const-string v4, "AaasStorageProbe"
     invoke-static {v4, v5}, Landroid/util/Log;->i(Ljava/lang/String;Ljava/lang/String;)I
     invoke-virtual {p3}, Landroid/content/Intent;->getData()Landroid/net/Uri;
