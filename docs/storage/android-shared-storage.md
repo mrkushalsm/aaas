@@ -557,3 +557,42 @@ isolation, Android StorageStatsManager accounting, and the full Android-facing
 symlink matrix remain unverified. The storage workstream therefore remains
 `PARTIAL/OPEN`. See the post-CHKDSK record in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+
+## BFE window and archive follow-up (2026-11-05)
+
+The earlier `apps=[]` result was an automation-inventory limitation, not proof
+that BFE lacked a window. In live session `m1b84_session_uubpwbys`, the AaaS
+control endpoint listed BFE in slot 1; Android task/window state showed
+`com.the412banner.bfe/.icon.M5` on display 2 as visible and focused. KWin
+reported an active, non-minimized Wayland toplevel titled
+`AaaS: com.the412banner.bfe` (`resourceClass=org.aaas.com-the412banner-bfe`,
+presenter PID 40253), and a host screenshot showed BFE's rendered home page.
+The CUA inventory exposed no `apps` entries because it did not enumerate these
+presenter-backed Wayland windows. No AaaS Android-window lifecycle change was
+needed to reach BFE.
+
+The original BFE 1.4.0 APK (SHA-256
+`0ec271c371a4747760b264b8beef6bce2c4cbf331b6a6386e785cbbd5ec770bd`) was
+used unchanged. In session `m1b84_session_ew677222`, BFE was visible beside
+Android Settings. Its package-specific `MANAGE_EXTERNAL_STORAGE` special
+access was confirmed Allowed, then revoked through Settings after testing.
+The BFE UI displayed the disposable host-created `known-good.zip` and source
+files. Its Compress action returned to the file view with a “Compressing to
+source.zip...” toast, but no archive output appeared. The Unpack Archive UI
+reported its bundled `lib7zz.so` under the package's ARM64 library path as
+“inaccessible or not found”; no extraction occurred. The host independently
+validated the fixture ZIP (`testzip() == None`) and its member hashes before
+the UI attempt. This attributes the observed extraction failure to BFE's
+archive/native-library path in this runtime; the precise loader boundary
+remains unisolated, so archive compatibility is `PARTIAL`, not PASS. No
+traversal payload was extracted. The exact disposable fixture tree was removed
+after Android stopped.
+
+The Settings session `m1b84_session_lkcrtzq5` confirmed BFE's all-files access
+toggle was off before clean runtime shutdown. Logcat hashes and session
+references are recorded in the 2026-11-05 continuation in
+[`acceptance.json`](../../results/m4/acceptance.json). Package uninstall and
+reinstall, runtime-permission lifecycle, SAF grant revocation, cross-app
+private-data isolation, Android storage accounting, and the full Android-facing
+symlink matrix remain unverified; shared-storage integration remains
+`PARTIAL/OPEN`.

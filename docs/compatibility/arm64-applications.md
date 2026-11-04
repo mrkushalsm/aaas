@@ -45,3 +45,19 @@ Structured results include per-APK original SHA-256, ABI/ELF inventory, classifi
 The runner’s native-library extraction, ABI-order option, and opt-in private tombstone export are covered by focused tests in `tests/test_run_aaas.py`. The targeted runner suite passed 49 tests; the full Python suite passed 249 tests. The Android workspace guard passed at 57.21 GB used with 313.66 GB free (80 GiB ceiling, 20 GiB reserve). All 10 test sessions stopped with zero outstanding presenter buffers. No native component tests were needed because native graphics/runtime sources were unchanged.
 
 The canonical M3 ARM64 Native Bridge milestone remains `PASS/CLOSED`. **M4 — Native Desktop Integration** remains the next product milestone; this study does not start M4.
+
+### BFE archive UI follow-up (2026-11-05)
+
+The original BFE 1.4.0 APK was opened in a visible AaaS Wayland window. Android
+and KWin confirmed the BFE activity/toplevel even though the external CUA
+inventory returned `apps=[]`; that inventory does not enumerate AaaS presenter
+windows. With BFE's package-specific all-files access enabled through Android
+Settings, the Compress action returned to the file list without producing an
+archive. Opening a valid synthetic ZIP in BFE's Unpack Archive workflow
+reported the APK's bundled ARM64 `lib7zz.so` path as inaccessible or not found.
+The source APK contains `lib/arm64-v8a/lib7zz.so`; the host verified the ZIP
+structure and payload hashes independently. This narrows the failure to BFE's
+archive/native-library path under the ARM64 compatibility runtime, but does
+not identify the exact loader cause. BFE's special access was revoked after
+the attempt. Archive functionality remains `PARTIAL`; ordinary shared-file
+operations remain separately evidenced in M4 storage records.

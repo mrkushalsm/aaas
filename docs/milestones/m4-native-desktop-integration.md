@@ -297,3 +297,19 @@ remain open. The new bounded active-session workspace identity check is in
 commit `1250f46`; it was exercised through healthy sessions and unit-tested for
 mount/sentinel loss, but an actual unmount was not injected. Overall storage
 integration and canonical M4 remain `PARTIAL/OPEN`.
+
+### BFE window and archive follow-up (2026-11-05)
+
+The BFE `apps=[]` observation came from the CUA app inventory: Android showed
+the package activity as visible/focused and KWin showed its active presenter
+Wayland window. No Android activity or presenter-discovery defect was found in
+AaaS. The original BFE APK was exercised through its visible UI with its
+package-specific all-files access temporarily enabled and then revoked. BFE's
+Compress action produced no file; its Unpack Archive screen reported the
+bundled ARM64 `lib7zz.so` as inaccessible/unavailable while opening a valid
+host-verified ZIP. This is an application archive/native-library compatibility
+limitation, not evidence of a shared-storage read failure. Archive
+creation/extraction therefore remains unaccepted. App uninstall and reinstall,
+permission/grant revocation beyond the BFE special access, app isolation,
+accounting, and Android-facing symlink tests also remain open. See the distinct
+continuation record in [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
