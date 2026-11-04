@@ -547,7 +547,11 @@ imports/releases and zero outstanding buffers. A fresh M3 diagnostic returned
 `PASS mask=255`; the diagnostic overlay was removed at session teardown.
 
 The original BFE package launched in a recovered runtime, but this execution
-did not perform its archive UI workflow. Package uninstall/reinstall,
+did not perform its archive UI workflow. A second attempt in session
+`m1b84_session_4k_hci4f` again launched `com.the412banner.bfe/.icon.M5` and
+stopped cleanly, but the active CUA inventory returned no Android app windows,
+so archive creation/extraction could not be driven or verified. Its logcat
+SHA-256 is recorded in the new acceptance run. Package uninstall/reinstall,
 runtime-permission revocation, SAF-grant revocation, cross-app private-data
 isolation, Android StorageStatsManager accounting, and the full Android-facing
 symlink matrix remain unverified. The storage workstream therefore remains

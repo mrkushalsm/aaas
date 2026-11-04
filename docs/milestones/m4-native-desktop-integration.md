@@ -287,8 +287,10 @@ displays, Contacts closed without stopping Settings, and presenter counts
 balanced (124/124 and 88/88 releases, zero outstanding). The M3 JNI diagnostic
 returned `PASS mask=255`; its session overlay was cleaned. The full Python
 suite passed 284 tests with no skips. BFE launched as an ordinary package but
-its archive UI flow was not completed because no interactive Android window
-was exposed to the available UI-control surface. Package uninstall/reinstall,
+its archive UI flow was not completed. A second BFE session again launched
+its Activity and stopped cleanly, but the active CUA inventory exposed no
+Android app windows, preventing the required archive UI actions. Package
+uninstall/reinstall,
 permission and SAF-grant revocation, cross-app private-data isolation,
 StorageStatsManager accounting, and the full Android-facing symlink matrix
 remain open. The new bounded active-session workspace identity check is in
