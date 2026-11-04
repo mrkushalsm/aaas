@@ -88,10 +88,11 @@ def binary_manifest(package_name: str, *, target_sdk: int | None = None,
                     requested_permissions: tuple[str, ...] = (),
                     services: tuple[tuple[str, str], ...] = (),
                     receivers: tuple[tuple[str, str], ...] = (),
-                    include_launcher: bool = True) -> bytes:
+                    include_launcher: bool = True, version_code: int = 1,
+                    version_name: str = "1.0") -> bytes:
     strings = [
         "android", ANDROID_NS, "manifest", "package", package_name,
-        "versionCode", "versionName", "1.0", "uses-sdk", "minSdkVersion",
+        "versionCode", "versionName", version_name, "uses-sdk", "minSdkVersion",
         "targetSdkVersion", "application", "hasCode", "label", "AaaS Input Probe",
         "activity", "name", ".ProbeActivity", "exported", "intent-filter",
         "permission", "service", "receiver",
@@ -110,7 +111,7 @@ def binary_manifest(package_name: str, *, target_sdk: int | None = None,
         namespace(0x0100, 0, 1),
         start_element(strings, "manifest", [
             (None, "package", package_name),
-            ("android", "versionCode", 1), ("android", "versionName", "1.0"),
+            ("android", "versionCode", version_code), ("android", "versionName", version_name),
         ]),
         start_element(strings, "uses-sdk", [
             ("android", "minSdkVersion", 28), ("android", "targetSdkVersion", 28),
@@ -143,7 +144,8 @@ def binary_manifest(package_name: str, *, target_sdk: int | None = None,
             namespace(0x0100, 0, 1),
             start_element(strings, 'manifest', [
                 (None, 'package', package_name),
-                ('android', 'versionCode', 1), ('android', 'versionName', '1.0'),
+                ('android', 'versionCode', version_code),
+                ('android', 'versionName', version_name),
             ]),
             start_element(strings, 'uses-sdk', [
                 ('android', 'minSdkVersion', min(target_sdk, 28)),
