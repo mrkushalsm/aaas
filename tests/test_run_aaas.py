@@ -1026,6 +1026,8 @@ class ForegroundRunnerTests(unittest.TestCase):
         import os
         import subprocess
         import sys
+        if not SESSION.TMP.is_dir():
+            self.skipTest('external AaaS workspace is not mounted')
         lock_path = SESSION.TMP / '.aaas_session.lock'
         lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
