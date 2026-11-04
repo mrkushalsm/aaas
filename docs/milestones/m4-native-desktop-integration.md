@@ -180,12 +180,32 @@ full M2/M3 campaign; earlier M2 smoke and M3 JNI `PASS mask=255` evidence
 remain historical and unchanged. Runtime sessions were stopped and no AaaS
 process remained.
 
-Persistent userdata is accepted for the tested PackageManager record, stable
-package UID, app preference, and SAF persisted-URI read across runtime restart.
-SQLite persistence, runtime permission persistence, app update/uninstall,
-app-specific external data, and URI revocation were not exercised. NTFS3 does
-not provide the tested SELinux-label or project-quota xattrs; the runtime
-profile does not claim stock Android userdata encryption. BFE archive output
-and the complete symlink/security matrix remain open. Therefore shared-storage
-integration remains `PARTIAL/OPEN`, and canonical M4 remains
-`PARTIAL/OPEN`.
+The persistent directory-backed `/data` is verified for the tested PackageManager
+record, stable package UID, app preference, and SAF persisted-URI read across
+runtime restart. Reliability acceptance remains open: Android-app SQLite,
+runtime permissions, package update/uninstall, app-specific external data, and
+URI revocation were not exercised. NTFS3 does not provide the tested
+SELinux-label or project-quota xattrs; the runtime profile does not claim stock
+Android userdata encryption. BFE archive output and the complete symlink/
+security matrix remain open.
+
+Commit `9447113` fixes a readiness race in the private-userdata accounting
+helper. Previously it treated any nonempty UID map as proof that the helper had
+entered its new user namespace. It now waits for the user-namespace inode to
+change and verifies process start time and namespace identity before and after
+UID/GID mapping. The prior single `newuidmap EPERM` did not recur in 21
+post-fix checks (10 sequential + 4 concurrent, then 3 sequential + 4 traced
+concurrent); all 28 helper calls in the traced sample succeeded. The failure
+was not reproduced, so the code retains a bounded, fail-closed path without
+retrying permission errors. Trace hash and sample details are in
+`results/m4/acceptance.json`.
+
+A Linux-host SQLite probe on NTFS3 passed WAL commit, checkpoint, bounded
+uncommitted-WAL interruption/recovery, and integrity checks. This is filesystem
+evidence, not validation of Android app SQLite or Android crash durability. The
+stopped data tree also shows `packages.list` naming `/data/user/0` while the
+test preference physically resides under `/data/data` and stopped
+`data/user/0` is empty; live namespace path aliasing remains to be inspected.
+The 2026-11-04 full Python suite now passes 281 tests. No fresh M2/M3 campaign
+was run during this continuation; prior regression records remain historical.
+Shared-storage integration and canonical M4 remain `PARTIAL/OPEN`.

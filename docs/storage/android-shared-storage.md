@@ -424,6 +424,28 @@ visible frame presentation is not required for storage and was not established
 here. These limits keep **M4 shared-storage integration PARTIAL/OPEN** even
 though its core remains **PASS**. Canonical M4 remains `PARTIAL/OPEN`.
 
+## Persistent-userdata reliability continuation (2026-11-04)
+
+The workspace accounting helper was corrected to wait for the target user
+namespace to be created and to verify PID start time and namespace identity
+around UID/GID map writes. A post-fix sample passed 10 sequential and 4
+concurrent checks, followed by 3 sequential and 4 concurrently traced checks;
+all 28 mapping-helper calls succeeded. The isolated prior `newuidmap EPERM`
+was not reproduced. See the [userdata reliability record](android-persistent-userdata.md)
+and the new `userdata_reliability_continuation` evidence in
+[`acceptance.json`](../../results/m4/acceptance.json).
+
+A separate bounded Linux SQLite probe on NTFS3 exercised committed WAL data,
+checkpointing, a killed writer with spilled uncommitted WAL frames, integrity
+checks, and a subsequent committed transaction. It passed for the host SQLite
+VFS; it does not stand in for SQLite running inside an Android application.
+Actual Android database/WAL persistence, runtime permissions, package update
+and uninstall, app-specific storage, URI revocation, BFE archives, and the
+expanded symlink matrix remain open. The stopped userdata tree also reveals a
+path question: PackageManager records `/data/user/0` for the probe, while the
+persisted preference is physically present under `/data/data` and the stopped
+`data/user/0` is empty. A live Android mount/alias inspection is still needed.
+
 ## Persistent Android userdata continuation (2026-11-04)
 
 The runtime previously mounted a fresh tmpfs at `/data`; the host shared-media

@@ -95,11 +95,20 @@ Manager's persisted `packages.list` records
 `org.aaas.storagetest 10150 ... /data/user/0/org.aaas.storagetest` in both
 runtime logs; the final persistent record assigns UID 10150. The app-private
 preference file is present in persistent userdata (SHA-256
-`42318407f9c3522c2eb608d5b254195a50201925f7ae91c4ea1c5070d4218422`). This
-proves package, UID, preference, and the probe's persisted URI read survived a
-full runtime restart. It does not yet test SQLite, package update/uninstall,
-runtime-permission persistence, cache semantics, or app-specific external
-storage.
+`42318407f9c3522c2eb608d5b254195a50201925f7ae91c4ea1c5070d4218422`). The
+stopped backing contains it at
+`data/data/org.aaas.storagetest/shared_prefs/aaas-storage.xml`, owned by UID/GID
+10150 with mode 0660; the package directory is owned by 10150 with mode 0700.
+PackageManager's `packages.list` records `/data/user/0/org.aaas.storagetest`,
+but the stopped backing's `data/user/0` directory was empty. The app's actual
+Android path alias or mount relationship between those locations needs a live
+namespace inspection. This discrepancy does not negate the observed
+ContentResolver read after restart, but it limits the on-disk topology claim.
+
+The package, UID, preference, and probe's persisted URI read survived full
+runtime restarts. This does not yet test Android-app SQLite, package
+update/uninstall, runtime-permission persistence, cache semantics, or
+app-specific external storage.
 
 The persistent directory had 15,368,192 allocated bytes at measurement time,
 with no logical image limit. The workspace guard reported 59,411,469,824 bytes
@@ -112,6 +121,43 @@ The app URI grant was not separately revoked in the live session; revocation
 semantics remain unverified. The persisted preference is test data only.
 
 ## Known limitations and recovery
+
+### Rootless namespace accounting follow-up (2026-11-04)
+
+The previous workspace-accounting helper treated any nonempty
+`/proc/<pid>/uid_map` as readiness. That can be the inherited parent mapping
+while `unshare` is still transitioning. The helper could therefore invoke
+`newuidmap` before the target had entered its new user namespace, consistent
+with the observed isolated `EPERM`. It now waits for the target user-namespace
+inode to differ from the caller, verifies target PID start time and namespace
+identity before and after each mapping write, and validates the resulting
+UID/GID maps. It fails closed and adds no retry loop.
+
+After the correction, 10 sequential and 4 concurrent workspace checks passed;
+all 28 mapping-helper invocations succeeded. A further traced sample passed 3
+sequential and 4 concurrent checks and recorded target PID, start ticks, user
+and mount namespace inodes, maps before/after, helper status, and duration in
+`/run/media/mrkus/Homework/aaas-workspace/tmp/userns-accounting-postfix-20261104.jsonl`
+(SHA-256 `7a9fce4fcfc1e2c2eab801a3b3c13a1f5acc15a4e1642c53ab46cf4b822e8d80`).
+The isolated `EPERM` has not recurred since the readiness fix; this bounded
+sample does not prove the host helper can never fail.
+
+### NTFS3 SQLite compatibility probe
+
+A bounded Linux-host SQLite VFS probe on NTFS3 committed 100 deterministic
+records in WAL mode, observed a 12,392-byte WAL, checkpointed it, then ran a
+separate transaction that spilled 4,614,432 bytes of uncommitted WAL frames
+before terminating only that disposable writer process. Reopening the test
+database returned `integrity_check=ok`, retained the committed row, and
+discarded the uncommitted rows. A subsequent transaction committed and
+reopened with 101 rows and `integrity_check=ok`; row digest
+`cd4cc2cb2ac15d48759c0ef4d3aa651224f5a1f29615cf551c48c620afb6fd42`.
+Temporary database files were removed. This tests host SQLite filesystem
+semantics, not Android's SQLite implementation or actual app database
+persistence. Android database/WAL restart validation remains open.
+
+The SQLite JSON evidence SHA-256 is
+`65f266df7a26a5220209278496e76ec8dc46241dc4222424013ba17d6ddb9f9d`.
 
 - NTFS3 rejects Android project-quota xattrs and SELinux label xattrs. Ordinary
   package operation and SAF passed, but quota/statistics correctness is not
