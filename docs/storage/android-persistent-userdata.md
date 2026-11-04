@@ -231,6 +231,36 @@ persistence. Android database/WAL restart validation remains open.
 The SQLite JSON evidence SHA-256 is
 `65f266df7a26a5220209278496e76ec8dc46241dc4222424013ba17d6ddb9f9d`.
 
+### Post-Windows-CHKDSK recovery validation (2026-11-05)
+
+The workspace owner reports that Windows `chkdsk` repaired the Homework NTFS
+volume. AaaS did not run a filesystem repair utility. After the reported
+repair, Linux observed the expected NTFS3 filesystem UUID
+`A2ACEDF2ACEDC0C1`, mounted read/write at `/run/media/mrkus/Homework`; the
+previous two test-fixture paths that had returned `EINVAL` were absent, the
+full workspace guard passed repeatedly, and no new NTFS3 MFT/I/O error was
+observed in the kernel log after the remount. This is sufficient to resume
+bounded controlled testing, but is not an independent audit of the Windows
+repair operation.
+
+The previously installed ordinary target-SDK 35 package was not reinstalled.
+It remained `org.aaas.storagetest` version 2 at UID 10150. In session
+`m1b84_session_0ain8kfy`, the probe matched the existing internal-file,
+cache-file, app-specific external-file, and device-protected-file digests and
+reported Android SQLite `rows=102`, schema 1, WAL enabled, `integrity=ok`, and
+the expected logical digest
+`oeofMLVU0pFdinj0k8M4glVbWD8KCC+/hOd6AAZGYRI=`. After a complete clean
+shutdown and restart using the same userdata, session
+`m1b84_session_9qhmfq7v` reported the same package identity, all four file
+digests, and the same database integrity and digest. This directly confirms
+that the previously accepted Android state survived the external-volume
+incident and post-repair runtime restart.
+
+This continuation did not uninstall/reinstall packages, revoke runtime or
+SAF permissions, or test cross-package private-data access. Those acceptance
+gates remain open; the recovery run does not upgrade the overall userdata
+reliability classification.
+
 - NTFS3 rejects Android project-quota xattrs and SELinux label xattrs. Ordinary
   package operation and SAF passed, but quota/statistics correctness is not
   fully characterized.

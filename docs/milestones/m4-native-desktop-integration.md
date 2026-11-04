@@ -261,3 +261,37 @@ test skips when the real workspace guard is unhealthy. The guard itself still
 fails on the NTFS3 `EINVAL` entry, and this skip does not certify workspace or
 runtime health. No AaaS runtime, presenter, session-control, bwrap, or ACL
 helper process remained after verification.
+
+### Post-Windows-CHKDSK recovery validation (2026-11-05)
+
+The workspace owner reports repairing the Homework volume with Windows
+`chkdsk`. AaaS did not run or modify the filesystem repair. Following that
+repair, the expected NTFS3 UUID was mounted read/write, prior corrupt test
+fixtures were absent, five consecutive full workspace checks passed, and no
+new MFT/NTFS3/block-I/O errors appeared in the kernel log after remount. The
+current workspace is classified `HEALTHY_FOR_CONTROLLED_TESTING`; this does
+not independently certify the Windows repair beyond the observed Linux
+checks.
+
+The existing SDK 35 app remained installed at UID 10150 after the incident.
+Its private files retained their expected digests, and Android SQLite again
+reported 102 rows, the expected logical digest, WAL enabled, and
+`integrity=ok` both before and after a complete AaaS restart. Normal-session
+MediaStore scanning returned actual `external_primary` rows for a host-created
+PNG before and after restart; update of the first PNG was also reflected by a
+successful scan/query. Invalid absolute, traversal, and symlink paths were
+rejected.
+
+Fresh regression checks passed: Settings and Contacts occupied independent
+displays, Contacts closed without stopping Settings, and presenter counts
+balanced (124/124 and 88/88 releases, zero outstanding). The M3 JNI diagnostic
+returned `PASS mask=255`; its session overlay was cleaned. The full Python
+suite passed 284 tests with no skips. BFE launched as an ordinary package but
+its archive UI flow was not completed because no interactive Android window
+was exposed to the available UI-control surface. Package uninstall/reinstall,
+permission and SAF-grant revocation, cross-app private-data isolation,
+StorageStatsManager accounting, and the full Android-facing symlink matrix
+remain open. The new bounded active-session workspace identity check is in
+commit `1250f46`; it was exercised through healthy sessions and unit-tested for
+mount/sentinel loss, but an actual unmount was not injected. Overall storage
+integration and canonical M4 remain `PARTIAL/OPEN`.

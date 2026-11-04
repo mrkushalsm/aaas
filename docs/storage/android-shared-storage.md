@@ -518,3 +518,38 @@ project-quota xattrs; quota/statistics accuracy is open. The expanded symlink
 matrix and BFE archive operation are also open. Therefore the persistent
 userdata slice is accepted, while the broader shared-storage integration and
 canonical M4 remain `PARTIAL/OPEN`.
+
+## Post-Windows-CHKDSK recovery validation (2026-11-05)
+
+The workspace owner reports running Windows `chkdsk` and cleaning the volume.
+Afterward, the mounted filesystem was NTFS3 UUID `A2ACEDF2ACEDC0C1`, read/write
+with the expected ACL options. The two known disposable interrupted-run
+entries that previously returned `EINVAL` were absent. Five consecutive full
+workspace checks passed; the latest check measured 60,027,287,040 bytes used
+and 310,746,660,864 bytes available against the 80 GiB ceiling and 20 GiB
+reserve. No new NTFS3 MFT or block-I/O errors were observed after remount.
+This validates the current workspace for bounded testing; it does not claim
+that AaaS independently performed or audited Windows repair.
+
+In normal sessions, `storage scan RELATIVE_PATH` completed after a host PNG
+create and an in-place image update, and MediaStore returned the expected
+`external_primary` row and `/storage/emulated/0/Pictures/...` path. The scan
+also succeeded after a complete runtime restart. Absolute, traversal, and
+symlink-containing scan paths were rejected. The synthetic files were removed
+after their sessions stopped. Host ACL status remained ready and accessible.
+
+After repair, the existing Android userdata probe survived a full runtime
+restart with its prior PackageManager UID, internal/cache/external/device-
+protected file digests, and 102-row Android SQLite database intact. A fresh
+Settings/Contacts regression used independent displays; Contacts closed while
+Settings remained running, and both presenters finished with balanced
+imports/releases and zero outstanding buffers. A fresh M3 diagnostic returned
+`PASS mask=255`; the diagnostic overlay was removed at session teardown.
+
+The original BFE package launched in a recovered runtime, but this execution
+did not perform its archive UI workflow. Package uninstall/reinstall,
+runtime-permission revocation, SAF-grant revocation, cross-app private-data
+isolation, Android StorageStatsManager accounting, and the full Android-facing
+symlink matrix remain unverified. The storage workstream therefore remains
+`PARTIAL/OPEN`. See the post-CHKDSK record in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
