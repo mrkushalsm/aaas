@@ -98,6 +98,38 @@ class SharedStorageBackingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'symlink'):
                 aaas_storage.prepare_backing_directory(workspace)
 
+    def test_mapped_owner_acl_repair_works_without_host_path_traversal(self):
+        if not all(shutil.which(name) for name in
+                   ('unshare', 'newuidmap', 'newgidmap', 'setpriv', 'mount',
+                    'setfacl', 'getfacl')):
+            self.skipTest('rootless namespace and ACL tools are unavailable')
+        with tempfile.TemporaryDirectory(prefix='aaas-acl-repair-') as directory:
+            root = Path(directory) / 'android-media'
+            root.mkdir()
+            # Model the Android-owned, host-inaccessible mode observed after
+            # the removable NTFS3 volume was remounted.
+            aaas_storage._run_mapped_storage_command(
+                root,
+                'read ready; cd -- "$1" || exit; '
+                'chown 1023:1023 .; chmod 550 .; setfacl -b .',
+                'host',
+            )
+            self.assertEqual(
+                root.stat().st_uid,
+                aaas_storage.SUBID_BASE + aaas_storage.ANDROID_MEDIA_RW_ID - 1,
+            )
+            self.assertFalse(os.access(root, os.R_OK | os.W_OK | os.X_OK))
+
+            aaas_storage.ensure_host_access(root)
+
+            acl = set(aaas_storage._acl_entries(root))
+            host_acl = {
+                f'user:{os.getuid()}:rwx',
+                f'default:user:{os.getuid()}:rwx',
+            }
+            self.assertTrue(host_acl.issubset(acl))
+            self.assertTrue(os.access(root, os.R_OK | os.W_OK | os.X_OK))
+
 
 if __name__ == '__main__':
     unittest.main()

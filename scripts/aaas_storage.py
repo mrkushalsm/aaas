@@ -7,6 +7,7 @@ import shlex
 import signal
 import shutil
 import subprocess
+import tempfile
 import time
 
 
@@ -236,26 +237,38 @@ def _set_acl(path, uid, directories=()):
 
 def _apply_acl_as_mapped_media_rw(path, directories=()):
     """Use the existing rootless Android UID mapping to adjust only ACLs."""
+    if path.is_symlink() or not path.is_dir():
+        raise RuntimeError('mapped ACL target must be a real directory')
     acl_script = (
+        'cd -- "$1" || exit 20; shift; '
         'setfacl -m u:0:rwx,d:u:0:rwx,g::rwx,d:g::rwx . || exit; '
         'for name in "$@"; do '
         '[ -d "$name" ] && [ ! -L "$name" ] || continue; '
         'setfacl -m u:0:rwx,d:u:0:rwx,g::rwx,d:g::rwx -- "$name" || exit; '
         'done'
     )
+    # A remount can leave the directory without the host ACL while its
+    # ancestors remain private to the host user. Bind only this directory into
+    # a disposable rootless mount namespace while the host identity resolves
+    # the source path, then repair ACLs as its mapped media_rw owner.
+    stage = Path(tempfile.mkdtemp(prefix='aaas-storage-acl-', dir='/tmp'))
+    os.chmod(stage, 0o755)
+    mountpoint = stage / 'target'
+    mountpoint.mkdir(mode=0o755)
     command = (
-        'read ready; cd -- "$1" || exit 20; '
+        'read ready; mount --bind "$1" "$2" || exit 19; '
         'setpriv --reuid=1023 --regid=1023 --clear-groups '
-        f'/bin/sh -c {shlex.quote(acl_script)} aaas-acl'
+        f'/bin/sh -c {shlex.quote(acl_script)} aaas-acl "$2"'
         + ''.join(f' {shlex.quote(name)}' for name in directories)
     )
-    process = subprocess.Popen(
-        ['unshare', '-U', '-m', '/bin/sh', '-c', command,
-         'aaas-storage-acl', str(path)],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, start_new_session=True,
-    )
+    process = None
     try:
+        process = subprocess.Popen(
+            ['unshare', '-U', '-m', '/bin/sh', '-c', command,
+             'aaas-storage-acl', str(path), str(mountpoint)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True,
+        )
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             if process.poll() is not None:
@@ -282,10 +295,16 @@ def _apply_acl_as_mapped_media_rw(path, directories=()):
         if process.returncode:
             raise RuntimeError(f'rootless ACL repair failed: {stderr.strip()}')
     except Exception:
-        if process.poll() is None:
+        if process is not None and process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             process.wait(timeout=5)
         raise
+    finally:
+        try:
+            mountpoint.rmdir()
+            stage.rmdir()
+        except OSError:
+            shutil.rmtree(stage, ignore_errors=True)
