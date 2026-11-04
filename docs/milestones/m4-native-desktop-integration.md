@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. The latest storage continuation completed target-SDK 35 SAF reads/writes, app-process persisted-grant reuse, a bounded active-session MediaStore scan path, VLC and mpv document opens, and BFE file creation. The scan helper is currently available only when the diagnostic probe is installed; ordinary sessions do not yet have a general sync helper. BFE also exposed an ACL startup failure that prevented host access to its first created directory. Storage integration therefore remains PARTIAL/OPEN. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. A subsequent storage continuation enabled MediaStore reconciliation in ordinary sessions and repaired startup ACL mapping; its BFE and scan evidence is recorded below and in `results/m4/acceptance.json`. Storage integration remains PARTIAL/OPEN because runtime-restart persistence for SAF grants is unsupported by the session-ephemeral `/data`, BFE archive output is unverified, and NTFS3 quota/symlink characterization remains bounded. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -65,10 +65,40 @@ and initialized its H.264 decoder/surface. Neither run established a visible
 video frame. BFE created a file after its package-specific all-files permission
 was explicitly enabled, but a startup `newuidmap` ACL-repair failure left its
 first app-created directory inaccessible to the host until `storage sync`.
-This ACL edge and diagnostic-only scan availability keep shared-storage
-integration PARTIAL/OPEN. Exact APK hashes, session IDs, scan URIs, and raw log
-hashes are in the latest `latest_storage_continuation` record in the acceptance
-JSON.
+At that time, this ACL edge and diagnostic-only scan availability kept
+shared-storage integration PARTIAL/OPEN. The historical run record is retained
+under `latest_storage_continuation` in the acceptance JSON.
+
+### Normal-session scan and ACL completion (2026-11-04)
+
+Commit `81a6899` adds a generated, ordinary `/data/app` scan receiver to every
+session, protected by the platform `DUMP` permission and without a UI or
+presenter slot. `aaasctl storage scan RELATIVE_PATH` now waits for the Android
+`MediaScannerConnection` completion callback and a MediaStore query; the
+existing `storage sync` command remains host ACL repair. In normal session
+`m1b84_session_298kqwff`, external-primary indexed a PNG create/update/rename/
+delete sequence plus one synthetic WAV and MP4 without runtime restart. The
+scanner APK SHA-256 is
+`89b9a7261e5550988b5fee39afd6b1e2e2d7b42b14a14001fe1e9ae593708c41`.
+
+The startup ACL helper no longer forks a child before `newuidmap`/`newgidmap`
+targets are written. It maps the unshare process that is actually waiting for
+the mapping, then the runner blocks application startup until ACL preflight
+returns ready. BFE session `m1b84_session_vp7oizek` recorded the ready marker
+and newly-created public directories inherited host access. BFE performed
+directory/file creation, rename, copy, and move in its UI; an earlier
+package-authorized BFE text operation produced a host-visible 40-byte file
+with SHA-256
+`4e0d7df02f4e803b72d093a938c69631201783fbc603cb8d1672ea0fb48796ab`.
+The archive action did not yield a verified archive and remains open.
+
+The Android target-SDK 35 app's persistable URI grant was verified across
+app-process restart, not full runtime restart. The current runner uses
+session-ephemeral `/data`, so the PackageManager URI-grant record cannot survive
+a complete runtime teardown. No userdata persistence architecture was changed.
+The scanner and ACL fix passed 274 Python tests, including fresh backing-root
+ACL setup. NTFS3 quota accounting and broad Android-facing symlink behavior
+remain uncharacterized; the core shared-storage architecture is unchanged.
 
 The two-output runner now keeps Android warm for a bounded idle grace period after the last managed app closes. The product default is 60 seconds and the test override is bounded to 1–3600 seconds. Any app becoming active resets the timer; the existing launch control can reuse the runtime during the grace period. This policy applies to the existing two-output session; a running Android runtime consumes resources during that interval. Fully stopped means no AaaS runner/presenter processes.
 

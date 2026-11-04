@@ -335,7 +335,7 @@ signing is rejected by this Android 16 image. The generic runner APK install
 option uses a read-only bind and ordinary `pm install`, and does not confer
 system privileges.
 
-### Current status
+### Status at the 4423 continuation
 
 - Shared-storage core: **PASS** (previous controlled acceptance).
 - Hardening and real-application compatibility: **PARTIAL/OPEN**.
@@ -350,3 +350,78 @@ characterization. The target-SDK 35 SAF read/write and app-process grant
 checks, active-session diagnostic scan, and VLC/mpv document reads described
 above are now verified. Canonical M4 also separately retains audio, clipboard,
 notifications, and launcher-catalog work.
+
+## Normal-session storage continuation (2026-11-04)
+
+The implementation tested from source HEAD `f85620479bd9aefa89eb120ef67d85a822b89aa6`
+extends the explicit MediaStore scan path to every ordinary AaaS runtime
+session. Startup builds and installs the small ordinary package
+`org.aaas.storagescan` from a pinned source/build receipt. It has no launcher
+activity or UI, is installed in `/data/app`, and exposes only a receiver
+protected by Android's `DUMP` permission. AaaS shell requests one validated
+shared-storage file at a time; the helper calls public
+`MediaScannerConnection.scanFile`, and the host control path waits for the
+scan callback and verifies the returned media URI through a MediaStore query.
+`storage sync` remains ACL repair; `storage scan RELATIVE_PATH` is indexing.
+The helper is session-owned and is not a resident watcher.
+
+Ordinary session `m1b84_session_298kqwff` showed user 0 system-unlocked and
+`external_primary` attached. In that uninterrupted runtime, the scan command
+and actual MediaStore query verified PNG create and update, rename (new row
+present and stale old row absent), and delete (row absent). Synthetic WAV and
+MP4 files also received external-primary audio/video URIs. The helper APK
+SHA-256 is `89b9a7261e5550988b5fee39afd6b1e2e2d7b42b14a14001fe1e9ae593708c41`;
+the session logcat SHA-256 is
+`44e8b220f4db72b87d471508f36a1962ea581a7cd896d868709ae00a1c27e7c5`.
+Traversal, absolute, and symlink-containing requests are rejected by host-side
+validation. A stopped-runtime request fails with an explicit missing-session
+error. No Android restart or continuous polling was used.
+
+The previous ACL setup used `unshare -U -m -f` but attempted to write UID/GID
+maps for the parent PID, which is outside the newly-created namespace; the
+host rejected that `newuidmap` operation with `EPERM`. The storage ACL helpers
+now keep the unshare process itself in the namespace (`-f` removed), wait for
+its UID map to remain uninitialized, and then apply the existing narrow map.
+Storage preparation remains before Android application launch and the runner
+fails startup if its ACL preflight does not return ready. A fresh isolated
+backing-root preparation passed with host-user named/default ACLs, mapped
+`media_rw` group/default-group write/search permissions, and mode-0700
+`Android/data` and `Android/obb`. In ordinary BFE session
+`m1b84_session_vp7oizek`, the command log contains
+`AAAS_STORAGE_ACL_PREFLIGHT_READY`; no manual `storage sync` was needed. BFE's
+new public directory inherited the host ACL. The session logcat SHA-256 is
+`94936f11d3235a3613e9cabbdd07a633fa586089ce39b06e8a35bf46bab70316` and the
+command log SHA-256 is
+`7a01fbd619365910189f440ebb23f3c56d8a5ff2ca46ccf39a3ff4a270d01e0e`.
+
+With BFE's declared all-files setting explicitly enabled only for that test
+package, its real UI created a directory and files, renamed, copied, and moved
+disposable entries; Linux observed the directory operations and ACLs. A
+separate BFE text-editor operation wrote
+`AaaS_BFE_20261104/bfe-renamed.txt`; Linux read 40 bytes with SHA-256
+`4e0d7df02f4e803b72d093a938c69631201783fbc603cb8d1672ea0fb48796ab`.
+Current-session create/copy/move file entries were empty, so they establish
+entry operations, not non-empty copy/move data integrity. The Compress action
+was attempted but no archive output was verified. BFE's full archive gate
+remains open.
+
+The SDK 35 SAF grant remains proven across app force-stop/relaunch only. The
+runner mounts `/data` as session-ephemeral storage, so PackageManager's persisted
+URI grant database is not retained across complete AaaS runtime restart. The
+host media bytes persist independently, but grant persistence across runtime
+restart is unverified and requires a separately designed persistent Android
+userdata change; this storage continuation did not change that architecture.
+
+The NTFS3 project-quota xattr warning remains nonfatal in MediaProvider logs.
+A fresh isolated backing on NTFS3 successfully initialized the ACLs, accepted a
+write as mapped `media_rw` UID/GID `101022:101022`, and allowed a byte-exact
+Linux read without `storage sync` (SHA-256
+`c8890468d92938d191adf87325f1f318211ce5ad605197c484013d23e324ef9d`). The
+test root was removed. This validates ACL inheritance on NTFS3, not Android
+StorageStatsManager accuracy, project-quota enforcement, app-specific
+accounting, or low-space behavior.
+The expanded Android app/SAF symlink matrix and BFE archive output are also
+unverified. The previously recorded VLC and mpv storage reads remain valid;
+visible frame presentation is not required for storage and was not established
+here. These limits keep **M4 shared-storage integration PARTIAL/OPEN** even
+though its core remains **PASS**. Canonical M4 remains `PARTIAL/OPEN`.
