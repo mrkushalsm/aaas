@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. A subsequent storage continuation enabled MediaStore reconciliation in ordinary sessions and repaired startup ACL mapping; its BFE and scan evidence is recorded below and in `results/m4/acceptance.json`. Storage integration remains PARTIAL/OPEN because runtime-restart persistence for SAF grants is unsupported by the session-ephemeral `/data`, BFE archive output is unverified, and NTFS3 quota/symlink characterization remains bounded. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. Later storage continuations added ordinary-session MediaStore reconciliation, deterministic ACL initialization, and persistent Android userdata; the tested SDK 35 probe's package, UID, app preference, and persisted SAF read survived full runtime restart. Storage integration remains PARTIAL/OPEN because BFE archive output, complete symlink coverage, and NTFS3 quota/accounting behavior remain unverified. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -92,10 +92,10 @@ with SHA-256
 `4e0d7df02f4e803b72d093a938c69631201783fbc603cb8d1672ea0fb48796ab`.
 The archive action did not yield a verified archive and remains open.
 
-The Android target-SDK 35 app's persistable URI grant was verified across
-app-process restart, not full runtime restart. The current runner uses
-session-ephemeral `/data`, so the PackageManager URI-grant record cannot survive
-a complete runtime teardown. No userdata persistence architecture was changed.
+At the time of this historical run, the Android target-SDK 35 app's
+persistable URI grant was verified across app-process restart, not full runtime
+restart. `/data` was then session-ephemeral. The later persistent-userdata
+continuation below supersedes that limitation for the tested package and URI.
 The scanner and ACL fix passed 274 Python tests, including fresh backing-root
 ACL setup. NTFS3 quota accounting and broad Android-facing symlink behavior
 remain uncharacterized; the core shared-storage architecture is unchanged.
@@ -144,3 +144,48 @@ No broad host home mount or host device bind was added. No host microphone or ca
 ## Verification
 
 The historical lifecycle run passed 256 tests. On 2026-11-04, the full Python suite passed 268 tests after adding ordinary APK installation and clarifying ACL-only `storage sync` behavior. A fresh M3 Native Bridge run returned `M3 ARM64 Native Bridge PASS mask=255` with JNI values and clean shutdown. A fresh M2 smoke run placed Settings and Contacts on separate displays, stopped Contacts independently while Settings remained RUNNING, then shut down cleanly. These are smoke/regression checks, not a rerun of the full M2 acceptance. Python compilation, JSON validation, `git diff --check`, and the workspace guard passed. The final guard observed 58,693,074,944 bytes used against an 80 GiB ceiling, with 312,180,211,712 bytes free against a 20 GiB reserve. No AaaS runner/presenter processes remained after the live sessions.
+
+### Persistent Android userdata continuation (2026-11-04)
+
+Commit `48d05d9` replaces session-ephemeral `/data` with a persistent,
+workspace-backed host directory. The old AaaS `/data` was tmpfs; no existing
+userdata image or tree was migrated. The backing is dynamically allocated at
+`android-userdata/data`; an atomic schema marker prevents silently adopting or
+replacing unknown data. The existing shared-media bind is still mounted at
+`/data/media` and remains the single canonical public-media tree. Private
+userdata is not returned by `aaasctl storage path` and receives no host-user
+ACL. Directory capacity is not preallocated.
+
+Commit `4302e4f` improves the target-SDK 35 probe so the app restores its
+persisted document URI from its own preferences. The exact signed ordinary
+`/data/app` APK SHA-256 is
+`cfa73b5518fd243b9675466ffa535192a2214b5344db6e62467618e4a3dfaa95`. It
+selected and byte-read the host file in `m1b84_session__xj23_fw`; after complete
+runtime shutdown, it launched without reinstall in sessions
+`m1b84_session_s4y4nm2a` and `m1b84_session_8zb_k85d`, logging
+`ANDROID_PERSISTED_URI_READ_OK` in both. Package Manager retained UID 10150.
+The app preference fixture hash is
+`42318407f9c3522c2eb608d5b254195a50201925f7ae91c4ea1c5070d4218422`; the
+host document hash is
+`4a077084728a18f2627f1f67d48820de9a0aea0e8b14179d1f704b5707b89213`.
+The final active session also used the normal-session scan command and verified
+the MediaStore row. Session log hashes and the userdata manifest hash are
+appended in `results/m4/acceptance.json`.
+
+The userdata directory had 15,368,192 allocated bytes at measurement time and
+no fixed logical image limit. Workspace usage was 59,411,469,824 bytes with
+311,461,781,504 bytes available; the 80 GiB ceiling and 20 GiB reserve passed.
+The complete Python suite passed 280 tests. This continuation did not rerun a
+full M2/M3 campaign; earlier M2 smoke and M3 JNI `PASS mask=255` evidence
+remain historical and unchanged. Runtime sessions were stopped and no AaaS
+process remained.
+
+Persistent userdata is accepted for the tested PackageManager record, stable
+package UID, app preference, and SAF persisted-URI read across runtime restart.
+SQLite persistence, runtime permission persistence, app update/uninstall,
+app-specific external data, and URI revocation were not exercised. NTFS3 does
+not provide the tested SELinux-label or project-quota xattrs; the runtime
+profile does not claim stock Android userdata encryption. BFE archive output
+and the complete symlink/security matrix remain open. Therefore shared-storage
+integration remains `PARTIAL/OPEN`, and canonical M4 remains
+`PARTIAL/OPEN`.

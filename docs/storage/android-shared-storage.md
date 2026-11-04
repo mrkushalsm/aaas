@@ -204,7 +204,7 @@ notifications, launcher catalog work, and other lifecycle gates are separate.
 
 ### Latest continuation
 
-The latest run starts from `4423fd2ee2363d5558c8b0f93f2990478261e919`.
+This hardening run started from `4423fd2ee2363d5558c8b0f93f2990478261e919`.
 The controlled target-SDK 35 probe was corrected to start DocumentsUI at the
 shared-storage Documents provider. The exact v3-signed APK installed as an
 ordinary `/data/app` package. `ACTION_OPEN_DOCUMENT` returned a URI and
@@ -405,12 +405,10 @@ entry operations, not non-empty copy/move data integrity. The Compress action
 was attempted but no archive output was verified. BFE's full archive gate
 remains open.
 
-The SDK 35 SAF grant remains proven across app force-stop/relaunch only. The
-runner mounts `/data` as session-ephemeral storage, so PackageManager's persisted
-URI grant database is not retained across complete AaaS runtime restart. The
-host media bytes persist independently, but grant persistence across runtime
-restart is unverified and requires a separately designed persistent Android
-userdata change; this storage continuation did not change that architecture.
+At the time of this historical run, the SDK 35 SAF grant was proven across app
+force-stop/relaunch only and `/data` was session-ephemeral. The
+persistent-userdata continuation below supersedes that limitation for the
+tested package and URI.
 
 The NTFS3 project-quota xattr warning remains nonfatal in MediaProvider logs.
 A fresh isolated backing on NTFS3 successfully initialized the ACLs, accepted a
@@ -425,3 +423,32 @@ unverified. The previously recorded VLC and mpv storage reads remain valid;
 visible frame presentation is not required for storage and was not established
 here. These limits keep **M4 shared-storage integration PARTIAL/OPEN** even
 though its core remains **PASS**. Canonical M4 remains `PARTIAL/OPEN`.
+
+## Persistent Android userdata continuation (2026-11-04)
+
+The runtime previously mounted a fresh tmpfs at `/data`; the host shared-media
+directory was the only persistent Android storage. AaaS now binds the
+workspace-backed private userdata directory at `/data` and continues to bind
+the existing `shared-storage/android-media` parent at `/data/media`. No shared
+media is copied or duplicated. The architecture, initialization rules,
+filesystem constraints, and restart evidence are documented in
+[`android-persistent-userdata.md`](android-persistent-userdata.md).
+
+The target-SDK 35 ordinary `/data/app` probe selected
+`Download/000-host-read.txt` through DocumentsUI, acquired a persistable URI
+grant, read it through ContentResolver, and restored/read the same URI after
+two complete Android runtime restarts without reinstalling the app. Package
+Manager continued to report the probe at UID 10150. Its app-private preference
+file persisted with SHA-256
+`42318407f9c3522c2eb608d5b254195a50201925f7ae91c4ea1c5070d4218422`. The
+shared fixture SHA-256 was
+`4a077084728a18f2627f1f67d48820de9a0aea0e8b14179d1f704b5707b89213`.
+
+This accepts persistence for the package, UID, probe preference, and the tested
+SAF grant/read path. It does not yet characterize app database, package update
+and uninstall, runtime-permission persistence, cache handling, or
+app-specific external storage. NTFS3 still rejects SELinux-label and
+project-quota xattrs; quota/statistics accuracy is open. The expanded symlink
+matrix and BFE archive operation are also open. Therefore the persistent
+userdata slice is accepted, while the broader shared-storage integration and
+canonical M4 remain `PARTIAL/OPEN`.
