@@ -158,43 +158,55 @@ public final class UserdataProbe {
                     "releasePersistableUriPermission", uriClass, int.class);
             Method parse = uriClass.getMethod("parse", String.class);
             File uriRecord = new File(context.getFilesDir(), "aaas-saf-revocation-uri.txt");
+            String recordedUri = readRecordedUri(uriRecord);
             int count = 0;
             for (Object grant : grants) {
                 Object uri = grant.getClass().getMethod("getUri").invoke(grant);
+                count++;
+                if (recordedUri != null) {
+                    continue;
+                }
                 boolean read = (Boolean) grant.getClass().getMethod("isReadPermission")
                         .invoke(grant);
                 boolean write = (Boolean) grant.getClass().getMethod("isWritePermission")
                         .invoke(grant);
                 int flags = (read ? 1 : 0) | (write ? 2 : 0);
-                if (count == 0) {
-                    try (FileOutputStream output = new FileOutputStream(uriRecord)) {
-                        output.write(String.valueOf(uri).getBytes(StandardCharsets.UTF_8));
-                    }
+                recordedUri = String.valueOf(uri);
+                try (FileOutputStream output = new FileOutputStream(uriRecord)) {
+                    output.write(recordedUri.getBytes(StandardCharsets.UTF_8));
                 }
                 release.invoke(resolver, uri, flags);
-                count++;
-                String uriText = String.valueOf(uri);
-                Log.i(TAG, "PERSISTED_GRANT_RELEASED uri=" + uriText + " flags=" + flags);
-                attemptRevokedUriRead(resolver, uriClass, parse, uriText,
+                Log.i(TAG, "PERSISTED_GRANT_RELEASED uri=" + recordedUri + " flags=" + flags);
+                attemptRevokedUriRead(resolver, uriClass, parse, recordedUri,
                         "PERSISTED_GRANT_READ_AFTER_RELEASE");
+                break;
             }
-            if (count == 0 && uriRecord.isFile()) {
-                byte[] bytes;
-                try (FileInputStream input = new FileInputStream(uriRecord)) {
-                    bytes = new byte[(int) uriRecord.length()];
-                    int read = input.read(bytes);
-                    if (read != bytes.length) {
-                        throw new IllegalStateException("short read from persisted URI record");
-                    }
-                }
-                String uriText = new String(bytes, StandardCharsets.UTF_8);
-                attemptRevokedUriRead(resolver, uriClass, parse, uriText,
+            if (recordedUri != null && count > 0) {
+                attemptRevokedUriRead(resolver, uriClass, parse, recordedUri,
+                        "PERSISTED_GRANT_READ_AFTER_RELEASE_RECHECK");
+            } else if (recordedUri != null) {
+                attemptRevokedUriRead(resolver, uriClass, parse, recordedUri,
                         "PERSISTED_GRANT_READ_AFTER_RUNTIME_RESTART");
             }
-            Log.i(TAG, "PERSISTED_GRANT_RELEASE_COUNT=" + count);
+            Log.i(TAG, "PERSISTED_GRANT_COUNT=" + count);
         } catch (Throwable error) {
             Log.e(TAG, "PERSISTED_GRANT_RELEASE_FAILED", error);
         }
+    }
+
+    private static String readRecordedUri(File uriRecord) throws Exception {
+        if (!uriRecord.isFile()) {
+            return null;
+        }
+        byte[] bytes;
+        try (FileInputStream input = new FileInputStream(uriRecord)) {
+            bytes = new byte[(int) uriRecord.length()];
+            int read = input.read(bytes);
+            if (read != bytes.length) {
+                throw new IllegalStateException("short read from persisted URI record");
+            }
+        }
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     private static void attemptRevokedUriRead(Object resolver, Class<?> uriClass,
