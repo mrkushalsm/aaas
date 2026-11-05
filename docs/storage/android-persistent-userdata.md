@@ -365,3 +365,39 @@ passed, without changing ownership or granting host read/write/list access to
 does not repair the NTFS volume or validate persistent userdata after the
 remount. No repair, forced remount, or mount-option change was attempted.
 Filesystem repair is required before runtime acceptance can resume.
+
+### External files and runtime permission lifecycle (2026-11-06)
+
+The earlier `getExternalFilesDir(null) == null` result was not reproduced in
+two ordinary target-SDK 35 packages. The fresh package
+`org.aaas.externalfilesprobe20261105.r1` reported the primary emulated volume
+mounted and wrote an app-specific external file at launch; the same package
+and file survived a full AaaS restart with stable UID and matching SHA-256.
+The later permission probe also returned a non-null, writable external-files
+directory immediately and after 3/15-second checks. No source/runtime repair
+was indicated. The earlier null observation remains historical and unexplained.
+
+The controlled permission package
+`org.aaas.permissionprobe20261105.r1` requested Android 16
+`READ_MEDIA_IMAGES` via its ordinary Activity API. PermissionController
+presented its normal limited/all/deny UI; selecting “Allow all” granted both
+`READ_MEDIA_IMAGES` and `READ_MEDIA_VISUAL_USER_SELECTED` for UID 10154. The
+ordinary app queried the indexed shared PNG through ContentResolver
+(`rows=1`) after full runtime restart. Android Settings revoked Photos and
+videos for that package; PackageManager then reported both permissions denied
+and AppOps `ignore`. The same-signed v5 update plus another complete runtime
+restart preserved denial, and the app reported `DENIED` with the still-existing
+MediaStore fixture query returning `rows=0`. Unrelated installed diagnostic
+packages remained denied. This demonstrates package-scoped runtime permission
+grant, persistence, revocation, and effective API denial. Persisted SAF grants
+remain a separate URI-level permission and their release/denial after restart
+is documented above.
+
+The permission probe passed its private SQLite integrity check and reported a
+105-row database after the v5 update/restart. Its digest changed because the
+probe intentionally adds a deterministic row per version; this is separate
+from the accepted 102-row lifecycle package. Android `StorageStatsManager` /
+`StatFs` observations and NTFS3 quota limits are recorded in the shared-storage
+continuation. The complete Android-facing symlink matrix remains open; this
+runtime profile still does not claim stock SELinux labels or userdata
+fscrypt/FBE.

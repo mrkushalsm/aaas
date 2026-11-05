@@ -360,3 +360,37 @@ NTFS3 per-package accounting remain open; storage integration remains
 
 The final focused run after adding the persisted-grant revocation regression
 passed 288 Python tests with no skips.
+
+### External storage and runtime permission follow-up (2026-11-06)
+
+The historical `getExternalFilesDir(null) == null` result was not reproduced
+in the fresh ordinary target-SDK 35 external-files package or the existing
+storage and permission probes. They received the mounted primary emulated
+volume, created and read app-specific external files immediately and at
+bounded 3/15-second checkpoints, and the fresh package's file/hash survived a
+full runtime restart. The earlier null remains unexplained but is not a
+current reproducible defect.
+
+An ordinary target-SDK 35 app requested `READ_MEDIA_IMAGES` through Android's
+PermissionController. A user-facing “Allow all” grant persisted across a full
+runtime restart and enabled an ordinary ContentResolver query to return the
+indexed public PNG (`rows=1`). Revocation in Settings denied both
+`READ_MEDIA_IMAGES` and `READ_MEDIA_VISUAL_USER_SELECTED`, changed AppOps to
+`ignore`, and remained denied after a same-signed update and full runtime
+restart; the still-existing image query returned `rows=0`. Two other test
+packages remained denied. The source probe and builder now include focused
+permission callback/query coverage; the full Python suite passed 290 tests
+with no skips after those changes.
+
+Android `StatFs` and host `df` reported matching 500,090,007,552-byte total
+capacity; available-space measurements differed by less than 1 MB at adjacent
+checks. `StorageStatsManager` returned app=65,536, data=61,440, cache=40,960
+bytes for the permission package. Project-quota xattrs remain unsupported, so
+this is bounded accounting characterization, not proof of quota enforcement
+or exact package accounting. BFE's original APK contains `lib7zz.so` as an
+AArch64 ELF DYN/PIE with `/system/bin/linker64` interpreter and a Termux-style
+RUNPATH. No runtime linker trace was obtained; this metadata raises a
+packaging/loading hypothesis but does not prove the failure cause. BFE archive
+create/extract and the Android-facing symlink matrix remain open. Therefore
+M4 storage integration remains `PARTIAL/OPEN`; canonical M4 remains
+`PARTIAL/OPEN`.

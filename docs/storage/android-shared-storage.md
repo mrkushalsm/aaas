@@ -645,3 +645,42 @@ denial plus empty persisted-grant list survived a complete runtime restart.
 See the distinct live test sessions and hashes in
 [`acceptance.json`](../../results/m4/acceptance.json); overall storage
 integration remains `PARTIAL/OPEN`.
+
+### Runtime permission and app-specific external-storage follow-up (2026-11-06)
+
+The target-SDK 35 ordinary probe now records `Environment` state,
+`StorageManager` volume state, `getExternalFilesDirs(null)`, and a bounded
+create/read/hash round-trip through `getExternalFilesDir(null)` at launch and
+after 3 and 15 seconds. A fresh package
+`org.aaas.externalfilesprobe20261105.r1` received a mounted primary emulated
+volume and a writable
+`/storage/emulated/0/Android/data/<package>/files` directory at launch; its
+external-file hash survived a complete runtime restart. The existing SDK 35
+storage package and the permission probe also returned that directory as
+writable at launch and at both later checkpoints. The earlier `null` result
+was not reproduced; its historical cause remains unknown. No lifecycle or
+ACL workaround was needed. Host listing of `Android/data` and `Android/obb`
+continues to fail with `EACCES`.
+
+The permission probe requested `READ_MEDIA_IMAGES` through Android's normal
+PermissionController UI. The “Allow all” choice set both `READ_MEDIA_IMAGES`
+and `READ_MEDIA_VISUAL_USER_SELECTED` for probe UID 10154; AppOps reported both
+allowed. After a complete AaaS restart the ordinary app still reported the
+grant and a ContentResolver query for the indexed 68-byte fixture returned one
+row. Revoking Photos and videos in Android Settings changed both package
+grants to denied and AppOps to `ignore`. A same-signed package update and full
+runtime restart preserved denial; the app reported `DENIED` and the same query
+returned zero rows while the fixture still existed. Two unrelated probe
+packages remained denied. Exact sessions and APK hashes are recorded in the
+2026-11-06 acceptance continuation. The fixture and its diagnostic report
+files were removed after the session.
+
+The same ordinary app observed `StatFs` capacity 500,090,007,552 bytes and
+available space 310,454,247,424 bytes. The host reported the same total and
+310,453,358,592 bytes free at follow-up (about 0.9 MB difference, consistent
+with ongoing metadata writes). `StorageStatsManager` returned app=65,536,
+data=61,440, cache=40,960 bytes for the probe package. These are bounded
+observations, not a quota-enforcement test: NTFS3 still rejects Android
+project-quota xattrs, and exact package/cache accounting remains unverified.
+The Android-facing symlink matrix and BFE archive workflow also remain open;
+shared-storage integration stays `PARTIAL/OPEN`.
