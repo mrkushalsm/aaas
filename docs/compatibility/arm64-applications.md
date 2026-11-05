@@ -46,6 +46,30 @@ The runner’s native-library extraction, ABI-order option, and opt-in private t
 
 The canonical M3 ARM64 Native Bridge milestone remains `PASS/CLOSED`. **M4 — Native Desktop Integration** remains the next product milestone; this study does not start M4.
 
+### BFE archive native execution follow-up (2026-11-06)
+
+The original BFE 1.4.0 APK hash is
+`0ec271c371a4747760b264b8beef6bce2c4cbf331b6a6386e785cbbd5ec770bd`. Its
+ARM64 `lib7zz.so` and `libc++_shared.so` were extracted by Android PackageManager
+into BFE's ordinary app native-library directory. A controlled target-SDK 35
+probe executed the original ELF through the opt-in Berberis executable path.
+Without a guest-visible libc++ runtime, bionic reported
+`library "libc++_shared.so" not found`; with that exact library copied into a
+session-local, hash-recorded guest overlay, `lib7zz.so --help` exited 0 and
+printed 7-Zip 24.08 help. This establishes that the ELF and Berberis execution
+are usable with the dependency available; the immutable Android base image and
+third-party APK were not changed.
+
+The original BFE Compress and Unpack Archive UI flows still failed before
+producing a ZIP. In both cases BFE launched x86_64 `printf` while its child
+library search path selected the bundled AArch64 `libz.so`. Android's linker
+reported `EM_AARCH64 (183)` instead of `EM_X86_64 (62)`. The archive failure is
+classified as BFE's cross-ABI child-process environment/launcher issue;
+archive compatibility remains `PARTIAL/OPEN`. Ordinary BFE shared-file
+operations and the platform storage integration are tracked separately. Raw
+session log hashes and the exact linker line are in
+[`results/m4/acceptance.json`](../results/m4/acceptance.json).
+
 ### BFE archive UI follow-up (2026-11-05)
 
 The original BFE 1.4.0 APK was opened in a visible AaaS Wayland window. Android

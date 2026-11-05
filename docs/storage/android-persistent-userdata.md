@@ -2,12 +2,13 @@
 
 ## Status
 
-The persistent-userdata capability is implemented and passed a bounded live
-restart test on 2026-11-04. The overall M4 shared-storage integration remains
-`PARTIAL/OPEN`: the controlled app's installed package, UID, app-held SAF URI
-grant, and persisted URI read survived full AaaS shutdown and restart. This
-does not establish persistence for every Android data class or replace the
-remaining BFE archive, quota, and symlink acceptance work.
+The persistent-userdata capability and the exercised reliability gates are
+**PASS** as of 2026-11-06. Ordinary installed packages, stable UIDs, app-private
+files, preferences, device-protected data, SQLite/WAL, package update and
+uninstall/reinstall, runtime permissions, and persisted SAF grant release have
+passed their recorded full-runtime restart checks. The rootless NTFS3 profile
+does not claim stock SELinux labels or fscrypt/FBE; those limitations and BFE's
+separate archive compatibility issue are recorded explicitly.
 
 ## Previous and selected topology
 
@@ -401,3 +402,17 @@ from the accepted 102-row lifecycle package. Android `StorageStatsManager` /
 continuation. The complete Android-facing symlink matrix remains open; this
 runtime profile still does not claim stock SELinux labels or userdata
 fscrypt/FBE.
+
+### Reliability closure (2026-11-06)
+
+Persistent-userdata reliability is **PASS for the tested Android 16 profile**.
+The controlled target-SDK 35 app's Android SQLite/WAL records, integrity,
+preferences, internal/device-protected files, package identity, app-specific
+external file, and SAF permission lifecycle survived the accepted complete
+runtime restarts documented in the M4 acceptance record. Runtime-permission
+grant/revocation persisted according to Android state, and revocation produced
+API denial. The additional app-level symlink probe did not read private or
+host-only targets. The NTFS3 limitation is explicit: this development profile
+has no stock Android FBE/fscrypt or SELinux-label guarantee and does not prove
+per-package project-quota enforcement. Canonical M4 remains open independently
+for audio/microphone, clipboard, notifications, and launcher catalog.

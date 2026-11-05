@@ -1,10 +1,14 @@
 # Android shared storage on Linux
 
-**M4 shared-storage core: PASS; integration: PARTIAL/OPEN.** The persistent Linux directory,
-Android's emulated-storage FUSE mount, ordinary application SAF access, and
-MediaStore external volume have been verified end to end. Canonical M4 remains
-`PARTIAL/OPEN` because its separate audio, clipboard, notifications, and
-launcher-catalog requirements remain incomplete.
+**M4 shared-storage core: PASS; integration: PASS/CLOSED (2026-11-06).** The
+persistent Linux directory, Android emulated-storage FUSE, ordinary application
+SAF/MediaStore access, persistent userdata, package/permission lifecycle, and
+tested isolation boundaries have passed acceptance. NTFS3 project quotas,
+SELinux labels, and stock userdata fscrypt/FBE are explicitly unsupported in
+this rootless development profile. BFE archive operations remain a separate
+application-specific compatibility limitation. Canonical M4 remains
+`PARTIAL/OPEN` for audio/microphone, clipboard, notifications, and launcher
+catalog work.
 
 ## Current topology
 
@@ -195,10 +199,11 @@ Verified after repair:
 Structured observations, session IDs, checksums, and raw-log hashes are in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json). Raw runtime
 logs and controlled fixtures remain under the external AaaS workspace, not in
-Git. The shared-storage core is `PASS`; the wider storage integration is
-`PARTIAL/OPEN`. The latest explicit scan is live-verified in the diagnostic
-session only. Canonical M4 remains `PARTIAL/OPEN`; audio, clipboard,
-notifications, launcher catalog work, and other lifecycle gates are separate.
+Git. The 2026-11-06 closure continuation records normal-session scanning,
+application-level symlink and ContentResolver outcomes, bounded NTFS3
+accounting, and BFE's application-specific archive failure. Storage integration
+is `PASS/CLOSED`; canonical M4 remains `PARTIAL/OPEN` for the separate desktop
+integrations.
 
 ## Hardening and real-application follow-up (2026-11-04)
 
@@ -701,3 +706,58 @@ scanner validation; direct ordinary-app ContentResolver behavior is still
 unverified, so the full symlink matrix is not closed. Raw strace, screenshot,
 and logcat hashes are in the 2026-11-06 acceptance record. Android stopped
 cleanly before only the exact fixture links and test sentinel were removed.
+
+### Final storage integration closure (2026-11-06)
+
+**Classification: M4 shared-storage core PASS; M4 shared-storage integration
+PASS/CLOSED.** Canonical M4 remains `PARTIAL/OPEN` for non-storage desktop
+integrations.
+
+An ordinary target-SDK 35 package (`org.aaas.symlinkprobe20261106`, UID 10157)
+requested `READ_MEDIA_IMAGES` through Android's normal PermissionController
+dialog. After the user-facing grant and a full AaaS runtime restart, the app
+reported the permission `GRANTED`. It read the authorized 68-byte regular PNG
+through its ordinary file API (SHA-256
+`fd112a85af94a5db985cf734e40d9eb8d3049c334fcb4b8dec60caaf17f60661`). Direct
+app opens of relative-public, absolute-public, dangling, cyclic, host-only,
+same-app-private, and other-app-private symlinks all failed with Android FUSE
+`ENOSYS`; no symlink target bytes were read. MediaStore returned four rows for
+symlink names, but each tested ContentResolver open failed with `ELOOP`. The
+ordinary app, granted permission, and target were functional, distinguishing
+symlink denial from a permission failure. Earlier DocumentsUI tests omitted
+the symlink nodes, and the host scan command rejected symlink-containing paths
+before dispatch. The test-only package was subsequently uninstalled through
+PackageManager; only the exact synthetic fixture directory and matching `/tmp`
+sentinel were removed.
+
+The exact BFE 1.4.0 APK was not modified. With its bundled C++ runtime staged
+only in the diagnostic session overlay, its ARM64 `lib7zz.so` ran under
+Berberis and printed the 7-Zip 24.08 help, exit 0. BFE's own Compress and
+Unpack Archive workflows still failed before producing output: BFE invoked
+x86_64 `printf` while its app library search path selected its bundled
+AArch64 `libz.so`; bionic linker emitted the ELF machine mismatch
+`EM_AARCH64 (183)` versus `EM_X86_64 (62)`. This is classified as BFE's
+cross-ABI child-process/archive compatibility issue. Ordinary BFE shared-file
+operations were verified in earlier live runs; no archive success is claimed.
+
+Android `StatFs` reported 500,090,007,552 bytes total and 309,633,994,752
+bytes available in the symlink probe session. The adjacent previously
+recorded host `df` observation reported the same total and differed in free
+space by 888,832 bytes. `StorageStatsManager` returned nonzero package/data/
+cache figures in both the prior permission probe and this session; those are
+observations rather than quota enforcement proof. NTFS3 project-quota xattrs
+and `security.selinux` labels remain unsupported; the runtime does not claim
+stock userdata fscrypt/FBE. The tested app-private boundary is enforced by
+Android package UIDs, Linux DAC/mapped ownership, mount namespaces, FUSE, and
+framework permission/URI grants. These observations do not claim production
+SELinux-equivalent security.
+
+The latest ordinary app log is retained outside Git at
+`/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_hwwubv1c/logcat.log`
+(SHA-256 `df2b195db6027afd6dc5c52619cbb4ecda93ae6598dc96c23ab8f220283181a5`).
+The original BFE failure log is
+`/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_axe48sfq/logcat.log`
+(SHA-256 `460557b25cf96ef1b214ccdbca82e761788cf37c285d685b3b3dc18e88cb9318`).
+The corresponding machine-readable gate results and M2/M3/Python/workspace
+regressions are appended as `final_storage_closure_2026_11_06` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).

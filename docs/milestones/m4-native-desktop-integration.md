@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. Later storage continuations added ordinary-session MediaStore reconciliation, deterministic ACL initialization, and persistent Android userdata. The SDK 35 probe's app-data paths resolve to the same live package inode, Android SQLite/WAL state and package identity survive restart, PackageManager update/uninstall/reinstall passed, two controlled packages showed the tested private-path isolation, and a persisted SAF grant was released with denial preserved after runtime restart. Storage integration remains PARTIAL/OPEN because dangerous runtime-permission grant/revocation, app-specific external storage, BFE archive output, comprehensive symlink behavior, and NTFS3 quota/accounting remain open. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation at the end of this record: persistent userdata, ordinary Android filesystem APIs, scoped shared storage, SAF/MediaStore, package and permission lifecycle, app-private isolation, and bounded NTFS3/symlink behavior are accepted. BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. Canonical M4 remains open for host audio/microphone, clipboard, notification forwarding, and the installed-app launcher catalog. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -127,7 +127,7 @@ Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`;
 | User desktop launcher | Per-user entries and runner invocation exercised | Partial: app discovery/catalog and uninstall cleanup are absent |
 | Host audio playback | PipeWire 1.6.9, WirePlumber, and pipewire-pulse are active on host. Android AudioFlinger and Ranchu audio HAL exist, but runner does not connect a host PCM endpoint or transport samples. | Not implemented; no playback proof |
 | Microphone | Host audio source exists; Android runner does not expose a scoped host capture stream. | Not implemented; no authorization/revocation proof |
-| Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Controlled ordinary-app SAF and mount-time MediaStore tests passed. Live host mutation sync, current-target app read/write, and real-app workflows remain incomplete. | **Core PASS; hardening PARTIAL/OPEN** |
+| Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Ordinary-app SAF, active MediaStore reconciliation, ACL preflight, persistent userdata, app-specific external files, permissions, and security boundary tests pass. NTFS3 quotas/SELinux labels/fscrypt are unsupported profile features; BFE archive actions are application-specific. | **PASS/CLOSED** |
 | Android-to-XDG picker bridge | This capability is explicitly deferred; Android continues using its built-in picker and shared-storage APIs. | Deferred; not a storage-slice acceptance gate |
 | Clipboard | Wayland presenter has no data-device clipboard bridge to Android ClipboardManager. | Not implemented |
 | Notifications | Host DBus notification service and Android NotificationManager exist, but no AaaS forwarding listener/adapter exists. | Not implemented |
@@ -394,3 +394,56 @@ packaging/loading hypothesis but does not prove the failure cause. BFE archive
 create/extract and the Android-facing symlink matrix remain open. Therefore
 M4 storage integration remains `PARTIAL/OPEN`; canonical M4 remains
 `PARTIAL/OPEN`.
+
+### Final storage integration closure (2026-11-06)
+
+**M4 Storage Integration: PASS/CLOSED.** The tested source revision is
+`d9d259fe563da9f00613495afacf5dec3f0ef92a`; repository HEAD at the start of
+this continuation was `eb375300d196dcdf5e83a83187c2961f0ef71fb1`. The target-SDK
+35 ordinary probe ran in session `m1b84_session_hwwubv1c` with package
+`org.aaas.symlinkprobe20261106`, UID 10157, after PermissionController granted
+`READ_MEDIA_IMAGES`; a complete runtime restart preserved the grant. Its
+regular 68-byte public PNG read via app file APIs with SHA-256
+`fd112a85af94a5db985cf734e40d9eb8d3049c334fcb4b8dec60caaf17f60661`. Relative,
+absolute, dangling, cyclic, host-only, same-app-private, and other-app-private
+links all failed direct application opens with FUSE `ENOSYS`; four MediaStore
+rows for links were returned, but ContentResolver opens failed with `ELOOP`
+and returned no bytes. The probe package was removed via PackageManager after
+testing, which also cleared its runtime permission. Exact log hash and each
+row/result are in the latest JSON continuation.
+
+BFE's original APK remains unchanged (SHA-256
+`0ec271c371a4747760b264b8beef6bce2c4cbf331b6a6386e785cbbd5ec770bd`). A
+controlled ordinary-app probe first reproduced the missing guest
+`libc++_shared.so` loader dependency, then ran the APK's exact ARM64 `lib7zz.so`
+through Berberis after a hash-recorded, session-local dependency overlay;
+`7zz --help` exited 0. BFE's own Compress and Unpack Archive screens both
+failed before producing output because their child invocation of `printf`
+resolved AArch64 `libz.so` while launching an x86_64 executable. The Android
+linker reported `EM_AARCH64 (183) instead of EM_X86_64 (62)`. Existing BFE
+ordinary file operations remain accepted; its archive path is recorded as
+`PARTIAL/OPEN` application compatibility and is not evidence of a shared
+storage failure.
+
+Android `StatFs` and the prior adjacent host `df` sample reported total
+capacity `500090007552` bytes, with free-space observations differing by less
+than 1 MiB. `StorageStatsManager` returned nonzero package/data/cache values;
+exact per-package quotas are not claimed because NTFS3 rejects project-quota
+xattrs. NTFS3 also rejects `security.selinux`; this development profile makes
+no stock SELinux-label or fscrypt/FBE claim. The tested Android UID/DAC,
+mount-namespace, FUSE, framework-permission, and URI-grant boundaries showed no
+unauthorized host or cross-app data read. This is bounded development-profile
+acceptance, not production Android security equivalence.
+
+Fresh regressions: M2 Settings/Contacts separate displays and independent
+close passed; presenters reported 86/86 and 60/60 imports/releases with zero
+outstanding buffers. M3 emitted `PASS mask=255`; its session overlay and
+diagnostic libraries were removed at shutdown. The full Python suite passed
+294 tests, zero skips. Workspace UUID `A2ACEDF2ACEDC0C1` remained mounted
+read/write; the final guard observed 61,176,305,152 bytes used against 80 GiB,
+with 309,597,638,656 bytes free against the 20 GiB reserve. No AaaS session
+socket or runner/presenter/Native Bridge processes remained after cleanup.
+
+Canonical M4 remains `PARTIAL/OPEN`: audio and microphone, bidirectional
+clipboard, notification forwarding, and installed-app launcher/catalog work
+are still separate unfinished requirements.
