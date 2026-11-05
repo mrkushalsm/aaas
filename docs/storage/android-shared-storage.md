@@ -596,3 +596,47 @@ reinstall, runtime-permission lifecycle, SAF grant revocation, cross-app
 private-data isolation, Android storage accounting, and the full Android-facing
 symlink matrix remain unverified; shared-storage integration remains
 `PARTIAL/OPEN`.
+
+### Package isolation, lifecycle, and loader follow-up (2026-11-05)
+
+The controlled package lifecycle was completed with normal PackageManager
+operations: v1-to-v2 update retained UID `10153` and the accepted 102-row
+database; uninstall returned `Success`; a full restart confirmed the package
+and its data path absent; reinstall created a fresh 101-row v1 database at a
+new inode. The package was uninstalled again after the private-data isolation
+test. App B (UID `10154`) could not resolve App A's internal, database, or
+device-protected paths in its own Android mount namespace (`ENOENT` for each);
+subsequent launch of A matched its private-file and SQLite digests. This is
+positive evidence for the tested package boundary, while the NTFS3 development
+profile still lacks stock SELinux labeling and fscrypt/FBE.
+
+The SDK 35 probe reported `getExternalFilesDir(null) == null` despite a mounted
+emulated volume and successful `StatFs` queries. StorageStatsManager returned
+`app=53248`, `data=16384`, `cache=0` around tiny test files, so exact per-package
+accounting and app-specific external-storage behavior remain open. Android
+quota-xattr errors remain an accounting/feature limitation unless a concrete
+write or isolation failure is demonstrated.
+
+The BFE APK's `lib/arm64-v8a/lib7zz.so` is present in the unchanged original
+APK (2,552,840 bytes), and `readelf` identifies it as ELF64 AArch64. Its dynamic
+section needs `liblog.so`, `libc.so`, `libdl.so`, `libc++_shared.so`, and
+`libm.so`; the same APK includes ARM64 `libc++_shared.so`. It also declares a
+Termux-style RUNPATH (`/data/data/com.termux/files/usr/bin/../../usr/lib`). No
+runtime linker trace for this library was captured, so the prior BFE message
+that it is inaccessible/unavailable does not yet prove a Berberis or AaaS
+loader failure. Archive create/extract remains unverified and BFE-specific.
+
+Normal sessions previously had an evidence-channel defect: generated Android
+shell commands wrote to `/aaas_session_commands`, but the host session's
+`commands.log` was bound only for experimental virtual-display sessions. The
+runner now binds the command log in every session and always supplies its path
+to the generated runner. A normal-session uninstall recorded its success in
+`commands.log`, and a following full restart recorded
+`AAAS_USER_APK_ABSENCE_OK`. This repairs observability and makes lifecycle
+failure checks auditable; it does not itself change Android storage behavior.
+
+Runtime permission request/revocation, persisted SAF grant release, a complete
+Android FUSE/DocumentsUI symlink matrix, and exact NTFS3 package accounting
+remain unverified. See the distinct live test sessions and hashes in
+[`acceptance.json`](../../results/m4/acceptance.json); overall storage
+integration remains `PARTIAL/OPEN`.

@@ -261,6 +261,53 @@ SAF permissions, or test cross-package private-data access. Those acceptance
 gates remain open; the recovery run does not upgrade the overall userdata
 reliability classification.
 
+### Package lifecycle and app-private isolation follow-up (2026-11-05)
+
+The controlled target-SDK 35 package `org.aaas.m4acceptance20261105.lifecycle`
+was updated from v1 to v2 through PackageManager in prior sessions at the same
+UID (`10153`); its Android SQLite database retained 102 rows, WAL mode, and
+`integrity=ok`. This continuation uninstalled it through
+`pm uninstall --user 0`; the host-bound session command log recorded
+`AAAS_USER_APK_UNINSTALL_OK ... output=Success`. On a full runtime restart,
+`AAAS_USER_APK_ABSENCE_OK` confirmed PackageManager no longer listed it and
+`/data/user/0/<package>` was absent. Reinstalling the same signed v1 APK
+created a new package data directory (new inode `1338801`; the previous live
+directory used inode `1174451`) and the probe created a fresh 101-row v1
+database with digest
+`FSl2HiBhF6/e7o1gV1Gnnfx4OptSYiCj3j0C0moycx4=`. It did not restore the old
+102-row state. The package was then uninstalled again and remained absent
+after a complete restart. Both disposable packages used for the isolation
+check were also removed through PackageManager after evidence collection.
+
+App A (UID `10153`) wrote internal, database, and device-protected state. A
+second ordinary package, App B (UID `10154`), attempted to open App A's files
+through `/data/user/0`, `/data/data`, and `/data/user_de`; all attempts returned
+`ENOENT`, and no private bytes were read. The paths are hidden in B's Android
+mount namespace. Relaunching A in a later runtime matched the original
+internal and device-protected file hashes and SQLite digest, demonstrating
+that the denial did not result from loss of A's data. This verifies the tested
+DAC/UID and mount-namespace boundary; the NTFS3 profile still does not provide
+stock SELinux labels or Android fscrypt/FBE.
+
+Live mount evidence from the SDK 35 app showed `/data` backed by NTFS3, Android
+tmpfs mount roots at `/data/data`, `/data/user`, and `/data/user_de`, and
+per-package bind mounts from persistent userdata. For the same package,
+`Context.getDataDir()` returned `/data/user/0/<package>` while its canonical
+path was `/data/data/<package>`; both reported device `2050` and inode
+`1174451` in the pre-uninstall session. The application Context path and
+canonical backing therefore agreed; no duplicate per-package tree was
+observed. In the fresh reinstall, the new inode confirmed PackageManager
+created new app data.
+
+The probe's `getExternalFilesDir(null)` returned `null` in these sessions even
+though `StatFs` worked on `/storage/emulated/0` and vold/FUSE was mounted. This
+app-specific external-storage result remains unresolved and is not counted as
+a pass. StorageStatsManager returned package totals (`app=53248`, `data=16384`,
+`cache=0`) that did not precisely track the tiny private cache fixture; treat
+these as approximate accounting on NTFS3, not quota enforcement or exact
+allocation. Runtime permission and persisted SAF-grant revocation were not
+exercised in this continuation.
+
 - NTFS3 rejects Android project-quota xattrs and SELinux label xattrs. Ordinary
   package operation and SAF passed, but quota/statistics correctness is not
   fully characterized.

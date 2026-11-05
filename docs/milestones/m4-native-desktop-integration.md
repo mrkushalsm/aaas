@@ -313,3 +313,34 @@ creation/extraction therefore remains unaccepted. App uninstall and reinstall,
 permission/grant revocation beyond the BFE special access, app isolation,
 accounting, and Android-facing symlink tests also remain open. See the distinct
 continuation record in [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+
+### Android package lifecycle and private-data boundary (2026-11-05)
+
+The target-SDK 35 lifecycle package completed a normal v1-to-v2 update, clean
+PackageManager uninstall, absence check after a full runtime restart, and
+reinstall. UID `10153` was retained across the update; reinstall created a new
+private-data inode and fresh 101-row v1 SQLite state rather than restoring the
+old v2 state. App B at UID `10154` could not resolve App A's internal,
+database, or device-protected paths (`ENOENT`) in its own Android mount
+namespace. Relaunching A later matched its internal/device-protected hashes
+and database digest. These are bounded positive results for package lifecycle
+and the tested cross-app path boundary.
+
+The SDK 35 probe still reports `getExternalFilesDir(null) == null`; runtime
+permission grant/revocation, SAF grant revocation, comprehensive symlink
+behavior, and precise storage accounting remain open. The original BFE archive
+library is confirmed present as ELF64 AArch64 in the unchanged APK, but no
+runtime loader trace exists yet; compression/extraction remain unverified.
+Shared-storage integration therefore remains `PARTIAL/OPEN`, and canonical M4
+remains `PARTIAL/OPEN`.
+
+### Fresh M2/M3 smoke after session-command logging fix (2026-11-05)
+
+M3 session `m1b84_session_zk8m89a7` ran the pinned Digitalis/Berberis overlay
+and emitted `M3 ARM64 Native Bridge PASS mask=255` with the expected JNI values;
+the session stopped cleanly. M2 session `m1b84_session_020f0vqp` opened Settings
+and Contacts in separate native windows. Closing slot 2 left Settings running.
+At shutdown, the Settings presenter reported 92 imports/92 releases and zero
+outstanding buffers; the Contacts presenter reported 64/64 and zero
+outstanding. These are focused smoke regressions, not a full M2 acceptance
+campaign. The Python suite passed 287 tests with no skips.
