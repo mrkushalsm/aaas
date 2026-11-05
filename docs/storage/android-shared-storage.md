@@ -684,3 +684,20 @@ observations, not a quota-enforcement test: NTFS3 still rejects Android
 project-quota xattrs, and exact package/cache accounting remains unverified.
 The Android-facing symlink matrix and BFE archive workflow also remain open;
 shared-storage integration stays `PARTIAL/OPEN`.
+
+### Android FUSE symlink boundary sample (2026-11-06)
+
+In ordinary session `m1b84_session_nwgf7rl8`, a disposable Documents directory
+contained a real file plus relative, absolute, dangling, cyclic, host-only, and
+Android-private-target symlinks. From the Android namespace,
+`/storage/emulated/0/Documents/.../relative.txt` had a symlink inode according
+to `stat`, but `openat` through the emulated-storage FUSE returned
+`ENOSYS` (`Function not implemented`). The same open failure applied to the
+other symlink classes, so none of their targets were read. DocumentsUI showed
+the regular `inside.txt` entry and omitted all symlink entries. The explicit
+`storage scan` command rejected the relative-link path before dispatch. This
+is positive evidence for FUSE open denial, DocumentsUI listing behavior, and
+scanner validation; direct ordinary-app ContentResolver behavior is still
+unverified, so the full symlink matrix is not closed. Raw strace, screenshot,
+and logcat hashes are in the 2026-11-06 acceptance record. Android stopped
+cleanly before only the exact fixture links and test sentinel were removed.
