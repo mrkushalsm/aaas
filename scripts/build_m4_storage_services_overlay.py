@@ -11,7 +11,8 @@ import tempfile
 import zipfile
 
 from patch_m1e_display_content_mode import (
-    BASE_SHA256, APKTOOL_SHA256, patch_storage_transcoding_default, sha256,
+    ALARM_HANDLER_CLASS, ALARM_PATCH, BASE_SHA256, APKTOOL_SHA256,
+    patch_alarm_fallback, patch_storage_transcoding_default, sha256,
 )
 
 
@@ -34,6 +35,10 @@ def build_overlay(original, apktool, output, receipt_path, work_parent=None):
         if not smali.is_file():
             raise RuntimeError(f'StorageManagerService class not found: {smali}')
         smali.write_text(patch_storage_transcoding_default(smali.read_text()))
+        alarm_smali = decoded / ALARM_HANDLER_CLASS
+        if not alarm_smali.is_file():
+            raise RuntimeError(f'AlarmHandler class not found: {alarm_smali}')
+        alarm_smali.write_text(patch_alarm_fallback(alarm_smali.read_text()))
         subprocess.run(['java', '-jar', str(apktool), 'b', str(decoded),
                         '-o', str(rebuilt)], check=True)
         with zipfile.ZipFile(rebuilt) as archive:
@@ -57,6 +62,10 @@ def build_overlay(original, apktool, output, receipt_path, work_parent=None):
         'classes_dex_sha256': dex_hash,
         'patched_method': 'StorageManagerService.configureTranscoding',
         'default': 'false; system property and DeviceConfig overrides preserved',
+        'alarm_fallback': 'AlarmHandler delegates due alarms to deliverAlarmsLocked and reschedules',
+        'alarm_handler_class': str(ALARM_HANDLER_CLASS),
+        'alarm_source_patch': str(ALARM_PATCH),
+        'alarm_source_patch_sha256': sha256(ALARM_PATCH),
         'apktool_sha256': sha256(apktool),
     }
     if receipt_path:

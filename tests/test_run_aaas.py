@@ -71,6 +71,43 @@ class DiagnosticOverlayManifestTests(unittest.TestCase):
                     SESSION.validate_diagnostic_vulkan_overlay(overlay)
 
 
+class StorageServicesOverlayTests(unittest.TestCase):
+    def test_missing_alarm_fallback_patch_invalidates_normal_overlay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tmp = root / 'tmp'
+            tmp.mkdir()
+            base = tmp / 'm1b8_services_battery_mobile_diagnostic.jar'
+            overlay = tmp / 'm4_storage_services_overlay.jar'
+            apktool = tmp / 'apktool.jar'
+            receipt_path = tmp / 'm4_storage_services_overlay.json'
+            patch_path = root / 'patches/m1e/alarm-listener-fallback.patch'
+            patch_path.parent.mkdir(parents=True)
+            for path, data in ((base, b'base'), (overlay, b'overlay'),
+                               (apktool, b'apktool'), (patch_path, b'alarm patch')):
+                path.write_bytes(data)
+            receipt = {
+                'input_sha256': SESSION.sha256(base),
+                'output_sha256': SESSION.sha256(overlay),
+                'apktool_sha256': SESSION.sha256(apktool),
+                'default': 'false; system property and DeviceConfig overrides preserved',
+            }
+            receipt_path.write_text(json.dumps(receipt))
+            with patch.object(SESSION, 'ROOT', root), \
+                    patch.object(SESSION, 'TMP', tmp), \
+                    patch.object(SESSION, 'STORAGE_SERVICES_OVERLAY', overlay), \
+                    patch.object(SESSION, 'STORAGE_SERVICES_RECEIPT', receipt_path), \
+                    patch.object(SESSION, 'APKTOOL', apktool):
+                self.assertFalse(SESSION.storage_services_overlay_is_current())
+                receipt.update({
+                    'alarm_fallback': (
+                        'AlarmHandler delegates due alarms to deliverAlarmsLocked and reschedules'),
+                    'alarm_source_patch_sha256': SESSION.sha256(patch_path),
+                })
+                receipt_path.write_text(json.dumps(receipt))
+                self.assertTrue(SESSION.storage_services_overlay_is_current())
+
+
 class NativeBridgeOverlayTests(unittest.TestCase):
     def _bundle(self, root):
         import hashlib
@@ -733,6 +770,38 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('pm install -r /aaas-install-apk.apk', generated)
         self.assertIn('AAAS_USER_APK_INSTALL', generated)
         self.assertNotIn('/product/app/AaasStorageProbe', generated)
+
+    def test_controlled_package_lifecycle_uses_package_manager(self):
+        package = 'org.aaas.acceptance.lifecycle'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scanner = root / 'storage-scan.apk'
+            scanner.write_bytes(b'APK fixture')
+            media = root / 'media/0'
+            media.mkdir(parents=True)
+            (root / 'uninstall').mkdir()
+            (root / 'verify').mkdir()
+            (root / 'reject').mkdir()
+            generated = SESSION.make_session_runner(
+                root / 'uninstall', app_package='com.android.settings',
+                storage_scan_apk=scanner, shared_storage_dir=media,
+                uninstall_package=package).read_text()
+            self.assertIn(f'pm uninstall --user 0 {package}', generated)
+            self.assertIn('AAAS_USER_APK_UNINSTALL_OK', generated)
+            self.assertIn(f'pm list packages --user 0 {package}', generated)
+            self.assertIn(f'/data/user/0/{package}', generated)
+            absent = SESSION.make_session_runner(
+                root / 'verify', app_package='com.android.settings',
+                storage_scan_apk=scanner, shared_storage_dir=media,
+                assert_package_absent=package).read_text()
+            self.assertIn('AAAS_USER_APK_ABSENCE_OK', absent)
+            self.assertIn('commands_bind = (f\'  --bind "{session_commands}"', absent)
+            self.assertIn('{logcat_bind}{commands_bind}{input_adapter_bind}', absent)
+            with self.assertRaisesRegex(ValueError, 'controlled org.aaas'):
+                SESSION.make_session_runner(
+                    root / 'reject', app_package='com.android.settings',
+                    storage_scan_apk=scanner, shared_storage_dir=media,
+                    uninstall_package='com.android.settings')
 
     def test_storage_probe_and_generic_apk_install_are_exclusive(self):
         with tempfile.TemporaryDirectory() as directory:

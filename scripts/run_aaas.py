@@ -577,10 +577,19 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         idle_timeout_seconds=60, shared_storage_dir=None,
                         diagnostic_storage_apk=None,
                         diagnostic_storage_open=False, install_apk=None,
+                        uninstall_package=None, assert_package_absent=None,
                         storage_scan_apk=None, persistent_userdata_dir=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
+    for package, option in ((uninstall_package, '--uninstall-package'),
+                            (assert_package_absent, '--assert-package-absent')):
+        if package is not None:
+            validate_app_package(package)
+            if not package.startswith('org.aaas.'):
+                raise ValueError(f'{option} is limited to controlled org.aaas packages')
+    if uninstall_package is not None and assert_package_absent is not None:
+        raise ValueError('use only one package lifecycle operation per session')
     if not isinstance(idle_timeout_seconds, int) or not 1 <= idle_timeout_seconds <= 3600:
         raise ValueError('idle timeout must be between 1 and 3600 seconds')
     if app_package2 is not None:
@@ -794,6 +803,37 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '>> /aaas_session_commands\n'
                 '    if [ "$INSTALL_STATUS" -ne 0 ]; then echo FAILED > /aaas_session_status; exit 1; fi\n'
             )
+        if uninstall_package is not None:
+            package = shlex.quote(uninstall_package)
+            storage_probe += (
+                '    echo "=== UNINSTALLING CONTROLLED USER APK ===" >> /aaas_session_commands\n'
+                f'    UNINSTALL_OUTPUT=$(/system/bin/pm uninstall --user 0 {package} 2>&1)\n'
+                '    UNINSTALL_STATUS=$?\n'
+                f'    PACKAGE_REMAINS=$(/system/bin/pm list packages --user 0 {package} 2>&1)\n'
+                f'    if [ "$UNINSTALL_STATUS" -ne 0 ] || [ "$PACKAGE_REMAINS" = "package:{uninstall_package}" ] || '
+                f'[ -e /data/user/0/{uninstall_package} ]; then\n'
+                '      echo "AAAS_USER_APK_UNINSTALL_FAILED status=$UNINSTALL_STATUS output=$UNINSTALL_OUTPUT remains=$PACKAGE_REMAINS" '
+                '>> /aaas_session_commands\n'
+                '      echo FAILED > /aaas_session_status\n'
+                '      exit 1\n'
+                '    fi\n'
+                f'    echo "AAAS_USER_APK_UNINSTALL_OK package={uninstall_package} output=$UNINSTALL_OUTPUT package_list=$PACKAGE_REMAINS" '
+                '>> /aaas_session_commands\n'
+            )
+        if assert_package_absent is not None:
+            package = shlex.quote(assert_package_absent)
+            storage_probe += (
+                '    echo "=== VERIFYING CONTROLLED USER APK ABSENT ===" >> /aaas_session_commands\n'
+                f'    PACKAGE_STATE=$(/system/bin/pm list packages --user 0 {package} 2>&1)\n'
+                f'    if [ "$PACKAGE_STATE" = "package:{assert_package_absent}" ] || '
+                f'[ -e /data/user/0/{assert_package_absent} ]; then\n'
+                '      echo "AAAS_USER_APK_ABSENCE_FAILED state=$PACKAGE_STATE" >> /aaas_session_commands\n'
+                '      echo FAILED > /aaas_session_status\n'
+                '      exit 1\n'
+                '    fi\n'
+                f'    echo "AAAS_USER_APK_ABSENCE_OK package={assert_package_absent} state=$PACKAGE_STATE" '
+                '>> /aaas_session_commands\n'
+            )
         source = replace_once(
             source,
             '    echo "=== TESTING ACTIVITY LAUNCH (SETTINGS) ==="',
@@ -939,19 +979,23 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         source, '    exec /system/bin/init second_stage',
         tombstone_capture_worker + '    exec /system/bin/init second_stage',
     )
-    source = replace_once(source, '    ipc_dir = tmp_dir / "aaas_ipc"',
-                          '    ipc_dir = Path(os.environ["AAAS_SESSION_IPC"])')
+    source = replace_once(
+        source,
+        '    ipc_dir = tmp_dir / "aaas_ipc"',
+        '    session_commands = Path(os.environ["AAAS_SESSION_COMMANDS"])\n'
+        '    commands_bind = (f\'  --bind "{session_commands}" '
+        '/aaas_session_commands \' + chr(92) + "\\n")\n'
+        '    ipc_dir = Path(os.environ["AAAS_SESSION_IPC"])',
+    )
     if experimental_virtual_display:
         source = replace_once(
             source,
             '    ipc_dir = Path(os.environ["AAAS_SESSION_IPC"])',
             '    vdisplay_dex = Path(os.environ["AAAS_VDISPLAY_DEX"])\n'
             '    vdisplay_rc = Path(os.environ["AAAS_VDISPLAY_RC"])\n'
-            '    session_commands = Path(os.environ["AAAS_SESSION_COMMANDS"])\n'
             '    vdisplay_broker_bind = (\n'
             '        f\'  --ro-bind "{vdisplay_dex}" /system/framework/aaas-display-broker.dex \' + chr(92) + "\\n"\n'
-            '        f\'  --ro-bind "{vdisplay_rc}" /system/etc/init/aaas-display-broker.rc \' + chr(92) + "\\n"\n'
-            '        f\'  --bind "{session_commands}" /aaas_session_commands \' + chr(92) + "\\n")\n'
+            '        f\'  --ro-bind "{vdisplay_rc}" /system/etc/init/aaas-display-broker.rc \' + chr(92) + "\\n")\n'
             '    ipc_dir = Path(os.environ["AAAS_SESSION_IPC"])',
         )
         source = replace_once(
@@ -1010,7 +1054,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         source,
         '{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
         ('{vdisplay_broker_bind}' if experimental_virtual_display else '')
-        + '{vdc_bind}{framework_ime_bind}{lmkd_bind}{status_bind}{logcat_bind}{input_adapter_bind}'
+        + '{vdc_bind}{framework_ime_bind}{lmkd_bind}{status_bind}{logcat_bind}{commands_bind}{input_adapter_bind}'
         + input_adapter_log_placeholder
         + '{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}',
     )
@@ -1723,6 +1767,7 @@ def storage_services_overlay_is_current():
     try:
         receipt = json.loads(STORAGE_SERVICES_RECEIPT.read_text())
         original = TMP / 'm1b8_services_battery_mobile_diagnostic.jar'
+        alarm_patch = ROOT / 'patches/m1e/alarm-listener-fallback.patch'
         return (
             STORAGE_SERVICES_OVERLAY.is_file()
             and receipt.get('input_sha256') == sha256(original)
@@ -1730,6 +1775,9 @@ def storage_services_overlay_is_current():
             and receipt.get('apktool_sha256') == sha256(APKTOOL)
             and receipt.get('default') == (
                 'false; system property and DeviceConfig overrides preserved')
+            and receipt.get('alarm_fallback') == (
+                'AlarmHandler delegates due alarms to deliverAlarmsLocked and reschedules')
+            and receipt.get('alarm_source_patch_sha256') == sha256(alarm_patch)
         )
     except (OSError, ValueError, KeyError):
         return False
@@ -1974,6 +2022,10 @@ def main():
                         help='install the controlled storage probe as an ordinary /data/app package')
     parser.add_argument('--install-apk',
                         help='install an APK as an ordinary user package before launch')
+    parser.add_argument('--uninstall-package',
+                        help='uninstall a controlled org.aaas package through PackageManager')
+    parser.add_argument('--assert-package-absent',
+                        help='verify a controlled org.aaas package and its user data are absent')
     parser.add_argument('--diagnostic-storage-open', action='store_true',
                         help='select the first file in DocumentsUI for the storage diagnostic APK')
     parser.add_argument('--diagnostic-native-bridge-overlay',
@@ -2020,6 +2072,17 @@ def main():
         parser.error('--diagnostic-storage-open requires --diagnostic-storage-apk')
     if args.install_apk and args.diagnostic_storage_apk:
         parser.error('--install-apk and --diagnostic-storage-apk are mutually exclusive')
+    for package, option in ((args.uninstall_package, '--uninstall-package'),
+                            (args.assert_package_absent, '--assert-package-absent')):
+        if package is not None:
+            try:
+                validate_app_package(package)
+            except ValueError as error:
+                parser.error(f'{option}: {error}')
+            if not package.startswith('org.aaas.'):
+                parser.error(f'{option} is limited to controlled org.aaas packages')
+    if args.uninstall_package and args.assert_package_absent:
+        parser.error('use only one package lifecycle operation per session')
     if args.startup_timeout < 1:
         parser.error('startup timeout must be positive')
     if args.test_tombstone_capture and args.app2:
@@ -2225,6 +2288,8 @@ def main():
                                  diagnostic_storage_apk=args.diagnostic_storage_apk,
                                  diagnostic_storage_open=args.diagnostic_storage_open,
                                  install_apk=args.install_apk,
+                                 uninstall_package=args.uninstall_package,
+                                 assert_package_absent=args.assert_package_absent,
                                  storage_scan_apk=storage_scan_apk,
                                  persistent_userdata_dir=persistent_userdata_path)
     env = os.environ.copy()
@@ -2242,12 +2307,12 @@ def main():
                AAAS_SESSION_IPC=str(ipc), AAAS_SESSION_STATUS=str(status),
                AAAS_TOMBSTONE_EXPORT=str(tombstone_dir),
                AAAS_SESSION_LOGCAT=str(logcat),
+               AAAS_SESSION_COMMANDS=str(session_commands),
                AAAS_INPUT_ADAPTER=str(INPUT_ADAPTER) if INPUT_ADAPTER.is_file() else '',
                AAAS_INPUT_ADAPTER_LOG=str(input_adapter_log))
     if args.experimental_virtual_display:
         env.update(AAAS_VDISPLAY_DEX=str(VDISPLAY_BROKER_DEX),
                    AAAS_VDISPLAY_RC=str(VDISPLAY_BROKER_RC),
-                   AAAS_SESSION_COMMANDS=str(session_commands),
                    AAAS_VDISPLAY_INPUT_ADAPTER_LOG=str(vdisplay_input_adapter_log))
         if args.app2:
             env['AAAS_VDISPLAY2_INPUT_ADAPTER_LOG'] = str(vdisplay2_input_adapter_log)
