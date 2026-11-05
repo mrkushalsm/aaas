@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. Later storage continuations added ordinary-session MediaStore reconciliation, deterministic ACL initialization, and persistent Android userdata. The SDK 35 probe's app-data paths resolve to the same live package inode, and Android SQLite/WAL committed rows, private files, PackageManager UID, and a same-signed v1-to-v2 update survived full runtime restarts. Storage integration remains PARTIAL/OPEN because permission and grant revocation, app-to-app isolation, BFE archive output, complete symlink coverage, and NTFS3 quota/accounting behavior remain unverified. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. Shared-storage core acceptance remains PASS. Later storage continuations added ordinary-session MediaStore reconciliation, deterministic ACL initialization, and persistent Android userdata. The SDK 35 probe's app-data paths resolve to the same live package inode, Android SQLite/WAL state and package identity survive restart, PackageManager update/uninstall/reinstall passed, two controlled packages showed the tested private-path isolation, and a persisted SAF grant was released with denial preserved after runtime restart. Storage integration remains PARTIAL/OPEN because dangerous runtime-permission grant/revocation, app-specific external storage, BFE archive output, comprehensive symlink behavior, and NTFS3 quota/accounting remain open. Canonical M4 also retains its separate audio, clipboard, notifications, and launcher-catalog gates. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -327,8 +327,8 @@ and database digest. These are bounded positive results for package lifecycle
 and the tested cross-app path boundary.
 
 The SDK 35 probe still reports `getExternalFilesDir(null) == null`; runtime
-permission grant/revocation, SAF grant revocation, comprehensive symlink
-behavior, and precise storage accounting remain open. The original BFE archive
+permission grant/revocation, comprehensive symlink behavior, and precise
+storage accounting remain open. The original BFE archive
 library is confirmed present as ELF64 AArch64 in the unchanged APK, but no
 runtime loader trace exists yet; compression/extraction remain unverified.
 Shared-storage integration therefore remains `PARTIAL/OPEN`, and canonical M4
@@ -344,3 +344,19 @@ At shutdown, the Settings presenter reported 92 imports/92 releases and zero
 outstanding buffers; the Contacts presenter reported 64/64 and zero
 outstanding. These are focused smoke regressions, not a full M2 acceptance
 campaign. The Python suite passed 287 tests with no skips.
+
+### Persisted SAF permission release (2026-11-05)
+
+In session `m1b84_session_wpjfuelb`, the SDK 35 package released its persisted
+read/write grant for the existing host fixture through Android's
+`ContentResolver.releasePersistableUriPermission`; an immediate read failed
+with `SecurityException`. After a full AaaS runtime restart,
+`m1b84_session_gepio2q7` observed no remaining persisted grants and another
+read of the same existing URI failed with `SecurityException`. The storage
+fixture still existed throughout. Runtime dangerous-permission grant and
+revocation, Android-facing symlinks, app-specific external storage, and exact
+NTFS3 per-package accounting remain open; storage integration remains
+`PARTIAL/OPEN`.
+
+The final focused run after adding the persisted-grant revocation regression
+passed 288 Python tests with no skips.

@@ -591,10 +591,12 @@ after Android stopped.
 The Settings session `m1b84_session_lkcrtzq5` confirmed BFE's all-files access
 toggle was off before clean runtime shutdown. Logcat hashes and session
 references are recorded in the 2026-11-05 continuation in
-[`acceptance.json`](../../results/m4/acceptance.json). Package uninstall and
-reinstall, runtime-permission lifecycle, SAF grant revocation, cross-app
-private-data isolation, Android storage accounting, and the full Android-facing
-symlink matrix remain unverified; shared-storage integration remains
+[`acceptance.json`](../../results/m4/acceptance.json). At the time of this BFE
+archive attempt, package uninstall/reinstall, runtime-permission lifecycle,
+SAF grant revocation, and cross-app private-data isolation had not yet been
+tested. Later continuations verified the package lifecycle, SAF grant release,
+and a bounded cross-app path boundary; runtime permissions and the complete
+Android-facing symlink matrix remain open. Shared-storage integration remains
 `PARTIAL/OPEN`.
 
 ### Package isolation, lifecycle, and loader follow-up (2026-11-05)
@@ -635,8 +637,11 @@ to the generated runner. A normal-session uninstall recorded its success in
 `AAAS_USER_APK_ABSENCE_OK`. This repairs observability and makes lifecycle
 failure checks auditable; it does not itself change Android storage behavior.
 
-Runtime permission request/revocation, persisted SAF grant release, a complete
-Android FUSE/DocumentsUI symlink matrix, and exact NTFS3 package accounting
-remain unverified. See the distinct live test sessions and hashes in
+Runtime permission request/revocation, a complete Android FUSE/DocumentsUI
+symlink matrix, and exact NTFS3 package accounting remain unverified. The
+previously persisted SDK 35 SAF grant was explicitly released, a read of the
+still-existing host fixture was denied with `SecurityException`, and the
+denial plus empty persisted-grant list survived a complete runtime restart.
+See the distinct live test sessions and hashes in
 [`acceptance.json`](../../results/m4/acceptance.json); overall storage
 integration remains `PARTIAL/OPEN`.

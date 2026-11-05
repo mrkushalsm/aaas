@@ -256,10 +256,9 @@ digests, and the same database integrity and digest. This directly confirms
 that the previously accepted Android state survived the external-volume
 incident and post-repair runtime restart.
 
-This continuation did not uninstall/reinstall packages, revoke runtime or
-SAF permissions, or test cross-package private-data access. Those acceptance
-gates remain open; the recovery run does not upgrade the overall userdata
-reliability classification.
+The post-repair recovery run did not itself uninstall/reinstall packages,
+revoke runtime permissions, or test cross-package private-data access; those
+gates were addressed in later, separately recorded continuations below.
 
 ### Package lifecycle and app-private isolation follow-up (2026-11-05)
 
@@ -306,7 +305,24 @@ a pass. StorageStatsManager returned package totals (`app=53248`, `data=16384`,
 `cache=0`) that did not precisely track the tiny private cache fixture; treat
 these as approximate accounting on NTFS3, not quota enforcement or exact
 allocation. Runtime permission and persisted SAF-grant revocation were not
-exercised in this continuation.
+exercised in the package-isolation sessions.
+
+### Persisted SAF grant revocation (2026-11-05)
+
+The existing SDK 35 package `org.aaas.storagetest` had a previously accepted
+persistable read grant for
+`content://com.android.externalstorage.documents/document/primary%3ADownload%2F000-host-read.txt`.
+The host fixture existed and matched SHA-256
+`4a077084728a18f2627f1f67d48820de9a0aea0e8b14179d1f704b5707b89213`. A same-
+signed ordinary PackageManager update to version 6 enabled the controlled
+revocation diagnostic. In session `m1b84_session_wpjfuelb`, Android reported
+the persisted grant, `releasePersistableUriPermission` removed it, and a
+ContentResolver read of the still-existing file failed with
+`SecurityException`. After a full AaaS runtime restart, session
+`m1b84_session_gepio2q7` reported zero persisted grants and the saved URI again
+failed with `SecurityException`. This verifies Android grant state and denial,
+not just removal of an app preference. Runtime dangerous-permission grant and
+revocation remain untested.
 
 - NTFS3 rejects Android project-quota xattrs and SELinux label xattrs. Ordinary
   package operation and SAF passed, but quota/statistics correctness is not
