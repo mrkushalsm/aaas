@@ -321,8 +321,11 @@ ContentResolver read of the still-existing file failed with
 `SecurityException`. After a full AaaS runtime restart, session
 `m1b84_session_gepio2q7` reported zero persisted grants and the saved URI again
 failed with `SecurityException`. This verifies Android grant state and denial,
-not just removal of an app preference. Runtime dangerous-permission grant and
-revocation remain untested.
+not just removal of an app preference. A follow-up same-signed v7 diagnostic
+update retained UID `10150`; session `m1b84_session_s5ggejqi` again observed
+the URI denied and zero persisted grants. The revocation probe now records and
+tests only its first URI and will not release any later grant on subsequent
+launches. Runtime dangerous-permission grant and revocation remain untested.
 
 - NTFS3 rejects Android project-quota xattrs and SELinux label xattrs. Ordinary
   package operation and SAF passed, but quota/statistics correctness is not
