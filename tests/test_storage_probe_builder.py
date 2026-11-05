@@ -164,6 +164,55 @@ class StorageProbeBuilderTests(unittest.TestCase):
                     build_probe.main()
             self.assertEqual(error.exception.code, 2)
 
+    def test_symlink_probe_bakes_shared_path_and_content_resolver_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apktool = root / 'apktool.jar'
+            keystore = root / 'probe.keystore'
+            apksig = root / 'apksig.jar'
+            dx = root / 'dx.jar'
+            output = root / 'probe.apk'
+            for path in (apktool, keystore, apksig, dx):
+                path.write_bytes(b'fixture')
+            compiled_sources = []
+
+            def run(command):
+                if command[1:4] == ['-jar', str(apktool), 'b']:
+                    work = Path(command[-1])
+                    dex = work / 'build/apk/classes.dex'
+                    dex.parent.mkdir(parents=True)
+                    dex.write_bytes(b'dex fixture')
+                elif command[0] == 'javac':
+                    compiled_sources.append(Path(command[-1]).read_text())
+                elif command[0] == 'java' and 'ApkSign' in command:
+                    shutil.copyfile(command[-2], command[-1])
+                elif command[0] == 'java' and 'com.android.dx.command.Main' in command:
+                    output_arg = next(arg for arg in command if arg.startswith('--output='))
+                    Path(output_arg.split('=', 1)[1]).write_bytes(b'dex fixture')
+                else:
+                    self.fail(f'unexpected command: {command}')
+
+            probe_dir = '/storage/emulated/0/Documents/AaasSymlinkFixture'
+            argv = [
+                'build_probe.py', '--apktool', str(apktool), '--keystore', str(keystore),
+                '--apksig', str(apksig), '--dx', str(dx), '--package',
+                'org.aaas.symlinkprobe', '--target-sdk', '35', '--userdata-diagnostics',
+                '--symlink-probe-dir', probe_dir, '--output', str(output),
+            ]
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(build_probe, 'run', side_effect=run), \
+                    patch.object(build_probe, 'binary_manifest', return_value=b'manifest'), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(build_probe.main(), 0)
+
+            helper = next(source for source in compiled_sources
+                          if 'SYMLINK_PROBE_DIR' in source)
+            self.assertIn('SYMLINK_PROBE_DIR = "' + probe_dir + '"', helper)
+            self.assertIn('APP_SYMLINK_OPEN name=', helper)
+            self.assertIn('APP_SYMLINK_CONTENT_RESOLVER name=', helper)
+            self.assertIn('APP_SYMLINK_MEDIASTORE rows=', helper)
+            self.assertTrue(output.is_file())
+
 
 if __name__ == '__main__':
     unittest.main()

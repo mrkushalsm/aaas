@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.os.Process;
 import android.system.Os;
 import android.system.StructStat;
+import android.system.StructStatVfs;
 import android.util.Base64;
 import android.util.Log;
 
@@ -18,6 +19,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
@@ -29,6 +31,8 @@ public final class UserdataProbe {
     private static final boolean REQUEST_MEDIA_PERMISSION = false;
     private static final boolean RELEASE_PERSISTED_GRANTS = false;
     private static final String ISOLATION_TARGET_PACKAGE = "";
+    private static final boolean TEST_NATIVE_EXEC = false;
+    private static final String SYMLINK_PROBE_DIR = "";
 
     private UserdataProbe() {}
 
@@ -61,6 +65,9 @@ public final class UserdataProbe {
             logMountInfo();
             logExternalStorageState(context, "activity_start");
             scheduleExternalStorageChecks(context);
+            if (!SYMLINK_PROBE_DIR.isEmpty()) {
+                probeSharedStorageSymlinks(context);
+            }
 
             verifyAndWrite(new File(filesDir, "aaas-persistence.txt"),
                     PRIVATE_CONTENT, "internalFile");
@@ -76,6 +83,9 @@ public final class UserdataProbe {
 
             verifyDatabase(context, packageInfo.versionCode);
             logStorageStats(context, packageInfo.packageName);
+            if (TEST_NATIVE_EXEC) {
+                probeNativeExecutable(context);
+            }
             if (!ISOLATION_TARGET_PACKAGE.isEmpty()) {
                 probeOtherPackagePrivateData(ISOLATION_TARGET_PACKAGE);
             }
@@ -87,6 +97,160 @@ public final class UserdataProbe {
             }
         } catch (Throwable error) {
             Log.e(TAG, "USERDATA_PROBE_FAILED", error);
+        }
+    }
+
+    private static void probeSharedStorageSymlinks(Context context) {
+        String[] names = {"target.png", "relative.png", "absolute.png",
+                "dangling.png", "cycle-a.png", "cycle-b.png", "host-only.png",
+                "private.png", "other-private.png"};
+        for (String name : names) {
+            File candidate = new File(SYMLINK_PROBE_DIR, name);
+            try (FileInputStream input = new FileInputStream(candidate)) {
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] buffer = new byte[4096];
+                int count;
+                long bytes = 0;
+                while ((count = input.read(buffer)) >= 0) {
+                    digest.update(buffer, 0, count);
+                    bytes += count;
+                }
+                record("APP_SYMLINK_OPEN name=" + name + " result=READ bytes=" + bytes
+                        + " sha256=" + hex(digest.digest()));
+            } catch (Throwable error) {
+                Throwable cause = error;
+                while (cause.getCause() != null && cause.getCause() != cause) {
+                    cause = cause.getCause();
+                }
+                record("APP_SYMLINK_OPEN name=" + name + " result=DENIED exception="
+                        + cause.getClass().getSimpleName() + " message="
+                        + String.valueOf(cause.getMessage()).replace('\n', ' '));
+            }
+        }
+        try {
+            Object resolver = context.getClass().getMethod("getContentResolver").invoke(context);
+            Class<?> uriClass = Class.forName("android.net.Uri");
+            Object uri = uriClass.getMethod("parse", String.class).invoke(null,
+                    "content://media/external_primary/images/media");
+            String[] projection = {"_id", "_display_name"};
+            Object cursor = resolver.getClass().getMethod("query", uriClass, String[].class,
+                    String.class, String[].class, String.class).invoke(resolver, uri,
+                    projection, "_display_name IN (?, ?, ?, ?, ?, ?, ?, ?)",
+                    new String[]{"relative.png", "absolute.png", "dangling.png",
+                            "cycle-a.png", "cycle-b.png", "host-only.png", "private.png",
+                            "other-private.png"}, null);
+            int rows = cursor == null ? -1 : (Integer) cursor.getClass()
+                    .getMethod("getCount").invoke(cursor);
+            record("APP_SYMLINK_MEDIASTORE rows=" + rows);
+            if (cursor != null) {
+                Method move = cursor.getClass().getMethod("moveToNext");
+                Method getLong = cursor.getClass().getMethod("getLong", int.class);
+                Method getString = cursor.getClass().getMethod("getString", int.class);
+                Method open = resolver.getClass().getMethod("openInputStream", uriClass);
+                while ((Boolean) move.invoke(cursor)) {
+                    long id = (Long) getLong.invoke(cursor, 0);
+                    String name = (String) getString.invoke(cursor, 1);
+                    Object itemUri = uriClass.getMethod("parse", String.class).invoke(null,
+                            "content://media/external_primary/images/media/" + id);
+                    try (java.io.InputStream input = (java.io.InputStream) open.invoke(
+                            resolver, itemUri)) {
+                        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                        byte[] buffer = new byte[4096];
+                        int count;
+                        long bytes = 0;
+                        while ((count = input.read(buffer)) >= 0) {
+                            digest.update(buffer, 0, count);
+                            bytes += count;
+                        }
+                        record("APP_SYMLINK_CONTENT_RESOLVER name=" + name + " id=" + id
+                                + " result=READ bytes=" + bytes + " sha256="
+                                + hex(digest.digest()));
+                    } catch (Throwable itemError) {
+                        Throwable cause = itemError instanceof InvocationTargetException
+                                ? ((InvocationTargetException) itemError).getCause() : itemError;
+                        record("APP_SYMLINK_CONTENT_RESOLVER name=" + name + " id=" + id
+                                + " result=DENIED exception=" + cause.getClass().getSimpleName()
+                                + " message=" + String.valueOf(cause.getMessage())
+                                .replace('\n', ' '));
+                    }
+                }
+                cursor.getClass().getMethod("close").invoke(cursor);
+            }
+        } catch (Throwable error) {
+            Throwable cause = error instanceof InvocationTargetException
+                    ? ((InvocationTargetException) error).getCause() : error;
+            record("APP_SYMLINK_MEDIASTORE error=" + cause.getClass().getSimpleName()
+                    + ":" + cause.getMessage());
+        }
+    }
+
+    private static String hex(byte[] bytes) {
+        StringBuilder value = new StringBuilder(bytes.length * 2);
+        for (byte item : bytes) value.append(String.format(Locale.ROOT, "%02x", item & 0xff));
+        return value.toString();
+    }
+
+    private static void probeNativeExecutable(Context context) {
+        File executable = new File(context.getApplicationInfo().nativeLibraryDir,
+                "lib7zz.so");
+        record("NATIVE_EXEC_PATH=" + executable.getAbsolutePath()
+                + " exists=" + executable.exists()
+                + " canExecute=" + executable.canExecute());
+        try {
+            StructStat fileStat = Os.stat(executable.getAbsolutePath());
+            record("NATIVE_EXEC_STAT mode=" + Integer.toOctalString(fileStat.st_mode)
+                    + " uid=" + fileStat.st_uid + " gid=" + fileStat.st_gid
+                    + " dev=" + fileStat.st_dev + " ino=" + fileStat.st_ino);
+        } catch (Throwable error) {
+            record("NATIVE_EXEC_STAT_FAILED=" + error);
+        }
+        File bridgeRunner = new File("/system/bin/berberis_program_runner_binfmt_misc_arm64");
+        record("NATIVE_EXEC_RUNNER exists=" + bridgeRunner.exists()
+                + " canExecute=" + bridgeRunner.canExecute());
+        for (String path : new String[]{executable.getAbsolutePath(), "/system/bin/toybox",
+                bridgeRunner.getAbsolutePath()}) {
+            try {
+                StructStatVfs vfs = Os.statvfs(path);
+                record("NATIVE_EXEC_STATVFS path=" + path + " flags=" + vfs.f_flag
+                        + " blockSize=" + vfs.f_frsize);
+            } catch (Throwable error) {
+                record("NATIVE_EXEC_STATVFS_FAILED path=" + path + " error=" + error);
+            }
+        }
+        runProcess("SYSTEM_EXEC", new String[]{"/system/bin/toybox", "true"});
+        runProcess("NATIVE_RUNNER_EXEC", new String[]{bridgeRunner.getAbsolutePath()});
+        runProcess("NATIVE_EXEC", new String[]{executable.getAbsolutePath(), "--help"});
+    }
+
+    private static void runProcess(String label, String[] command) {
+        java.lang.Process child = null;
+        try {
+            ProcessBuilder builder = new ProcessBuilder(command)
+                    .redirectErrorStream(true);
+            if (command.length > 0 && command[0].endsWith("lib7zz.so")) {
+                String libraryDir = new File(command[0]).getParent();
+                builder.environment().put("LD_LIBRARY_PATH", libraryDir);
+            }
+            child = builder.start();
+            BufferedReader output = new BufferedReader(new InputStreamReader(
+                    child.getInputStream(), StandardCharsets.UTF_8));
+            StringBuilder firstLines = new StringBuilder();
+            for (int i = 0; i < 8; i++) {
+                String line = output.readLine();
+                if (line == null) break;
+                if (firstLines.length() > 0) firstLines.append(" | ");
+                firstLines.append(line);
+            }
+            boolean completed = child.waitFor(5, TimeUnit.SECONDS);
+            if (!completed) child.destroyForcibly();
+            record(label + "_RESULT completed=" + completed
+                    + " exit=" + (completed ? child.exitValue() : "timeout")
+                    + " output=" + firstLines);
+        } catch (Throwable error) {
+            record(label + "_FAILURE=" + error.getClass().getName()
+                    + ":" + error.getMessage());
+        } finally {
+            if (child != null) child.destroy();
         }
     }
 

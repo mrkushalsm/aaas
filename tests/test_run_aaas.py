@@ -113,12 +113,16 @@ class NativeBridgeOverlayTests(unittest.TestCase):
         import hashlib
         bundle = Path(root) / 'bundle'
         required = {
+            'system/bin/berberis_program_runner_arm64': b'arm64 runner',
+            'system/bin/berberis_program_runner_binfmt_misc_arm64': b'binfmt runner',
             'system/lib64/libberberis_arm64.so': b'host translator',
             'system/lib64/libberberis_exec_region.so': b'exec region',
-            'system/etc/ld.config.arm64.txt': b'guest linker config',
+            'system/etc/ld.config.arm64.txt': b'[system]\nnamespace.default.permitted.paths += /system/${LIB}/arm64/bootstrap\n',
+            'system/etc/binfmt_misc/arm64_exe': b':arm64_exe:M::ELF::/system/bin/berberis_program_runner_binfmt_misc_arm64:P\n',
+            'system/etc/binfmt_misc/arm64_dyn': b':arm64_dyn:M::ELF::/system/bin/berberis_program_runner_binfmt_misc_arm64:P\n',
             'system/lib64/arm64/libc.so': b'guest libc',
         }
-        for index in range(70):
+        for index in range(66):
             required[f'system/lib64/libproxy{index}.so'] = f'proxy {index}'.encode()
         lines = []
         for name, data in sorted(required.items()):
@@ -156,6 +160,11 @@ class NativeBridgeOverlayTests(unittest.TestCase):
             self.assertIn('ro.enable.native.bridge.exec=0', props)
             self.assertIn(f'--ro-bind "{overlay / "system/lib64"}" /system/lib64', generated)
             self.assertTrue((overlay / 'system/lib64/libberberis_arm64.so').is_file())
+            runner = overlay / 'system/bin/berberis_program_runner_binfmt_misc_arm64'
+            self.assertEqual(runner.stat().st_mode & 0o777, 0o755)
+            provenance = json.loads((session / 'native-bridge-config.json').read_text())
+            self.assertEqual(provenance['executable_mode_repairs']['bin/berberis_program_runner_binfmt_misc_arm64'],
+                             '0o755')
             self.assertEqual((base / 'build.prop').read_text(),
                              'ro.dalvik.vm.native.bridge=0\nro.product.cpu.abi=x86_64\n')
 
@@ -180,6 +189,37 @@ class NativeBridgeOverlayTests(unittest.TestCase):
             self.assertIn('ro.product.cpu.abi=x86_64', props)
             self.assertEqual((base / 'build.prop').read_text(), 'ro.product.cpu.abi=x86_64\n')
 
+    def test_native_executable_translation_is_explicitly_opt_in(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = self._bundle(root)
+            base = root / 'rootfs/rootfs_m1b1/system'
+            for subtree in ('bin', 'etc', 'lib64'):
+                (base / subtree).mkdir(parents=True)
+            (base / 'build.prop').write_text('ro.product.cpu.abi=x86_64\n')
+            session = root / 'session'
+            session.mkdir()
+            with patch.object(SESSION, 'TMP', root), \
+                    patch.object(SESSION, 'WORKSPACE', root / 'rootfs'):
+                verified, entries = SESSION.validate_native_bridge_bundle(bundle)
+                overlay = SESSION.prepare_native_bridge_overlay(
+                    verified, entries, session, native_exec=True)
+            self.assertIn('ro.enable.native.bridge.exec=1',
+                          (overlay / 'system/build.prop').read_text())
+            provenance = json.loads((session / 'native-bridge-config.json').read_text())
+            self.assertEqual(provenance['properties']['ro.enable.native.bridge.exec'], '1')
+            wrapper = overlay / 'system/bin/aaas_berberis_exec_wrapper_arm64'
+            self.assertEqual(wrapper.stat().st_mode & 0o777, 0o755)
+            self.assertIn('2>>/aaas_native_exec.log', wrapper.read_text())
+            self.assertIn('LD_LIBRARY_PATH=%s', wrapper.read_text())
+            self.assertNotIn('LD_DEBUG', wrapper.read_text())
+            self.assertIn('/system/bin/aaas_berberis_exec_wrapper_arm64',
+                          (overlay / 'system/etc/binfmt_misc/arm64_dyn').read_text())
+            self.assertIn('namespace.default.permitted.paths += /data/app',
+                          (overlay / 'system/etc/ld.config.arm64.txt').read_text())
+            self.assertNotIn('namespace.default.permitted.paths += /data/app',
+                             (verified / 'system/etc/ld.config.arm64.txt').read_text())
+
     def test_rejects_checksum_mismatch_and_path_traversal(self):
         with tempfile.TemporaryDirectory() as directory:
             bundle = self._bundle(directory)
@@ -188,6 +228,57 @@ class NativeBridgeOverlayTests(unittest.TestCase):
                 artifact.write_bytes(b'tampered')
                 with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
                     SESSION.validate_native_bridge_bundle(bundle)
+
+    def test_native_exec_dependency_is_session_local_and_arch_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = self._bundle(root)
+            base = root / 'rootfs/rootfs_m1b1/system'
+            for subtree in ('bin', 'etc', 'lib64'):
+                (base / subtree).mkdir(parents=True)
+            (base / 'build.prop').write_text('ro.product.cpu.abi=x86_64\n')
+            apk_path = root / 'source.apk'
+            elf = bytearray(20)
+            elf[:6] = b'\x7fELF\x02\x01'
+            elf[18:20] = (183).to_bytes(2, 'little')
+            with zipfile.ZipFile(apk_path, 'w') as apk:
+                apk.writestr('lib/arm64-v8a/libc++_shared.so', elf)
+            session = root / 'session'
+            session.mkdir()
+            with patch.object(SESSION, 'TMP', root), \
+                    patch.object(SESSION, 'WORKSPACE', root / 'rootfs'):
+                verified, entries = SESSION.validate_native_bridge_bundle(bundle)
+                overlay = SESSION.prepare_native_bridge_overlay(
+                    verified, entries, session, native_exec=True,
+                    native_exec_library_apk=apk_path)
+            staged = overlay / 'system/lib64/arm64/libc++_shared.so'
+            self.assertEqual(staged.read_bytes(), bytes(elf))
+            provenance = json.loads((session / 'native-bridge-config.json').read_text())
+            self.assertEqual(provenance['guest_exec_library']['target'],
+                             '/system/lib64/arm64/libc++_shared.so')
+            self.assertEqual((base / 'build.prop').read_text(),
+                             'ro.product.cpu.abi=x86_64\n')
+
+    def test_native_exec_dependency_rejects_non_arm64_library(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = self._bundle(root)
+            base = root / 'rootfs/rootfs_m1b1/system'
+            for subtree in ('bin', 'etc', 'lib64'):
+                (base / subtree).mkdir(parents=True)
+            (base / 'build.prop').write_text('ro.product.cpu.abi=x86_64\n')
+            apk_path = root / 'source.apk'
+            with zipfile.ZipFile(apk_path, 'w') as apk:
+                apk.writestr('lib/arm64-v8a/libc++_shared.so', b'not arm64')
+            session = root / 'session'
+            session.mkdir()
+            with patch.object(SESSION, 'TMP', root), \
+                    patch.object(SESSION, 'WORKSPACE', root / 'rootfs'):
+                verified, entries = SESSION.validate_native_bridge_bundle(bundle)
+                with self.assertRaisesRegex(ValueError, 'not AArch64 ELF'):
+                    SESSION.prepare_native_bridge_overlay(
+                        verified, entries, session, native_exec=True,
+                        native_exec_library_apk=apk_path)
 
 
 class DiagnosticApkNativeLibraryTests(unittest.TestCase):

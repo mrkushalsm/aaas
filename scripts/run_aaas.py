@@ -111,7 +111,8 @@ def validate_native_bridge_bundle(path):
     return bundle, entries
 
 
-def prepare_native_bridge_overlay(bundle, entries, session, arm64_first=False):
+def prepare_native_bridge_overlay(bundle, entries, session, arm64_first=False,
+                                  native_exec=False, native_exec_library_apk=None):
     rootfs_system = WORKSPACE / 'rootfs_m1b1/system'
     overlay_system = session / 'native_bridge_overlay/system'
     for subtree in ('bin', 'etc', 'lib64'):
@@ -124,6 +125,64 @@ def prepare_native_bridge_overlay(bundle, entries, session, arm64_first=False):
         if target.exists() or target.is_symlink():
             target.unlink()
         shutil.copy2(source, target)
+        if (len(parts) == 3 and parts[0] == 'system' and parts[1] == 'bin'
+                and parts[2] in {'berberis_program_runner_arm64',
+                                 'berberis_program_runner_binfmt_misc_arm64'}):
+            target.chmod(target.stat().st_mode | 0o111)
+
+    executable_wrapper = None
+    if native_exec:
+        executable_wrapper = overlay_system / 'bin/aaas_berberis_exec_wrapper_arm64'
+        executable_wrapper.write_text(
+            '#!/system/bin/sh\n'
+            '# Keep app ARM64 library paths away from the x86_64 runner linker.\n'
+            'printf "LD_LIBRARY_PATH=%s\\nprogram=%s\\n" '
+            '"$LD_LIBRARY_PATH" "$1" >> /aaas_native_exec.log\n'
+            'LD_LIBRARY_PATH="/system/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"\n'
+            'export LD_LIBRARY_PATH\n'
+            'echo "=== ARM64 executable dispatch ===" >> /aaas_native_exec.log\n'
+            'exec /system/bin/berberis_program_runner_binfmt_misc_arm64 "$@" '
+            '2>>/aaas_native_exec.log\n')
+        executable_wrapper.chmod(0o755)
+        guest_linker_config = overlay_system / 'etc/ld.config.arm64.txt'
+        linker_text = guest_linker_config.read_text()
+        permitted_marker = (
+            'namespace.default.permitted.paths += /system/${LIB}/arm64/bootstrap')
+        if permitted_marker not in linker_text:
+            raise ValueError('ARM64 guest linker config lacks expected permitted path')
+        app_library_permission = 'namespace.default.permitted.paths += /data/app'
+        if app_library_permission not in linker_text:
+            linker_text = linker_text.replace(
+                permitted_marker, permitted_marker + '\n' + app_library_permission)
+            guest_linker_config.write_text(linker_text)
+        for name in ('arm64_exe', 'arm64_dyn'):
+            registration = overlay_system / 'etc/binfmt_misc' / name
+            if not registration.is_file():
+                raise ValueError(f'Native Bridge bundle is missing binfmt registration {name}')
+            registration_text = registration.read_text()
+            expected = '/system/bin/berberis_program_runner_binfmt_misc_arm64'
+            if expected not in registration_text:
+                raise ValueError(f'unrecognized ARM64 binfmt registration {name}')
+            registration.write_text(registration_text.replace(
+                expected, '/system/bin/aaas_berberis_exec_wrapper_arm64'))
+
+    native_exec_library = None
+    if native_exec_library_apk is not None:
+        if not native_exec:
+            raise ValueError('native executable libraries require native executable mode')
+        apk_path = Path(native_exec_library_apk).resolve(strict=True)
+        with zipfile.ZipFile(apk_path) as apk:
+            try:
+                library = apk.read('lib/arm64-v8a/libc++_shared.so')
+            except KeyError as error:
+                raise ValueError('native executable APK lacks arm64-v8a/libc++_shared.so') from error
+        if not library.startswith(b'\x7fELF') or library[18:20] != (183).to_bytes(2, 'little'):
+            raise ValueError('native executable libc++_shared.so is not AArch64 ELF')
+        native_exec_library = overlay_system / 'lib64/arm64/libc++_shared.so'
+        if native_exec_library.exists():
+            raise ValueError('guest ARM64 system already contains libc++_shared.so')
+        native_exec_library.write_bytes(library)
+        native_exec_library.chmod(0o644)
 
     original_props = rootfs_system / 'build.prop'
     text = original_props.read_text()
@@ -131,7 +190,7 @@ def prepare_native_bridge_overlay(bundle, entries, session, arm64_first=False):
     overrides = {
         'ro.dalvik.vm.native.bridge': 'libberberis_arm64.so',
         'ro.dalvik.vm.isa.arm64': 'x86_64',
-        'ro.enable.native.bridge.exec': '0',
+        'ro.enable.native.bridge.exec': '1' if native_exec else '0',
         'ro.product.cpu.abilist': abi_order,
         'ro.product.cpu.abilist64': abi_order,
         'ro.system.product.cpu.abilist': abi_order,
@@ -150,6 +209,24 @@ def prepare_native_bridge_overlay(bundle, entries, session, arm64_first=False):
         'checksum_manifest_sha256': sha256(bundle / 'SHA256SUMS'),
         'artifacts': {str(relative): sha256(source) for relative, source in entries},
         'properties': overrides,
+        'executable_mode_repairs': {
+            name: oct((overlay_system / name).stat().st_mode & 0o777)
+            for name in ('bin/berberis_program_runner_arm64',
+                         'bin/berberis_program_runner_binfmt_misc_arm64')
+            if (overlay_system / name).is_file()
+        },
+        'executable_wrapper': ({
+            'path': '/system/bin/aaas_berberis_exec_wrapper_arm64',
+            'mode': oct(executable_wrapper.stat().st_mode & 0o777),
+            'behavior': 'prefix /system/lib64 before app LD_LIBRARY_PATH for host runner',
+        } if executable_wrapper else None),
+        'guest_linker_permitted_path': '/data/app' if native_exec else None,
+        'guest_exec_library': ({
+            'source_apk_sha256': sha256(native_exec_library_apk),
+            'target': '/system/lib64/arm64/libc++_shared.so',
+            'sha256': sha256(native_exec_library),
+            'scope': 'diagnostic session overlay only',
+        } if native_exec_library else None),
         'integration': 'session-local hard-link merge; Android base image unchanged',
     }
     provenance_path = Path(session) / 'native-bridge-config.json'
@@ -578,7 +655,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         diagnostic_storage_apk=None,
                         diagnostic_storage_open=False, install_apk=None,
                         uninstall_package=None, assert_package_absent=None,
-                        storage_scan_apk=None, persistent_userdata_dir=None):
+                        storage_scan_apk=None, persistent_userdata_dir=None,
+                        native_bridge_exec=False):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -639,6 +717,13 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             f'  --ro-bind "{overlay / "system/lib64"}" /system/lib64 \\\n'
             f'  --ro-bind "{overlay / "system/build.prop"}" /system/build.prop \\\n'
         )
+        if native_bridge_exec:
+            native_exec_log = Path(session) / 'native-exec.log'
+            native_exec_log.touch(exist_ok=True)
+            native_exec_log.chmod(0o666)
+            native_bridge_binds += (
+                f'  --bind "{native_exec_log}" /aaas_native_exec.log \\\n'
+            )
     probe_apks = [(input_response_probe_apk, "AaasLatencyProbe")]
     if input_response_probe_apk2 is not None:
         if app_package2 is None:
@@ -748,6 +833,70 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    /system/bin/toybox ls -ld /data/media/0 '
             '/storage/emulated/0 /storage/emulated/0/Documents >> /aaas_session_commands 2>&1\n'
         )
+        if native_bridge_exec:
+            storage_probe += (
+                '    echo "=== ARM64 EXECUTION DISPATCH STATE ===" >> /aaas_session_commands\n'
+                '    /system/bin/getprop ro.enable.native.bridge.exec >> /aaas_session_commands 2>&1\n'
+                '    /system/bin/getprop ro.dalvik.vm.isa.arm64 >> /aaas_session_commands 2>&1\n'
+                '    /system/bin/toybox mount | /system/bin/toybox grep binfmt_misc '
+                '>> /aaas_session_commands 2>&1\n'
+                '    /system/bin/toybox ls -la /proc/sys/fs/binfmt_misc '
+                '>> /aaas_session_commands 2>&1\n'
+                '    for AAAS_BINFMT in arm64_exe arm64_dyn; do '
+                'if [ -r /proc/sys/fs/binfmt_misc/$AAAS_BINFMT ]; then '
+                'echo "--- $AAAS_BINFMT ---" >> /aaas_session_commands; '
+                '/system/bin/toybox cat /proc/sys/fs/binfmt_misc/$AAAS_BINFMT '
+                '>> /aaas_session_commands 2>&1; fi; done\n'
+            )
+            if app_package is not None:
+                package1 = shlex.quote(app_package)
+                storage_probe += (
+                    f'    echo "=== ARM64 EXECUTABLE PACKAGE {app_package} ===" '
+                    '>> /aaas_session_commands\n'
+                    f'    /system/bin/pm path --user 0 {package1} '
+                    '>> /aaas_session_commands 2>&1\n'
+                    f'    /system/bin/dumpsys package {package1} | '
+                    '/system/bin/toybox grep -E "primaryCpuAbi|nativeLibraryDir" '
+                    '>> /aaas_session_commands 2>&1\n'
+                    '    for AAAS_NATIVE_DIR in /data/app/*/com.the412banner.bfe*/lib/arm64; do\n'
+                    '      if [ -d "$AAAS_NATIVE_DIR" ]; then\n'
+                    '        /system/bin/toybox ls -la "$AAAS_NATIVE_DIR" '
+                    '>> /aaas_session_commands 2>&1\n'
+                    '        /system/bin/toybox stat -c "%A %a %u:%g %n" '
+                    '"$AAAS_NATIVE_DIR/lib7zz.so" '
+                    '>> /aaas_session_commands 2>&1\n'
+                    '        /system/bin/toybox stat -c "%A %a %u:%g %n" '
+                    '"$AAAS_NATIVE_DIR/libc++_shared.so" '
+                    '>> /aaas_session_commands 2>&1\n'
+                    '      fi\n'
+                    '    done\n'
+
+                )
+            if app_package2 is not None:
+                package2 = shlex.quote(app_package2)
+                storage_probe += (
+                    f'    echo "=== ARM64 EXECUTABLE PACKAGE {app_package2} ===" '
+                    '>> /aaas_session_commands\n'
+                    f'    /system/bin/pm path --user 0 {package2} '
+                    '>> /aaas_session_commands 2>&1\n'
+                    f'    /system/bin/dumpsys package {package2} | '
+                    '/system/bin/toybox grep -E "primaryCpuAbi|nativeLibraryDir" '
+                    '>> /aaas_session_commands 2>&1\n'
+                    f'    AAAS_APK_PATH=$(/system/bin/pm path --user 0 {package2} | '
+                    '/system/bin/toybox cut -d: -f2- | /system/bin/toybox dirname)\n'
+                    '    echo "APK_NATIVE_DIR=$AAAS_APK_PATH/lib/arm64" '
+                    '>> /aaas_session_commands\n'
+                    '    if [ -n "$AAAS_APK_PATH" ]; then\n'
+                    '      /system/bin/toybox ls -la "$AAAS_APK_PATH/lib/arm64" '
+                    '>> /aaas_session_commands 2>&1\n'
+                    '      /system/bin/toybox stat -c "%A %a %u:%g %n" '
+                    '"$AAAS_APK_PATH/lib/arm64/lib7zz.so" '
+                    '>> /aaas_session_commands 2>&1\n'
+                    '      /system/bin/toybox stat -c "%A %a %u:%g %n" '
+                    '"$AAAS_APK_PATH/lib/arm64/libc++_shared.so" '
+                    '>> /aaas_session_commands 2>&1\n'
+                    '    fi\n'
+                )
         if diagnostic_storage_apk is not None:
             storage_probe += (
                 '    echo "=== INSTALLING ORDINARY STORAGE DIAGNOSTIC APK ===" >> /aaas_session_commands\n'
@@ -2032,6 +2181,10 @@ def main():
                         help='hash-verified Android Native Bridge bundle for isolated ARM64 tests')
     parser.add_argument('--diagnostic-native-bridge-arm64-first', action='store_true',
                         help='prefer arm64-v8a when an APK contains multiple native ABIs')
+    parser.add_argument('--diagnostic-native-bridge-exec', action='store_true',
+                        help='opt in to session-local ARM64 ELF execution through Berberis binfmt_misc')
+    parser.add_argument('--diagnostic-native-exec-libraries-apk',
+                        help='session-local guest dependency overlay source APK (requires native exec)')
     parser.add_argument('--diagnostic-capture-app-tombstones', action='store_true',
                         help='opt in to private export of app crash tombstones for compatibility debugging')
     parser.add_argument('--resource-sample-interval', type=float, default=0.0,
@@ -2050,6 +2203,10 @@ def main():
             parser.error(str(error))
     elif args.diagnostic_native_bridge_arm64_first:
         parser.error('--diagnostic-native-bridge-arm64-first requires --diagnostic-native-bridge-overlay')
+    if args.diagnostic_native_bridge_exec and not args.diagnostic_native_bridge_overlay:
+        parser.error('--diagnostic-native-bridge-exec requires --diagnostic-native-bridge-overlay')
+    if args.diagnostic_native_exec_libraries_apk and not args.diagnostic_native_bridge_exec:
+        parser.error('--diagnostic-native-exec-libraries-apk requires --diagnostic-native-bridge-exec')
     if args.diagnostic_framework_overlay and not args.experimental_virtual_display:
         parser.error('--diagnostic-framework-overlay requires --experimental-virtual-display')
     if args.diagnostic_framework_sha256 and not args.diagnostic_framework_overlay:
@@ -2157,7 +2314,9 @@ def main():
     if native_bridge_bundle is not None:
         native_bridge_overlay = prepare_native_bridge_overlay(
             native_bridge_bundle, native_bridge_entries, session,
-            arm64_first=args.diagnostic_native_bridge_arm64_first)
+            arm64_first=args.diagnostic_native_bridge_arm64_first,
+            native_exec=args.diagnostic_native_bridge_exec,
+            native_exec_library_apk=args.diagnostic_native_exec_libraries_apk)
     bluetooth_policy_dir = session / 'bluetooth-policy'
     bluetooth_policy_manifest = aaas_bluetooth.create_unavailable_policy(
         WORKSPACE / 'rootfs_m1b1', bluetooth_policy_dir)
@@ -2291,7 +2450,8 @@ def main():
                                  uninstall_package=args.uninstall_package,
                                  assert_package_absent=args.assert_package_absent,
                                  storage_scan_apk=storage_scan_apk,
-                                 persistent_userdata_dir=persistent_userdata_path)
+                                 persistent_userdata_dir=persistent_userdata_path,
+                                 native_bridge_exec=args.diagnostic_native_bridge_exec)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(

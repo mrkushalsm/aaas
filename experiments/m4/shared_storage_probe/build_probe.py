@@ -46,6 +46,12 @@ def main() -> int:
                         help='release persisted URI grants and verify read denial')
     parser.add_argument('--isolation-target-package',
                         help='attempt bounded reads from another package private data')
+    parser.add_argument('--native-exec-library-apk', type=Path,
+                        help='local APK supplying arm64-v8a/lib7zz.so for an execution probe')
+    parser.add_argument('--probe-native-exec', action='store_true',
+                        help='execute the embedded ARM64 archive binary and log the exact result')
+    parser.add_argument('--symlink-probe-dir',
+                        help='run ordinary app file and MediaStore checks on synthetic PNG links')
     parser.add_argument('--dx', type=Path,
                         help='dx.jar required with --userdata-diagnostics')
     args = parser.parse_args()
@@ -61,6 +67,12 @@ def main() -> int:
         parser.error('--version-code must be positive')
     if args.userdata_diagnostics and args.dx is None:
         parser.error('--dx is required with --userdata-diagnostics')
+    if args.probe_native_exec and args.native_exec_library_apk is None:
+        parser.error('--probe-native-exec requires --native-exec-library-apk')
+    if args.symlink_probe_dir is not None and not args.userdata_diagnostics:
+        parser.error('--symlink-probe-dir requires --userdata-diagnostics')
+    if args.native_exec_library_apk is not None and not args.userdata_diagnostics:
+        parser.error('--native-exec-library-apk requires --userdata-diagnostics')
     if args.request_media_permission_on_launch and not args.userdata_diagnostics:
         parser.error('--request-media-permission-on-launch requires --userdata-diagnostics')
     source = Path(__file__).resolve().parent
@@ -116,19 +128,31 @@ def main() -> int:
                 'private static final String ISOLATION_TARGET_PACKAGE = "";',
                 'private static final String ISOLATION_TARGET_PACKAGE = '
                 f'"{args.isolation_target_package or ""}";', 1)
+            helper_text = helper_text.replace(
+                'private static final boolean TEST_NATIVE_EXEC = false;',
+                'private static final boolean TEST_NATIVE_EXEC = '
+                f'{str(args.probe_native_exec).lower()};', 1)
+            helper_text = helper_text.replace(
+                'private static final String SYMLINK_PROBE_DIR = "";',
+                'private static final String SYMLINK_PROBE_DIR = '
+                + (('"' + args.symlink_probe_dir.replace('\\', '\\\\')
+                     .replace('"', '\\"') + '"')
+                   if args.symlink_probe_dir is not None else '""') + ';', 1)
             compiled_helper = work / 'UserdataProbe.java'
             compiled_helper.write_text(helper_text)
             stubs = work / 'android-stubs'
             stub_sources = {
                 # Compile-only signatures; APK bytecode resolves against Android's runtime.
-                'android/content/Context.java': '''package android.content; import java.io.File; import android.content.pm.PackageManager; import android.database.sqlite.SQLiteDatabase; public class Context { public static final int MODE_PRIVATE=0; public PackageManager getPackageManager(){return null;} public String getPackageName(){return null;} public File getDataDir(){return null;} public File getFilesDir(){return null;} public File getCacheDir(){return null;} public File getDatabasePath(String n){return null;} public File getExternalFilesDir(String t){return null;} public Context createDeviceProtectedStorageContext(){return null;} public SQLiteDatabase openOrCreateDatabase(String n,int m,SQLiteDatabase.CursorFactory f){return null;} }''',
+                'android/content/Context.java': '''package android.content; import java.io.File; import android.content.pm.ApplicationInfo; import android.content.pm.PackageManager; import android.database.sqlite.SQLiteDatabase; public class Context { public static final int MODE_PRIVATE=0; public PackageManager getPackageManager(){return null;} public ApplicationInfo getApplicationInfo(){return null;} public String getPackageName(){return null;} public File getDataDir(){return null;} public File getFilesDir(){return null;} public File getCacheDir(){return null;} public File getDatabasePath(String n){return null;} public File getExternalFilesDir(String t){return null;} public Context createDeviceProtectedStorageContext(){return null;} public SQLiteDatabase openOrCreateDatabase(String n,int m,SQLiteDatabase.CursorFactory f){return null;} }''',
                 'android/content/pm/PackageManager.java': '''package android.content.pm; public class PackageManager { public PackageInfo getPackageInfo(String n,int f){return null;} }''',
+                'android/content/pm/ApplicationInfo.java': '''package android.content.pm; public class ApplicationInfo { public String nativeLibraryDir; }''',
                 'android/content/pm/PackageInfo.java': '''package android.content.pm; public class PackageInfo { public int versionCode; public String packageName; }''',
-                'android/database/Cursor.java': '''package android.database; public interface Cursor extends AutoCloseable { boolean moveToNext(); boolean moveToFirst(); int getInt(int c); String getString(int c); void close(); }''',
+                'android/database/Cursor.java': '''package android.database; public interface Cursor extends AutoCloseable { boolean moveToNext(); boolean moveToFirst(); int getInt(int c); long getLong(int c); String getString(int c); void close(); }''',
                 'android/database/sqlite/SQLiteDatabase.java': '''package android.database.sqlite; import android.database.Cursor; public class SQLiteDatabase { public interface CursorFactory {} public boolean enableWriteAheadLogging(){return false;} public void execSQL(String s){} public int getVersion(){return 0;} public void setVersion(int v){} public void beginTransaction(){} public void setTransactionSuccessful(){} public void endTransaction(){} public Cursor rawQuery(String s,String[] a){return null;} public String getPath(){return null;} public boolean isWriteAheadLoggingEnabled(){return false;} public void close(){} }''',
                 'android/os/Process.java': '''package android.os; public class Process { public static int myUid(){return 0;} }''',
                 'android/system/StructStat.java': '''package android.system; public class StructStat { public long st_dev,st_ino; public int st_uid,st_gid,st_mode; }''',
-                'android/system/Os.java': '''package android.system; public class Os { public static StructStat stat(String p){return null;} }''',
+                'android/system/StructStatVfs.java': '''package android.system; public class StructStatVfs { public long f_bsize,f_frsize,f_blocks,f_bfree,f_bavail,f_files,f_ffree,f_favail,f_fsid,f_flag,f_namemax; }''',
+                'android/system/Os.java': '''package android.system; public class Os { public static StructStat stat(String p){return null;} public static StructStatVfs statvfs(String p){return null;} }''',
                 'android/util/Base64.java': '''package android.util; public class Base64 { public static final int NO_WRAP=2; public static String encodeToString(byte[] b,int f){return null;} }''',
                 'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} public static int e(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }''',
             }
@@ -153,6 +177,18 @@ def main() -> int:
             apk.write(dex, 'classes.dex')
             if extra_dex is not None:
                 apk.write(extra_dex, 'classes2.dex')
+            if args.native_exec_library_apk is not None:
+                required = ('lib/arm64-v8a/lib7zz.so',
+                            'lib/arm64-v8a/libc++_shared.so')
+                with zipfile.ZipFile(args.native_exec_library_apk.resolve(strict=True)) as source_apk:
+                    names = set(source_apk.namelist())
+                    missing = [name for name in required if name not in names]
+                    if missing:
+                        raise ValueError('native execution probe APK lacks: '
+                                         + ', '.join(missing))
+                    for name in required:
+                        apk.writestr(name, source_apk.read(name),
+                                     compress_type=zipfile.ZIP_STORED)
         if args.apksig is None:
             run(['jarsigner', '-keystore', str(args.keystore), '-storepass', 'android',
                  '-keypass', 'android', '-sigalg', 'SHA256withRSA', '-digestalg',
