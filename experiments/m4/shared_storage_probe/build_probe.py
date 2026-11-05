@@ -61,6 +61,8 @@ def main() -> int:
         parser.error('--version-code must be positive')
     if args.userdata_diagnostics and args.dx is None:
         parser.error('--dx is required with --userdata-diagnostics')
+    if args.request_media_permission_on_launch and not args.userdata_diagnostics:
+        parser.error('--request-media-permission-on-launch requires --userdata-diagnostics')
     source = Path(__file__).resolve().parent
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='aaas-storage-apk-') as temp:
@@ -78,6 +80,9 @@ def main() -> int:
                     raise RuntimeError('could not find ProbeActivity onCreate injection point')
                 text = text.replace(anchor, anchor +
                     f'    invoke-static {{p0}}, L{args.package.replace(".", "/")}/UserdataProbe;->run(Landroid/content/Context;)V\n', 1)
+                if args.request_media_permission_on_launch:
+                    call = f'    invoke-static {{p0}}, L{args.package.replace(".", "/")}/UserdataProbe;->run(Landroid/content/Context;)V\n'
+                    text = text.replace(call, call + '    return-void\n', 1)
             smali_file.write_text(text)
         manifest = binary_manifest(
             args.package, target_sdk=args.target_sdk, requested_permissions=PERMISSIONS,

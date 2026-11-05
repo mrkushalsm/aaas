@@ -94,6 +94,76 @@ class StorageProbeBuilderTests(unittest.TestCase):
             self.assertIn('aaas-saf-revocation-uri.txt', helper)
             self.assertTrue(output.is_file())
 
+    def test_runtime_media_permission_probe_builds_api_query_callback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apktool = root / 'apktool.jar'
+            keystore = root / 'probe.keystore'
+            apksig = root / 'apksig.jar'
+            dx = root / 'dx.jar'
+            output = root / 'probe.apk'
+            for path in (apktool, keystore, apksig, dx):
+                path.write_bytes(b'fixture')
+            compiled_sources = []
+
+            def run(command):
+                if command[1:4] == ['-jar', str(apktool), 'b']:
+                    work = Path(command[-1])
+                    dex = work / 'build/apk/classes.dex'
+                    dex.parent.mkdir(parents=True)
+                    dex.write_bytes(b'dex fixture')
+                elif command[0] == 'javac':
+                    source = Path(command[-1])
+                    compiled_sources.append(source.read_text())
+                elif command[0] == 'java' and 'ApkSign' in command:
+                    shutil.copyfile(command[-2], command[-1])
+                elif command[0] == 'java' and 'com.android.dx.command.Main' in command:
+                    output_arg = next(arg for arg in command if arg.startswith('--output='))
+                    Path(output_arg.split('=', 1)[1]).write_bytes(b'dex fixture')
+                else:
+                    self.fail(f'unexpected command: {command}')
+
+            argv = [
+                'build_probe.py', '--apktool', str(apktool), '--keystore', str(keystore),
+                '--apksig', str(apksig), '--dx', str(dx), '--package',
+                'org.aaas.permissionprobe', '--target-sdk', '35', '--userdata-diagnostics',
+                '--request-media-permission-on-launch', '--output', str(output),
+            ]
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(build_probe, 'run', side_effect=run), \
+                    patch.object(build_probe, 'binary_manifest', return_value=b'manifest'), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(build_probe.main(), 0)
+
+            helper = next(source for source in compiled_sources
+                          if 'REQUEST_MEDIA_PERMISSION = true' in source)
+            self.assertIn('MEDIA_IMAGE_QUERY checkpoint=', helper)
+            self.assertIn('READ_MEDIA_IMAGES', helper)
+            self.assertIn('reportMediaPermissionResult',
+                          (Path(build_probe.__file__).parent / 'smali-open' /
+                           'org/aaas/latencyprobe/ProbeActivity.smali').read_text())
+            builder_source = Path(build_probe.__file__).read_text()
+            self.assertIn("text = text.replace(call, call + '    return-void\\n', 1)",
+                          builder_source)
+
+    def test_runtime_media_permission_request_requires_userdata_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apktool = root / 'apktool.jar'
+            keystore = root / 'probe.keystore'
+            output = root / 'probe.apk'
+            for path in (apktool, keystore):
+                path.write_bytes(b'fixture')
+            argv = [
+                'build_probe.py', '--apktool', str(apktool), '--keystore', str(keystore),
+                '--output', str(output), '--request-media-permission-on-launch',
+            ]
+            with patch.object(sys, 'argv', argv), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:
+                    build_probe.main()
+            self.assertEqual(error.exception.code, 2)
+
 
 if __name__ == '__main__':
     unittest.main()

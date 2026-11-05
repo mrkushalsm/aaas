@@ -129,6 +129,7 @@
     invoke-super {p0, p1, p2, p3}, Landroid/app/Activity;->onRequestPermissionsResult(I[Ljava/lang/String;[I)V
     const/16 v0, 0x33
     if-ne p1, v0, :permission_result_done
+    invoke-static {p0, p3}, Lorg/aaas/latencyprobe/UserdataProbe;->reportMediaPermissionResult(Landroid/content/Context;[I)V
     array-length v0, p3
     if-lez v0, :permission_denied
     const/4 v0, 0x0

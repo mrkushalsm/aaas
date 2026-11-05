@@ -25,6 +25,7 @@ import java.lang.reflect.Method;
 public final class UserdataProbe {
     private static final String TAG = "AaasUserdataProbe";
     private static final String PRIVATE_CONTENT = "aaas-private-persistence-v1\n";
+    private static final String PERMISSION_TEST_IMAGE = "aaas-permission-probe.png";
     private static final boolean REQUEST_MEDIA_PERMISSION = false;
     private static final boolean RELEASE_PERSISTED_GRANTS = false;
     private static final String ISOLATION_TARGET_PACKAGE = "";
@@ -38,6 +39,10 @@ public final class UserdataProbe {
             Log.i(TAG, "PACKAGE=" + context.getPackageName()
                     + " version=" + packageInfo.versionCode
                     + " uid=" + Process.myUid());
+            record("PACKAGE=" + context.getPackageName() + " version="
+                    + packageInfo.versionCode + " uid=" + Process.myUid());
+            recordMediaPermissionState(context, "activity_start");
+            queryPermissionTestImage(context, "activity_start");
 
             File dataDir = context.getDataDir();
             File filesDir = context.getFilesDir();
@@ -54,17 +59,14 @@ public final class UserdataProbe {
             logPath("/data/user/0/package", new File("/data/user/0/"
                     + context.getPackageName()));
             logMountInfo();
+            logExternalStorageState(context, "activity_start");
+            scheduleExternalStorageChecks(context);
 
             verifyAndWrite(new File(filesDir, "aaas-persistence.txt"),
                     PRIVATE_CONTENT, "internalFile");
             verifyAndWrite(new File(cacheDir, "aaas-cache.txt"),
                     "aaas-cache-v1\n", "cacheFile");
-            if (external != null) {
-                verifyAndWrite(new File(external, "aaas-external.txt"),
-                        "aaas-app-external-v1\n", "externalFile");
-            } else {
-                Log.i(TAG, "externalFilesDir=null");
-            }
+            verifyExternalFiles(context, "activity_start");
 
             Context deviceProtected = context.createDeviceProtectedStorageContext();
             logPath("deviceProtected.dataDir", deviceProtected.getDataDir());
@@ -86,6 +88,96 @@ public final class UserdataProbe {
         } catch (Throwable error) {
             Log.e(TAG, "USERDATA_PROBE_FAILED", error);
         }
+    }
+
+    private static void scheduleExternalStorageChecks(final Context context) {
+        try {
+            Class<?> looperClass = Class.forName("android.os.Looper");
+            Object looper = looperClass.getMethod("getMainLooper").invoke(null);
+            Class<?> handlerClass = Class.forName("android.os.Handler");
+            Object handler = handlerClass.getConstructor(looperClass).newInstance(looper);
+            Method postDelayed = handlerClass.getMethod("postDelayed", Runnable.class, long.class);
+            for (final long delay : new long[]{3000L, 15000L}) {
+                postDelayed.invoke(handler, new Runnable() {
+                    @Override public void run() {
+                        String checkpoint = "after_" + delay + "ms";
+                        logExternalStorageState(context, checkpoint);
+                        verifyExternalFiles(context, checkpoint);
+                    }
+                }, delay);
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "EXTERNAL_STORAGE_CHECK_SCHEDULING_FAILED", error);
+        }
+    }
+
+    private static void logExternalStorageState(Context context, String checkpoint) {
+        try {
+            Class<?> environment = Class.forName("android.os.Environment");
+            String state = (String) environment.getMethod("getExternalStorageState")
+                    .invoke(null);
+            record("EXTERNAL_STATE checkpoint=" + checkpoint + " state=" + state);
+        } catch (Throwable error) {
+            record("EXTERNAL_STATE checkpoint=" + checkpoint + " error="
+                    + error.getClass().getSimpleName() + ":" + error.getMessage());
+        }
+        try {
+            Method getDirs = context.getClass().getMethod("getExternalFilesDirs", String.class);
+            File[] directories = (File[]) getDirs.invoke(context, new Object[]{null});
+            record("EXTERNAL_FILES_DIRS checkpoint=" + checkpoint + " count="
+                    + (directories == null ? -1 : directories.length));
+            if (directories != null) {
+                for (int index = 0; index < directories.length; index++) {
+                    logPath("externalFilesDirs[" + index + "]", directories[index]);
+                }
+            }
+        } catch (Throwable error) {
+            record("EXTERNAL_FILES_DIRS checkpoint=" + checkpoint + " error="
+                    + error.getClass().getSimpleName() + ":" + error.getMessage());
+        }
+        try {
+            Object manager = context.getClass().getMethod("getSystemService", String.class)
+                    .invoke(context, "storage");
+            Object volumes = manager.getClass().getMethod("getStorageVolumes").invoke(manager);
+            for (Object volume : (Iterable<?>) volumes) {
+                String state = String.valueOf(volume.getClass().getMethod("getState")
+                        .invoke(volume));
+                boolean primary = (Boolean) volume.getClass().getMethod("isPrimary")
+                        .invoke(volume);
+                boolean emulated = (Boolean) volume.getClass().getMethod("isEmulated")
+                        .invoke(volume);
+                Object directory = volume.getClass().getMethod("getDirectory").invoke(volume);
+                record("STORAGE_VOLUME checkpoint=" + checkpoint + " state=" + state
+                        + " primary=" + primary + " emulated=" + emulated
+                        + " directory=" + directory);
+            }
+        } catch (Throwable error) {
+            Throwable cause = error instanceof InvocationTargetException
+                    ? ((InvocationTargetException) error).getCause() : error;
+            record("STORAGE_VOLUMES checkpoint=" + checkpoint + " error="
+                    + cause.getClass().getSimpleName() + ":" + cause.getMessage());
+        }
+    }
+
+    private static void verifyExternalFiles(Context context, String checkpoint) {
+        try {
+            File external = context.getExternalFilesDir(null);
+            if (external == null) {
+                record("EXTERNAL_FILES_RESULT checkpoint=" + checkpoint + " path=null");
+                return;
+            }
+            logPath("externalFilesDir." + checkpoint, external);
+            verifyAndWrite(new File(external, "aaas-external.txt"),
+                    "aaas-app-external-v1\n", "externalFile." + checkpoint);
+            record("EXTERNAL_FILES_RESULT checkpoint=" + checkpoint + " writable=true");
+        } catch (Throwable error) {
+            record("EXTERNAL_FILES_RESULT checkpoint=" + checkpoint + " error="
+                    + error.getClass().getSimpleName() + ":" + error.getMessage());
+        }
+    }
+
+    private static synchronized void record(String line) {
+        Log.i(TAG, line);
     }
 
     private static void logStorageStats(Context context, String packageName) {
@@ -120,7 +212,7 @@ public final class UserdataProbe {
             long app = (Long) statsClass.getMethod("getAppBytes").invoke(packageStats);
             long data = (Long) statsClass.getMethod("getDataBytes").invoke(packageStats);
             long cache = (Long) statsClass.getMethod("getCacheBytes").invoke(packageStats);
-            Log.i(TAG, "STORAGE_STATS_PACKAGE app=" + app + " data=" + data
+            record("STORAGE_STATS_PACKAGE app=" + app + " data=" + data
                     + " cache=" + cache + " uuid=" + uuid);
         } catch (Throwable error) {
             Throwable cause = error instanceof InvocationTargetException
@@ -135,7 +227,7 @@ public final class UserdataProbe {
             Method check = context.getClass().getMethod("checkSelfPermission", String.class);
             int state = (Integer) check.invoke(context,
                     "android.permission.READ_MEDIA_IMAGES");
-            Log.i(TAG, "RUNTIME_PERMISSION_READ_MEDIA_IMAGES="
+            record("RUNTIME_PERMISSION_READ_MEDIA_IMAGES="
                     + (state == 0 ? "GRANTED" : "DENIED"));
             if (state != 0) {
                 Method request = context.getClass().getMethod(
@@ -145,6 +237,62 @@ public final class UserdataProbe {
             }
         } catch (Throwable error) {
             Log.e(TAG, "RUNTIME_PERMISSION_REQUEST_FAILED", error);
+        }
+    }
+
+    public static void reportMediaPermissionResult(Context context, int[] grantResults) {
+        String result = grantResults != null && grantResults.length > 0
+                && grantResults[0] == 0 ? "GRANTED" : "DENIED";
+        try {
+            int state = (Integer) context.getClass()
+                    .getMethod("checkSelfPermission", String.class)
+                    .invoke(context, "android.permission.READ_MEDIA_IMAGES");
+            result = state == 0 ? "GRANTED" : "DENIED";
+        } catch (Throwable error) {
+            record("RUNTIME_PERMISSION_STATE_QUERY_FAILED="
+                    + error.getClass().getSimpleName() + ":" + error.getMessage());
+        }
+        record("RUNTIME_PERMISSION_CALLBACK_READ_MEDIA_IMAGES=" + result);
+        queryPermissionTestImage(context, "permission_callback");
+    }
+
+    private static void recordMediaPermissionState(Context context, String checkpoint) {
+        try {
+            int state = (Integer) context.getClass()
+                    .getMethod("checkSelfPermission", String.class)
+                    .invoke(context, "android.permission.READ_MEDIA_IMAGES");
+            record("RUNTIME_PERMISSION_READ_MEDIA_IMAGES checkpoint=" + checkpoint + " state="
+                    + (state == 0 ? "GRANTED" : "DENIED"));
+        } catch (Throwable error) {
+            record("RUNTIME_PERMISSION_STATE_QUERY_FAILED checkpoint=" + checkpoint + " error="
+                    + error.getClass().getSimpleName() + ":" + error.getMessage());
+        }
+    }
+
+    private static void queryPermissionTestImage(Context context, String checkpoint) {
+        try {
+            Object resolver = context.getClass().getMethod("getContentResolver").invoke(context);
+            Class<?> uriClass = Class.forName("android.net.Uri");
+            Object uri = uriClass.getMethod("parse", String.class).invoke(null,
+                    "content://media/external_primary/images/media");
+            String[] projection = {"_id", "_display_name"};
+            String[] args = {PERMISSION_TEST_IMAGE};
+            Object cursor = resolver.getClass().getMethod("query", uriClass, String[].class,
+                    String.class, String[].class, String.class).invoke(resolver, uri,
+                    projection, "_display_name=?", args, null);
+            if (cursor == null) {
+                record("MEDIA_IMAGE_QUERY checkpoint=" + checkpoint + " cursor=null");
+                return;
+            }
+            int count = (Integer) cursor.getClass().getMethod("getCount").invoke(cursor);
+            cursor.getClass().getMethod("close").invoke(cursor);
+            record("MEDIA_IMAGE_QUERY checkpoint=" + checkpoint + " fixture="
+                    + PERMISSION_TEST_IMAGE + " rows=" + count);
+        } catch (Throwable error) {
+            Throwable cause = error instanceof InvocationTargetException
+                    ? ((InvocationTargetException) error).getCause() : error;
+            record("MEDIA_IMAGE_QUERY checkpoint=" + checkpoint + " error="
+                    + cause.getClass().getSimpleName() + ":" + cause.getMessage());
         }
     }
 
@@ -270,7 +418,7 @@ public final class UserdataProbe {
         } catch (Exception error) {
             line.append(" statError=").append(error.getClass().getSimpleName());
         }
-        Log.i(TAG, line.toString());
+        record(line.toString());
     }
 
     private static void logMountInfo() {
@@ -305,7 +453,7 @@ public final class UserdataProbe {
                 }
             }
             boolean match = expected.equals(new String(prior, StandardCharsets.UTF_8));
-            Log.i(TAG, label + (match ? "_PERSISTED_MATCH" : "_PERSISTED_MISMATCH")
+            record(label + (match ? "_PERSISTED_MATCH" : "_PERSISTED_MISMATCH")
                     + " sha256=" + digest(prior));
             if (!match) {
                 throw new IllegalStateException("unexpected prior contents " + label);
@@ -316,7 +464,7 @@ public final class UserdataProbe {
             output.write(bytes);
             output.getFD().sync();
         }
-        Log.i(TAG, label + (existed ? "_WRITE_OK" : "_CREATED")
+        record(label + (existed ? "_WRITE_OK" : "_CREATED")
                 + " sha256=" + digest(bytes));
     }
 
