@@ -85,3 +85,18 @@ archive/native-library path under the ARM64 compatibility runtime, but does
 not identify the exact loader cause. BFE's special access was revoked after
 the attempt. Archive functionality remains `PARTIAL`; ordinary shared-file
 operations remain separately evidenced in M4 storage records.
+
+### Real media/file app install persistence (2026-11-06)
+
+The supplied VLC (`org.videolan.vlc`), mpv (`is.xyz.mpv`), and Banners File
+Explorer (`com.the412banner.bfe`) APKs were each installed by Android
+PackageManager as ordinary user applications with the supported opt-in
+session-local Digitalis/Berberis Native Bridge. Each app launched on Android
+display 2, survived a complete AaaS runtime stop/restart without reinstall,
+and launched again from the persistent PackageManager state. The observed UIDs
+were VLC 10157, mpv 10158, and BFE 10152. Their APK hashes, session IDs, and
+log hashes are recorded in the M4 acceptance JSON. A no-bridge VLC attempt
+failed with `INSTALL_FAILED_NO_MATCHING_ABIS`; this is expected for its ARM64
+native payload under the normal x86_64-only session. The test verifies
+installation and relaunch persistence, not deliberately modified app settings
+or playback history.
