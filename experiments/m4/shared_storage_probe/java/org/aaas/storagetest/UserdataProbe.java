@@ -18,11 +18,16 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 
 /** Runs bounded, ordinary-app userdata checks when the controlled probe launches. */
 public final class UserdataProbe {
     private static final String TAG = "AaasUserdataProbe";
     private static final String PRIVATE_CONTENT = "aaas-private-persistence-v1\n";
+    private static final boolean REQUEST_MEDIA_PERMISSION = false;
+    private static final boolean RELEASE_PERSISTED_GRANTS = false;
+    private static final String ISOLATION_TARGET_PACKAGE = "";
 
     private UserdataProbe() {}
 
@@ -68,8 +73,136 @@ public final class UserdataProbe {
                     "deviceProtectedFile");
 
             verifyDatabase(context, packageInfo.versionCode);
+            logStorageStats(context, packageInfo.packageName);
+            if (!ISOLATION_TARGET_PACKAGE.isEmpty()) {
+                probeOtherPackagePrivateData(ISOLATION_TARGET_PACKAGE);
+            }
+            if (RELEASE_PERSISTED_GRANTS) {
+                releasePersistedGrants(context);
+            }
+            if (REQUEST_MEDIA_PERMISSION) {
+                requestReadMediaImages(context);
+            }
         } catch (Throwable error) {
             Log.e(TAG, "USERDATA_PROBE_FAILED", error);
+        }
+    }
+
+    private static void logStorageStats(Context context, String packageName) {
+        try {
+            Class<?> statFsClass = Class.forName("android.os.StatFs");
+            Object statFs = statFsClass.getConstructor(String.class)
+                    .newInstance("/storage/emulated/0");
+            long available = (Long) statFsClass.getMethod("getAvailableBytes").invoke(statFs);
+            long total = (Long) statFsClass.getMethod("getTotalBytes").invoke(statFs);
+            Log.i(TAG, "STATFS_SHARED total=" + total + " available=" + available);
+        } catch (Throwable error) {
+            Log.e(TAG, "STATFS_SHARED_FAILED", error);
+        }
+        try {
+            Object statsManager = context.getClass()
+                    .getMethod("getSystemService", String.class)
+                    .invoke(context, "storagestats");
+            Class<?> storageManagerClass = Class.forName("android.os.storage.StorageManager");
+            Object storageManager = context.getClass()
+                    .getMethod("getSystemService", String.class)
+                    .invoke(context, "storage");
+            Object uuid = storageManagerClass.getMethod("getUuidForPath", File.class)
+                    .invoke(storageManager, context.getDataDir());
+            Class<?> userHandleClass = Class.forName("android.os.UserHandle");
+            Object user = userHandleClass.getMethod("getUserHandleForUid", int.class)
+                    .invoke(null, Process.myUid());
+            Class<?> statsManagerClass = Class.forName("android.app.usage.StorageStatsManager");
+            Object packageStats = statsManagerClass.getMethod("queryStatsForPackage",
+                    Class.forName("java.util.UUID"), String.class, userHandleClass)
+                    .invoke(statsManager, uuid, packageName, user);
+            Class<?> statsClass = Class.forName("android.app.usage.StorageStats");
+            long app = (Long) statsClass.getMethod("getAppBytes").invoke(packageStats);
+            long data = (Long) statsClass.getMethod("getDataBytes").invoke(packageStats);
+            long cache = (Long) statsClass.getMethod("getCacheBytes").invoke(packageStats);
+            Log.i(TAG, "STORAGE_STATS_PACKAGE app=" + app + " data=" + data
+                    + " cache=" + cache + " uuid=" + uuid);
+        } catch (Throwable error) {
+            Throwable cause = error instanceof InvocationTargetException
+                    ? ((InvocationTargetException) error).getCause() : error;
+            Log.i(TAG, "STORAGE_STATS_PACKAGE_UNAVAILABLE="
+                    + cause.getClass().getSimpleName() + ":" + cause.getMessage());
+        }
+    }
+
+    private static void requestReadMediaImages(Context context) {
+        try {
+            Method check = context.getClass().getMethod("checkSelfPermission", String.class);
+            int state = (Integer) check.invoke(context,
+                    "android.permission.READ_MEDIA_IMAGES");
+            Log.i(TAG, "RUNTIME_PERMISSION_READ_MEDIA_IMAGES="
+                    + (state == 0 ? "GRANTED" : "DENIED"));
+            if (state != 0) {
+                Method request = context.getClass().getMethod(
+                        "requestPermissions", String[].class, int.class);
+                request.invoke(context, new String[]{"android.permission.READ_MEDIA_IMAGES"},
+                        0x33);
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "RUNTIME_PERMISSION_REQUEST_FAILED", error);
+        }
+    }
+
+    private static void releasePersistedGrants(Context context) {
+        try {
+            Object resolver = Context.class.getMethod("getContentResolver").invoke(context);
+            Method listMethod = resolver.getClass().getMethod("getPersistedUriPermissions");
+            Iterable<?> grants = (Iterable<?>) listMethod.invoke(resolver);
+            Class<?> uriClass = Class.forName("android.net.Uri");
+            Method release = resolver.getClass().getMethod(
+                    "releasePersistableUriPermission", uriClass, int.class);
+            Method parse = uriClass.getMethod("parse", String.class);
+            int count = 0;
+            for (Object grant : grants) {
+                Object uri = grant.getClass().getMethod("getUri").invoke(grant);
+                boolean read = (Boolean) grant.getClass().getMethod("isReadPermission")
+                        .invoke(grant);
+                boolean write = (Boolean) grant.getClass().getMethod("isWritePermission")
+                        .invoke(grant);
+                int flags = (read ? 1 : 0) | (write ? 2 : 0);
+                release.invoke(resolver, uri, flags);
+                count++;
+                String uriText = String.valueOf(uri);
+                Log.i(TAG, "PERSISTED_GRANT_RELEASED uri=" + uriText + " flags=" + flags);
+                try {
+                    Object parsed = parse.invoke(null, uriText);
+                    resolver.getClass().getMethod("openInputStream", uriClass)
+                            .invoke(resolver, parsed);
+                    Log.e(TAG, "PERSISTED_GRANT_READ_AFTER_RELEASE_UNEXPECTED uri=" + uriText);
+                } catch (InvocationTargetException denied) {
+                    Throwable cause = denied.getCause();
+                    Log.i(TAG, "PERSISTED_GRANT_READ_AFTER_RELEASE="
+                            + cause.getClass().getSimpleName());
+                }
+            }
+            Log.i(TAG, "PERSISTED_GRANT_RELEASE_COUNT=" + count);
+        } catch (Throwable error) {
+            Log.e(TAG, "PERSISTED_GRANT_RELEASE_FAILED", error);
+        }
+    }
+
+    private static void probeOtherPackagePrivateData(String packageName) {
+        String[] paths = {
+                "/data/user/0/" + packageName + "/files/aaas-persistence.txt",
+                "/data/data/" + packageName + "/files/aaas-persistence.txt",
+                "/data/user/0/" + packageName + "/databases/aaas-lifecycle.db",
+                "/data/user_de/0/" + packageName + "/files/aaas-device-protected.txt"
+        };
+        for (String path : paths) {
+            try (FileInputStream input = new FileInputStream(path)) {
+                int value = input.read();
+                Log.e(TAG, "CROSS_APP_PRIVATE_READ_UNEXPECTED path=" + path
+                        + " firstByte=" + value);
+            } catch (Throwable error) {
+                Log.i(TAG, "CROSS_APP_PRIVATE_READ_DENIED path=" + path
+                        + " error=" + error.getClass().getSimpleName()
+                        + " message=" + error.getMessage());
+            }
         }
     }
 

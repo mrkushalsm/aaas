@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,8 @@ def main() -> int:
     parser.add_argument('--apktool', type=Path, required=True)
     parser.add_argument('--keystore', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--package', default=PACKAGE,
+                        help='application ID (defaults to the established storage probe)')
     parser.add_argument('--operation', choices=('create', 'open'), default='create')
     parser.add_argument('--target-sdk', type=int, default=28,
                         help='Android target SDK (default: 28 for historical baseline)')
@@ -37,9 +40,21 @@ def main() -> int:
                         help='include the opt-in Android private-data/SQLite probe')
     parser.add_argument('--version-code', type=int, default=1)
     parser.add_argument('--version-name', default='1.0')
+    parser.add_argument('--request-media-permission-on-launch', action='store_true',
+                        help='request READ_MEDIA_IMAGES through the Android app UI')
+    parser.add_argument('--release-persisted-grants-on-launch', action='store_true',
+                        help='release persisted URI grants and verify read denial')
+    parser.add_argument('--isolation-target-package',
+                        help='attempt bounded reads from another package private data')
     parser.add_argument('--dx', type=Path,
                         help='dx.jar required with --userdata-diagnostics')
     args = parser.parse_args()
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+', args.package):
+        parser.error('--package must be a dotted Android application ID')
+    if (args.isolation_target_package is not None and not re.fullmatch(
+            r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+',
+            args.isolation_target_package)):
+        parser.error('--isolation-target-package must be a dotted Android application ID')
     if args.target_sdk >= 30 and args.apksig is None:
         parser.error('--apksig is required for target SDK 30 or newer')
     if args.version_code < 1:
@@ -54,18 +69,18 @@ def main() -> int:
         shutil.copytree(smali_source, work / 'smali')
         for smali_file in (work / 'smali').rglob('*.smali'):
             text = smali_file.read_text()
-            text = text.replace('org.aaas.latencyprobe', PACKAGE)
-            text = text.replace('org/aaas/latencyprobe', PACKAGE.replace('.', '/'))
-            if (args.userdata_diagnostics
-                    and '.class public Lorg/aaas/storagetest/ProbeActivity;' in text):
+            text = text.replace('org.aaas.latencyprobe', args.package)
+            text = text.replace('org/aaas/latencyprobe', args.package.replace('.', '/'))
+            if (args.userdata_diagnostics and
+                    f'.class public L{args.package.replace(".", "/")}/ProbeActivity;' in text):
                 anchor = '    invoke-super {p0, p1}, Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V\n'
                 if anchor not in text:
                     raise RuntimeError('could not find ProbeActivity onCreate injection point')
                 text = text.replace(anchor, anchor +
-                    '    invoke-static {p0}, Lorg/aaas/storagetest/UserdataProbe;->run(Landroid/content/Context;)V\n', 1)
+                    f'    invoke-static {{p0}}, L{args.package.replace(".", "/")}/UserdataProbe;->run(Landroid/content/Context;)V\n', 1)
             smali_file.write_text(text)
         manifest = binary_manifest(
-            PACKAGE, target_sdk=args.target_sdk, requested_permissions=PERMISSIONS,
+            args.package, target_sdk=args.target_sdk, requested_permissions=PERMISSIONS,
             version_code=args.version_code, version_name=args.version_name)
         (work / 'AndroidManifest.xml').write_bytes(manifest)
         (work / 'apktool.yml').write_text(
@@ -81,19 +96,36 @@ def main() -> int:
         extra_dex = None
         if args.userdata_diagnostics:
             helper_source = source / 'java/org/aaas/storagetest/UserdataProbe.java'
+            helper_text = helper_source.read_text()
+            helper_text = helper_text.replace(
+                'package org.aaas.storagetest;', f'package {args.package};', 1)
+            helper_text = helper_text.replace(
+                'private static final boolean REQUEST_MEDIA_PERMISSION = false;',
+                'private static final boolean REQUEST_MEDIA_PERMISSION = '
+                f'{str(args.request_media_permission_on_launch).lower()};', 1)
+            helper_text = helper_text.replace(
+                'private static final boolean RELEASE_PERSISTED_GRANTS = false;',
+                'private static final boolean RELEASE_PERSISTED_GRANTS = '
+                f'{str(args.release_persisted_grants_on_launch).lower()};', 1)
+            helper_text = helper_text.replace(
+                'private static final String ISOLATION_TARGET_PACKAGE = "";',
+                'private static final String ISOLATION_TARGET_PACKAGE = '
+                f'"{args.isolation_target_package or ""}";', 1)
+            compiled_helper = work / 'UserdataProbe.java'
+            compiled_helper.write_text(helper_text)
             stubs = work / 'android-stubs'
             stub_sources = {
                 # Compile-only signatures; APK bytecode resolves against Android's runtime.
                 'android/content/Context.java': '''package android.content; import java.io.File; import android.content.pm.PackageManager; import android.database.sqlite.SQLiteDatabase; public class Context { public static final int MODE_PRIVATE=0; public PackageManager getPackageManager(){return null;} public String getPackageName(){return null;} public File getDataDir(){return null;} public File getFilesDir(){return null;} public File getCacheDir(){return null;} public File getDatabasePath(String n){return null;} public File getExternalFilesDir(String t){return null;} public Context createDeviceProtectedStorageContext(){return null;} public SQLiteDatabase openOrCreateDatabase(String n,int m,SQLiteDatabase.CursorFactory f){return null;} }''',
                 'android/content/pm/PackageManager.java': '''package android.content.pm; public class PackageManager { public PackageInfo getPackageInfo(String n,int f){return null;} }''',
-                'android/content/pm/PackageInfo.java': '''package android.content.pm; public class PackageInfo { public int versionCode; }''',
+                'android/content/pm/PackageInfo.java': '''package android.content.pm; public class PackageInfo { public int versionCode; public String packageName; }''',
                 'android/database/Cursor.java': '''package android.database; public interface Cursor extends AutoCloseable { boolean moveToNext(); boolean moveToFirst(); int getInt(int c); String getString(int c); void close(); }''',
                 'android/database/sqlite/SQLiteDatabase.java': '''package android.database.sqlite; import android.database.Cursor; public class SQLiteDatabase { public interface CursorFactory {} public boolean enableWriteAheadLogging(){return false;} public void execSQL(String s){} public int getVersion(){return 0;} public void setVersion(int v){} public void beginTransaction(){} public void setTransactionSuccessful(){} public void endTransaction(){} public Cursor rawQuery(String s,String[] a){return null;} public String getPath(){return null;} public boolean isWriteAheadLoggingEnabled(){return false;} public void close(){} }''',
                 'android/os/Process.java': '''package android.os; public class Process { public static int myUid(){return 0;} }''',
                 'android/system/StructStat.java': '''package android.system; public class StructStat { public long st_dev,st_ino; public int st_uid,st_gid,st_mode; }''',
                 'android/system/Os.java': '''package android.system; public class Os { public static StructStat stat(String p){return null;} }''',
                 'android/util/Base64.java': '''package android.util; public class Base64 { public static final int NO_WRAP=2; public static String encodeToString(byte[] b,int f){return null;} }''',
-                'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }''',
+                'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} public static int e(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }''',
             }
             for relative, content in stub_sources.items():
                 destination = stubs / relative
@@ -106,7 +138,7 @@ def main() -> int:
             run(['javac', '-source', '8', '-target', '8', '-d', str(stub_classes),
                  *map(str, stubs.rglob('*.java'))])
             run(['javac', '-source', '8', '-target', '8', '-cp', str(stub_classes),
-                 '-d', str(class_dir), str(helper_source)])
+                 '-d', str(class_dir), str(compiled_helper)])
             extra_dex = work / 'classes2.dex'
             run(['java', '-cp', str(args.dx.resolve(strict=True)), 'com.android.dx.command.Main',
                  '--dex', f'--output={extra_dex}', str(class_dir)])
