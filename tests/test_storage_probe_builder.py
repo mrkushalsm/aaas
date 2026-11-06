@@ -13,11 +13,16 @@ from experiments.perf.input_latency_probe.build_probe import binary_manifest
 
 class StorageProbeBuilderTests(unittest.TestCase):
     def test_launcher_package_visibility_is_limited_to_launcher_intents(self):
-        manifest = binary_manifest('org.aaas.catalogprobe', target_sdk=35)
+        manifest = binary_manifest('org.aaas.catalogprobe', target_sdk=35,
+                                   query_launcher_apps=True)
         self.assertIn(b'queries', manifest)
         self.assertIn(b'android.intent.action.MAIN', manifest)
         self.assertIn(b'android.intent.category.LAUNCHER', manifest)
         self.assertNotIn(b'QUERY_ALL_PACKAGES', manifest)
+
+    def test_launcher_package_visibility_is_not_added_to_unrelated_probes(self):
+        manifest = binary_manifest('org.aaas.catalogprobe', target_sdk=35)
+        self.assertNotIn(b'queries', manifest)
 
     def test_custom_package_is_written_to_the_apk_manifest(self):
         package = 'org.aaas.acceptance.unique'

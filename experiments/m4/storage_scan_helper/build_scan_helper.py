@@ -111,7 +111,7 @@ def main() -> int:
             PACKAGE, target_sdk=35,
             receivers=(('.ScanReceiver', 'android.permission.DUMP'),
                        ('.CatalogReceiver', 'android.permission.DUMP')),
-            include_launcher=False,
+            include_launcher=False, query_launcher_apps=True,
         ))
         (work / 'apktool.yml').write_text(
             'version: 3.0.3\napkFileName: AaasStorageScan.apk\n'
