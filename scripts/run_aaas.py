@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aaas_cgroup
 import aaas_bluetooth
 import aaas_resources
+import aaas_clipboard
 import aaas_storage
 import aaas_userdata
 import android_workspace
@@ -51,8 +52,11 @@ FRAMEWORK_TRANSITION_RECEIPT = TMP / 'm1e_framework_transition_input.json'
 APKTOOL = TMP / 'apktool_3.0.3.jar'
 APKSIG = TMP / 'apksig-8.9.1.jar'
 ANDROID_DX = WORKSPACE / 'sources/prebuilts-build-tools-qpr2/common/bin/dx'
+ANDROID_ZIPALIGN = WORKSPACE / 'sources/prebuilts-build-tools-qpr2/linux-x86/bin/zipalign'
 STORAGE_SCAN_KEYSTORE = TMP / 'm4-storage-probe/storage-probe.keystore'
 STORAGE_SCAN_APK = TMP / 'storage-scan-helper/AaaSStorageScan.apk'
+CLIPBOARD_APK = TMP / 'clipboard-ime/AaasClipboard.apk'
+CLIPBOARD_BRIDGE = ROOT / 'experiments/m4/clipboard/build/aaas-wayland-clipboard'
 STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
@@ -657,7 +661,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         diagnostic_storage_open=False, install_apk=None,
                         uninstall_package=None, assert_package_absent=None,
                         storage_scan_apk=None, persistent_userdata_dir=None,
-                        native_bridge_exec=False):
+                        native_bridge_exec=False, clipboard_apk=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -681,6 +685,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     native_bridge_binds = ""
     diagnostic_storage_apk_bind = ""
     storage_scan_apk_bind = ""
+    clipboard_apk_bind = ""
     ordinary_apk_bind = ""
     if diagnostic_storage_apk is not None:
         storage_apk = Path(diagnostic_storage_apk).resolve(strict=True)
@@ -699,6 +704,14 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         storage_scan_apk_bind = (
             f'  --ro-bind {shlex.quote(str(scan_apk))} '
             '/aaas-storage-scan-helper.apk \\\n'
+        )
+    if clipboard_apk is not None:
+        clipboard_apk_path = Path(clipboard_apk).resolve(strict=True)
+        if not clipboard_apk_path.is_file() or clipboard_apk_path.suffix.lower() != '.apk':
+            raise ValueError('clipboard companion must be an APK file')
+        clipboard_apk_bind = (
+            f'  --ro-bind {shlex.quote(str(clipboard_apk_path))} '
+            '/aaas-clipboard-ime.apk \\\n'
         )
     if install_apk is not None:
         ordinary_apk = Path(install_apk).resolve(strict=True)
@@ -928,6 +941,112 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '      exit 1\n'
                 '    fi\n'
             )
+        if clipboard_apk is not None:
+            storage_probe += (
+                '    echo "=== INSTALLING OPT-IN AaaS CLIPBOARD INPUT METHOD ===" >> /aaas_session_commands\n'
+                '    CLIPBOARD_INSTALL_OUTPUT=$(/system/bin/pm install -r '
+                '/aaas-clipboard-ime.apk 2>&1)\n'
+                '    CLIPBOARD_INSTALL_STATUS=$?\n'
+                '    echo "AAAS_CLIPBOARD_INSTALL status=$CLIPBOARD_INSTALL_STATUS '
+                'result=$CLIPBOARD_INSTALL_OUTPUT" >> /aaas_session_commands\n'
+                '    if [ "$CLIPBOARD_INSTALL_STATUS" -ne 0 ]; then\n'
+                '      echo FAILED > /aaas_session_status; exit 1\n'
+                '    fi\n'
+                '    CLIPBOARD_UID_OUTPUT=$(/system/bin/pm list packages -U '
+                'org.aaas.clipboard 2>/dev/null)\n'
+                # This shell is embedded in the generated runner's f-string.
+                # Double braces here so the generated script receives literal
+                # shell parameter expansion rather than Python parsing it.
+                '    CLIPBOARD_ANDROID_UID=${{CLIPBOARD_UID_OUTPUT##*uid:}}\n'
+                '    CLIPBOARD_ANDROID_UID=${{CLIPBOARD_ANDROID_UID%% *}}\n'
+                '    case "$CLIPBOARD_ANDROID_UID" in ""|*[!0-9]*)\n'
+                '      echo AAAS_CLIPBOARD_UID_UNAVAILABLE >> /aaas_session_commands\n'
+                '      echo FAILED > /aaas_session_status; exit 1 ;; esac\n'
+                '    echo "AAAS_CLIPBOARD_IME_INSTALLED uid=$CLIPBOARD_ANDROID_UID" '
+                '>> /aaas_session_commands\n'
+                '    (\n'
+                '      LAST_CLIPBOARD_STATE=\n'
+                '      while [ -n "$(/system/bin/toybox pidof system_server 2>/dev/null)" ]; do\n'
+                '        CURRENT_CLIPBOARD_IME=$(/system/bin/settings get secure '
+                'default_input_method 2>/dev/null)\n'
+                '        case "$CURRENT_CLIPBOARD_IME" in\n'
+                '          org.aaas.clipboard/org.aaas.clipboard.ClipboardImeService|'
+                'org.aaas.clipboard/.ClipboardImeService) CLIPBOARD_ENABLED=1 ;;\n'
+                '          *) CLIPBOARD_ENABLED=0 ;;\n'
+                '        esac\n'
+                '        CLIPBOARD_STATE="$CLIPBOARD_ANDROID_UID $CLIPBOARD_ENABLED"\n'
+                '        if [ "$CLIPBOARD_STATE" != "$LAST_CLIPBOARD_STATE" ]; then\n'
+                '          printf "%s\\n" "$CLIPBOARD_STATE" > '
+                '/dev/aaas/.clipboard_state.tmp &&\n'
+                '            /system/bin/toybox chmod 0600 /dev/aaas/.clipboard_state.tmp &&\n'
+                '            /system/bin/toybox mv -f /dev/aaas/.clipboard_state.tmp '
+                '/dev/aaas/clipboard_state\n'
+                '          LAST_CLIPBOARD_STATE=$CLIPBOARD_STATE\n'
+                '        fi\n'
+                '        if [ "$CLIPBOARD_ENABLED" = 1 ] && '
+                '[ -s /dev/aaas/clipboard_host_request ]; then\n'
+                '          CLIPBOARD_REQUEST_ID=$(/system/bin/toybox cat '
+                '/dev/aaas/clipboard_host_request 2>/dev/null)\n'
+                '          : > /dev/aaas/clipboard_host_request\n'
+                '          case "$CLIPBOARD_REQUEST_ID" in ""|*[!0-9]*) ;;\n'
+                '            *) /system/bin/am broadcast --user 0 '
+                '-n org.aaas.clipboard/.HostClipboardReceiver '
+                '-a org.aaas.clipboard.SET >/dev/null 2>&1 ;;\n'
+                '          esac\n'
+                '        fi\n'
+                '        CLIPBOARD_SETTINGS_ACTION=$(/system/bin/toybox cat '
+                '/dev/aaas/clipboard_settings_request 2>/dev/null)\n'
+                '        if [ "$CLIPBOARD_SETTINGS_ACTION" = open ]; then\n'
+                '          : > /dev/aaas/clipboard_settings_request\n'
+                '          case "$VD_ID" in ""|*[!0-9]*)\n'
+                '            /system/bin/am start -a android.settings.INPUT_METHOD_SETTINGS '
+                '>/dev/null 2>&1 ;;\n'
+                '            *) /system/bin/am start --display "$VD_ID" '
+                '-a android.settings.INPUT_METHOD_SETTINGS >/dev/null 2>&1 ;;\n'
+                '          esac\n'
+                '        elif [ "$CLIPBOARD_SETTINGS_ACTION" = use ]; then\n'
+                '          : > /dev/aaas/clipboard_settings_request\n'
+                '          if [ ! -s /dev/aaas/clipboard_ime_previous ]; then\n'
+                '            CLIPBOARD_PREVIOUS_IME=$(/system/bin/settings get secure '
+                'default_input_method 2>/dev/null)\n'
+                '            CLIPBOARD_PREVIOUS_ENABLED=0\n'
+                '            /system/bin/ime list -s 2>/dev/null | '
+                '/system/bin/toybox grep -Fxq '
+                'org.aaas.clipboard/.ClipboardImeService && '
+                'CLIPBOARD_PREVIOUS_ENABLED=1\n'
+                '            printf "%s %s\\n" "$CLIPBOARD_PREVIOUS_ENABLED" '
+                '"$CLIPBOARD_PREVIOUS_IME" > /dev/aaas/clipboard_ime_previous\n'
+                '            /system/bin/toybox chmod 0600 '
+                '/dev/aaas/clipboard_ime_previous\n'
+                '          fi\n'
+                '          /system/bin/ime enable '
+                'org.aaas.clipboard/.ClipboardImeService >/dev/null 2>&1\n'
+                '          /system/bin/ime set '
+                'org.aaas.clipboard/.ClipboardImeService >/dev/null 2>&1\n'
+                '          echo use:$? > /dev/aaas/clipboard_ime_ack\n'
+                '        elif [ "$CLIPBOARD_SETTINGS_ACTION" = restore ]; then\n'
+                '          : > /dev/aaas/clipboard_settings_request\n'
+                '          CLIPBOARD_RESTORE_STATUS=1\n'
+                '          if [ -s /dev/aaas/clipboard_ime_previous ]; then\n'
+                '            read CLIPBOARD_PREVIOUS_ENABLED CLIPBOARD_PREVIOUS_IME '
+                '< /dev/aaas/clipboard_ime_previous\n'
+                '            case "$CLIPBOARD_PREVIOUS_IME" in */*)\n'
+                '              /system/bin/ime set "$CLIPBOARD_PREVIOUS_IME" '
+                '>/dev/null 2>&1 && CLIPBOARD_RESTORE_STATUS=0 ;; esac\n'
+                '            if [ "$CLIPBOARD_PREVIOUS_ENABLED" = 0 ]; then\n'
+                '              /system/bin/ime disable '
+                'org.aaas.clipboard/.ClipboardImeService >/dev/null 2>&1\n'
+                '            fi\n'
+                '            /system/bin/toybox rm -f '
+                '/dev/aaas/clipboard_ime_previous\n'
+                '          fi\n'
+                '          echo restore:$CLIPBOARD_RESTORE_STATUS '
+                '> /dev/aaas/clipboard_ime_ack\n'
+                '        fi\n'
+                '        /system/bin/toybox sleep 0.25\n'
+                '      done\n'
+                '    ) >/dev/null 2>&1 &\n'
+            )
         if shared_storage_dir is not None:
             storage_probe += (
                 '    echo check > /dev/aaas/storage_acl_request\n'
@@ -1010,6 +1129,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         '{mapper_bind}{allocator_bind}',
         native_bridge_binds + input_response_probe_binds + diagnostic_storage_apk_bind
         + storage_scan_apk_bind
+        + clipboard_apk_bind
         + ordinary_apk_bind
         + '{mapper_bind}{allocator_bind}',
     )
@@ -2428,6 +2548,12 @@ def main():
         path = ipc / name
         path.write_text('')
         path.chmod(0o600)
+    for name in ('clipboard_host_request', 'clipboard_state',
+                 'clipboard_settings_request', 'clipboard_ime_previous',
+                 'clipboard_ime_ack'):
+        path = ipc / name
+        path.write_text('')
+        path.chmod(0o600)
     if args.test_tombstone_capture:
         test_request = ipc / 'tombstone_capture_test'
         test_request.write_text('')
@@ -2467,12 +2593,28 @@ def main():
                   file=sys.stderr, flush=True)
     shared_storage_path = aaas_storage.prepare_backing_directory(WORKSPACE)
     persistent_userdata_path = aaas_userdata.prepare_userdata_directory(WORKSPACE)
+    clipboard_ipc_dir = aaas_clipboard.prepare_ipc_directory(ipc)
+    if not shutil.which('setfacl'):
+        raise RuntimeError('clipboard integration requires the host acl utilities')
+    subprocess.run(['make', '-C', str(ROOT / 'experiments/m4/clipboard')],
+                   check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                   text=True)
+    if not CLIPBOARD_BRIDGE.is_file():
+        raise RuntimeError('clipboard Wayland bridge build did not produce its executable')
     scan_builder = ROOT / 'experiments/m4/storage_scan_helper/build_scan_helper.py'
     subprocess.run([
         sys.executable, str(scan_builder), '--apktool', str(APKTOOL),
         '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
         '--keystore', str(STORAGE_SCAN_KEYSTORE),
         '--output', str(STORAGE_SCAN_APK),
+    ], check=True)
+    clipboard_builder = ROOT / 'experiments/m4/clipboard/build_clipboard_ime.py'
+    subprocess.run([
+        sys.executable, str(clipboard_builder), '--apktool', str(APKTOOL),
+        '--framework-res', str(WORKSPACE / 'rootfs_m1b1/system/framework/framework-res.apk'),
+        '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
+        '--zipalign', str(ANDROID_ZIPALIGN),
+        '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(CLIPBOARD_APK),
     ], check=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
@@ -2492,7 +2634,8 @@ def main():
                                  assert_package_absent=args.assert_package_absent,
                                  storage_scan_apk=storage_scan_apk,
                                  persistent_userdata_dir=persistent_userdata_path,
-                                 native_bridge_exec=args.diagnostic_native_bridge_exec)
+                                 native_bridge_exec=args.diagnostic_native_bridge_exec,
+                                 clipboard_apk=CLIPBOARD_APK)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -2518,6 +2661,9 @@ def main():
         if args.app2:
             env['AAAS_VDISPLAY2_INPUT_ADAPTER_LOG'] = str(vdisplay2_input_adapter_log)
     presenter = virtual_presenter = virtual_presenter2 = android = None
+    clipboard_process = None
+    clipboard_active_uid = None
+    clipboard_failed_uid = None
     presenter_trace_args = []
     if args.diagnostic_composer_overlay:
         presenter_trace_args.append('--trace-buffer-identities')
@@ -2600,6 +2746,35 @@ def main():
         if op == 'stop':
             stop = True
             return {'ok': True, 'state': 'STOPPING'}
+        if op == 'clipboard_setup':
+            request_path = ipc / 'clipboard_settings_request'
+            if request_path.is_symlink() or not request_path.is_file():
+                return {'ok': False, 'error': 'clipboard_settings_unavailable'}
+            request_path.write_text('open\n')
+            request_path.chmod(0o600)
+            return {'ok': True, 'action': 'android_input_method_settings_opened',
+                    'instruction': 'enable and select AaaS Clipboard in Android settings'}
+        if op in ('clipboard_ime_use', 'clipboard_ime_restore'):
+            action = 'use' if op == 'clipboard_ime_use' else 'restore'
+            request_path = ipc / 'clipboard_settings_request'
+            ack_path = ipc / 'clipboard_ime_ack'
+            if request_path.is_symlink() or ack_path.is_symlink():
+                return {'ok': False, 'error': 'clipboard_ime_control_unsafe'}
+            ack_path.write_text('')
+            request_path.write_text(action + '\n')
+            deadline = time.monotonic() + 12
+            while time.monotonic() < deadline:
+                try:
+                    ack = ack_path.read_text().strip()
+                except OSError:
+                    ack = ''
+                if ack.startswith(action + ':'):
+                    result = ack.split(':', 1)[1]
+                    return {'ok': result == '0', 'action': action,
+                            'restored_previous_ime': action == 'restore' and result == '0',
+                            'error': None if result == '0' else 'android_ime_command_failed'}
+                time.sleep(.05)
+            return {'ok': False, 'error': 'clipboard_ime_control_timeout'}
         if op == 'close':
             slot = request.get('slot')
             if slot not in (1, 2):
@@ -3085,6 +3260,60 @@ def main():
                 if status.read_text().strip() == 'FAILED':
                     reason = classify_session_failure(session_commands)
                     raise RuntimeError(f'Android runtime failed: {reason}')
+                clipboard_state_path = ipc / 'clipboard_state'
+                try:
+                    clipboard_runtime_state = aaas_clipboard.parse_runtime_state(
+                        clipboard_state_path.read_text())
+                except OSError:
+                    clipboard_runtime_state = None
+                selected_uid = (
+                    clipboard_runtime_state[0]
+                    if clipboard_runtime_state and clipboard_runtime_state[1]
+                    else None
+                )
+                if (clipboard_process is not None and
+                        (selected_uid != clipboard_active_uid or
+                         clipboard_process.poll() is not None)):
+                    if clipboard_process.poll() is not None:
+                        clipboard_failed_uid = clipboard_active_uid
+                        print('AaaS: clipboard bridge exited unexpectedly; '
+                              'clipboard sync is disabled for this session',
+                              file=sys.stderr, flush=True)
+                    else:
+                        terminate_process_group(clipboard_process)
+                        print('AaaS: clipboard IME selection ended; '
+                              'session clipboard bridge stopped', flush=True)
+                    aaas_clipboard.clear_session_payloads(ipc)
+                    clipboard_process = None
+                    clipboard_active_uid = None
+                if selected_uid is None:
+                    clipboard_failed_uid = None
+                elif clipboard_process is None and clipboard_failed_uid != selected_uid:
+                    clipboard_log_path = session / 'clipboard-bridge.log'
+                    try:
+                        with clipboard_log_path.open('ab') as clipboard_log:
+                            clipboard_process = aaas_clipboard.start_mapped_bridge(
+                                [str(CLIPBOARD_BRIDGE), '--ipc-dir',
+                                 str(clipboard_ipc_dir), '--android-uid',
+                                 str(selected_uid)],
+                                stdout=clipboard_log, env=env,
+                            )
+                        time.sleep(.1)
+                        if clipboard_process.poll() is not None:
+                            raise RuntimeError('Wayland clipboard endpoint exited at startup')
+                        clipboard_active_uid = selected_uid
+                        print('AaaS: Android clipboard IME is selected; '
+                              'session Wayland clipboard bridge is active', flush=True)
+                    except Exception as error:
+                        if clipboard_process is not None:
+                            terminate_process_group(clipboard_process)
+                        clipboard_process = None
+                        clipboard_active_uid = None
+                        clipboard_failed_uid = selected_uid
+                        aaas_clipboard.clear_session_payloads(ipc)
+                        print(f'AaaS: clipboard bridge unavailable: '
+                              f'{type(error).__name__}: {error}',
+                              file=sys.stderr, flush=True)
                 if control_server is not None:
                     try:
                         client, _ = control_server.accept()
@@ -3242,6 +3471,30 @@ def main():
                       file=sys.stderr, flush=True)
         else:
             capture_status = 'runtime_unavailable'
+        previous_ime = ipc / 'clipboard_ime_previous'
+        settings_request = ipc / 'clipboard_settings_request'
+        ime_ack = ipc / 'clipboard_ime_ack'
+        if (android is not None and android.poll() is None and
+                previous_ime.is_file() and not previous_ime.is_symlink() and
+                not settings_request.is_symlink() and not ime_ack.is_symlink()):
+            try:
+                ime_ack.write_text('')
+                settings_request.write_text('restore\n')
+                restore_deadline = time.monotonic() + 5
+                while time.monotonic() < restore_deadline:
+                    if ime_ack.read_text().strip() == 'restore:0':
+                        print('AaaS: restored the pre-session Android input method',
+                              flush=True)
+                        break
+                    time.sleep(.05)
+                else:
+                    cleanup_failed = True
+                    print('AaaS: could not restore the pre-session input method',
+                          file=sys.stderr, flush=True)
+            except OSError as error:
+                cleanup_failed = True
+                print(f'AaaS: input-method restoration failed: {error}',
+                      file=sys.stderr, flush=True)
         if android is not None and android.poll() is None:
             try:
                 write_status_sentinel(status, 'STOPPING')
@@ -3267,13 +3520,24 @@ def main():
                 print('AaaS: virtual display shutdown handshake timed out',
                       file=sys.stderr, flush=True)
                 cleanup_failed = True
-        for process in (android, virtual_presenter2, virtual_presenter, presenter):
+        for process in (clipboard_process, android, virtual_presenter2,
+                        virtual_presenter, presenter):
             try:
                 terminate_process_group(process)
             except Exception as error:
                 cleanup_failed = True
                 print(f'AaaS: process cleanup failed: {error}',
                       file=sys.stderr, flush=True)
+        try:
+            aaas_clipboard.clear_session_payloads(ipc)
+            if not aaas_clipboard.cleanup_session_ipc(ipc):
+                cleanup_failed = True
+                print('AaaS: clipboard IPC cleanup left an unexpected object',
+                      file=sys.stderr, flush=True)
+        except OSError as error:
+            cleanup_failed = True
+            print(f'AaaS: clipboard IPC cleanup failed: {error}',
+                  file=sys.stderr, flush=True)
         try:
             write_crash_artifact_manifest(session, tombstone_dir, capture_status,
                                           graphics_provenance)

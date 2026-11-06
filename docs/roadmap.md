@@ -76,6 +76,6 @@ Package AaaS for Linux desktops; provide installation, upgrade/removal, dependen
 | M1 | Existing x86_64 Android runtime and APK execution are established. |
 | M2 | PASS/CLOSED; see [M2 acceptance](milestones/m2-independent-desktop-windows.md). |
 | M3 | PASS/CLOSED for the bounded Android 16 Native Bridge feasibility proof; arbitrary ARM64 app compatibility is not claimed. |
-| M4 | PARTIAL/OPEN overall; **Storage Integration PASS/CLOSED** and **Installed-App Catalog/Launcher PASS/CLOSED** (2026-11-06). Audio/microphone, clipboard, and notifications remain open; see [M4 acceptance](../results/m4/acceptance.json). Bluetooth hardware remains optional/deferred. |
+| M4 | PARTIAL/OPEN overall; **Storage Integration PASS/CLOSED** and **Installed-App Catalog/Launcher PASS/CLOSED** (2026-11-06). Audio/microphone, clipboard (opt-in bridge implemented; live copy/paste not yet accepted), and notifications remain open; see [M4 acceptance](../results/m4/acceptance.json). Bluetooth hardware remains optional/deferred. |
 | M5 | PARTIAL/OPEN; graphics performance and historical tail-latency work remain separate. |
 | M6 | PARTIAL/OPEN; KWin/Weston/Sway portability is not fully accepted; Hyprland/Mutter unverified. |

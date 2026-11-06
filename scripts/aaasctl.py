@@ -53,6 +53,15 @@ def main(argv=None):
     scan = storage_sub.add_parser(
         'scan', help='ask the active Android session to index one shared media file')
     scan.add_argument('path', help='relative path under the shared Android storage root')
+    clipboard = subparsers.add_parser(
+        'clipboard', help='configure the opt-in Android clipboard input method')
+    clipboard_sub = clipboard.add_subparsers(dest='clipboard_operation', required=True)
+    clipboard_sub.add_parser(
+        'setup', help='open Android input-method settings; selection stays user-controlled')
+    clipboard_sub.add_parser(
+        'use', help='temporarily select the AaaS IME for the active runtime session')
+    clipboard_sub.add_parser(
+        'restore', help='restore the input method that was active before aaasctl clipboard use')
     subparsers.add_parser('stop', help='stop the shared AaaS runtime')
     args = parser.parse_args(argv)
 
@@ -118,7 +127,10 @@ def main(argv=None):
 
     if args.operation == 'launch' and not PACKAGE.fullmatch(args.package):
         parser.error('package must be a dotted Android application ID')
-    request = {'op': args.operation}
+    clipboard_ops = {'setup': 'clipboard_setup', 'use': 'clipboard_ime_use',
+                     'restore': 'clipboard_ime_restore'}
+    request = {'op': clipboard_ops[args.clipboard_operation]
+               if args.operation == 'clipboard' else args.operation}
     if args.operation == 'launch':
         request['package'] = args.package
     elif args.operation in ('close', 'stop-app'):

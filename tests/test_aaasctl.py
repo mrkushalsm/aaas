@@ -91,6 +91,45 @@ class AaasControlClientTests(unittest.TestCase):
             self.assertEqual(aaasctl.main(['stop-app', '2']), 0)
         self.assertEqual(json.loads(connection.payload), {'op': 'stop_app', 'slot': 2})
 
+    def test_clipboard_setup_opens_settings_without_selecting_the_ime(self):
+        class Connection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def sendall(self, payload):
+                self.payload = payload
+
+            def recv(self, _size):
+                return b'{"ok":true,"action":"android_input_method_settings_opened"}\n'
+
+        connection = Connection()
+        output = StringIO()
+        with patch.object(aaasctl, 'active_control_socket', return_value=connection), \
+                patch('sys.stdout', output):
+            self.assertEqual(aaasctl.main(['clipboard', 'setup']), 0)
+        self.assertEqual(json.loads(connection.payload), {'op': 'clipboard_setup'})
+
+    def test_clipboard_use_and_restore_are_explicit_session_operations(self):
+        class Connection:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def sendall(self, payload): self.payload = payload
+            def recv(self, _size): return b'{"ok":true}\n'
+
+        for operation, expected in (
+                ('use', 'clipboard_ime_use'),
+                ('restore', 'clipboard_ime_restore')):
+            with self.subTest(operation=operation):
+                connection = Connection()
+                with patch.object(aaasctl, 'active_control_socket',
+                                  return_value=connection), \
+                        patch('sys.stdout', StringIO()):
+                    self.assertEqual(aaasctl.main(['clipboard', operation]), 0)
+                self.assertEqual(json.loads(connection.payload), {'op': expected})
+
     def test_finds_only_a_connectable_session_socket(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

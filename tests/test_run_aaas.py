@@ -828,6 +828,34 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('AAAS_STORAGE_ACL_PREFLIGHT_READY', generated)
         self.assertIn('SCAN_INSTALL_STATUS', generated)
 
+    def test_clipboard_ime_is_installed_opt_in_and_uses_payload_free_signal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'clipboard.apk'
+            apk.write_bytes(b'clipboard companion fixture')
+            session = root / 'session'
+            session.mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            generated = SESSION.make_session_runner(
+                session, app_package='com.android.settings',
+                shared_storage_dir=root / 'media' / '0',
+                clipboard_apk=apk).read_text()
+        self.assertIn(f'--ro-bind {apk.resolve()} /aaas-clipboard-ime.apk', generated)
+        self.assertIn('/system/bin/pm install -r /aaas-clipboard-ime.apk', generated)
+        self.assertIn('AAAS_CLIPBOARD_INSTALL status=$CLIPBOARD_INSTALL_STATUS', generated)
+        self.assertIn('org.aaas.clipboard/.HostClipboardReceiver', generated)
+        self.assertIn('-n org.aaas.clipboard/.HostClipboardReceiver', generated)
+        self.assertNotIn('--receiver-permission android.permission.DUMP', generated)
+        self.assertIn('CLIPBOARD_STATE="$CLIPBOARD_ANDROID_UID $CLIPBOARD_ENABLED"',
+                      generated)
+        self.assertIn('/dev/aaas/clipboard_host_request', generated)
+        self.assertIn('sleep 0.25', generated)
+        self.assertIn('android.settings.INPUT_METHOD_SETTINGS', generated)
+        self.assertIn('clipboard_settings_request', generated)
+        self.assertIn('/system/bin/ime enable org.aaas.clipboard/.ClipboardImeService',
+                      generated)
+        self.assertIn('/system/bin/ime set "$CLIPBOARD_PREVIOUS_IME"', generated)
+
     def test_normal_runner_exposes_media_scan_without_diagnostic_flags(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -959,6 +987,22 @@ class ForegroundRunnerTests(unittest.TestCase):
             generated = SESSION.make_session_runner(Path(directory), desktop_ime=False).read_text()
         self.assertIn('settings put secure show_ime_with_hard_keyboard 1', generated)
         self.assertIn('settings delete secure aaas_desktop_mode', generated)
+
+    def test_clipboard_runner_template_compiles_with_shell_parameter_expansions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / 'clipboard.apk'
+            apk.write_bytes(b'diagnostic apk fixture')
+            session = root / 'session'
+            session.mkdir()
+            media = root / 'media' / '0'
+            media.mkdir(parents=True)
+            generated_path = SESSION.make_session_runner(
+                session, clipboard_apk=apk, shared_storage_dir=media)
+            source = generated_path.read_text()
+            compile(source, str(generated_path), 'exec')
+        self.assertIn('${{CLIPBOARD_UID_OUTPUT##*uid:}}', source)
+        self.assertIn('${{CLIPBOARD_ANDROID_UID%% *}}', source)
 
     def test_virtual_display_runner_enables_hwc_path_before_surfaceflinger(self):
         with tempfile.TemporaryDirectory() as directory:
