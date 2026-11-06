@@ -71,6 +71,24 @@ class DiagnosticOverlayManifestTests(unittest.TestCase):
                     SESSION.validate_diagnostic_vulkan_overlay(overlay)
 
 
+class ClipboardImeCleanupTests(unittest.TestCase):
+    def test_empty_ipc_placeholder_does_not_trigger_restore(self):
+        with tempfile.TemporaryDirectory() as directory:
+            placeholder = Path(directory) / 'clipboard_ime_previous'
+            placeholder.touch()
+            self.assertFalse(SESSION.clipboard_ime_restore_pending(placeholder))
+
+    def test_saved_ime_and_only_regular_files_trigger_restore(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            saved = root / 'saved'
+            saved.write_text('0 com.android.inputmethod.latin/.LatinIME\n')
+            self.assertTrue(SESSION.clipboard_ime_restore_pending(saved))
+            link = root / 'link'
+            link.symlink_to(saved)
+            self.assertFalse(SESSION.clipboard_ime_restore_pending(link))
+
+
 class StorageServicesOverlayTests(unittest.TestCase):
     def test_missing_alarm_fallback_patch_invalidates_normal_overlay(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -852,6 +870,11 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('sleep 0.25', generated)
         self.assertIn('android.settings.INPUT_METHOD_SETTINGS', generated)
         self.assertIn('clipboard_settings_request', generated)
+        self.assertIn('/dev/aaas/clipboard_probe_request', generated)
+        self.assertIn('android-copy|host-paste', generated)
+        self.assertIn('am start --user 0', generated)
+        self.assertIn('ClipboardProbeActivity', generated)
+        self.assertIn('/dev/aaas/vdisplay_id', generated)
         self.assertIn('/system/bin/ime enable org.aaas.clipboard/.ClipboardImeService',
                       generated)
         self.assertIn('/system/bin/ime set "$CLIPBOARD_PREVIOUS_IME"', generated)

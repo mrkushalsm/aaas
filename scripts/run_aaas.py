@@ -16,6 +16,7 @@ import re
 import signal
 import shlex
 import shutil
+import stat
 import socket
 import subprocess
 import sys
@@ -77,6 +78,21 @@ WORKSPACE_HEALTH_INTERVAL_SECONDS = 1.0
 
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def clipboard_ime_restore_pending(path):
+    """Return whether session cleanup has a saved IME choice to restore."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    except OSError:
+        return False
+    try:
+        metadata = os.fstat(descriptor)
+        return stat.S_ISREG(metadata.st_mode) and metadata.st_size > 0
+    except OSError:
+        return False
+    finally:
+        os.close(descriptor)
 
 
 def validate_native_bridge_bundle(path):
@@ -994,14 +1010,37 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '-a org.aaas.clipboard.SET >/dev/null 2>&1 ;;\n'
                 '          esac\n'
                 '        fi\n'
+                '        CLIPBOARD_PROBE_MODE=$(/system/bin/toybox cat '
+                '/dev/aaas/clipboard_probe_request 2>/dev/null)\n'
+                '        case "$CLIPBOARD_PROBE_MODE" in\n'
+                '          android-copy|host-paste)\n'
+                '            : > /dev/aaas/clipboard_probe_request\n'
+                '            CLIPBOARD_DISPLAY_ID=$(/system/bin/toybox cat '
+                '/dev/aaas/vdisplay_id 2>/dev/null)\n'
+                '            case "$CLIPBOARD_DISPLAY_ID" in ""|*[!0-9]*) '
+                'CLIPBOARD_PROBE_RESULT=$(/system/bin/am start --user 0 '
+                '-n org.aaas.clipboard/.ClipboardProbeActivity '
+                '--es mode "$CLIPBOARD_PROBE_MODE" 2>&1) ;;\n'
+                '              *) CLIPBOARD_PROBE_RESULT=$(/system/bin/am start --user 0 '
+                '--display "$CLIPBOARD_DISPLAY_ID" '
+                '-n org.aaas.clipboard/.ClipboardProbeActivity '
+                '--es mode "$CLIPBOARD_PROBE_MODE" 2>&1) ;; esac\n'
+                '            CLIPBOARD_PROBE_STATUS=$?\n'
+                '            printf "%s %s %s\\n" "$CLIPBOARD_PROBE_MODE" '
+                '"$CLIPBOARD_PROBE_STATUS" "$CLIPBOARD_PROBE_RESULT" '
+                '> /dev/aaas/clipboard_probe_ack ;;\n'
+                '          *) : ;;\n'
+                '        esac\n'
                 '        CLIPBOARD_SETTINGS_ACTION=$(/system/bin/toybox cat '
                 '/dev/aaas/clipboard_settings_request 2>/dev/null)\n'
                 '        if [ "$CLIPBOARD_SETTINGS_ACTION" = open ]; then\n'
                 '          : > /dev/aaas/clipboard_settings_request\n'
-                '          case "$VD_ID" in ""|*[!0-9]*)\n'
+                '          CLIPBOARD_DISPLAY_ID=$(/system/bin/toybox cat '
+                '/dev/aaas/vdisplay_id 2>/dev/null)\n'
+                '          case "$CLIPBOARD_DISPLAY_ID" in ""|*[!0-9]*)\n'
                 '            /system/bin/am start -a android.settings.INPUT_METHOD_SETTINGS '
                 '>/dev/null 2>&1 ;;\n'
-                '            *) /system/bin/am start --display "$VD_ID" '
+                '            *) /system/bin/am start --display "$CLIPBOARD_DISPLAY_ID" '
                 '-a android.settings.INPUT_METHOD_SETTINGS >/dev/null 2>&1 ;;\n'
                 '          esac\n'
                 '        elif [ "$CLIPBOARD_SETTINGS_ACTION" = use ]; then\n'
@@ -2550,7 +2589,8 @@ def main():
         path.chmod(0o600)
     for name in ('clipboard_host_request', 'clipboard_state',
                  'clipboard_settings_request', 'clipboard_ime_previous',
-                 'clipboard_ime_ack'):
+                 'clipboard_ime_ack', 'clipboard_probe_request',
+                 'clipboard_probe_ack'):
         path = ipc / name
         path.write_text('')
         path.chmod(0o600)
@@ -2754,6 +2794,31 @@ def main():
             request_path.chmod(0o600)
             return {'ok': True, 'action': 'android_input_method_settings_opened',
                     'instruction': 'enable and select AaaS Clipboard in Android settings'}
+        if op == 'clipboard_probe':
+            mode = request.get('mode')
+            if mode not in ('android-copy', 'host-paste'):
+                return {'ok': False, 'error': 'invalid_clipboard_probe_mode'}
+            request_path = ipc / 'clipboard_probe_request'
+            if request_path.is_symlink() or not request_path.is_file():
+                return {'ok': False, 'error': 'clipboard_probe_unavailable'}
+            request_path.write_text(mode + '\n')
+            request_path.chmod(0o600)
+            ack_path = ipc / 'clipboard_probe_ack'
+            if ack_path.is_symlink() or not ack_path.is_file():
+                return {'ok': False, 'error': 'clipboard_probe_ack_unsafe'}
+            ack_path.write_text('')
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    fields = ack_path.read_text().strip().split(maxsplit=2)
+                except OSError:
+                    fields = []
+                if len(fields) >= 2 and fields[0] == mode:
+                    return {'ok': fields[1] == '0', 'action': 'clipboard_probe_started',
+                            'mode': mode,
+                            'broadcast': fields[2] if len(fields) > 2 else ''}
+                time.sleep(.05)
+            return {'ok': False, 'error': 'clipboard_probe_timeout'}
         if op in ('clipboard_ime_use', 'clipboard_ime_restore'):
             action = 'use' if op == 'clipboard_ime_use' else 'restore'
             request_path = ipc / 'clipboard_settings_request'
@@ -3475,7 +3540,7 @@ def main():
         settings_request = ipc / 'clipboard_settings_request'
         ime_ack = ipc / 'clipboard_ime_ack'
         if (android is not None and android.poll() is None and
-                previous_ime.is_file() and not previous_ime.is_symlink() and
+                clipboard_ime_restore_pending(previous_ime) and
                 not settings_request.is_symlink() and not ime_ack.is_symlink()):
             try:
                 ime_ack.write_text('')

@@ -59,6 +59,8 @@ def manifest() -> str:
                 <action android:name="org.aaas.clipboard.SET" />
             </intent-filter>
         </receiver>
+        <activity android:name=".ClipboardProbeActivity"
+            android:permission="android.permission.DUMP" android:exported="true" />
     </application>
 </manifest>
 '''
@@ -115,6 +117,15 @@ def main() -> int:
         'android/content/ClipboardManager.java': '''package android.content; public class ClipboardManager { public interface OnPrimaryClipChangedListener {void onPrimaryClipChanged();} public void addPrimaryClipChangedListener(OnPrimaryClipChangedListener l){} public void removePrimaryClipChangedListener(OnPrimaryClipChangedListener l){} public ClipData getPrimaryClip(){return null;} public void setPrimaryClip(ClipData c){} public void clearPrimaryClip(){} }''',
         'android/inputmethodservice/InputMethodService.java': '''package android.inputmethodservice; import android.content.Context; import android.view.inputmethod.EditorInfo; public class InputMethodService extends Context { public void onCreate(){} public void onDestroy(){} public void onStartInput(EditorInfo i,boolean r){} }''',
         'android/view/inputmethod/EditorInfo.java': '''package android.view.inputmethod; public class EditorInfo {}''',
+        'android/os/Bundle.java': '''package android.os; public class Bundle {}''',
+        'android/os/Looper.java': '''package android.os; public class Looper { public static Looper getMainLooper(){return null;} }''',
+        'android/os/Handler.java': '''package android.os; public class Handler { public Handler(Looper l){} public boolean postDelayed(Runnable r,long d){return true;} }''',
+        'android/text/Editable.java': '''package android.text; public interface Editable extends CharSequence {}''',
+        'android/app/Activity.java': '''package android.app; import android.content.Context; import android.content.Intent; import android.os.Bundle; import android.view.View; public class Activity extends Context { protected void onCreate(Bundle b){} protected void onResume(){} protected void onNewIntent(Intent i){} protected void onDestroy(){} public Intent getIntent(){return null;} public void setIntent(Intent i){} public void setContentView(View v){} }''',
+        'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} }''',
+        'android/view/View.java': '''package android.view; public class View { public View(android.content.Context c){} public boolean requestFocus(){return true;} public boolean onTextContextMenuItem(int id){return true;} }''',
+        'android/widget/EditText.java': '''package android.widget; import android.content.Context; import android.view.View; import android.text.Editable; public class EditText extends View { public EditText(Context c){super(c);} public void setSingleLine(boolean v){} public void setText(CharSequence v){} public int length(){return 0;} public void setSelection(int i){} public void selectAll(){} public Editable getText(){return null;} }''',
+        'android/R.java': '''package android; public final class R { public static final class id { public static final int paste=16908322; public static final int copy=16908321; } }''',
     }
     with tempfile.TemporaryDirectory(prefix='aaas-clipboard-ime-') as temporary:
         work = Path(temporary)

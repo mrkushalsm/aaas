@@ -130,6 +130,23 @@ class AaasControlClientTests(unittest.TestCase):
                     self.assertEqual(aaasctl.main(['clipboard', operation]), 0)
                 self.assertEqual(json.loads(connection.payload), {'op': expected})
 
+    def test_clipboard_probe_is_limited_to_controlled_modes(self):
+        class Connection:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def sendall(self, payload): self.payload = payload
+            def recv(self, _size): return b'{"ok":true}\n'
+
+        for mode in ('android-copy', 'host-paste'):
+            with self.subTest(mode=mode):
+                connection = Connection()
+                with patch.object(aaasctl, 'active_control_socket',
+                                  return_value=connection), \
+                        patch('sys.stdout', StringIO()):
+                    self.assertEqual(aaasctl.main(['clipboard', 'probe', mode]), 0)
+                self.assertEqual(json.loads(connection.payload),
+                                 {'op': 'clipboard_probe', 'mode': mode})
+
     def test_finds_only_a_connectable_session_socket(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

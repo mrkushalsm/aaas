@@ -62,6 +62,9 @@ def main(argv=None):
         'use', help='temporarily select the AaaS IME for the active runtime session')
     clipboard_sub.add_parser(
         'restore', help='restore the input method that was active before aaasctl clipboard use')
+    probe = clipboard_sub.add_parser(
+        'probe', help='launch a controlled clipboard acceptance text-field probe')
+    probe.add_argument('mode', choices=('android-copy', 'host-paste'))
     subparsers.add_parser('stop', help='stop the shared AaaS runtime')
     args = parser.parse_args(argv)
 
@@ -128,9 +131,11 @@ def main(argv=None):
     if args.operation == 'launch' and not PACKAGE.fullmatch(args.package):
         parser.error('package must be a dotted Android application ID')
     clipboard_ops = {'setup': 'clipboard_setup', 'use': 'clipboard_ime_use',
-                     'restore': 'clipboard_ime_restore'}
+                     'restore': 'clipboard_ime_restore', 'probe': 'clipboard_probe'}
     request = {'op': clipboard_ops[args.clipboard_operation]
                if args.operation == 'clipboard' else args.operation}
+    if args.operation == 'clipboard' and args.clipboard_operation == 'probe':
+        request['mode'] = args.mode
     if args.operation == 'launch':
         request['package'] = args.package
     elif args.operation in ('close', 'stop-app'):

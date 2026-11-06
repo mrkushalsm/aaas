@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -16,15 +17,17 @@ import java.nio.charset.CodingErrorAction;
 
 /** Receives a payload-free shell signal and reads a package-UID-only ACL file. */
 public final class HostClipboardReceiver extends BroadcastReceiver {
+    private static final String TAG = "AaasHostClipboard";
     public static final String ACTION = "org.aaas.clipboard.SET";
-    private static final String IPC_FILE = "/dev/aaas/clipboard_host_to_android";
+    private static final String IPC_FILE = "/dev/aaas/clipboard/clipboard_host_to_android";
     private static final int MAX_TEXT_BYTES = 64 * 1024;
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (intent == null || !ACTION.equals(intent.getAction())) return;
+        if (intent == null) return;
+        if (!ACTION.equals(intent.getAction())) return;
         byte[] bytes = readBounded(new File(IPC_FILE));
-        if (bytes == null) return;
+        if (bytes == null) { Log.i(TAG, "host clipboard frame unavailable"); return; }
         try {
             String header = "AASCLIP1\n";
             if (bytes.length < header.length() + 2 ||
@@ -39,6 +42,7 @@ public final class HostClipboardReceiver extends BroadcastReceiver {
             if (manager == null) return;
             if (kind == 'C') {
                 manager.clearPrimaryClip();
+                Log.i(TAG, "Android clipboard cleared from host frame");
                 return;
             }
             String text = Charset.forName("UTF-8").newDecoder()
@@ -46,13 +50,28 @@ public final class HostClipboardReceiver extends BroadcastReceiver {
                     .onUnmappableCharacter(CodingErrorAction.REPORT)
                     .decode(ByteBuffer.wrap(bytes, offset + 2, count)).toString();
             manager.setPrimaryClip(ClipData.newPlainText(ClipboardImeService.HOST_LABEL, text));
+            Log.i(TAG, "Android clipboard updated bytes=" + count +
+                    " sha256=" + digest(bytes, offset + 2, count));
         } catch (CharacterCodingException ignored) {
             // Reject malformed UTF-8 without exposing payload bytes in logs.
+            Log.i(TAG, "host clipboard rejected: invalid UTF-8");
         } catch (SecurityException ignored) {
             // The bridge never changes Android's clipboard authorization policy.
+            Log.i(TAG, "Android clipboard write denied by Android policy");
         } catch (Exception ignored) {
             // Clipboard payloads are intentionally never logged.
+            Log.i(TAG, "host clipboard frame rejected: " + ignored.getClass().getSimpleName());
         }
+    }
+
+    private static String digest(byte[] bytes, int offset, int count) {
+        try {
+            byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(java.util.Arrays.copyOfRange(bytes, offset, offset + count));
+            StringBuilder out = new StringBuilder(hash.length * 2);
+            for (byte item : hash) out.append(String.format("%02x", item & 0xff));
+            return out.toString();
+        } catch (Exception error) { return "digest-error"; }
     }
 
     private static byte[] readBounded(File file) {

@@ -5,6 +5,7 @@ import android.content.ClipboardManager;
 import android.inputmethodservice.InputMethodService;
 import android.system.Os;
 import android.system.OsConstants;
+import android.util.Log;
 import android.view.inputmethod.EditorInfo;
 
 import java.io.File;
@@ -15,6 +16,7 @@ import java.util.UUID;
 
 /** User-selected Android default IME; Android grants the default IME clipboard access. */
 public final class ClipboardImeService extends InputMethodService {
+    private static final String TAG = "AaasClipboardIme";
     static final String HOST_LABEL = "AaaS Linux clipboard";
     private static final String IPC_PATH = "/dev/aaas/clipboard";
     private static final int MAX_TEXT_BYTES = 64 * 1024;
@@ -26,7 +28,10 @@ public final class ClipboardImeService extends InputMethodService {
         super.onCreate();
         clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         listener = new ClipboardManager.OnPrimaryClipChangedListener() {
-            @Override public void onPrimaryClipChanged() { exportPrimaryClip(); }
+            @Override public void onPrimaryClipChanged() {
+                Log.i(TAG, "primary clip changed");
+                exportPrimaryClip();
+            }
         };
         if (clipboard != null) clipboard.addPrimaryClipChangedListener(listener);
     }
@@ -69,8 +74,10 @@ public final class ClipboardImeService extends InputMethodService {
             publish(payload, text == null || payload.length == 0 ? 'C' : 'T');
         } catch (SecurityException ignored) {
             // Android may revoke the default-IME role while this callback is in flight.
+            Log.i(TAG, "clipboard read denied by Android policy");
         } catch (Exception ignored) {
             // Clipboard contents must not be written to logcat.
+            Log.i(TAG, "clipboard export failed: " + ignored.getClass().getSimpleName());
         }
     }
 
@@ -95,6 +102,11 @@ public final class ClipboardImeService extends InputMethodService {
         // The package owns a private, unpredictable file in a sticky, non-listable
         // directory. Other apps cannot read or remove it. The host bridge accepts
         // files only from the selected IME's UID and unlinks each consumed frame.
-        if (!temporary.renameTo(destination)) temporary.delete();
+            if (!temporary.renameTo(destination)) {
+                Log.i(TAG, "clipboard frame publish failed");
+                temporary.delete();
+            } else {
+                Log.i(TAG, "clipboard frame published bytes=" + payload.length + " kind=" + kind);
+            }
     }
 }

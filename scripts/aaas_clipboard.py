@@ -85,7 +85,9 @@ def cleanup_session_ipc(ipc_dir: Path) -> bool:
     ipc_dir = Path(ipc_dir)
     for name in ('clipboard_host_request', 'clipboard_state',
                  'clipboard_settings_request', 'clipboard_ime_previous',
-                 'clipboard_ime_ack', '.clipboard_state.tmp'):
+                 'clipboard_ime_ack', 'clipboard_probe_request',
+                 'clipboard_probe_ack',
+                 '.clipboard_state.tmp'):
         path = ipc_dir / name
         if path.is_symlink() or path.is_file():
             path.unlink(missing_ok=True)

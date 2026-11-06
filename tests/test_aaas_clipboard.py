@@ -84,6 +84,29 @@ class ClipboardFrameTests(unittest.TestCase):
         self.assertIn('.name = seat_name', source)
         self.assertIn('static void seat_name(', source)
 
+    def test_wayland_bridge_does_not_reenter_its_own_source(self):
+        source = (Path(__file__).resolve().parents[1] /
+                  'experiments/m4/clipboard/wayland_clipboard.c').read_text()
+        self.assertIn('if (offer && b->source)', source)
+        self.assertIn('synchronously here would deadlock',
+                      source)
+
+    def test_live_probe_handles_redelivered_intent_and_checks_android_paste(self):
+        root = Path(__file__).resolve().parents[1] / 'experiments/m4/clipboard/src/org/aaas/clipboard'
+        activity = (root / 'ClipboardProbeActivity.java').read_text()
+        receiver = (root / 'HostClipboardReceiver.java').read_text()
+        self.assertIn('onNewIntent(android.content.Intent intent)', activity)
+        self.assertIn('field.onTextContextMenuItem(android.R.id.paste)', activity)
+        self.assertIn('field.onTextContextMenuItem(android.R.id.copy)', activity)
+        self.assertIn('handler.postDelayed', activity)
+        builder = (Path(__file__).resolve().parents[1] /
+                   'experiments/m4/clipboard/build_clipboard_ime.py').read_text()
+        self.assertIn('import android.text.Editable', builder)
+        self.assertIn('ANDROID_EDITTEXT_PASTE', activity)
+        self.assertIn('Android clipboard updated bytes=', receiver)
+        self.assertIn('/dev/aaas/clipboard/clipboard_host_to_android', receiver)
+        self.assertNotIn('Log.i(TAG, text)', receiver)
+
 
 if __name__ == '__main__':
     unittest.main()

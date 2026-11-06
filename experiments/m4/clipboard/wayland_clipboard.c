@@ -148,7 +148,7 @@ static bool read_frame(const char *path, char **text, size_t *length, char *kind
     *length = 0;
     int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
     if (fd < 0) return false;
-    struct stat st;
+    struct stat st = {0};
     if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 11 ||
         st.st_size > (off_t)(MAX_TEXT + 11)) {
         close(fd);
@@ -216,6 +216,7 @@ static void source_cancelled(void *data,
                              struct ext_data_control_source_v1 *source) {
     struct bridge *b = data;
     if (b->source == source) {
+        fprintf(stderr, "clipboard local Wayland source was replaced\n");
         ext_data_control_source_v1_destroy(source);
         b->source = NULL;
         free(b->active_text);
@@ -258,6 +259,9 @@ static void publish_android_clip(struct bridge *b, const char *path) {
     if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || S_ISLNK(st.st_mode) ||
         st.st_nlink != 1 || st.st_uid != b->android_uid ||
         (st.st_mode & 077) != 0) {
+        fprintf(stderr, "clipboard Android frame rejected (stat=%d uid=%u mode=%o links=%lu)\n",
+                errno, (unsigned)st.st_uid, (unsigned)st.st_mode,
+                (unsigned long)st.st_nlink);
         (void)unlink(path);
         return;
     }
@@ -265,10 +269,13 @@ static void publish_android_clip(struct bridge *b, const char *path) {
     size_t length = 0;
     char kind = 0;
     if (!read_frame(path, &text, &length, &kind)) {
+        fprintf(stderr, "clipboard Android frame rejected (invalid frame, size=%lld)\n",
+                (long long)st.st_size);
         (void)unlink(path);
         return;
     }
     if (content_matches(b, text, length, kind == 'C')) {
+        fprintf(stderr, "clipboard Android frame suppressed as echo bytes=%zu\n", length);
         free(text);
         (void)unlink(path);
         return;
@@ -287,6 +294,7 @@ static void publish_android_clip(struct bridge *b, const char *path) {
     b->active_length = length;
     b->source = ext_data_control_manager_v1_create_data_source(b->manager);
     if (!b->source) {
+        fprintf(stderr, "clipboard Wayland source creation failed\n");
         b->source = old_source;
         b->active_text = old_text;
         free(text);
@@ -302,6 +310,7 @@ static void publish_android_clip(struct bridge *b, const char *path) {
     if (old_source) ext_data_control_source_v1_destroy(old_source);
     free(old_text);
     set_current_clip(b, text, length, false);
+    fprintf(stderr, "clipboard Android frame offered to Wayland bytes=%zu\n", length);
     (void)unlink(path);
 }
 
@@ -319,9 +328,14 @@ static void publish_pending_android_clip(struct bridge *b) {
         int length = snprintf(path, sizeof(path), "%s/%s", b->ipc_dir,
                               entry->d_name);
         if (length <= 0 || (size_t)length >= sizeof(path)) continue;
-        struct stat st;
+        struct stat st = {0};
         if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || S_ISLNK(st.st_mode) ||
-            st.st_uid != b->android_uid || st.st_nlink != 1) continue;
+            st.st_uid != b->android_uid || st.st_nlink != 1) {
+            fprintf(stderr, "clipboard Android candidate ignored uid=%u expected=%u mode=%o links=%lu errno=%d\n",
+                    (unsigned)st.st_uid, (unsigned)b->android_uid,
+                    (unsigned)st.st_mode, (unsigned long)st.st_nlink, errno);
+            continue;
+        }
         if (st.st_mtim.tv_sec > newest.tv_sec ||
             (st.st_mtim.tv_sec == newest.tv_sec && st.st_mtim.tv_nsec > newest.tv_nsec)) {
             memcpy(selected, path, (size_t)length + 1);
@@ -372,16 +386,18 @@ static bool receive_offer(struct bridge *b) {
                        offer_has(b, MIME_TEXT) ? MIME_TEXT :
                        offer_has(b, MIME_UTF8_STRING) ? MIME_UTF8_STRING : NULL;
     if (!mime || !b->offer) {
+        fprintf(stderr, "clipboard offer has no supported text MIME type\n");
         if (!write_frame(b->host_file, "C", NULL, 0) ||
             !grant_android_read(b) || !publish_request(b)) return false;
         set_current_clip(b, NULL, 0, true);
         return true;
     }
     int pipefd[2];
-    if (pipe2(pipefd, O_CLOEXEC) != 0) return false;
+    if (pipe2(pipefd, O_CLOEXEC) != 0) { perror("clipboard receive pipe"); return false; }
     ext_data_control_offer_v1_receive(b->offer, mime, pipefd[1]);
     close(pipefd[1]);
     if (wl_display_flush(b->display) < 0 && errno != EAGAIN) {
+        perror("clipboard receive flush");
         close(pipefd[0]);
         return false;
     }
@@ -390,9 +406,10 @@ static bool receive_offer(struct bridge *b) {
     if (!text) { close(pipefd[0]); return false; }
     size_t length = 0;
     bool complete = false;
+    bool timed_out = false;
     while (length <= MAX_TEXT) {
         int ready = poll(&pfd, 1, 3000);
-        if (ready <= 0) break;
+        if (ready <= 0) { timed_out = ready == 0; break; }
         ssize_t n = read(pipefd[0], text + length, MAX_TEXT + 1 - length);
         if (n < 0 && errno == EINTR) continue;
         if (n < 0) break;
@@ -401,14 +418,23 @@ static bool receive_offer(struct bridge *b) {
         if (length > MAX_TEXT) break;
     }
     close(pipefd[0]);
-    bool ok = complete && valid_utf8((unsigned char *)text, length);
+    bool utf8 = valid_utf8((unsigned char *)text, length);
+    bool ok = complete && utf8;
+    if (!complete) fprintf(stderr, "clipboard receive incomplete length=%zu timeout=%d errno=%d\n",
+                           length, timed_out, errno);
+    else if (!utf8) fprintf(stderr, "clipboard receive invalid UTF-8 length=%zu\n", length);
     if (ok) {
         if (content_matches(b, text, length, length == 0)) {
             free(text);
             return true;
         }
-        ok = write_frame(b->host_file, length ? "T" : "C", text, length) &&
-             grant_android_read(b) && publish_request(b);
+        if (!write_frame(b->host_file, length ? "T" : "C", text, length)) {
+            perror("clipboard frame write"); ok = false;
+        } else if (!grant_android_read(b)) {
+            perror("clipboard Android read ACL"); ok = false;
+        } else if (!publish_request(b)) {
+            perror("clipboard request publish"); ok = false;
+        }
         if (ok) set_current_clip(b, text, length, length == 0);
     }
     free(text);
@@ -419,6 +445,15 @@ static void selection(void *data, struct ext_data_control_device_v1 *device,
                       struct ext_data_control_offer_v1 *offer) {
     (void)device;
     struct bridge *b = data;
+    if (offer && b->source) {
+        /* The compositor reports our own source back as the current selection.
+         * Reading it synchronously here would deadlock: the matching source_send
+         * event is dispatched by this same Wayland connection. */
+        fprintf(stderr, "clipboard own selection acknowledged; receive skipped\n");
+        return;
+    }
+    fprintf(stderr, "clipboard selection changed offer=%s mimes=%zu\n",
+            offer ? "yes" : "clear", b->offer_mime_count);
     if (!offer) {
         set_current_clip(b, NULL, 0, true);
         if (!write_frame(b->host_file, "C", NULL, 0) ||
@@ -433,6 +468,7 @@ static void device_finished(void *data,
                             struct ext_data_control_device_v1 *device) {
     (void)device;
     struct bridge *b = data;
+    fprintf(stderr, "compositor finished ext_data_control device\n");
     b->failed = true;
 }
 
@@ -542,24 +578,33 @@ int main(int argc, char **argv) {
     fprintf(stderr, "AaaS clipboard bridge ready\n");
     publish_pending_android_clip(&b);
     while (running && !b.failed) {
-        if (wl_display_dispatch_pending(b.display) < 0) break;
-        if (wl_display_flush(b.display) < 0 && errno != EAGAIN) break;
+        if (wl_display_dispatch_pending(b.display) < 0) {
+            perror("clipboard Wayland pending dispatch"); break;
+        }
+        if (wl_display_flush(b.display) < 0 && errno != EAGAIN) {
+            perror("clipboard Wayland flush"); break;
+        }
         struct pollfd fds[2] = {
             { .fd = wl_display_get_fd(b.display), .events = POLLIN },
             { .fd = b.inotify_fd, .events = POLLIN },
         };
         int result = poll(fds, 2, -1);
         if (result < 0 && errno == EINTR) continue;
-        if (result < 0) break;
+        if (result < 0) { perror("clipboard event poll"); break; }
         if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) break;
         if (fds[0].revents & POLLIN)
-            if (wl_display_dispatch(b.display) < 0) break;
+            if (wl_display_dispatch(b.display) < 0) {
+                perror("clipboard Wayland dispatch"); break;
+            }
         if (fds[1].revents & POLLIN) {
             char events[8192];
             ssize_t count;
+            bool inspect_clipboard_directory = false;
             while ((count = read(b.inotify_fd, events, sizeof(events))) > 0) {
                 for (char *cursor = events; cursor < events + count;) {
                     struct inotify_event *event = (struct inotify_event *)cursor;
+                    if (event->mask & (IN_CLOSE_WRITE | IN_MOVED_TO))
+                        inspect_clipboard_directory = true;
                     if ((event->mask & IN_MOVED_TO) && event->len &&
                         !strncmp(event->name, "android-", 8) &&
                         strstr(event->name, ".frame") == event->name + strlen(event->name) - 6) {
@@ -572,6 +617,10 @@ int main(int argc, char **argv) {
                     cursor += sizeof(*event) + event->len;
                 }
             }
+            /* A move/close can arrive in a coalesced batch or with a name that
+             * the fast path does not recognize. Re-scan the bounded session
+             * directory on the event, retaining UID and file-type validation. */
+            if (inspect_clipboard_directory) publish_pending_android_clip(&b);
         }
     }
     if (b.source) {
