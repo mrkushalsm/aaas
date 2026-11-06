@@ -346,6 +346,33 @@ class DiagnosticApkNativeLibraryTests(unittest.TestCase):
                     SESSION.validate_native_bridge_bundle(bundle)
 
 class ForegroundRunnerTests(unittest.TestCase):
+    def test_audio_hal_overlay_is_absent_from_normal_runner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory) / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(session).read_text()
+        self.assertNotIn('/vendor/lib64/hw/audio.primary.default.so', generated)
+        self.assertNotIn('AAAS_AUDIO_FACTORY_READY', generated)
+
+    def test_audio_hal_overlay_uses_scoped_module_selector_before_factory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hal = root / 'audio.primary.default.so'
+            hal.write_bytes(b'fixture')
+            session = root / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(
+                session, audio_hal_overlay=hal).read_text()
+        self.assertIn(f'--ro-bind {hal.resolve()} '
+                      '/vendor/lib64/hw/audio.primary.aaas.so', generated)
+        self.assertIn('setprop ro.hardware.audio.primary aaas', generated)
+        self.assertLess(generated.index('setprop ro.hardware.audio.primary aaas'),
+                        generated.index('/system/bin/start vendor.audio-hal'))
+        self.assertIn('AAAS_AUDIO_FACTORY_READY=0', generated)
+        self.assertIn('lshal 2>/dev/null', generated)
+        self.assertLess(generated.index('AAAS_AUDIO_FACTORY_READY=0'),
+                        generated.index('/system/bin/start audioserver'))
+
     def test_two_app_mode_builds_capacity_two_composer(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'composer-two-output'

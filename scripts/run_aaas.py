@@ -76,6 +76,7 @@ DEFAULT_APP_PACKAGE = 'com.android.settings'
 APP_PACKAGE_PATTERN = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 SESSION_STATUS_VALUES = {'STARTING', 'RUNNING', 'STOPPING', 'STOPPED', 'FAILED'}
 WORKSPACE_HEALTH_INTERVAL_SECONDS = 1.0
+ANDROID_AUDIO_SERVER_HOST_UID = 101040  # Android uid 1041 through 1:100000 uid_map.
 
 
 def sha256(path):
@@ -680,7 +681,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         uninstall_package=None, assert_package_absent=None,
                         storage_scan_apk=None, persistent_userdata_dir=None,
                         native_bridge_exec=False, clipboard_apk=None,
-                        notification_apk=None):
+                        notification_apk=None, audio_hal_overlay=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -706,6 +707,15 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     storage_scan_apk_bind = ""
     clipboard_apk_bind = ""
     notification_apk_bind = ""
+    audio_hal_bind = ""
+    if audio_hal_overlay is not None:
+        audio_hal = Path(audio_hal_overlay).resolve(strict=True)
+        if not audio_hal.is_file():
+            raise ValueError('Android audio HAL overlay must be a regular file')
+        audio_hal_bind = (
+            f'  --ro-bind {shlex.quote(str(audio_hal))} '
+            '/vendor/lib64/hw/audio.primary.aaas.so \\\n'
+        )
     ordinary_apk_binds = ""
     if diagnostic_storage_apk is not None:
         storage_apk = Path(diagnostic_storage_apk).resolve(strict=True)
@@ -1228,6 +1238,48 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         + ordinary_apk_binds
         + '{mapper_bind}{allocator_bind}',
     )
+    if audio_hal_bind:
+        source = replace_once(
+            source,
+            '{mapper_bind}{allocator_bind}',
+            audio_hal_bind + '{mapper_bind}{allocator_bind}',
+        )
+        source = replace_once(
+            source,
+            '    /system/bin/start vendor.audio-hal\n',
+            '    /system/bin/setprop ro.hardware.audio.primary aaas\n'
+            '    echo "AAAS_AUDIO_HAL_SELECTOR=$(getprop ro.hardware.audio.primary)" '
+            '>> /aaas_session_commands\n'
+            '    /system/bin/start vendor.audio-hal\n'
+            '    AAAS_AUDIO_FACTORY_READY=0\n'
+            '    AAAS_AUDIO_FACTORY_TRIES=0\n'
+            '    while [ "$AAAS_AUDIO_FACTORY_TRIES" -lt 50 ]; do\n'
+            '      if /system/bin/lshal 2>/dev/null | '
+            '/system/bin/toybox grep -Fq '
+            '"android.hardware.audio@7.1::IDevicesFactory/default"; then\n'
+            '        AAAS_AUDIO_FACTORY_READY=1\n'
+            '        break\n'
+            '      fi\n'
+            '      /system/bin/toybox sleep 0.1\n'
+            '      AAAS_AUDIO_FACTORY_TRIES=$((AAAS_AUDIO_FACTORY_TRIES + 1))\n'
+            '    done\n'
+            '    echo "AAAS_AUDIO_FACTORY_READY=$AAAS_AUDIO_FACTORY_READY" '
+            '>> /aaas_session_commands\n',
+        )
+        source = replace_once(
+            source,
+            '    echo "AAAS_AUDIO_FACTORY_READY=$AAAS_AUDIO_FACTORY_READY" '
+            '>> /aaas_session_commands\n',
+            '    echo "AAAS_AUDIO_FACTORY_READY=$AAAS_AUDIO_FACTORY_READY" '
+            '>> /aaas_session_commands\n'
+            '    echo "AAAS_AUDIO_HW_PROPERTIES '
+            'hardware=$(/system/bin/getprop ro.hardware) '
+            'primary=$(/system/bin/getprop ro.hardware.audio.primary)" '
+            '>> /aaas_session_commands\n'
+            '    /system/bin/toybox ls -l '
+            '/vendor/lib64/hw/audio.primary.aaas.so '
+            '>> /aaas_session_commands 2>&1\n',
+        )
     source = replace_once(
         source,
         '    ipc_dir = tmp_dir / "aaas_ipc"',
@@ -2399,6 +2451,8 @@ def main():
                         help='Allow Android to show its software keyboard (mobile/accessibility mode)')
     parser.add_argument('--experimental-virtual-display', action='store_true',
                         help='Use the isolated M1E trusted virtual-display prototype')
+    parser.add_argument('--experimental-audio-hal', action='store_true',
+                        help='Opt in to the session-only Android PCM HAL prototype')
     parser.add_argument('--show-primary-diagnostic', action='store_true',
                         help='Also present Android primary display in a diagnostic Wayland window')
     parser.add_argument('--diagnostic-vulkan-overlay',
@@ -2730,6 +2784,14 @@ def main():
         '--zipalign', str(ANDROID_ZIPALIGN),
         '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(NOTIFICATION_APK),
     ], check=True)
+    audio_hal_overlay = None
+    if args.experimental_audio_hal:
+        audio_hal_overlay = TMP / 'm4-audio/audio.primary.aaas.so'
+        subprocess.run([
+            sys.executable, str(ROOT / 'experiments/m4/audio/build_audio_hal.py'),
+            '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+            '--output', str(audio_hal_overlay),
+        ], check=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
@@ -2750,7 +2812,8 @@ def main():
                                  persistent_userdata_dir=persistent_userdata_path,
                                  native_bridge_exec=args.diagnostic_native_bridge_exec,
                                  clipboard_apk=CLIPBOARD_APK,
-                                 notification_apk=NOTIFICATION_APK)
+                                 notification_apk=NOTIFICATION_APK,
+                                 audio_hal_overlay=audio_hal_overlay)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -2776,6 +2839,7 @@ def main():
         if args.app2:
             env['AAAS_VDISPLAY2_INPUT_ADAPTER_LOG'] = str(vdisplay2_input_adapter_log)
     presenter = virtual_presenter = virtual_presenter2 = android = None
+    audio_process = None
     clipboard_process = None
     notification_process = None
     notification_active_uid = None
@@ -3351,6 +3415,20 @@ def main():
             # Recheck the complete budget and mount identity immediately before
             # Android can write persistent userdata.
             android_workspace.check(WORKSPACE)
+            if audio_hal_overlay is not None:
+                audio_log_path = session / 'audio-bridge.log'
+                with audio_log_path.open('wb') as audio_log:
+                    audio_process = subprocess.Popen(
+                        [sys.executable, str(ROOT / 'scripts/aaas_audio.py'),
+                         '--socket', str(ipc / 'audio.sock'),
+                         '--android-host-uid', str(ANDROID_AUDIO_SERVER_HOST_UID)],
+                        stdout=audio_log, stderr=subprocess.STDOUT,
+                        env=env, start_new_session=True)
+                audio_deadline = time.monotonic() + 5
+                while not (ipc / 'audio.sock').exists():
+                    if audio_process.poll() is not None or time.monotonic() >= audio_deadline:
+                        raise RuntimeError('session audio bridge failed to create its endpoint')
+                    time.sleep(.05)
             transition('STARTING_ANDROID')
             android = subprocess.Popen([sys.executable, str(runner)], env=env,
                                        stdout=android_log, stderr=subprocess.STDOUT,
@@ -3368,6 +3446,8 @@ def main():
                     raise RuntimeError('second virtual display presenter exited before Android startup')
                 if android.poll() is not None:
                     raise RuntimeError(f'Android exited before {args.app} became ready')
+                if audio_process is not None and audio_process.poll() is not None:
+                    raise RuntimeError('session audio bridge exited during Android startup')
                 acl_request = ipc / 'storage_acl_request'
                 acl_ack = ipc / 'storage_acl_ack'
                 if (not storage_acl_preflight_done and shared_storage_path is not None
@@ -3761,7 +3841,7 @@ def main():
                 print('AaaS: virtual display shutdown handshake timed out',
                       file=sys.stderr, flush=True)
                 cleanup_failed = True
-        for process in (notification_process, clipboard_process, android, virtual_presenter2,
+        for process in (notification_process, clipboard_process, audio_process, android, virtual_presenter2,
                         virtual_presenter, presenter):
             try:
                 terminate_process_group(process)
