@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** M2 lifecycle, M4 storage, and the installed-app catalog/launcher workstream have accepted evidence. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation below. **Installed-App Catalog and Launcher Integration is PASS/CLOSED** in the 2026-11-06 launcher continuation. BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. Canonical M4 remains open for host audio/microphone, clipboard, and notification forwarding. The 2026-11-06 clipboard continuation adds an opt-in Android IME and session-owned KWin Wayland data-control bridge; live ordinary-app copy/paste in both directions is not yet accepted, so clipboard remains PARTIAL/OPEN (see [clipboard integration](../m4-clipboard-integration.md)). M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** M2 lifecycle, M4 storage, installed-app catalog/launcher, and bidirectional clipboard have accepted evidence. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation below. **Installed-App Catalog and Launcher Integration is PASS/CLOSED** in the 2026-11-06 launcher continuation. **Bidirectional Clipboard Integration is PASS/CLOSED for bounded UTF-8 text on KWin** in the [clipboard integration record](../m4-clipboard-integration.md). BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. Canonical M4 remains open for host audio/microphone and notification forwarding. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -129,13 +129,13 @@ Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`;
 | Microphone | Host audio source exists; Android runner does not expose a scoped host capture stream. | Not implemented; no authorization/revocation proof |
 | Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Ordinary-app SAF, active MediaStore reconciliation, ACL preflight, persistent userdata, app-specific external files, permissions, and security boundary tests pass. NTFS3 quotas/SELinux labels/fscrypt are unsupported profile features; BFE archive actions are application-specific. | **PASS/CLOSED** |
 | Android-to-XDG picker bridge | This capability is explicitly deferred; Android continues using its built-in picker and shared-storage APIs. | Deferred; not a storage-slice acceptance gate |
-| Clipboard | Wayland presenter has no data-device clipboard bridge to Android ClipboardManager. | Not implemented |
+| Clipboard | Historical capability audit before the 2026-11-06 clipboard implementation. | Superseded by the live acceptance below |
 | Notifications | Host DBus notification service and Android NotificationManager exist, but no AaaS forwarding listener/adapter exists. | Not implemented |
 | Normal APK installation and launcher discovery | The 2026-11-06 launcher continuation installed, updated, discovered, launched, uninstalled, and reconciled a disposable ordinary package through PackageManager and managed XDG entries. | **PASS/CLOSED** for installed-app catalog and launcher |
 | Camera | `/dev/video*` devices exist on host, but are not bound into Android; no Android Camera HAL to authorized host source adapter is present. | Feasibility only; not supported |
 | M2/M3 regression | KWin Settings/Contacts presentation and teardown were exercised; M3 diagnostic was rerun with the full JNI PASS record in the Android log. | Partial M2 regression evidence |
 
-At the time of this earlier host-capability audit, audio, clipboard, and notifications were still open. The 2026-11-06 catalog continuation below closes the launcher workstream; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone, clipboard, and notification forwarding.
+At the time of this earlier host-capability audit, audio, clipboard, and notifications were still open. The 2026-11-06 launcher and clipboard continuations below close those respective workstreams; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone and notification forwarding.
 
 ### Installed application catalog and Linux launcher (2026-11-06)
 
@@ -460,6 +460,20 @@ read/write; the final guard observed 61,176,305,152 bytes used against 80 GiB,
 with 309,597,638,656 bytes free against the 20 GiB reserve. No AaaS session
 socket or runner/presenter/Native Bridge processes remained after cleanup.
 
-Canonical M4 remains `PARTIAL/OPEN`: audio and microphone, bidirectional
-clipboard, notification forwarding, and installed-app launcher/catalog work
-are still separate unfinished requirements.
+Canonical M4 remained `PARTIAL/OPEN` at the time of this storage closure for
+audio and microphone, bidirectional clipboard, notification forwarding, and
+the installed-app launcher/catalog workstream.
+
+### Bidirectional clipboard integration (2026-11-06)
+
+**M4 Bidirectional Clipboard Integration: PASS/CLOSED** for bounded plain
+UTF-8 text on the accepted KWin host. Actual byte-identical Android-to-Linux
+and Linux-to-Android application transfers, protocol selection, cleanup, and
+regression evidence are in [`docs/m4-clipboard-integration.md`](../m4-clipboard-integration.md)
+and `clipboard_live_acceptance_2026_11_06` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json). Rich clipboard
+formats and untested compositor backends remain outside this bounded support
+claim.
+
+Canonical M4 remains `PARTIAL/OPEN` for host audio and microphone integration
+and Android notification forwarding.
