@@ -18,12 +18,13 @@ For non-secret notifications, the listener forwards only the package name,
 Android user ID, notification key, app label, title, and text. It drops
 `VISIBILITY_SECRET`, bounds UTF-8 fields, rejects NUL and oversized frames, and
 does not log payloads. Frames use a versioned, base64url UTF-8 encoding and
-unique temporary files in a session-private IPC mount. The directory is
+unique temporary files in a session-local IPC mount. The directory is
 non-listable and sticky; inherited ACL grants the host session user read access
-to event files. The host adapter checks the mapped Android listener UID,
-requires regular bounded files, refuses symlinks, and deletes consumed frames.
-Only the authorized listener's frames are forwarded. This IPC is session-local
-and is not exposed on a network interface.
+to event files. Other Android UIDs can attempt to create directory entries, but
+the host adapter checks the mapped Android listener UID, requires regular
+bounded files, refuses symlinks, and deletes rejected event frames. Only the
+authorized listener's frames are forwarded. This IPC is session-local and is
+not exposed on a network interface.
 
 The host adapter runs as the regular desktop user, connects to the existing
 session D-Bus, and calls the standard
@@ -73,8 +74,10 @@ Evidence hashes for the final two-package run are:
 - Built listener APK (kept in workspace, not Git): `04fcc5491e633ee177995618e7d90d0fbaf3ac166ff4e703983c5e56e79241fb`
 
 The test body was synthetic and deterministic. Raw logs and APKs remain in the
-workspace and are not committed. The full host suite passed 339 tests with no
-failures, errors, or skips. The final session stopped cleanly; no AaaS runner,
+workspace and are not committed. The focused notification/runner suite passed
+84 tests, including disabled-listener gating and fail-closed behavior when the
+host notification service is unavailable. The full host suite passed 341 tests
+with no failures, errors, or skips. The final session stopped cleanly; no AaaS runner,
 notification adapter, clipboard bridge, IPC socket, or notification event
 frame remained. The accepted workspace UUID was still mounted read/write and
 the workspace guard passed. M2/M3 live smokes were not repeated in this
