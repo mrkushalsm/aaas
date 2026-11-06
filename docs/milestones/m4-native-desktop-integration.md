@@ -125,8 +125,8 @@ Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`;
 |---|---|---|
 | On-demand start and reuse | Live cold launcher start, same-session app reuse, two concurrent launcher calls, cancellable idle period and automatic idle shutdown | Partial: broader failure-recovery gates remain |
 | User desktop launcher | PackageManager discovery, icon/label/version catalog, owned XDG entries, cold launch, runtime reuse, update reconciliation, and uninstall cleanup verified in the 2026-11-06 continuation | **PASS/CLOSED** for installed-app catalog and launcher integration |
-| Host audio playback | PipeWire 1.6.9, WirePlumber, and pipewire-pulse are active on host. Android AudioFlinger and Ranchu audio HAL exist, but runner does not connect a host PCM endpoint or transport samples. | Not implemented; no playback proof |
-| Microphone | Host audio source exists; Android runner does not expose a scoped host capture stream. | Not implemented; no authorization/revocation proof |
+| Host audio playback | PipeWire 1.6.9, WirePlumber, and pipewire-pulse are active on host. An opt-in HIDL-compatible HAL and session-owned host PCM adapter prototype now exist. | PARTIAL/OPEN; Android AudioPolicyManager cannot load `primary`, AudioTrack returns `-19`, and no Android PCM reaches PipeWire |
+| Microphone | Host capture path exists in the prototype, but AudioFlinger has not opened its input HAL stream. | PARTIAL/OPEN; no live AudioRecord samples or Android permission grant/revocation proof |
 | Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Ordinary-app SAF, active MediaStore reconciliation, ACL preflight, persistent userdata, app-specific external files, permissions, and security boundary tests pass. NTFS3 quotas/SELinux labels/fscrypt are unsupported profile features; BFE archive actions are application-specific. | **PASS/CLOSED** |
 | Android-to-XDG picker bridge | This capability is explicitly deferred; Android continues using its built-in picker and shared-storage APIs. | Deferred; not a storage-slice acceptance gate |
 | Clipboard | Historical capability audit before the 2026-11-06 clipboard implementation. | Superseded by the live acceptance below |
@@ -501,3 +501,34 @@ notification adapter, clipboard helper, session socket, or notification event
 frame. Canonical M4 remains `PARTIAL/OPEN` for Android audio playback and
 microphone capture; this notification continuation did not re-run M2/M3 live
 smokes.
+
+## 2026-11-06 audio and microphone integration attempt
+
+An opt-in session-local legacy HAL prototype was added for the image's HIDL
+Audio HAL 7.1 adapter. It builds for x86_64/Bionic and uses a UID-checked,
+bounded Unix PCM socket to a session-owned `libpulse-simple` host process over
+`pipewire-pulse`. A host-only null-sink loopback received a paced 440 Hz test
+signal, confirming that host transport independently. This is not Android
+playback evidence.
+
+Live Android session `m1b84_session_ckxzb6mf` confirmed `ro.hardware=ranchu`,
+set the session property `ro.hardware.audio.primary=aaas`, exposed the matching
+HAL module, and waited for HIDL `IDevicesFactory/default` registration before
+starting audioserver. Despite those conditions, AudioPolicyManager could not
+load `primary`, and the ordinary AudioTrack probe failed with `-19`. The host
+bridge accepted no PCM client. The current evidence does not identify the
+specific HIDL `openDevice` failure, so the Audio HAL root cause remains
+unresolved and playback is not accepted. The HAL's AudioRecord callback has
+not been exercised; microphone capture and Android permission lifecycle remain
+unverified. The prototype is opt-in and the default runtime path is unchanged.
+
+The full Python suite passed 348 tests with no skips after adding the
+session-only overlay and host transport tests. Focused tests passed 77 tests.
+A fresh M2 Settings/Contacts smoke passed with independent closure and balanced
+presenter buffers. M3 was not rerun in this continuation; its prior accepted
+`PASS mask=255` evidence remains the latest M3 result. The workspace guard
+passed on NTFS3 UUID `A2ACEDF2ACEDC0C1` at 62,052,111,872 bytes allocated
+against the 80 GiB ceiling, with 308,721,827,840 bytes free against the 20 GiB
+reserve. The experimental Android session reached `STOPPED`; its host bridge
+was terminated. These results do not close the canonical milestone, which
+remains **PARTIAL/OPEN** for playback and microphone.
