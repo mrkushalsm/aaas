@@ -138,7 +138,8 @@ def binary_manifest(package_name: str, *, target_sdk: int | None = None,
     if target_sdk is not None or requested_permissions or services or receivers or not include_launcher:
         if target_sdk is None or not 1 <= target_sdk <= 0x7fffffff:
             raise ValueError('target_sdk must be a positive integer when extending manifest')
-        extra_strings = ['uses-sdk', 'uses-permission', *requested_permissions]
+        extra_strings = ['uses-sdk', 'uses-permission', 'queries', 'intent',
+                         *requested_permissions]
         strings.extend(value for value in extra_strings if value not in strings)
         nodes = [
             namespace(0x0100, 0, 1),
@@ -152,6 +153,18 @@ def binary_manifest(package_name: str, *, target_sdk: int | None = None,
                 ('android', 'targetSdkVersion', target_sdk),
             ]),
             end_element(strings, 'uses-sdk'),
+            start_element(strings, 'queries', []),
+            start_element(strings, 'intent', []),
+            start_element(strings, 'action', [
+                ('android', 'name', 'android.intent.action.MAIN'),
+            ]),
+            end_element(strings, 'action'),
+            start_element(strings, 'category', [
+                ('android', 'name', 'android.intent.category.LAUNCHER'),
+            ]),
+            end_element(strings, 'category'),
+            end_element(strings, 'intent'),
+            end_element(strings, 'queries'),
         ]
         nodes.extend(
             node

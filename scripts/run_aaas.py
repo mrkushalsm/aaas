@@ -50,6 +50,7 @@ FRAMEWORK_TRANSITION_OVERLAY = TMP / 'm1e_framework_transition_input.jar'
 FRAMEWORK_TRANSITION_RECEIPT = TMP / 'm1e_framework_transition_input.json'
 APKTOOL = TMP / 'apktool_3.0.3.jar'
 APKSIG = TMP / 'apksig-8.9.1.jar'
+ANDROID_DX = WORKSPACE / 'sources/prebuilts-build-tools-qpr2/common/bin/dx'
 STORAGE_SCAN_KEYSTORE = TMP / 'm4-storage-probe/storage-probe.keystore'
 STORAGE_SCAN_APK = TMP / 'storage-scan-helper/AaaSStorageScan.apk'
 STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
@@ -1647,6 +1648,25 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '        echo "$QUERY_ID $QUERY_STATUS $QUERY_OUTPUT_B64" '
                 '> /dev/aaas/storage_scan_query_ack\n'
                 '      fi\n'
+                '      if [ -s /dev/aaas/catalog_request ]; then\n'
+                '        read CATALOG_ID < /dev/aaas/catalog_request\n'
+                '        : > /dev/aaas/catalog_request\n'
+                '        case "$CATALOG_ID" in ""|*[!0-9a-f]*) CATALOG_ID=invalid ;; esac\n'
+                '        CATALOG_OUTPUT=/dev/aaas/catalog-$CATALOG_ID.tsv\n'
+                '        if [ "$CATALOG_ID" != invalid ] && [ -f "$CATALOG_OUTPUT" ] && '
+                '[ ! -L "$CATALOG_OUTPUT" ]; then\n'
+                '          CATALOG_BROADCAST=$(/system/bin/am broadcast '
+                '--include-stopped-packages --user 0 '
+                '-n org.aaas.storagescan/.CatalogReceiver '
+                '-a org.aaas.storagescan.CATALOG --es requestId "$CATALOG_ID" 2>&1)\n'
+                '          CATALOG_STATUS=$?\n'
+                '          echo "AAAS_CATALOG_BROADCAST status=$CATALOG_STATUS output=$CATALOG_BROADCAST" '
+                '>> /aaas_session_commands\n'
+                '          echo "$CATALOG_ID $CATALOG_STATUS" > /dev/aaas/catalog_ack\n'
+                '        else\n'
+                '          echo "$CATALOG_ID 2" > /dev/aaas/catalog_ack\n'
+                '        fi\n'
+                '      fi\n'
             )
         if app_package2 is not None:
             for slot in (1, 2):
@@ -1857,6 +1877,25 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '/system/bin/toybox base64 | /system/bin/toybox tr -d "\\n")\n'
                 '        echo "$QUERY_ID $QUERY_STATUS $QUERY_OUTPUT_B64" '
                 '> /dev/aaas/storage_scan_query_ack\n'
+                '      fi\n'
+                '      if [ -s /dev/aaas/catalog_request ]; then\n'
+                '        read CATALOG_ID < /dev/aaas/catalog_request\n'
+                '        : > /dev/aaas/catalog_request\n'
+                '        case "$CATALOG_ID" in ""|*[!0-9a-f]*) CATALOG_ID=invalid ;; esac\n'
+                '        CATALOG_OUTPUT=/dev/aaas/catalog-$CATALOG_ID.tsv\n'
+                '        if [ "$CATALOG_ID" != invalid ] && [ -f "$CATALOG_OUTPUT" ] && '
+                '[ ! -L "$CATALOG_OUTPUT" ]; then\n'
+                '          CATALOG_BROADCAST=$(/system/bin/am broadcast '
+                '--include-stopped-packages --user 0 '
+                '-n org.aaas.storagescan/.CatalogReceiver '
+                '-a org.aaas.storagescan.CATALOG --es requestId "$CATALOG_ID" 2>&1)\n'
+                '          CATALOG_STATUS=$?\n'
+                '          echo "AAAS_CATALOG_BROADCAST status=$CATALOG_STATUS output=$CATALOG_BROADCAST" '
+                '>> /aaas_session_commands\n'
+                '          echo "$CATALOG_ID $CATALOG_STATUS" > /dev/aaas/catalog_ack\n'
+                '        else\n'
+                '          echo "$CATALOG_ID 2" > /dev/aaas/catalog_ack\n'
+                '        fi\n'
                 '      fi\n'
             )
         readiness_and_watch += (
@@ -2378,7 +2417,8 @@ def main():
                 path.chmod(0o666)
     if storage_scan_apk is not None:
         for name in ('storage_scan_request', 'storage_scan_ack',
-                     'storage_scan_query_request', 'storage_scan_query_ack'):
+                     'storage_scan_query_request', 'storage_scan_query_ack',
+                     'catalog_request', 'catalog_ack'):
             path = ipc / name
             path.write_text('')
             path.chmod(0o666)
@@ -2430,7 +2470,8 @@ def main():
     scan_builder = ROOT / 'experiments/m4/storage_scan_helper/build_scan_helper.py'
     subprocess.run([
         sys.executable, str(scan_builder), '--apktool', str(APKTOOL),
-        '--apksig', str(APKSIG), '--keystore', str(STORAGE_SCAN_KEYSTORE),
+        '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
+        '--keystore', str(STORAGE_SCAN_KEYSTORE),
         '--output', str(STORAGE_SCAN_APK),
     ], check=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
@@ -2592,6 +2633,51 @@ def main():
                         'detail': ack[:160] or 'timeout'}
             return {'ok': True, 'slot': slot, 'package': package,
                     'state': 'STOPPING'}
+        if op == 'package_catalog':
+            if storage_scan_apk is None:
+                return {'ok': False, 'error': 'package_catalog_helper_unavailable'}
+            request_id = os.urandom(16).hex()
+            request_path = ipc / 'catalog_request'
+            ack_path = ipc / 'catalog_ack'
+            result_path = ipc / f'catalog-{request_id}.tsv'
+            try:
+                descriptor = os.open(result_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                                     0o622)
+                os.close(descriptor)
+                result_path.chmod(0o622)
+                ack_path.write_text('')
+                atomic_control_write(request_path, request_id)
+            except OSError as error:
+                result_path.unlink(missing_ok=True)
+                return {'ok': False, 'error': 'package_catalog_request_failed',
+                        'detail': str(error)[:160]}
+            deadline = time.monotonic() + 25
+            ack = ''
+            while time.monotonic() < deadline:
+                ack = ack_path.read_text().strip()
+                if ack.startswith(request_id + ' '):
+                    break
+                time.sleep(.05)
+            if ack.split() != [request_id, '0']:
+                result_path.unlink(missing_ok=True)
+                return {'ok': False, 'error': 'package_catalog_query_failed',
+                        'detail': ack[:160] or 'timeout'}
+            try:
+                content = result_path.read_bytes()
+                if len(content) > 16 * 1024 * 1024:
+                    raise ValueError('catalog exceeds 16 MiB limit')
+                header = content.splitlines()[0].decode('ascii').split('\t')
+                if (len(header) != 4 or header[:3] !=
+                        ['AAAS-CATALOG', '1', request_id]):
+                    raise ValueError('catalog header or request identity mismatch')
+                count = max(0, len(content.splitlines()) - 1)
+                return {'ok': True, 'catalog_path': str(result_path),
+                        'count': count, 'truncated': header[3] == '1',
+                        'request_id': request_id}
+            except (OSError, ValueError, UnicodeError, IndexError) as error:
+                result_path.unlink(missing_ok=True)
+                return {'ok': False, 'error': 'package_catalog_response_invalid',
+                        'detail': str(error)[:160]}
         if op == 'storage_scan':
             if storage_scan_apk is None:
                 return {'ok': False, 'error': 'storage_scan_helper_unavailable'}
