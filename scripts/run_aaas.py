@@ -3510,9 +3510,8 @@ def main():
                         notification_state_path.read_text())
                 except OSError:
                     notification_state = None
-                notification_uid = (
-                    notification_state[0]
-                    if notification_state and notification_state[1] else None)
+                notification_uid = aaas_notifications.authorized_listener_uid(
+                    notification_state)
                 if (notification_process is not None and
                         (notification_uid != notification_active_uid or
                          notification_process.poll() is not None)):

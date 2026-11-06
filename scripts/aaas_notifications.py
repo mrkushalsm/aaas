@@ -121,6 +121,13 @@ def parse_runtime_state(value: str) -> tuple[int, bool] | None:
     return uid, fields[1] == '1'
 
 
+def authorized_listener_uid(state: tuple[int, bool] | None) -> int | None:
+    """Return the listener UID only while Android reports explicit access."""
+    if state is None or not state[1]:
+        return None
+    return state[0]
+
+
 def clear_session_events(ipc_dir: Path) -> bool:
     directory = Path(ipc_dir) / 'notifications'
     if directory.is_symlink() or not directory.is_dir():

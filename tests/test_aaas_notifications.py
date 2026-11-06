@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -70,6 +72,11 @@ class NotificationFrameTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(notifications.parse_runtime_state(value))
 
+    def test_listener_uid_is_unavailable_without_explicit_android_authorization(self):
+        self.assertEqual(notifications.authorized_listener_uid((10160, True)), 10160)
+        self.assertIsNone(notifications.authorized_listener_uid((10160, False)))
+        self.assertIsNone(notifications.authorized_listener_uid(None))
+
     def test_frame_requires_expected_owner_and_no_symlink(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -132,6 +139,33 @@ class NotificationMappingTests(unittest.TestCase):
             forwarder.dispatch(self.event('org.a', f'key-{index}'))
         self.assertEqual(closed, [1])
         self.assertEqual(len(forwarder.active), 2)
+
+
+class NotificationHostFailureTests(unittest.TestCase):
+    def test_missing_host_notification_service_fails_before_forwarding(self):
+        class DBusException(Exception):
+            pass
+
+        calls = []
+        class Interface:
+            def GetServerInformation(self):
+                calls.append('probe')
+                raise DBusException('no host notification owner')
+
+        class Bus:
+            def get_object(self, _service, _path):
+                return object()
+
+        fake_dbus = type('FakeDBus', (), {
+            'DBusException': DBusException,
+            'SessionBus': staticmethod(Bus),
+            'Interface': staticmethod(lambda _proxy, _name: Interface()),
+        })
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.dict(sys.modules, {'dbus': fake_dbus}):
+                with self.assertRaises(DBusException):
+                    notifications.run_bridge(Path(temporary), 10160)
+        self.assertEqual(calls, ['probe'])
 
 
 if __name__ == '__main__':
