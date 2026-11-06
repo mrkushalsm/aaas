@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** The lifecycle and per-user launcher slice below is implemented and live-tested. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation at the end of this record: persistent userdata, ordinary Android filesystem APIs, scoped shared storage, SAF/MediaStore, package and permission lifecycle, app-private isolation, and bounded NTFS3/symlink behavior are accepted. BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. Canonical M4 remains open for host audio/microphone, clipboard, notification forwarding, and the installed-app launcher catalog. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** M2 lifecycle, M4 storage, and the installed-app catalog/launcher workstream have accepted evidence. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation below. **Installed-App Catalog and Launcher Integration is PASS/CLOSED** in the 2026-11-06 launcher continuation. BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. Canonical M4 remains open for host audio/microphone, clipboard, and notification forwarding. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -102,7 +102,7 @@ remain uncharacterized; the core shared-storage architecture is unchanged.
 
 The two-output runner now keeps Android warm for a bounded idle grace period after the last managed app closes. The product default is 60 seconds and the test override is bounded to 1–3600 seconds. Any app becoming active resets the timer; the existing launch control can reuse the runtime during the grace period. This policy applies to the existing two-output session; a running Android runtime consumes resources during that interval. Fully stopped means no AaaS runner/presenter processes.
 
-Application discovery/catalog generation, launcher cleanup on Android uninstall, and concurrent-launch race stress coverage remain open.
+At the time of this historical baseline, application discovery/catalog generation and launcher cleanup on Android uninstall were open. The dated installed-app catalog continuation below supersedes that status; concurrent-launch stress coverage remains separate.
 
 ### Live evidence
 
@@ -124,18 +124,34 @@ Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`;
 | Capability | Current evidence | M4 status |
 |---|---|---|
 | On-demand start and reuse | Live cold launcher start, same-session app reuse, two concurrent launcher calls, cancellable idle period and automatic idle shutdown | Partial: broader failure-recovery gates remain |
-| User desktop launcher | Per-user entries and runner invocation exercised | Partial: app discovery/catalog and uninstall cleanup are absent |
+| User desktop launcher | PackageManager discovery, icon/label/version catalog, owned XDG entries, cold launch, runtime reuse, update reconciliation, and uninstall cleanup verified in the 2026-11-06 continuation | **PASS/CLOSED** for installed-app catalog and launcher integration |
 | Host audio playback | PipeWire 1.6.9, WirePlumber, and pipewire-pulse are active on host. Android AudioFlinger and Ranchu audio HAL exist, but runner does not connect a host PCM endpoint or transport samples. | Not implemented; no playback proof |
 | Microphone | Host audio source exists; Android runner does not expose a scoped host capture stream. | Not implemented; no authorization/revocation proof |
 | Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Ordinary-app SAF, active MediaStore reconciliation, ACL preflight, persistent userdata, app-specific external files, permissions, and security boundary tests pass. NTFS3 quotas/SELinux labels/fscrypt are unsupported profile features; BFE archive actions are application-specific. | **PASS/CLOSED** |
 | Android-to-XDG picker bridge | This capability is explicitly deferred; Android continues using its built-in picker and shared-storage APIs. | Deferred; not a storage-slice acceptance gate |
 | Clipboard | Wayland presenter has no data-device clipboard bridge to Android ClipboardManager. | Not implemented |
 | Notifications | Host DBus notification service and Android NotificationManager exist, but no AaaS forwarding listener/adapter exists. | Not implemented |
-| Normal APK installation | Existing acceptance used system-app overlays; no normal user PackageInstaller workflow or launcher discovery is included in this change. | Not verified |
+| Normal APK installation and launcher discovery | The 2026-11-06 launcher continuation installed, updated, discovered, launched, uninstalled, and reconciled a disposable ordinary package through PackageManager and managed XDG entries. | **PASS/CLOSED** for installed-app catalog and launcher |
 | Camera | `/dev/video*` devices exist on host, but are not bound into Android; no Android Camera HAL to authorized host source adapter is present. | Feasibility only; not supported |
 | M2/M3 regression | KWin Settings/Contacts presentation and teardown were exercised; M3 diagnostic was rerun with the full JNI PASS record in the Android log. | Partial M2 regression evidence |
 
-The mandatory M4 acceptance gates for actual host audio playback, scoped file read and write, bidirectional clipboard, and supported Android notification forwarding remain open. Therefore this record intentionally stays `PARTIAL/OPEN`.
+At the time of this earlier host-capability audit, audio, clipboard, and notifications were still open. The 2026-11-06 catalog continuation below closes the launcher workstream; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone, clipboard, and notification forwarding.
+
+### Installed application catalog and Linux launcher (2026-11-06)
+
+**Installed-App Catalog and Launcher Integration: PASS/CLOSED.** The tested source revision is recorded in the matching `installed_app_catalog_launcher_2026_11_06` object in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). This closes the launcher workstream only; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone, bidirectional clipboard, and Android notification forwarding.
+
+The runner's existing session-owned storage helper now performs a one-shot PackageManager query for `ACTION_MAIN` plus `CATEGORY_LAUNCHER`. Its manifest declares only that launcher intent under `<queries>`, fixing Android package-visibility filtering without requesting `QUERY_ALL_PACKAGES`. The helper returns package ID, resolved launch activity, application label, version code/name, enabled state, and a 96×96 PNG icon rendered through Android resources. The AaaS host refreshes this snapshot through the active session control socket or creates a temporary Settings session when stopped, then shuts that temporary runtime down cleanly.
+
+The host stores a persistent cache at `${XDG_DATA_HOME:-~/.local/share}/aaas/catalog.json`, with a separate ownership manifest and per-package icons. It creates XDG desktop entries under `${XDG_DATA_HOME:-~/.local/share}/applications/aaas-catalog-<package>.desktop`. Entries use a validated package ID and fixed AaaS launch command; labels and icon paths never become shell arguments. Updates reconcile on app launch and through `aaas-desktop catalog refresh`; stale entries are removed only when named by the AaaS ownership manifest. A failed stale-package launch also triggers reconciliation. Existing files with collisions are preserved. If Android has no icon, the entry uses the explicit `application-x-executable` fallback. The desktop catalog remains available with Android stopped; no permanent supervisor was added.
+
+Live acceptance discovered 19 launchable Android applications, including Files (`com.android.documentsui`), Messaging (`com.android.messaging`), and Settings (`com.android.settings`). All 19 generated entries passed `desktop-file-validate`, Android rendered icons for the applications in the accepted snapshot, and KService's cache was refreshed. `gio launch` invoked the generated Files entry from a stopped runtime, and a generated Settings entry reused the same running session in slot 2. The session exposed separate presenter processes/displays. Closing Files left Settings running. The catalog remained on disk after runtime shutdown.
+
+A controlled signed probe `org.aaas.catalogprobe` verified catalog lifecycle without touching accepted diagnostic packages: version 1 installed normally in session `m1b84_session_31e280ht`; same-signed version 2 updated in session `m1b84_session_52ewajda`; the refreshed catalog and desktop entry reported version code `2`; ordinary PackageManager uninstall succeeded in `m1b84_session_fz0miswi`; refresh removed only its AaaS-owned entry; and session `m1b84_session_itpiy1yj` verified the package remained absent after a complete runtime restart. The disposable package was left uninstalled. Test APKs and raw logs remain outside Git.
+
+M2 window regression session `m1b84_session_itpiy1yj` showed Settings and Contacts in separate slots. Stopping Contacts left Settings `RUNNING`; presenter summaries were 123/123 and 79/79 imports/releases, with zero outstanding buffers. The same session verified the package remained absent after restart. M4 shared-storage regression session `m1b84_session_0ee286he` passed ACL preflight and a normal-session scan of the existing synthetic image into `external_primary`; host storage status remained accessible. The full Python suite passed 301 tests with no skips. Workspace guard remained within the 80 GiB ceiling and 20 GiB reserve. No AaaS runner or presenter remained after cleanup. M3 source and implementation were unchanged; prior M3 `PASS mask=255` evidence remains authoritative.
+
+The launcher-specific verification initially passed 304 Python tests. A final least-privilege refinement scopes the PackageManager launcher visibility declaration to the storage helper only; unrelated diagnostic APKs do not receive a `<queries>` rule. The focused launcher/builder tests passed 21 tests and the complete suite passed 305 tests with zero skips. A cold catalog refresh against the revised helper again returned 19 installed launchable applications and the runtime reached `STOPPED`; the catalog persisted. Source revision: `ea27e5e`.
 
 ## Security and deferred scope
 

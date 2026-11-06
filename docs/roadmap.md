@@ -22,7 +22,7 @@ Load and execute a small ARM64 shared library through Android Native Bridge on x
 
 ## M4 — Native desktop integration
 
-Implement on-demand lifecycle control, audio, shared-file selection, desktop launchers, and clipboard integration. Expected outcomes include explicit stopped/warm/active behavior, efficient idle operation, host audio, file selection/shared access, launchers, clipboard, supported notifications, and resource cleanup. Bluetooth hardware remains optional backlog. **Status: PARTIAL/OPEN**; the storage integration workstream is PASS/CLOSED, while host audio/microphone, clipboard, notification forwarding, and the installed-app launcher catalog remain incomplete. See the [M4 acceptance record](../results/m4/acceptance.json) and [implementation status](milestones/m4-native-desktop-integration.md).
+Implement on-demand lifecycle control, audio, shared-file selection, desktop launchers, and clipboard integration. Expected outcomes include explicit stopped/warm/active behavior, efficient idle operation, host audio, file selection/shared access, launchers, clipboard, supported notifications, and resource cleanup. Bluetooth hardware remains optional backlog. **Status: PARTIAL/OPEN**; storage integration and installed-app catalog/launcher are PASS/CLOSED, while host audio/microphone, clipboard, and notification forwarding remain incomplete. See the [M4 acceptance record](../results/m4/acceptance.json) and [implementation status](milestones/m4-native-desktop-integration.md).
 
 ## M5 — Graphics optimization and benchmarks
 
@@ -76,6 +76,6 @@ Package AaaS for Linux desktops; provide installation, upgrade/removal, dependen
 | M1 | Existing x86_64 Android runtime and APK execution are established. |
 | M2 | PASS/CLOSED; see [M2 acceptance](milestones/m2-independent-desktop-windows.md). |
 | M3 | PASS/CLOSED for the bounded Android 16 Native Bridge feasibility proof; arbitrary ARM64 app compatibility is not claimed. |
-| M4 | PARTIAL/OPEN overall; **Storage Integration PASS/CLOSED** (2026-11-06). Audio/microphone, clipboard, notifications, and launcher catalog remain open; see [M4 acceptance](../results/m4/acceptance.json). Bluetooth hardware remains optional/deferred. |
+| M4 | PARTIAL/OPEN overall; **Storage Integration PASS/CLOSED** and **Installed-App Catalog/Launcher PASS/CLOSED** (2026-11-06). Audio/microphone, clipboard, and notifications remain open; see [M4 acceptance](../results/m4/acceptance.json). Bluetooth hardware remains optional/deferred. |
 | M5 | PARTIAL/OPEN; graphics performance and historical tail-latency work remain separate. |
 | M6 | PARTIAL/OPEN; KWin/Weston/Sway portability is not fully accepted; Hyprland/Mutter unverified. |
