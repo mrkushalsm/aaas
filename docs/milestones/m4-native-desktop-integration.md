@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** M2 lifecycle, M4 storage, installed-app catalog/launcher, and bidirectional clipboard have accepted evidence. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation below. **Installed-App Catalog and Launcher Integration is PASS/CLOSED** in the 2026-11-06 launcher continuation. **Bidirectional Clipboard Integration is PASS/CLOSED for bounded UTF-8 text on KWin** in the [clipboard integration record](../m4-clipboard-integration.md). BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. Canonical M4 remains open for host audio/microphone and notification forwarding. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** M2 lifecycle, M4 storage, installed-app catalog/launcher, bidirectional clipboard, and Android notification forwarding have accepted evidence. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation below. **Installed-App Catalog and Launcher Integration is PASS/CLOSED** in the 2026-11-06 launcher continuation. **Bidirectional Clipboard Integration is PASS/CLOSED for bounded UTF-8 text on KWin** in the [clipboard integration record](../m4-clipboard-integration.md). **Android Notification Forwarding is PASS/CLOSED** in the [notification integration record](../m4-notifications.md). BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. Canonical M4 remains open for host audio and microphone. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -477,3 +477,27 @@ claim.
 
 Canonical M4 remains `PARTIAL/OPEN` for host audio and microphone integration
 and Android notification forwarding.
+
+### Android notification forwarding (2026-11-06)
+
+**M4 Android Notification Forwarding: PASS/CLOSED** for ordinary Android app
+notifications routed through the user-authorized listener and the active Linux
+session notification service. The architecture, privacy controls, Plasma
+service details, session IDs, package identities, update/cancel evidence, and
+cleanup are recorded in the [notification integration record](../m4-notifications.md)
+and `android_notification_forwarding_2026_11_06` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+
+The final two-package run used Android packages
+`org.aaas.notificationprobe` (UID 10161) and
+`org.aaas.notificationprobe2` (UID 10162). Android enqueued notifications for
+both packages, updates reused their respective Plasma notification IDs, and
+cancellation closed each mapping independently. The listener was separately
+authorized through Android Notification Listener Settings; each probe received
+its own normal `POST_NOTIFICATIONS` grant. No privileged permission grant or
+framework policy bypass was used. The 339-test Python suite passed with zero
+failures, errors, or skips. The final session stopped and left no AaaS runner,
+notification adapter, clipboard helper, session socket, or notification event
+frame. Canonical M4 remains `PARTIAL/OPEN` for Android audio playback and
+microphone capture; this notification continuation did not re-run M2/M3 live
+smokes.

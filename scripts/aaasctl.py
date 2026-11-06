@@ -65,6 +65,18 @@ def main(argv=None):
     probe = clipboard_sub.add_parser(
         'probe', help='launch a controlled clipboard acceptance text-field probe')
     probe.add_argument('mode', choices=('android-copy', 'host-paste'))
+    notifications = subparsers.add_parser(
+        'notifications', help='authorize Android notification forwarding')
+    notifications_sub = notifications.add_subparsers(dest='notifications_operation', required=True)
+    notifications_sub.add_parser(
+        'setup', help='open Android notification-listener settings; authorization stays user-controlled')
+    ui = notifications_sub.add_parser(
+        'ui', help='bounded Android notification UI test controls')
+    ui.add_argument('action', choices=('dump', 'capture', 'tap'))
+    ui.add_argument('x', nargs='?', type=int)
+    ui.add_argument('y', nargs='?', type=int)
+    ui.add_argument('--display-id', type=int,
+                    help='Android display receiving a bounded test tap')
     subparsers.add_parser('stop', help='stop the shared AaaS runtime')
     args = parser.parse_args(argv)
 
@@ -132,8 +144,22 @@ def main(argv=None):
         parser.error('package must be a dotted Android application ID')
     clipboard_ops = {'setup': 'clipboard_setup', 'use': 'clipboard_ime_use',
                      'restore': 'clipboard_ime_restore', 'probe': 'clipboard_probe'}
-    request = {'op': clipboard_ops[args.clipboard_operation]
-               if args.operation == 'clipboard' else args.operation}
+    if args.operation == 'clipboard':
+        request = {'op': clipboard_ops[args.clipboard_operation]}
+    elif args.operation == 'notifications':
+        if args.notifications_operation == 'setup':
+            request = {'op': 'notifications_setup'}
+        else:
+            if ((args.action == 'tap' and (args.x is None or args.y is None)) or
+                    (args.action != 'tap' and (args.x is not None or args.y is not None))):
+                parser.error('notifications ui tap requires x and y; dump/capture take no coordinates')
+            request = {'op': 'notifications_ui', 'action': args.action}
+            if args.action == 'tap':
+                request.update(x=args.x, y=args.y)
+                if args.display_id is not None:
+                    request['display_id'] = args.display_id
+    else:
+        request = {'op': args.operation}
     if args.operation == 'clipboard' and args.clipboard_operation == 'probe':
         request['mode'] = args.mode
     if args.operation == 'launch':

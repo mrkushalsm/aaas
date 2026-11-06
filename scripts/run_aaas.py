@@ -29,6 +29,7 @@ import aaas_cgroup
 import aaas_bluetooth
 import aaas_resources
 import aaas_clipboard
+import aaas_notifications
 import aaas_storage
 import aaas_userdata
 import android_workspace
@@ -57,6 +58,7 @@ ANDROID_ZIPALIGN = WORKSPACE / 'sources/prebuilts-build-tools-qpr2/linux-x86/bin
 STORAGE_SCAN_KEYSTORE = TMP / 'm4-storage-probe/storage-probe.keystore'
 STORAGE_SCAN_APK = TMP / 'storage-scan-helper/AaaSStorageScan.apk'
 CLIPBOARD_APK = TMP / 'clipboard-ime/AaasClipboard.apk'
+NOTIFICATION_APK = TMP / 'm4-notifications/AaasNotifications.apk'
 CLIPBOARD_BRIDGE = ROOT / 'experiments/m4/clipboard/build/aaas-wayland-clipboard'
 STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
@@ -677,7 +679,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         diagnostic_storage_open=False, install_apk=None,
                         uninstall_package=None, assert_package_absent=None,
                         storage_scan_apk=None, persistent_userdata_dir=None,
-                        native_bridge_exec=False, clipboard_apk=None):
+                        native_bridge_exec=False, clipboard_apk=None,
+                        notification_apk=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -702,7 +705,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     diagnostic_storage_apk_bind = ""
     storage_scan_apk_bind = ""
     clipboard_apk_bind = ""
-    ordinary_apk_bind = ""
+    notification_apk_bind = ""
+    ordinary_apk_binds = ""
     if diagnostic_storage_apk is not None:
         storage_apk = Path(diagnostic_storage_apk).resolve(strict=True)
         if not storage_apk.is_file() or storage_apk.suffix.lower() != '.apk':
@@ -729,16 +733,28 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             f'  --ro-bind {shlex.quote(str(clipboard_apk_path))} '
             '/aaas-clipboard-ime.apk \\\n'
         )
+    if notification_apk is not None:
+        notification_apk_path = Path(notification_apk).resolve(strict=True)
+        if not notification_apk_path.is_file() or notification_apk_path.suffix.lower() != '.apk':
+            raise ValueError('notification companion must be an APK file')
+        notification_apk_bind = (
+            f'  --ro-bind {shlex.quote(str(notification_apk_path))} '
+            '/aaas-notification-listener.apk \\\n'
+        )
     if install_apk is not None:
-        ordinary_apk = Path(install_apk).resolve(strict=True)
-        if not ordinary_apk.is_file() or ordinary_apk.suffix.lower() != '.apk':
-            raise ValueError('application install input must be an APK file')
+        ordinary_apks = install_apk if isinstance(install_apk, (list, tuple)) else [install_apk]
+        if not ordinary_apks:
+            raise ValueError('application install input list must not be empty')
         if diagnostic_storage_apk is not None:
             raise ValueError('use either a storage probe APK or an ordinary APK')
-        ordinary_apk_bind = (
-            f'  --ro-bind {shlex.quote(str(ordinary_apk))} '
-            '/aaas-install-apk.apk \\\n'
-        )
+        bind_lines = []
+        for index, apk in enumerate(ordinary_apks, start=1):
+            ordinary_apk = Path(apk).resolve(strict=True)
+            if not ordinary_apk.is_file() or ordinary_apk.suffix.lower() != '.apk':
+                raise ValueError('application install input must be an APK file')
+            target = '/aaas-install-apk.apk' if index == 1 else f'/aaas-install-apk-{index}.apk'
+            bind_lines.append(f'  --ro-bind {shlex.quote(str(ordinary_apk))} {target} \\\n')
+        ordinary_apk_binds = ''.join(bind_lines)
     if native_bridge_overlay is not None:
         overlay = Path(native_bridge_overlay).resolve(strict=True)
         native_bridge_binds = (
@@ -1086,6 +1102,39 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '      done\n'
                 '    ) >/dev/null 2>&1 &\n'
             )
+        if notification_apk is not None:
+            storage_probe += (
+                '    echo "=== INSTALLING USER-AUTHORIZED AaaS NOTIFICATION LISTENER ===" >> /aaas_session_commands\n'
+                '    NOTIFICATION_INSTALL_OUTPUT=$(/system/bin/pm install -r /aaas-notification-listener.apk 2>&1)\n'
+                '    NOTIFICATION_INSTALL_STATUS=$?\n'
+                '    echo "AAAS_NOTIFICATION_INSTALL status=$NOTIFICATION_INSTALL_STATUS result=$NOTIFICATION_INSTALL_OUTPUT" >> /aaas_session_commands\n'
+                '    if [ "$NOTIFICATION_INSTALL_STATUS" -ne 0 ]; then echo FAILED > /aaas_session_status; exit 1; fi\n'
+                '    NOTIFICATION_UID_OUTPUT=$(/system/bin/pm list packages -U org.aaas.notifications 2>/dev/null)\n'
+                '    NOTIFICATION_ANDROID_UID=${{NOTIFICATION_UID_OUTPUT##*uid:}}\n'
+                '    NOTIFICATION_ANDROID_UID=${{NOTIFICATION_ANDROID_UID%% *}}\n'
+                '    case "$NOTIFICATION_ANDROID_UID" in ""|*[!0-9]*) echo FAILED > /aaas_session_status; exit 1 ;; esac\n'
+                '    (\n'
+                '      LAST_NOTIFICATION_STATE=\n'
+                '      while [ -n "$(/system/bin/toybox pidof system_server 2>/dev/null)" ]; do\n'
+                '        NOTIFICATION_SETTINGS_REQUEST=$(/system/bin/toybox cat /dev/aaas/notification_settings_request 2>/dev/null)\n'
+                '        case "$NOTIFICATION_SETTINGS_REQUEST" in\n'
+                '          open) : > /dev/aaas/notification_settings_request; NOTIFICATION_DISPLAY_ID=$(/system/bin/toybox cat /dev/aaas/vdisplay_id 2>/dev/null); case "$NOTIFICATION_DISPLAY_ID" in ""|*[!0-9]*) /system/bin/am start -a android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS >/dev/null 2>&1 ;; *) /system/bin/am start --display "$NOTIFICATION_DISPLAY_ID" -a android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS >/dev/null 2>&1 ;; esac ;;\n'
+                '          dump) : > /dev/aaas/notification_settings_request; /system/bin/uiautomator dump /dev/aaas/notifications/notification-settings.xml >> /aaas_session_commands 2>&1; NOTIFICATION_DUMP_STATUS=$?; /system/bin/toybox chmod 0644 /dev/aaas/notifications/notification-settings.xml 2>/dev/null || true; echo "dump $NOTIFICATION_DUMP_STATUS" > /dev/aaas/notification_settings_ack ;;\n'
+                '          capture) : > /dev/aaas/notification_settings_request; NOTIFICATION_DISPLAY_ID=$(/system/bin/toybox cat /dev/aaas/vdisplay_id 2>/dev/null); /system/bin/screencap -p -d "$NOTIFICATION_DISPLAY_ID" /dev/aaas/notifications/notification-settings.png >> /aaas_session_commands 2>&1; NOTIFICATION_CAPTURE_STATUS=$?; /system/bin/toybox chmod 0644 /dev/aaas/notifications/notification-settings.png 2>/dev/null || true; echo "capture $NOTIFICATION_CAPTURE_STATUS" > /dev/aaas/notification_settings_ack ;;\n'
+                '          tap\\ *) read NOTIFICATION_ACTION NOTIFICATION_REQUEST_ID NOTIFICATION_DISPLAY_ID NOTIFICATION_X NOTIFICATION_Y < /dev/aaas/notification_settings_request; : > /dev/aaas/notification_settings_request; NOTIFICATION_TAP_STATUS=2; case "$NOTIFICATION_REQUEST_ID" in ""|*[!0-9a-f]*) ;; *) case "$NOTIFICATION_DISPLAY_ID:$NOTIFICATION_X:$NOTIFICATION_Y" in *[!0-9:]*|:*|*:) ;; *) if [ "$NOTIFICATION_DISPLAY_ID" -le 10000 ] && [ "$NOTIFICATION_X" -le 719 ] && [ "$NOTIFICATION_Y" -le 1279 ]; then /system/bin/cmd input -d "$NOTIFICATION_DISPLAY_ID" tap "$NOTIFICATION_X" "$NOTIFICATION_Y" >/dev/null 2>&1; NOTIFICATION_TAP_STATUS=$?; fi ;; esac ;; esac; echo "$NOTIFICATION_REQUEST_ID $NOTIFICATION_TAP_STATUS" > /dev/aaas/notification_settings_ack ;;\n'
+                '          *) : ;;\n'
+                '        esac\n'
+                '        ENABLED_LISTENERS=$(/system/bin/settings get secure enabled_notification_listeners 2>/dev/null)\n'
+                '        case ":$ENABLED_LISTENERS:" in *":org.aaas.notifications/org.aaas.notifications.ForwardingListener:"*) NOTIFICATION_ENABLED=1 ;; *) NOTIFICATION_ENABLED=0 ;; esac\n'
+                '        NOTIFICATION_STATE="$NOTIFICATION_ANDROID_UID $NOTIFICATION_ENABLED"\n'
+                '        if [ "$NOTIFICATION_STATE" != "$LAST_NOTIFICATION_STATE" ]; then\n'
+                '          printf "%s\\n" "$NOTIFICATION_STATE" > /dev/aaas/.notification_state.tmp && /system/bin/toybox chmod 0600 /dev/aaas/.notification_state.tmp && /system/bin/toybox mv -f /dev/aaas/.notification_state.tmp /dev/aaas/notification_state\n'
+                '          LAST_NOTIFICATION_STATE=$NOTIFICATION_STATE\n'
+                '        fi\n'
+                '        /system/bin/toybox sleep 0.25\n'
+                '      done\n'
+                '    ) >/dev/null 2>&1 &\n'
+            )
         if shared_storage_dir is not None:
             storage_probe += (
                 '    echo check > /dev/aaas/storage_acl_request\n'
@@ -1103,13 +1152,20 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '    echo AAAS_STORAGE_ACL_PREFLIGHT_READY >> /aaas_session_commands\n'
             )
         if install_apk is not None:
+            ordinary_apks = install_apk if isinstance(install_apk, (list, tuple)) else [install_apk]
+            install_commands = []
+            for index, _apk in enumerate(ordinary_apks, start=1):
+                target = '/aaas-install-apk.apk' if index == 1 else f'/aaas-install-apk-{index}.apk'
+                install_commands.extend((
+                    f'    INSTALL_OUTPUT=$(/system/bin/pm install -r {target} 2>&1)\n',
+                    '    INSTALL_STATUS=$?\n',
+                    f'    echo "AAAS_USER_APK_INSTALL index={index} status=$INSTALL_STATUS result=$INSTALL_OUTPUT" '
+                    '>> /aaas_session_commands\n',
+                    '    if [ "$INSTALL_STATUS" -ne 0 ]; then echo FAILED > /aaas_session_status; exit 1; fi\n',
+                ))
             storage_probe += (
-                '    echo "=== INSTALLING ORDINARY USER APK ===" >> /aaas_session_commands\n'
-                '    INSTALL_OUTPUT=$(/system/bin/pm install -r /aaas-install-apk.apk 2>&1)\n'
-                '    INSTALL_STATUS=$?\n'
-                '    echo "AAAS_USER_APK_INSTALL status=$INSTALL_STATUS result=$INSTALL_OUTPUT" '
-                '>> /aaas_session_commands\n'
-                '    if [ "$INSTALL_STATUS" -ne 0 ]; then echo FAILED > /aaas_session_status; exit 1; fi\n'
+                '    echo "=== INSTALLING ORDINARY USER APK(S) ===" >> /aaas_session_commands\n'
+                + ''.join(install_commands)
             )
         if uninstall_package is not None:
             package = shlex.quote(uninstall_package)
@@ -1168,8 +1224,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         '{mapper_bind}{allocator_bind}',
         native_bridge_binds + input_response_probe_binds + diagnostic_storage_apk_bind
         + storage_scan_apk_bind
-        + clipboard_apk_bind
-        + ordinary_apk_bind
+        + clipboard_apk_bind + notification_apk_bind
+        + ordinary_apk_binds
         + '{mapper_bind}{allocator_bind}',
     )
     source = replace_once(
@@ -2367,8 +2423,8 @@ def main():
                         help='optional second diagnostic APK for distinct-package two-display input checks')
     parser.add_argument('--diagnostic-storage-apk',
                         help='install the controlled storage probe as an ordinary /data/app package')
-    parser.add_argument('--install-apk',
-                        help='install an APK as an ordinary user package before launch')
+    parser.add_argument('--install-apk', action='append',
+                        help='install an APK as an ordinary user package before launch; repeat for multiple APKs')
     parser.add_argument('--uninstall-package',
                         help='uninstall a controlled org.aaas package through PackageManager')
     parser.add_argument('--assert-package-absent',
@@ -2594,6 +2650,15 @@ def main():
         path = ipc / name
         path.write_text('')
         path.chmod(0o600)
+    notification_state_path = ipc / 'notification_state'
+    notification_state_path.write_text('')
+    notification_state_path.chmod(0o600)
+    notification_settings_path = ipc / 'notification_settings_request'
+    notification_settings_path.write_text('')
+    notification_settings_path.chmod(0o600)
+    notification_settings_ack_path = ipc / 'notification_settings_ack'
+    notification_settings_ack_path.write_text('')
+    notification_settings_ack_path.chmod(0o600)
     if args.test_tombstone_capture:
         test_request = ipc / 'tombstone_capture_test'
         test_request.write_text('')
@@ -2634,6 +2699,7 @@ def main():
     shared_storage_path = aaas_storage.prepare_backing_directory(WORKSPACE)
     persistent_userdata_path = aaas_userdata.prepare_userdata_directory(WORKSPACE)
     clipboard_ipc_dir = aaas_clipboard.prepare_ipc_directory(ipc)
+    notification_ipc_dir = aaas_notifications.prepare_ipc_directory(ipc)
     if not shutil.which('setfacl'):
         raise RuntimeError('clipboard integration requires the host acl utilities')
     subprocess.run(['make', '-C', str(ROOT / 'experiments/m4/clipboard')],
@@ -2656,6 +2722,14 @@ def main():
         '--zipalign', str(ANDROID_ZIPALIGN),
         '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(CLIPBOARD_APK),
     ], check=True)
+    notification_builder = ROOT / 'experiments/m4/notifications/build_listener.py'
+    subprocess.run([
+        sys.executable, str(notification_builder), '--apktool', str(APKTOOL),
+        '--framework-res', str(WORKSPACE / 'rootfs_m1b1/system/framework/framework-res.apk'),
+        '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
+        '--zipalign', str(ANDROID_ZIPALIGN),
+        '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(NOTIFICATION_APK),
+    ], check=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
@@ -2675,7 +2749,8 @@ def main():
                                  storage_scan_apk=storage_scan_apk,
                                  persistent_userdata_dir=persistent_userdata_path,
                                  native_bridge_exec=args.diagnostic_native_bridge_exec,
-                                 clipboard_apk=CLIPBOARD_APK)
+                                 clipboard_apk=CLIPBOARD_APK,
+                                 notification_apk=NOTIFICATION_APK)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -2702,6 +2777,9 @@ def main():
             env['AAAS_VDISPLAY2_INPUT_ADAPTER_LOG'] = str(vdisplay2_input_adapter_log)
     presenter = virtual_presenter = virtual_presenter2 = android = None
     clipboard_process = None
+    notification_process = None
+    notification_active_uid = None
+    notification_failed_uid = None
     clipboard_active_uid = None
     clipboard_failed_uid = None
     presenter_trace_args = []
@@ -2794,6 +2872,53 @@ def main():
             request_path.chmod(0o600)
             return {'ok': True, 'action': 'android_input_method_settings_opened',
                     'instruction': 'enable and select AaaS Clipboard in Android settings'}
+        if op == 'notifications_setup':
+            request_path = ipc / 'notification_settings_request'
+            if request_path.is_symlink() or not request_path.is_file():
+                return {'ok': False, 'error': 'notification_settings_unavailable'}
+            request_path.write_text('open\n')
+            request_path.chmod(0o600)
+            return {'ok': True, 'action': 'android_notification_listener_settings_opened',
+                    'instruction': 'authorize AaaS Notifications in Android Settings'}
+        if op == 'notifications_ui':
+            action = request.get('action')
+            if action not in ('tap', 'dump', 'capture'):
+                return {'ok': False, 'error': 'invalid_notification_ui_action'}
+            request_path = ipc / 'notification_settings_request'
+            ack_path = ipc / 'notification_settings_ack'
+            if request_path.is_symlink() or ack_path.is_symlink():
+                return {'ok': False, 'error': 'notification_settings_control_unsafe'}
+            request_id = os.urandom(8).hex()
+            ack_path.write_text('')
+            if action == 'tap':
+                x, y = request.get('x'), request.get('y')
+                display_id = request.get('display_id')
+                if display_id is None:
+                    try:
+                        display_id = int((ipc / 'vdisplay_id').read_text().strip())
+                    except (OSError, ValueError):
+                        return {'ok': False, 'error': 'notification_ui_display_unavailable'}
+                if (not isinstance(x, int) or isinstance(x, bool) or
+                        not isinstance(y, int) or isinstance(y, bool) or
+                        not 0 <= x <= 719 or not 0 <= y <= 1279 or
+                        not isinstance(display_id, int) or isinstance(display_id, bool) or
+                        not 0 <= display_id <= 10000):
+                    return {'ok': False, 'error': 'notification_ui_coordinates_out_of_range'}
+                request_path.write_text(f'tap {request_id} {display_id} {x} {y}\n')
+            else:
+                request_path.write_text(action + '\n')
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    response = ack_path.read_text().strip().split()
+                except OSError:
+                    response = []
+                if action in ('dump', 'capture') and len(response) == 2 and response[0] == action:
+                    return {'ok': response[1] == '0', 'action': action}
+                if action == 'tap' and len(response) == 2 and response[0] == request_id:
+                    return {'ok': response[1] == '0', 'action': action}
+                time.sleep(.05)
+            return {'ok': False, 'error': 'notification_ui_timeout'}
         if op == 'clipboard_probe':
             mode = request.get('mode')
             if mode not in ('android-copy', 'host-paste'):
@@ -3379,6 +3504,58 @@ def main():
                         print(f'AaaS: clipboard bridge unavailable: '
                               f'{type(error).__name__}: {error}',
                               file=sys.stderr, flush=True)
+                notification_state_path = ipc / 'notification_state'
+                try:
+                    notification_state = aaas_notifications.parse_runtime_state(
+                        notification_state_path.read_text())
+                except OSError:
+                    notification_state = None
+                notification_uid = (
+                    notification_state[0]
+                    if notification_state and notification_state[1] else None)
+                if (notification_process is not None and
+                        (notification_uid != notification_active_uid or
+                         notification_process.poll() is not None)):
+                    if notification_process.poll() is not None:
+                        notification_failed_uid = notification_active_uid
+                        print('AaaS: notification bridge exited unexpectedly; '
+                              'forwarding is disabled for this session',
+                              file=sys.stderr, flush=True)
+                    else:
+                        terminate_process_group(notification_process)
+                        print('AaaS: Android notification listener authorization ended; '
+                              'session adapter stopped', flush=True)
+                    aaas_notifications.clear_session_events(ipc)
+                    notification_process = None
+                    notification_active_uid = None
+                if notification_uid is None:
+                    notification_failed_uid = None
+                elif notification_process is None and notification_failed_uid != notification_uid:
+                    notification_log_path = session / 'notification-bridge.log'
+                    try:
+                        with notification_log_path.open('ab') as notification_log:
+                            notification_process = subprocess.Popen(
+                                [sys.executable, str(ROOT / 'scripts/aaas_notifications.py'),
+                                 '--ipc-dir', str(notification_ipc_dir), '--android-uid',
+                                 str(notification_uid)],
+                                stdout=notification_log, stderr=subprocess.STDOUT,
+                                env=env, start_new_session=True)
+                        time.sleep(.1)
+                        if notification_process.poll() is not None:
+                            raise RuntimeError('host notification D-Bus adapter exited at startup')
+                        notification_active_uid = notification_uid
+                        print('AaaS: authorized Android notification listener detected; '
+                              'session D-Bus adapter is active', flush=True)
+                    except Exception as error:
+                        if notification_process is not None:
+                            terminate_process_group(notification_process)
+                        notification_process = None
+                        notification_active_uid = None
+                        notification_failed_uid = notification_uid
+                        aaas_notifications.clear_session_events(ipc)
+                        print(f'AaaS: notification adapter unavailable: '
+                              f'{type(error).__name__}: {error}',
+                              file=sys.stderr, flush=True)
                 if control_server is not None:
                     try:
                         client, _ = control_server.accept()
@@ -3585,7 +3762,7 @@ def main():
                 print('AaaS: virtual display shutdown handshake timed out',
                       file=sys.stderr, flush=True)
                 cleanup_failed = True
-        for process in (clipboard_process, android, virtual_presenter2,
+        for process in (notification_process, clipboard_process, android, virtual_presenter2,
                         virtual_presenter, presenter):
             try:
                 terminate_process_group(process)
@@ -3602,6 +3779,15 @@ def main():
         except OSError as error:
             cleanup_failed = True
             print(f'AaaS: clipboard IPC cleanup failed: {error}',
+                  file=sys.stderr, flush=True)
+        try:
+            if not aaas_notifications.clear_session_events(ipc):
+                cleanup_failed = True
+                print('AaaS: notification IPC cleanup left an unexpected object',
+                      file=sys.stderr, flush=True)
+        except OSError as error:
+            cleanup_failed = True
+            print(f'AaaS: notification IPC cleanup failed: {error}',
                   file=sys.stderr, flush=True)
         try:
             write_crash_artifact_manifest(session, tombstone_dir, capture_status,

@@ -913,6 +913,39 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('AAAS_USER_APK_INSTALL', generated)
         self.assertNotIn('/product/app/AaasStorageProbe', generated)
 
+    def test_multiple_ordinary_apks_install_in_package_manager_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / 'first.apk'
+            second = root / 'second.apk'
+            first.write_bytes(b'first')
+            second.write_bytes(b'second')
+            (root / 'session').mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            generated = SESSION.make_session_runner(
+                root / 'session', app_package='org.example.first',
+                install_apk=[first, second],
+                shared_storage_dir=root / 'media' / '0').read_text()
+        self.assertIn(f'--ro-bind {first.resolve()} /aaas-install-apk.apk', generated)
+        self.assertIn(f'--ro-bind {second.resolve()} /aaas-install-apk-2.apk', generated)
+        self.assertIn('pm install -r /aaas-install-apk.apk', generated)
+        self.assertIn('pm install -r /aaas-install-apk-2.apk', generated)
+        self.assertIn('AAAS_USER_APK_INSTALL index=2', generated)
+
+    def test_notification_ui_taps_are_bound_to_a_validated_display(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            listener = root / 'listener.apk'
+            listener.write_bytes(b'listener')
+            (root / 'session').mkdir()
+            (root / 'media' / '0').mkdir(parents=True)
+            generated = SESSION.make_session_runner(
+                root / 'session', app_package='com.android.settings',
+                notification_apk=listener,
+                shared_storage_dir=root / 'media' / '0').read_text()
+        self.assertIn('NOTIFICATION_DISPLAY_ID NOTIFICATION_X NOTIFICATION_Y', generated)
+        self.assertIn('cmd input -d "$NOTIFICATION_DISPLAY_ID" tap', generated)
+
     def test_controlled_package_lifecycle_uses_package_manager(self):
         package = 'org.aaas.acceptance.lifecycle'
         with tempfile.TemporaryDirectory() as directory:
