@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "volumes": {
+    "A2ACEDF2ACEDC0C1": {
+      "uuid": "A2ACEDF2ACEDC0C1",
+      "incident_id": "ntfs3-workspace-2026-11-07",
+      "state": "DEVICE_FAILURE_SUSPECTED",
+      "reason": "Four device-matched NTFS3 mi_enum_attr errors and earlier UAS aborts, USB resets, and block read I/O errors; underlying media versus transport cause is unresolved.",
+      "observed_after": "2026-11-07T08:45:18+05:30",
+      "source": "/dev/sda2",
+      "device": "/dev/sda",
+      "boot_id": "70f8e0d326cf4da08dbd862256b1391a",
+      "evidence": {
+        "ntfs3_error_count": 4,
+        "last_ntfs3_error": "2026-11-07T03:12:11.994839+05:30",
+        "usb_uas_resets": 2,
+        "block_read_io_errors": 2,
+        "smart_status": "unavailable: smartctl denied access to /dev/sda; noninteractive sudo required a password"
+      },
+      "recovery": null
+    }
+  }
+}

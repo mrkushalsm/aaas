@@ -35,6 +35,25 @@ class WorkspaceGuardTest(unittest.TestCase):
             with self.assertRaisesRegex(guard.WorkspaceError, 'identity changed'):
                 guard.check(self.workspace)
 
+    def test_rejects_wrong_filesystem_type(self):
+        with patch.object(guard, 'mount_identity',
+                          return_value={**self.identity, 'filesystem': 'ntfs3'}):
+            with self.assertRaisesRegex(guard.WorkspaceError, 'identity changed'):
+                guard.check(self.workspace)
+
+    def test_rejects_read_only_workspace(self):
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard.os, 'access', return_value=False):
+            with self.assertRaisesRegex(guard.WorkspaceError, 'not writable'):
+                guard.check(self.workspace)
+
+    def test_rejects_insufficient_free_space(self):
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(
+                 f_bavail=10, f_frsize=guard.GIB)):
+            with self.assertRaisesRegex(guard.WorkspaceError, 'budget exceeded'):
+                guard.check(self.workspace)
+
     def test_runtime_mount_probe_accepts_expected_mount_and_sentinels(self):
         userdata = self.workspace / 'android-userdata' / 'data'
         shared = self.workspace / 'shared-storage' / 'android-media'
@@ -115,6 +134,96 @@ class WorkspaceGuardTest(unittest.TestCase):
         with patch.object(guard, 'mount_identity', return_value=self.identity):
             with self.assertRaisesRegex(guard.WorkspaceError, 'missing workspace marker'):
                 guard.initialize(self.workspace, self.mount)
+
+    def test_device_matched_integrity_pause_blocks_before_accounting(self):
+        self.marker.update(filesystem='ntfs3', mount_uuid='A2ACEDF2ACEDC0C1')
+        (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
+        identity = {**self.identity, 'filesystem': 'ntfs3',
+                    'uuid': 'A2ACEDF2ACEDC0C1', 'source': '/dev/sda2'}
+        with patch.object(guard, 'HEALTH_POLICY', Path(__file__).parents[1] /
+                          'manifests' / 'workspace-health.json'), \
+             patch.object(guard, 'mount_identity', return_value=identity), \
+             patch.object(guard, 'allocated_bytes', side_effect=AssertionError('must not scan')):
+            with self.assertRaisesRegex(guard.WorkspaceError,
+                                        'DEVICE_FAILURE_SUSPECTED'):
+                guard.check(self.workspace)
+
+    def test_journal_error_is_filtered_by_partition_and_error_priority(self):
+        import json as json_module
+        entries = [
+            {'MESSAGE': 'ntfs3(sda2): ino=abc, "x" mi_enum_attr',
+             'PRIORITY': '3', '_BOOT_ID': 'boot',
+             '__REALTIME_TIMESTAMP': '123', '__MONOTONIC_TIMESTAMP': '456'},
+            {'MESSAGE': 'ntfs3(sdb1): ino=def, "x" mi_enum_attr', 'PRIORITY': '3'},
+            {'MESSAGE': 'ntfs3(sda2): info only', 'PRIORITY': '6'},
+        ]
+        output = '\n'.join(json_module.dumps(item) for item in entries)
+        with patch.object(guard.subprocess, 'run', return_value=SimpleNamespace(stdout=output)) as run:
+            events = guard._journal_ntfs_events('/dev/sda2')
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['boot_id'], 'boot')
+        self.assertIn('-b', run.call_args.args[0])
+        self.assertIn('--lines=200', run.call_args.args[0])
+
+    def test_missing_or_unavailable_journal_is_unknown_for_ntfs3(self):
+        identity = {**self.identity, 'filesystem': 'ntfs3',
+                    'uuid': 'unknown-uuid', 'source': '/dev/test2'}
+        with patch.object(guard, 'HEALTH_POLICY', Path(self.tmp.name) / 'missing.json'), \
+             patch.object(guard, '_journal_ntfs_events', side_effect=PermissionError('denied')):
+            result = guard.assess_workspace_health(identity, now=100)
+        self.assertEqual(result['state'], 'HEALTH_UNKNOWN')
+
+    def test_ntfs3_unknown_health_blocks_workspace_checks(self):
+        self.marker.update(filesystem='ntfs3', mount_uuid='unverified')
+        (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
+        identity = {**self.identity, 'filesystem': 'ntfs3', 'uuid': 'unverified'}
+        with patch.object(guard, 'HEALTH_POLICY', Path(self.tmp.name) / 'missing.json'), \
+             patch.object(guard, 'mount_identity', return_value=identity), \
+             patch.object(guard, '_journal_ntfs_events', return_value=[]), \
+             patch.object(guard, 'allocated_bytes', side_effect=AssertionError('must not scan')):
+            with self.assertRaisesRegex(guard.WorkspaceError, 'HEALTH_UNKNOWN'):
+                guard.check(self.workspace)
+
+    def test_ntfs3_journal_matching_event_classifies_integrity_warning(self):
+        identity = {**self.identity, 'filesystem': 'ntfs3', 'uuid': 'other-uuid'}
+        event = {'message': 'ntfs3(test): ino=1, "x" mi_enum_attr', 'priority': 3}
+        with patch.object(guard, 'HEALTH_POLICY', Path(self.tmp.name) / 'missing.json'), \
+             patch.object(guard, '_journal_ntfs_events', return_value=[event]):
+            result = guard.assess_workspace_health(identity, now=1000)
+        self.assertEqual(result['state'], 'INTEGRITY_WARNING')
+        self.assertIn('device-matched', result['reason'])
+
+    def test_diagnostic_rejects_malformed_marker(self):
+        (self.workspace / guard.MARKER).write_text('{broken')
+        with self.assertRaisesRegex(guard.WorkspaceError, 'valid workspace marker'):
+            guard.diagnose_workspace(self.workspace)
+
+    def test_malformed_health_policy_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp) / 'health.json'
+            policy.write_text('[]')
+            with self.assertRaisesRegex(guard.WorkspaceError, 'invalid schema'):
+                guard.policy_health({'uuid': 'test-uuid'}, policy)
+
+    def test_recovery_requires_offline_device_and_post_mount_evidence(self):
+        base = {'uuid': 'test-uuid', 'state': 'HEALTHY_FOR_CONTROLLED_TESTING'}
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp) / 'health.json'
+            policy.write_text(json.dumps({'schema': 1, 'volumes': {'test-uuid': base}}))
+            self.assertEqual(guard.policy_health({'uuid': 'test-uuid'}, policy)['state'],
+                             'HEALTH_UNKNOWN')
+            valid = {**base, 'recovery': {
+                'offline_check': {'tool': 'Windows CHKDSK', 'result': 'clean',
+                                  'completed_at': '2026-11-08', 'evidence_ref': 'record-1'},
+                'post_check': {'checked_at': '2026-11-08', 'boot_id': 'boot-2',
+                               'uuid': 'test-uuid', 'ntfs3_errors': 0,
+                               'metadata_probes': 'pass'},
+                'device_health': {'status': 'healthy', 'evidence_ref': 'smart-1'},
+            }}
+            policy.write_text(json.dumps({'schema': 1,
+                                          'volumes': {'test-uuid': valid}}))
+            self.assertEqual(guard.policy_health({'uuid': 'test-uuid'}, policy)['state'],
+                             'HEALTHY_FOR_CONTROLLED_TESTING')
 
 
 if __name__ == '__main__':
