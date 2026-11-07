@@ -1,10 +1,12 @@
 # Android audio HAL experiment
 
-**Status: PARTIAL/OPEN.** The opt-in, session-local path now carries real
-Android AudioTrack playback into PipeWire and real PipeWire source samples into
-Android AudioRecord. It is not yet full M4 audio acceptance: ordinary media-app
-playback, permission revocation, playback controls/concurrency, failure-path
-coverage, and physical microphone behavior remain unverified.
+**Status: PARTIAL/OPEN.** The reproducible `--audio` session option builds and
+selects session-local HAL/framework overlays, starts a UID-checked host bridge,
+and routes ordinary Android Music playback through PipeWire. AudioTrack
+controls, mono mixing, concurrent media/probe output, virtual and physical
+microphone capture, and clean shutdown have live evidence. Permission
+revocation, complete device-loss behavior, and final cross-workstream M4
+acceptance remain open.
 
 ## Image and interface findings
 
@@ -85,12 +87,11 @@ pause/resume, volume/mute, concurrent clients, host sink/source disconnect,
 and idle/failure recovery remain open. Host and Android logs are retained only
 under the workspace's raw session records; no PCM payload was added to Git.
 
-The corrected route remains opt-in and currently needs session-local compatible
-audio framework/factory overlays plus the memfd ashmem shim. The base guest
-image is unchanged. See the dated `audio_microphone_continuation_2026_11_07`
-acceptance record for exact evidence hashes and regressions. Canonical M4
-remains **PARTIAL/OPEN**; the demonstrated vertical slices are not represented
-as complete platform acceptance.
+The corrected route remains opt-in and uses session-local compatible audio
+framework/factory overlays plus the memfd ashmem shim. The base guest image is
+unchanged. See the dated `audio_microphone_continuation_2026_11_07`
+acceptance record for historical evidence. Canonical M4 remains
+**PARTIAL/OPEN**; vertical slices are not represented as complete acceptance.
 
 ## Runner overlay ordering regression (2026-11-07)
 
@@ -120,3 +121,53 @@ controls, concurrency, microphone revocation, host-device failure recovery, or
 normal non-diagnostic audio startup. The test used the existing opt-in audio
 configuration and a test-only `PULSE_SINK=aaas_m4_null` selection. Canonical
 M4 remains **PARTIAL/OPEN**.
+
+## Runtime audio continuation (2026-11-08)
+
+The 2026-11-07 limitations above are historical. On the ext4 workspace
+(`/run/media/mrkus/Aaas`, UUID
+`094120c3-e1f8-4a61-a95a-c347ecb711d1`), the workspace guard returned
+`HEALTHY_FOR_CONTROLLED_TESTING`. The prior USB/JBD2 incident remains in the
+health record; the controlled sessions produced no later matching kernel
+storage errors. SMART was not queried during these sessions.
+
+The runner now prepares the audio artifacts for `--audio` sessions and can
+launch Android Music on the shared WAV through MediaStore with a temporary
+read-URI grant. Session `m1b84_session_ctqr5ko5` delivered 480,000 AudioTrack
+frames from Music. Session `m1b84_session_8fvci8o7` verified media-stream
+volume and mute/resume on the PipeWire monitor (440 Hz, active RMS 1250.61;
+the muted interval was silent). The original fixture is
+`shared-storage/android-media/0/Music/AaaS-M4-Original-Tone.wav`.
+
+Session `m1b84_session_kg1lq74m` verified 48 kHz stereo pause/resume/mute and a
+44.1 kHz mono 660 Hz AudioTrack mixed to the 48 kHz stereo host route. PipeWire
+measurement found 440 Hz RMS 47.50 and 660 Hz RMS 23.86 during the mono segment.
+Sessions `m1b84_session_t84_4q94` and `m1b84_session_mdhj80m6` launched Music and
+`org.aaas.audioprobe` on separate virtual displays. A bounded monitor showed
+simultaneous 440 Hz and 660 Hz peaks (RMS 41.79 in the measured overlap); its
+temporary recording was deleted. In `m1b84_session_mdhj80m6`, slot 2 reached
+`CLOSED` while Music's AudioTrack continued to its 480,000-frame stop about 2.7
+seconds later. Both sessions reached `STOPPED`.
+
+Virtual-source capture remains verified in `m1b84_session_ap58hujd`: 48 kHz
+mono, 144,000 frames, Android RMS 3509.68 and 440 Hz; the host observed RMS
+3510.13. A short authorized built-in microphone capture in
+`m1b84_session_p66hqwr0` produced Android RMS 192.44 (dominant estimate 380 Hz)
+and host RMS 192.35; the PipeWire source returned to `SUSPENDED`. No raw
+microphone audio was retained. Earlier Android permission-denial and normal UI
+grant evidence remains valid, but active revocation and a new post-revocation
+denial have not been tested.
+
+The live output-sink-removal experiment (`m1b84_session_c9vd_vex`) left Android
+responsive, completed the bounded probe and mono segment, closed the host
+stream, and stopped cleanly. PipeWire may move an existing stream when a sink
+disappears, so this establishes orderly teardown, not silence or a specific
+fallback route. Unit tests cover partial-frame rejection, PipeWire write
+failure cleanup, and capture peer disconnect. The full Python suite passed 389
+tests; focused audio/runner/overlay tests passed 100.
+
+Evidence hashes and remaining acceptance gates are in
+`results/m4/acceptance.json`. M4 remains **PARTIAL/OPEN**: microphone permission
+revocation, deterministic sink/source disappearance semantics, the final
+combined M2/M3/M4 regression, and the complete cleanup/failure matrix remain
+open.

@@ -642,3 +642,68 @@ against the 80 GiB ceiling, with 308,721,827,840 bytes free against the 20 GiB
 reserve. The experimental Android session reached `STOPPED`; its host bridge
 was terminated. These results do not close the canonical milestone, which
 remains **PARTIAL/OPEN** for playback and microphone.
+
+## 2026-11-08 audio and ext4 workspace continuation
+
+The workspace has moved from the affected NTFS volume to the ext4 partition
+mounted at `/run/media/mrkus/Aaas` (UUID
+`094120c3-e1f8-4a61-a95a-c347ecb711d1`). The workspace guard reports
+`HEALTHY_FOR_CONTROLLED_TESTING` based on the ext4 recovery evidence and the
+UUID-scoped policy transition. Earlier USB/UAS and JBD2 errors remain in the
+incident record and are not represented as erased. The current post-test
+journal query since 2026-11-08 03:45 IST showed no new matching device, ext4,
+USB, or block-I/O event. Passive SMART was unavailable to the guard due device
+permissions; the user-supplied prior SMART report was `PASSED` with zero
+reallocated/pending/uncorrectable sectors and elevated interface counters.
+This is controlled-test clearance, not a lifetime hardware-health claim.
+
+The `--audio` runtime configuration now reproducibly builds or verifies the
+session-local primary HAL, ashmem/memfd shim, factory compatibility layer, and
+stock-compatible `audioserver`/`libaudiohal.so` overlays. Artifacts are bound
+into the session namespace before Android audio services start; the base image
+is unchanged. The runner's ordinary Music path indexes a shared WAV using
+MediaStore and supplies only a temporary read-URI grant. No broad storage
+permission was added.
+
+Live runs verified ordinary Music playback (480,000 frames at 48 kHz stereo),
+the AudioTrack probe's 48 kHz stereo pause/resume/mute sequence, and 44.1 kHz
+mono PCM mixed to the host's 48 kHz stereo stream. PipeWire monitor analysis
+measured the expected 440 Hz/660 Hz content. Two-app sessions placed Music and
+the probe on separate virtual displays; monitor samples showed simultaneous
+440 Hz and 660 Hz components. In the lifecycle run, slot 2 reached `CLOSED`
+while Music's AudioTrack continued for about 2.7 seconds before reporting its
+480,000-frame stop. The temporary monitor recording was deleted.
+
+The established virtual-source AudioRecord run captured 144,000 mono frames at
+48 kHz with 440 Hz content and matching host/Android RMS. A separate short,
+authorized built-in-microphone capture produced low-level host and Android PCM
+and the PipeWire source returned to `SUSPENDED`; no raw microphone recording
+was retained. Android permission denial and UI grant are supported by prior
+session evidence. Active permission revocation and post-revocation denial have
+not been verified.
+
+Removing the selected PipeWire test sink during a bounded playback run did not
+deadlock Android: AudioTrack completed its probe, mono playback completed, the
+host bridge closed, and the runtime stopped cleanly. PipeWire may have moved
+the stream, so no claim is made that sink disappearance silenced output. New
+unit tests cover partial PCM frame rejection, host write failure cleanup, and
+capture peer disconnect. Focused audio/runner/overlay tests passed 100; the
+full Python suite passed 389 tests. `git diff --check` and Python compilation
+passed. Final M2/M3/M4 cross-feature regression and the remaining audio
+permission/failure matrix are still required; canonical M4 remains
+**PARTIAL/OPEN**.
+
+The integrated audio configuration also completed two cross-workstream
+regressions. In `m1b84_session_1vcgru8n`, Settings and Contacts ran on separate
+virtual displays with `--audio` enabled; Contacts was closed independently
+while Settings remained active, both presenter logs balanced imports/releases
+(103/103 and 79/79, with zero outstanding buffers), and the runtime stopped.
+In `m1b84_session_qjbac5e7`, the M3 ARM64 probe ran with the same audio startup
+configuration and emitted the required `M3 ARM64 Native Bridge PASS mask=255`
+signature. Shutdown removed the Native Bridge overlay and diagnostic libraries.
+The session audio bridge started and stopped in both cases.
+
+These runs revalidate M2 independent windows and M3 Native Bridge under the
+audio-enabled startup composition. They do not rerun the entire M4 storage,
+launcher, clipboard, and notification acceptance matrix together. Canonical M4
+remains **PARTIAL/OPEN**.
