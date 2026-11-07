@@ -216,6 +216,22 @@ under the workspace temporary directory. The dated machine-readable record is
 `audio_microphone_continuation_2026_11_07` in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
 
+## External-workspace integrity pause (2026-11-07)
+
+Final host-kernel inspection found four NTFS3 `mi_enum_attr` warnings on
+`/dev/sda2` for `install_sessions.xml.new`, most recently at 2026-11-07
+03:12:11 +05:30 (inode `cb85d`). Linux 7.2's NTFS3 implementation marks the
+inode bad when its MFT attribute enumeration detects invalid structure. The
+logs do not establish the underlying cause, and the warnings predate the
+audio sessions; they are not attributed to the audio changes. No further
+Android sessions or workspace-backed test writes will run until independent
+filesystem-health assessment. No repair or userdata mutation was attempted.
+The capacity/workspace guard passed, but it does not check MFT integrity.
+Storage integration retains its historical acceptance record while the
+current backing-health revalidation remains open. See
+`filesystem_integrity_stop_2026_11_07` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+
 ### Installed application catalog and Linux launcher (2026-11-06)
 
 **Installed-App Catalog and Launcher Integration: PASS/CLOSED.** The tested source revision is recorded in the matching `installed_app_catalog_launcher_2026_11_06` object in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). This closes the launcher workstream only; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone, bidirectional clipboard, and Android notification forwarding.

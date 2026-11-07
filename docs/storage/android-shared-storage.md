@@ -761,3 +761,35 @@ The original BFE failure log is
 The corresponding machine-readable gate results and M2/M3/Python/workspace
 regressions are appended as `final_storage_closure_2026_11_06` in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+
+## NTFS3 health stop (2026-11-07)
+
+During the final kernel-log review, four NTFS3 messages were found for
+`install_sessions.xml.new` on `/dev/sda2` (UUID `A2ACEDF2ACEDC0C1`):
+
+| Host time (+05:30) | Inode |
+|---|---|
+| 2026-11-06 03:39:38 | `1a472` |
+| 2026-11-06 23:18:06 | `447ca` |
+| 2026-11-07 01:14:25 | `50414` |
+| 2026-11-07 03:12:11 | `cb85d` |
+
+The kernel reports `mi_enum_attr`. In the Linux 7.2 NTFS3 source,
+`mi_enum_attr` rejects invalid MFT attribute structure and marks that inode
+bad ([upstream record.c](https://github.com/torvalds/linux/blob/master/fs/ntfs3/record.c)).
+This is an integrity warning requiring investigation; the message alone does
+not establish whether the backing volume, the named Android install-session
+file, or an NTFS3 compatibility path is responsible. These messages predate
+the 2026-11-07 audio test sessions, so no causal relationship to the audio
+changes is claimed.
+
+New Android sessions and workspace-backed writes are paused pending an
+independent filesystem-health assessment. No filesystem repair, remount, or
+userdata modification was attempted. The workspace guard still passed its
+mount-identity, writable-capacity, 80 GiB ceiling, and 20 GiB reserve checks;
+that guard does not validate NTFS metadata integrity. Previously accepted
+storage behavior remains historical evidence, but this health warning blocks
+relying on the current backing state until it is assessed. Exact messages and
+the stopped-testing classification are recorded in
+`filesystem_integrity_stop_2026_11_07` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
