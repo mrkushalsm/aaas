@@ -3,6 +3,16 @@
 #include <hardware/hardware.h>
 #include <android/log.h>
 
+__attribute__((constructor)) static void aaas_hal_probe_init(void) {
+    void *resolved = dlsym(RTLD_DEFAULT, "hw_get_module_by_class");
+    Dl_info info = {0};
+    (void)dladdr(resolved, &info);
+    __android_log_print(ANDROID_LOG_INFO, "AaasHALLoader",
+                        "probe_loaded lookup=%p provider=%s",
+                        resolved,
+                        info.dli_fname ? info.dli_fname : "(unknown)");
+}
+
 typedef int (*get_module_fn)(const char *, const char *,
                              const struct hw_module_t **);
 

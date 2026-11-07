@@ -1388,7 +1388,6 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    /system/bin/setprop log.tag.FactoryHal VERBOSE\n'
             '    /system/bin/setprop log.tag.AudioFlinger VERBOSE\n'
             '    /system/bin/setprop log.tag.AudioPolicyManager VERBOSE\n'
-            '    /system/bin/setprop debug.ld.all dlopen\n'
             '    echo "AAAS_AUDIO_HAL_SELECTOR=$(getprop ro.hardware.audio.primary)" '
             '>> /aaas_session_commands\n'
             '    /system/bin/start vendor.audio-hal\n'

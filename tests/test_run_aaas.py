@@ -382,6 +382,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('lshal 2>/dev/null', generated)
         self.assertIn('AAAS_AUDIO_POLICY_DUMP_BEGIN', generated)
         self.assertIn('AAAS_AUDIO_MANAGER_STATE=', generated)
+        self.assertNotIn('setprop debug.ld.all dlopen', generated)
         self.assertIn('toybox realpath /vendor/lib64/hw/audio.primary.aaas.so', generated)
         self.assertIn('grep -E "libaudiohal@|audio.primary" /proc/$AAAS_AUDIO_PID/maps',
                       generated)
