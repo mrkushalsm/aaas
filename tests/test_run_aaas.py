@@ -407,23 +407,30 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('export LD_PRELOAD=/system/lib64/libaaas-audio-factory-probe.so:'
                       '/system/lib64/libselinux_shim.so', wrapper)
 
-    def test_audio_loader_probes_run_in_audioserver_not_vendor_service(self):
+    def test_audio_loader_probe_runs_in_vendor_service_and_audioserver(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             hal = root / 'audio.primary.aaas.so'
             hal.write_bytes(b'fixture')
             probe = root / 'hal-probe.so'
             probe.write_bytes(b'probe')
+            shim = root / 'ashmem-shim.so'
+            shim.write_bytes(b'shim')
             session = root / 'session'
             session.mkdir()
             runner = SESSION.make_session_runner(
-                session, audio_hal_overlay=hal, audio_hal_probe=probe).read_text()
-            wrapper = (session / 'audioserver-preload-wrapper.sh').read_text()
+                session, audio_hal_overlay=hal, audio_hal_probe=probe,
+                audio_ashmem_shim=shim).read_text()
+            server_wrapper = (session / 'audioserver-preload-wrapper.sh').read_text()
+            service_wrapper = (session / 'audio-service-preload-wrapper.sh').read_text()
         self.assertIn(f'--ro-bind {probe.resolve()} '
                       '/system/lib64/libaaas-audio-hal-probe.so', runner)
         self.assertIn('export LD_PRELOAD=/system/lib64/libaaas-audio-hal-probe.so:'
-                      '/system/lib64/libselinux_shim.so', wrapper)
-        self.assertNotIn('android.hardware.audio.service.aaas-original', runner)
+                      '/system/lib64/libselinux_shim.so', server_wrapper)
+        self.assertIn('export LD_PRELOAD=/vendor/lib64/libaaas-audio-hal-probe.so:'
+                      '/vendor/lib64/libaaas-audio-ashmem.so', service_wrapper)
+        self.assertIn('/vendor/bin/hw/android.hardware.audio.service.aaas-original',
+                      runner)
 
     def test_audio_ashmem_compatibility_is_scoped_to_vendor_audio_service(self):
         with tempfile.TemporaryDirectory() as directory:

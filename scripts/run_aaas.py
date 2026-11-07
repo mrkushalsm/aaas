@@ -781,9 +781,16 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             if not ashmem_shim.is_file():
                 raise ValueError('Android audio ashmem shim must be a regular file')
             audio_service_wrapper = Path(session) / 'audio-service-preload-wrapper.sh'
+            audio_service_preloads = []
+            if audio_hal_probe_bind:
+                audio_service_preloads.append(
+                    '/vendor/lib64/libaaas-audio-hal-probe.so')
+            if audio_ashmem_shim is not None:
+                audio_service_preloads.append(
+                    '/vendor/lib64/libaaas-audio-ashmem.so')
             audio_service_wrapper.write_text(
                 '#!/system/bin/sh\n'
-                'export LD_PRELOAD=/vendor/lib64/libaaas-audio-ashmem.so\n'
+                'export LD_PRELOAD=' + ':'.join(audio_service_preloads) + '\n'
                 'exec /vendor/bin/hw/android.hardware.audio.service.aaas-original "$@"\n'
             )
             audio_service_wrapper.chmod(0o755)
