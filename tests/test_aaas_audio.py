@@ -150,6 +150,37 @@ class AudioBridgeTests(unittest.TestCase):
         client.close()
         self.assertEqual([], FakePulse.instances)
 
+    def test_unauthenticated_connections_cannot_exhaust_unbounded_workers(self):
+        clients = []
+        try:
+            for _ in range(aaas_audio.MAX_CLIENTS):
+                client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                client.settimeout(2)
+                client.connect(str(self.path))
+                clients.append(client)
+            time.sleep(0.1)
+
+            excess = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            excess.settimeout(1)
+            excess.connect(str(self.path))
+            self.assertEqual(b'', excess.recv(1))
+            excess.close()
+            for client in clients:
+                client.shutdown(socket.SHUT_WR)
+            time.sleep(0.1)
+        finally:
+            for client in clients:
+                client.close()
+
+        recovered = self.connect()
+        recovered.sendall(b'\x34\x12\x78\x56')
+        recovered.shutdown(socket.SHUT_WR)
+        recovered.close()
+        deadline = time.monotonic() + 1
+        while not FakePulse.instances and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(FakePulse.instances)
+
     def test_pcm_summary_is_metadata_only_and_rejects_partial_samples(self):
         pcm = struct.pack('<hhhh', -100, 100, -100, 100)
         self.assertEqual({'frames': 4, 'nonzero': 4, 'peak': 100,

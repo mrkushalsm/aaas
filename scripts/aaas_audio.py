@@ -126,8 +126,25 @@ class AudioServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self.capture_source = capture_source
         self.client_lock = threading.Lock()
         self.active_clients = 0
+        self.worker_slots = threading.BoundedSemaphore(MAX_CLIENTS)
         self.stop_event = threading.Event()
         super().__init__(str(socket_path), AudioHandler)
+
+    def process_request(self, request, client_address):
+        if not self.worker_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.worker_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.worker_slots.release()
 
     def acquire_client(self):
         with self.client_lock:
