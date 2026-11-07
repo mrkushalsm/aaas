@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
 import re
 import signal
 import shlex
@@ -74,6 +75,9 @@ LMKD_SOURCE_BUILT_SHA256 = 'a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a
 COMPOSER_PORTRAIT_SHA256 = 'cd55e7418a469e84c839bfec287b1bce238a43daa28f50900acf3174c17e3a46'
 VDC_OVERLAY_SHA256 = 'b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764'
 DEFAULT_APP_PACKAGE = 'com.android.settings'
+MEDIA_TEST_COMPONENTS = {
+    'com.android.music': 'com.android.music/.AudioPreview',
+}
 APP_PACKAGE_PATTERN = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 SESSION_STATUS_VALUES = {'STARTING', 'RUNNING', 'STOPPING', 'STOPPED', 'FAILED'}
 WORKSPACE_HEALTH_INTERVAL_SECONDS = 1.0
@@ -82,6 +86,14 @@ ANDROID_AUDIO_SERVER_HOST_UID = 101040  # Android uid 1041 through 1:100000 uid_
 
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def mediaextractor_seccomp_supplement():
+    """Return only the syscalls needed by the memfd ashmem compatibility shim."""
+    return ('# AaaS session-local memfd-backed ashmem compatibility.\n'
+            'memfd_create: 1\n'
+            'ftruncate: 1\n'
+            'fcntl: 1\n')
 
 
 def clipboard_ime_restore_pending(path):
@@ -685,7 +697,10 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         notification_apk=None, audio_hal_overlay=None,
                         audio_hal_probe=None, audio_hal_factory_probe=None,
                         audio_server_overlay=None, audiohal_overlay=None,
-                        audio_ashmem_shim=None):
+                        audio_ashmem_shim=None, audio_factory_compat=None,
+                        audio_codec_init=None, audio_mediaextractor_init=None,
+                        audio_mediaextractor_seccomp=None,
+                        audio_media_file=None, audio_playback_volume_test=False):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -712,6 +727,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     clipboard_apk_bind = ""
     notification_apk_bind = ""
     audio_hal_bind = ""
+    audio_mediaextractor_bind = ""
     audio_hal_probe_bind = ""
     if audio_hal_probe is not None:
         audio_probe = Path(audio_hal_probe).resolve(strict=True)
@@ -776,6 +792,26 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             f'  --ro-bind {shlex.quote(str(audio_hidl_factory.resolve()))} '
             '/vendor/lib64/hw/android.hardware.audio@7.1-impl.ranchu.so \\\n'
         )
+        if audio_codec_init is not None:
+            codec_init = Path(audio_codec_init).resolve(strict=True)
+            if not codec_init.is_file():
+                raise ValueError('Android software codec init configuration must be a file')
+            audio_hal_bind += (
+                f'  --ro-bind {shlex.quote(str(codec_init))} '
+                '/vendor/etc/init/hw/init.ranchu.rc \\\n'
+            )
+        if audio_mediaextractor_init is not None:
+            extractor_init = Path(audio_mediaextractor_init).resolve(strict=True)
+            extractor_seccomp = Path(audio_mediaextractor_seccomp).resolve(strict=True)
+            if (not extractor_init.is_file() or not extractor_seccomp.is_file()
+                    or audio_ashmem_shim is None):
+                raise ValueError('media extractor compatibility requires init, seccomp, and ashmem')
+            audio_mediaextractor_bind = (
+                f'  --ro-bind {shlex.quote(str(extractor_init))} '
+                '/system/etc/init/mediaextractor.rc \\\n'
+                f'  --ro-bind {shlex.quote(str(extractor_seccomp))} '
+                '/vendor/etc/seccomp_policy/mediaextractor.policy \\\n'
+            )
         if audio_ashmem_shim is not None:
             ashmem_shim = Path(audio_ashmem_shim).resolve(strict=True)
             if not ashmem_shim.is_file():
@@ -795,6 +831,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             audio_hal_bind += (
                 f'  --ro-bind {shlex.quote(str(ashmem_shim))} '
                 '/vendor/lib64/libaaas-audio-ashmem.so \\\n'
+                f'  --ro-bind {shlex.quote(str(ashmem_shim))} '
+                '/system/lib64/libaaas-audio-ashmem.so \\\n'
                 f'  --ro-bind {shlex.quote(str(audio_service.resolve()))} '
                 '/vendor/bin/hw/android.hardware.audio.service.aaas-original \\\n'
                 f'  --ro-bind {shlex.quote(str(audio_service_wrapper.resolve()))} '
@@ -807,13 +845,23 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                     f'  --ro-bind {shlex.quote(str(audiohal_overlay_path))} '
                     '/system/lib64/libaudiohal.so \\\n'
                 )
-        if audio_hal_probe_bind or audio_hal_factory_probe_bind:
+        if audio_hal_overlay is not None:
             audioserver_wrapper = Path(session) / 'audioserver-preload-wrapper.sh'
+            if audio_factory_compat is not None:
+                factory_compat = Path(audio_factory_compat).resolve(strict=True)
+                if not factory_compat.is_file():
+                    raise ValueError('Android audio factory compatibility library must be a file')
+                audio_hal_bind += (
+                    f'  --ro-bind {shlex.quote(str(factory_compat))} '
+                    '/system/lib64/libaaas-audio-factory-compat.so \\\n'
+                )
             audioserver_preloads = [
                 *(['/system/lib64/libaaas-audio-hal-probe.so']
                   if audio_hal_probe_bind else []),
                 *(['/system/lib64/libaaas-audio-factory-probe.so']
                   if audio_hal_factory_probe_bind else []),
+                *(['/system/lib64/libaaas-audio-factory-compat.so']
+                  if audio_factory_compat is not None else []),
                 '/system/lib64/libselinux_shim.so',
             ]
             audioserver_wrapper.write_text(
@@ -829,20 +877,6 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 f'  --ro-bind {shlex.quote(str(selected_audio_server))} '
                 '/system/bin/audioserver.aaas-original \\\n'
                 f'  --ro-bind {shlex.quote(str(audioserver_wrapper.resolve()))} '
-                '/system/bin/audioserver \\\n'
-            )
-        if audio_server_overlay_path is not None:
-            image_audioserver = (WORKSPACE / 'rootfs_m1b1/system/bin/audioserver').resolve()
-            if audio_server_overlay_path == image_audioserver:
-                audio_server_overlay_path = None
-        # The diagnostic preload wrapper above executes the selected image
-        # through /system/bin/audioserver.aaas-original. Binding the overlay
-        # again over /system/bin/audioserver would hide the wrapper and skip
-        # the HIDL/FMQ compatibility preloads.
-        if (audio_server_overlay_path is not None
-                and not (audio_hal_probe_bind or audio_hal_factory_probe_bind)):
-            audio_hal_bind += (
-                f'  --ro-bind {shlex.quote(str(audio_server_overlay_path))} '
                 '/system/bin/audioserver \\\n'
             )
     ordinary_apk_binds = ""
@@ -1384,7 +1418,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             source,
             '{ipc_bind}',
             '{ipc_bind}' + audio_hal_bind + audio_hal_probe_bind
-            + audio_hal_factory_probe_bind,
+            + audio_hal_factory_probe_bind + audio_mediaextractor_bind,
         )
         source = replace_once(
             source,
@@ -1711,22 +1745,114 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         '    fi\n'
         '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
     )
+    if audio_media_file is None:
+        app_launch_script = (
+            '    echo "=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==="\n'
+            '    APP_COMPONENT=$(/system/bin/cmd package resolve-activity --brief --user 0 '
+            '-a android.intent.action.MAIN -c android.intent.category.LAUNCHER '
+            f'-p {app_package} 2>&1 | /system/bin/toybox tee -a /aaas_session_commands '
+            '| /system/bin/toybox tail -n 1)\n'
+            '    case "$APP_COMPONENT" in */*) ;; *) echo "No launchable activity for '
+            f'{app_package}"; echo FAILED > /aaas_session_status; exit 1 ;; esac\n'
+            '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
+            '/system/bin/am start -W -n "$APP_COMPONENT"'
+        )
+    else:
+        media_relative = PurePosixPath(str(audio_media_file))
+        if (media_relative.is_absolute() or not media_relative.parts
+                or any(part in ('', '.', '..') for part in media_relative.parts)
+                or media_relative.suffix.lower() != '.wav'
+                or not re.fullmatch(r'[A-Za-z0-9_./-]+', media_relative.as_posix())):
+            raise ValueError('audio media file must be a supported relative shared-media path')
+        media_guest_path = '/storage/emulated/0/' + media_relative.as_posix()
+        if app_package not in MEDIA_TEST_COMPONENTS:
+            raise ValueError('audio media test requires a supported media application')
+        media_component = MEDIA_TEST_COMPONENTS[app_package]
+        media_display_option = ' --display "$VD_ID"' if experimental_virtual_display else ''
+        app_launch_script = (
+            '    echo "=== OPENING SHARED AUDIO THROUGH ANDROID MEDIASTORE ==="\n'
+            '    /system/bin/setprop debug.stagefright.c2-poolmask 0x80000\n'
+            '    echo "AAAS_CODEC2_LINEAR_POOL=$( /system/bin/getprop '
+            'debug.stagefright.c2-poolmask )" >> /aaas_session_commands\n'
+            '    /system/bin/start media.swcodec >> /aaas_session_commands 2>&1 || true\n'
+            '    echo "AAAS_MEDIA_SWCODEC_STATE=$(/system/bin/getprop init.svc.media.swcodec)" '
+            '>> /aaas_session_commands\n'
+            f'    MEDIA_GUEST_PATH="{media_guest_path}"\n'
+            '    /system/bin/am broadcast --user 0 '
+            '-a android.intent.action.MEDIA_SCANNER_SCAN_FILE '
+            '-d "file://$MEDIA_GUEST_PATH" >> /aaas_session_commands 2>&1\n'
+            '    MEDIA_ID=\n'
+            '    MEDIA_ATTEMPT=0\n'
+            '    while [ -z "$MEDIA_ID" ] && [ "$MEDIA_ATTEMPT" -lt 20 ]; do\n'
+            '      MEDIA_QUERY=$(/system/bin/content query '
+            '--uri content://media/external_primary/audio/media '
+            '--projection _id:_data 2>&1 | /system/bin/toybox grep -F -- '
+            '"$MEDIA_GUEST_PATH" | /system/bin/toybox tee -a /aaas_session_commands)\n'
+            '      MEDIA_ID=${{MEDIA_QUERY#* _id=}}\n'
+            '      MEDIA_ID=${{MEDIA_ID%%,*}}\n'
+            '      MEDIA_ATTEMPT=$((MEDIA_ATTEMPT + 1))\n'
+            '      [ -n "$MEDIA_ID" ] || /system/bin/toybox sleep 0.5\n'
+            '    done\n'
+            '    case "x$MEDIA_ID" in x|x*[!0-9]*) echo "AAAS_AUDIO_MEDIA_NOT_INDEXED" '
+            '>> /aaas_session_commands; echo FAILED > /aaas_session_status; exit 1 ;; esac\n'
+            f'    APP_COMPONENT={media_component}\n'
+            '    MEDIA_URI="content://media/external_primary/audio/media/$MEDIA_ID"\n'
+            f'    if ! /system/bin/cmd activity start-activity{media_display_option} '
+            '-n "$APP_COMPONENT" '
+            '-a android.intent.action.VIEW -d "$MEDIA_URI" -t audio/wav '
+            '--grant-read-uri-permission '
+            '>> /aaas_session_commands 2>&1; then\n'
+            f'      /system/bin/am start{media_display_option} -n "$APP_COMPONENT" '
+            '-a android.intent.action.VIEW -d "$MEDIA_URI" -t audio/wav '
+            '--grant-read-uri-permission '
+            '>> /aaas_session_commands 2>&1\n'
+            '    fi\n'
+            + ('    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
+               '>> /aaas_session_commands\n' if experimental_virtual_display else '') +
+            f'    /system/bin/dumpsys activity activities | /system/bin/toybox grep -F '
+            f'{app_package} >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/uiautomator dump /data/local/tmp/aaas-audio-preview.xml '
+            '>> /aaas_session_commands 2>&1\n'
+            '    /system/bin/toybox cat /data/local/tmp/aaas-audio-preview.xml '
+            '>> /aaas_session_commands 2>&1\n'
+            '    echo "AAAS_AUDIO_MEDIA_OPEN component=$APP_COMPONENT uri=$MEDIA_URI" '
+            '>> /aaas_session_commands'
+        )
+        if audio_playback_volume_test:
+            app_launch_script += (
+                '\n    OLD_MEDIA_VOLUME=$(/system/bin/cmd media_session volume '
+                '--stream 3 --get 2>&1)\n'
+                '    OLD_MEDIA_VOLUME=${{OLD_MEDIA_VOLUME#*volume is }}\n'
+                '    OLD_MEDIA_VOLUME=${{OLD_MEDIA_VOLUME%% *}}\n'
+                '    case "$OLD_MEDIA_VOLUME" in *[!0-9]*|"") '
+                'echo AAAS_MEDIA_VOLUME_QUERY_FAILED >> /aaas_session_commands; '
+                'exit 1 ;; esac\n'
+                '    echo "AAAS_MEDIA_VOLUME_INITIAL=$OLD_MEDIA_VOLUME" '
+                '>> /aaas_session_commands\n'
+                '    /system/bin/cmd media_session volume --stream 3 --set 15 '
+                '--get >> /aaas_session_commands 2>&1\n'
+                '    /system/bin/toybox sleep 5\n'
+                '    /system/bin/cmd media_session volume --stream 3 --set 0 '
+                '--get >> /aaas_session_commands 2>&1\n'
+                '    /system/bin/toybox sleep 1\n'
+                '    /system/bin/cmd media_session volume --stream 3 --set 15 '
+                '--get >> /aaas_session_commands 2>&1\n'
+                '    /system/bin/toybox sleep 1\n'
+                '    /system/bin/cmd media_session dispatch stop '
+                '>> /aaas_session_commands 2>&1\n'
+                '    /system/bin/cmd media_session volume --stream 3 --set '
+                '"$OLD_MEDIA_VOLUME" >> /aaas_session_commands 2>&1\n'
+                '    echo "AAAS_MEDIA_VOLUME_TEST_COMPLETE '
+                'restored_volume=$OLD_MEDIA_VOLUME" >> /aaas_session_commands'
+            )
     source = replace_once(
         source,
         '    echo "=== TESTING ACTIVITY LAUNCH (SETTINGS) ==="\n'
         '    /system/bin/cmd activity start-activity -W -n com.android.settings/.Settings || '
         '/system/bin/am start -W -n com.android.settings/.Settings',
-        '    echo "=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==="\n'
-        '    APP_COMPONENT=$(/system/bin/cmd package resolve-activity --brief --user 0 '
-        '-a android.intent.action.MAIN -c android.intent.category.LAUNCHER '
-        f'-p {app_package} 2>&1 | /system/bin/toybox tee -a /aaas_session_commands '
-        '| /system/bin/toybox tail -n 1)\n'
-        '    case "$APP_COMPONENT" in */*) ;; *) echo "No launchable activity for '
-        f'{app_package}"; echo FAILED > /aaas_session_status; exit 1 ;; esac\n'
-        '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
-        '/system/bin/am start -W -n "$APP_COMPONENT"',
+        app_launch_script,
     )
-    if audio_hal_bind and not experimental_virtual_display:
+    if audio_hal_bind and not experimental_virtual_display and audio_media_file is None:
         source = replace_once(
             source,
             '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
@@ -1753,10 +1879,26 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             'FactoryHal:V HAL:V 2>&1 | /system/bin/toybox tail -100 '
             '>> /aaas_session_commands',
         )
-    if experimental_virtual_display:
+    elif audio_hal_bind and not experimental_virtual_display:
         source = replace_once(
             source,
-            '    echo "=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==="',
+            '    echo "AAAS_AUDIO_MEDIA_OPEN component=$APP_COMPONENT uri=$MEDIA_URI" '
+            '>> /aaas_session_commands',
+            '    echo "AAAS_AUDIO_MEDIA_OPEN component=$APP_COMPONENT uri=$MEDIA_URI" '
+            '>> /aaas_session_commands\n'
+            '    /system/bin/dumpsys media.audio_policy 2>&1 | '
+            '/system/bin/toybox head -120 >> /aaas_session_commands\n'
+            '    /system/bin/dumpsys media.audio_flinger 2>&1 | '
+            '/system/bin/toybox head -120 >> /aaas_session_commands',
+        )
+    if experimental_virtual_display:
+        vdisplay_launch_anchor = (
+            '    echo "=== OPENING SHARED AUDIO THROUGH ANDROID MEDIASTORE ==="'
+            if audio_media_file is not None else
+            '    echo "=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==="')
+        source = replace_once(
+            source,
+            vdisplay_launch_anchor,
             '    echo "=== STARTING TRUSTED AaaS VIRTUAL DISPLAY BROKER ==="\n'
             '    echo AAAS_DISPLAY_BROKER_START_REQUESTED >> /aaas_session_commands\n'
             '    /system/bin/start aaas-display-broker\n'
@@ -1815,23 +1957,24 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    fi\n'
             '    echo "=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==="',
         )
-        source = replace_once(
-            source,
-            '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
-            '/system/bin/am start -W -n "$APP_COMPONENT"',
-            '    if ! /system/bin/cmd activity start-activity -W --display "$VD_ID" '
-            '-n "$APP_COMPONENT" >> /aaas_session_commands 2>&1; then\n'
-            '      if ! /system/bin/am start -W --display "$VD_ID" -n "$APP_COMPONENT" '
-            '>> /aaas_session_commands 2>&1; then\n'
-            '        echo "AAAS_ACTIVITY_LAUNCH_FAILED display=$VD_ID component=$APP_COMPONENT" '
-            '>> /aaas_session_commands\n'
-            '        echo FAILED > /aaas_session_status\n'
-            '        exit 1\n'
-            '      fi\n'
-            '    fi\n'
-            '    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
-            '>> /aaas_session_commands',
-        )
+        if audio_media_file is None:
+            source = replace_once(
+                source,
+                '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
+                '/system/bin/am start -W -n "$APP_COMPONENT"',
+                '    if ! /system/bin/cmd activity start-activity -W --display "$VD_ID" '
+                '-n "$APP_COMPONENT" >> /aaas_session_commands 2>&1; then\n'
+                '      if ! /system/bin/am start -W --display "$VD_ID" -n "$APP_COMPONENT" '
+                '>> /aaas_session_commands 2>&1; then\n'
+                '        echo "AAAS_ACTIVITY_LAUNCH_FAILED display=$VD_ID component=$APP_COMPONENT" '
+                '>> /aaas_session_commands\n'
+                '        echo FAILED > /aaas_session_status\n'
+                '        exit 1\n'
+                '      fi\n'
+                '    fi\n'
+                '    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
+                '>> /aaas_session_commands',
+            )
         source = replace_once(
             source,
             '    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
@@ -2668,14 +2811,24 @@ def main():
                         help='Allow Android to show its software keyboard (mobile/accessibility mode)')
     parser.add_argument('--experimental-virtual-display', action='store_true',
                         help='Use the isolated M1E trusted virtual-display prototype')
+    parser.add_argument('--audio', action='store_true',
+                        help='Enable the reproducible session-local Android/PipeWire audio path')
     parser.add_argument('--experimental-audio-hal', action='store_true',
-                        help='Opt in to the session-only Android PCM HAL prototype')
+                        help=argparse.SUPPRESS)
     parser.add_argument('--experimental-audio-hal-diagnostics', action='store_true',
                         help='Instrument Android audio services during HAL diagnosis')
     parser.add_argument('--experimental-audio-server-overlay',
                         help='Session-only replacement audioserver binary for HAL diagnosis')
     parser.add_argument('--experimental-audiohal-overlay',
                         help='Session-only replacement libaudiohal.so for HAL diagnosis')
+    parser.add_argument('--audio-playback-sink',
+                        help='Optional PipeWire/Pulse sink name for Android playback')
+    parser.add_argument('--audio-capture-source',
+                        help='Optional PipeWire/Pulse source name for authorized Android recording')
+    parser.add_argument('--audio-media-file',
+                        help='Open a shared-media WAV with Android Music via a temporary MediaStore URI grant')
+    parser.add_argument('--audio-playback-volume-test', action='store_true',
+                        help='Exercise Music mute and volume for --audio-media-file, then restore volume')
     parser.add_argument('--show-primary-diagnostic', action='store_true',
                         help='Also present Android primary display in a diagnostic Wayland window')
     parser.add_argument('--diagnostic-vulkan-overlay',
@@ -2723,9 +2876,30 @@ def main():
     parser.add_argument('--test-tombstone-capture', action='store_true',
                         help=argparse.SUPPRESS)
     args = parser.parse_args()
+    audio_enabled = args.audio or args.experimental_audio_hal
     if ((args.experimental_audio_server_overlay or args.experimental_audiohal_overlay)
-            and not args.experimental_audio_hal):
-        parser.error('audio binary overlays require --experimental-audio-hal')
+            and not audio_enabled):
+        parser.error('audio binary overlays require --audio')
+    if args.experimental_audio_hal_diagnostics and not audio_enabled:
+        parser.error('--experimental-audio-hal-diagnostics requires --audio')
+    if args.audio_media_file and not audio_enabled:
+        parser.error('--audio-media-file requires --audio')
+    if args.audio_media_file and args.app not in MEDIA_TEST_COMPONENTS:
+        parser.error('--audio-media-file requires a supported media application')
+    if args.audio_playback_volume_test and not args.audio_media_file:
+        parser.error('--audio-playback-volume-test requires --audio-media-file')
+    if args.audio_media_file:
+        media_relative = PurePosixPath(args.audio_media_file)
+        if (media_relative.is_absolute() or not media_relative.parts
+                or any(part in ('', '.', '..') for part in media_relative.parts)
+                or media_relative.suffix.lower() != '.wav'
+                or not re.fullmatch(r'[A-Za-z0-9_./-]+', media_relative.as_posix())):
+            parser.error('--audio-media-file must be a relative .wav path under shared media')
+        media_host_path = (WORKSPACE / 'shared-storage/android-media/0'
+                           / media_relative.as_posix()).resolve(strict=True)
+        media_root = (WORKSPACE / 'shared-storage/android-media/0').resolve(strict=True)
+        if not media_host_path.is_file() or not media_host_path.is_relative_to(media_root):
+            parser.error('--audio-media-file must name a regular file in shared Android media')
     native_bridge_bundle = native_bridge_entries = None
     if args.diagnostic_native_bridge_overlay:
         if not args.experimental_virtual_display:
@@ -3014,7 +3188,26 @@ def main():
     audio_hal_probe = None
     audio_hal_factory_probe = None
     audio_ashmem_shim = None
-    if args.experimental_audio_hal:
+    audio_factory_compat = None
+    audio_server_overlay = None
+    audiohal_overlay = None
+    audio_codec_init = None
+    audio_mediaextractor_init = None
+    audio_mediaextractor_seccomp = None
+    if audio_enabled:
+        audio_overlay_dir = TMP / 'm4-audio/pristine-system'
+        subprocess.run([
+            sys.executable, str(ROOT / 'scripts/build_m4_audio_overlays.py'),
+            '--system-image', str(TMP / 'partitions/system.raw.img'),
+            '--output-dir', str(audio_overlay_dir),
+            '--workspace', str(WORKSPACE),
+        ], check=True)
+        audio_server_overlay = (Path(args.experimental_audio_server_overlay)
+                                if args.experimental_audio_server_overlay
+                                else audio_overlay_dir / 'audioserver')
+        audiohal_overlay = (Path(args.experimental_audiohal_overlay)
+                            if args.experimental_audiohal_overlay
+                            else audio_overlay_dir / 'libaudiohal.so')
         audio_hal_overlay = TMP / 'm4-audio/audio.primary.aaas.so'
         subprocess.run([
             sys.executable, str(ROOT / 'experiments/m4/audio/build_audio_hal.py'),
@@ -3027,6 +3220,43 @@ def main():
             '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
             '--output', str(audio_ashmem_shim),
         ], check=True)
+        audio_factory_compat = TMP / 'm4-audio/libaaas-audio-factory-compat.so'
+        subprocess.run([
+            sys.executable, str(ROOT / 'experiments/m4/audio/build_factory_compat.py'),
+            '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+            '--output', str(audio_factory_compat),
+        ], check=True)
+        audio_codec_rc = (
+            WORKSPACE / 'rootfs_m1b1/apex/com.android.media.swcodec/etc/mediaswcodec.rc')
+        audio_vendor_init = (
+            bluetooth_policy_dir / 'vendor/etc/init/hw/init.ranchu.rc')
+        if not audio_codec_rc.is_file() or not audio_vendor_init.is_file():
+            parser.error('Android software codec init configuration is missing from the image')
+        vendor_init_text = audio_vendor_init.read_text()
+        if re.search(r'^service\s+media\.swcodec\b', vendor_init_text, re.MULTILINE):
+            parser.error('Ranchu init already defines the software codec service')
+        audio_codec_init = TMP / 'm4-audio/init.ranchu.rc'
+        audio_codec_init.write_text(
+            vendor_init_text.rstrip() + '\n\n'
+            '# AaaS session-local import of the image software codec service.\n'
+            + audio_codec_rc.read_text().lstrip()
+        )
+        mediaextractor_rc = (
+            WORKSPACE / 'rootfs_m1b1/system/etc/init/mediaextractor.rc')
+        mediaextractor_text = mediaextractor_rc.read_text()
+        service_decl = 'service mediaextractor /system/bin/mediaextractor\n'
+        if mediaextractor_text.count(service_decl) != 1:
+            parser.error('Android media extractor init service is not recognized')
+        if 'LD_PRELOAD' in mediaextractor_text:
+            parser.error('Android media extractor already defines LD_PRELOAD')
+        audio_mediaextractor_init = TMP / 'm4-audio/mediaextractor.rc'
+        audio_mediaextractor_init.write_text(
+            mediaextractor_text.replace(
+                service_decl,
+                service_decl + '    setenv LD_PRELOAD '
+                '/system/lib64/libaaas-audio-ashmem.so\n', 1))
+        audio_mediaextractor_seccomp = TMP / 'm4-audio/mediaextractor.policy'
+        audio_mediaextractor_seccomp.write_text(mediaextractor_seccomp_supplement())
         if args.experimental_audio_hal_diagnostics:
             audio_hal_probe = TMP / 'm4-audio/libaaas-audio-hal-probe.so'
             subprocess.run([
@@ -3064,9 +3294,15 @@ def main():
                                  audio_hal_overlay=audio_hal_overlay,
                                  audio_hal_probe=audio_hal_probe,
                                  audio_hal_factory_probe=audio_hal_factory_probe,
-                                 audio_server_overlay=args.experimental_audio_server_overlay,
-                                 audiohal_overlay=args.experimental_audiohal_overlay,
-                                 audio_ashmem_shim=audio_ashmem_shim)
+                                 audio_server_overlay=audio_server_overlay,
+                                 audiohal_overlay=audiohal_overlay,
+                                 audio_ashmem_shim=audio_ashmem_shim,
+                                 audio_factory_compat=audio_factory_compat,
+                                 audio_codec_init=audio_codec_init,
+                                 audio_mediaextractor_init=audio_mediaextractor_init,
+                                 audio_mediaextractor_seccomp=audio_mediaextractor_seccomp,
+                                 audio_media_file=args.audio_media_file,
+                                 audio_playback_volume_test=args.audio_playback_volume_test)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(
@@ -3674,7 +3910,11 @@ def main():
                     audio_process = subprocess.Popen(
                         [sys.executable, str(ROOT / 'scripts/aaas_audio.py'),
                          '--socket', str(ipc / 'audio.sock'),
-                         '--android-host-uid', str(ANDROID_AUDIO_SERVER_HOST_UID)],
+                         '--android-host-uid', str(ANDROID_AUDIO_SERVER_HOST_UID),
+                         *(['--playback-sink', args.audio_playback_sink]
+                           if args.audio_playback_sink else []),
+                         *(['--capture-source', args.audio_capture_source]
+                           if args.audio_capture_source else [])],
                         stdout=audio_log, stderr=subprocess.STDOUT,
                         env=env, start_new_session=True)
                 audio_deadline = time.monotonic() + 5

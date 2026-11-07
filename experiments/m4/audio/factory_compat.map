@@ -1,0 +1,6 @@
+Base {
+  global:
+    _ZN7android26DevicesFactoryHalInterface6createEv;
+    _ZN7android26EffectsFactoryHalInterface6createEv;
+  local: *;
+};

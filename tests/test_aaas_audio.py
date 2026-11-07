@@ -13,6 +13,7 @@ from scripts import aaas_audio
 
 class FakePulse:
     instances = []
+    fail_write = False
 
     def __init__(self, direction, rate, channels, device=None):
         self.direction = direction
@@ -26,6 +27,8 @@ class FakePulse:
         self.instances.append(self)
 
     def write(self, data):
+        if self.fail_write:
+            raise RuntimeError('simulated PipeWire sink failure')
         self.writes.append(bytes(data))
 
     def read(self, size):
@@ -88,6 +91,44 @@ class AudioBridgeTests(unittest.TestCase):
         self.assertTrue(FakePulse.instances[0].drained)
         self.assertTrue(FakePulse.instances[0].closed)
 
+    def test_unaligned_pcm_tail_is_rejected_and_stream_is_closed(self):
+        client = self.connect()
+        client.sendall(b'\x01\x02\x03')
+        client.shutdown(socket.SHUT_WR)
+        client.close()
+        for _ in range(100):
+            if FakePulse.instances and FakePulse.instances[0].closed:
+                break
+            time.sleep(0.01)
+        self.assertEqual([], FakePulse.instances[0].writes)
+        self.assertFalse(FakePulse.instances[0].drained)
+        self.assertTrue(FakePulse.instances[0].closed)
+
+    def test_pipewire_write_failure_closes_stream_without_server_deadlock(self):
+        FakePulse.fail_write = True
+        try:
+            client = self.connect()
+            client.sendall(b'\x34\x12\x78\x56')
+            self.assertEqual(b'', client.recv(1))
+            client.close()
+            for _ in range(100):
+                if FakePulse.instances and FakePulse.instances[0].closed:
+                    break
+                time.sleep(0.01)
+            self.assertTrue(FakePulse.instances[0].closed)
+            self.assertFalse(self.server.stop_event.is_set())
+        finally:
+            FakePulse.fail_write = False
+
+    def test_capture_peer_disconnect_closes_pipewire_source(self):
+        client = self.connect(direction=aaas_audio.CAPTURE, rate=8000, channels=1)
+        client.close()
+        for _ in range(100):
+            if FakePulse.instances and FakePulse.instances[0].closed:
+                break
+            time.sleep(0.01)
+        self.assertTrue(FakePulse.instances[0].closed)
+
     def test_capture_returns_host_pcm_frames(self):
         client = self.connect(direction=aaas_audio.CAPTURE, rate=8000, channels=1)
         expected_size = 8000 // 50 * 2
@@ -128,6 +169,23 @@ class AudioBridgeTests(unittest.TestCase):
         source = (Path(__file__).parents[1] / 'experiments/m4/audio/audio_hal.c').read_text()
         for callback in ('set_voice_volume', 'set_parameters', 'get_parameters'):
             self.assertIn(f'd->hw.{callback} = adev_{callback}', source)
+
+    def test_android_playback_probe_exercises_pause_resume_and_mute(self):
+        root = Path(__file__).parents[1] / 'experiments/m4/audio'
+        source = (root / 'src-probe/org/aaas/audioprobe/MainActivity.java').read_text()
+        builder = (root / 'build_probe.py').read_text()
+        for marker in ('track.pause();', 'track.play();', 'track.setVolume(0.0f)',
+                       'track.setVolume(1.0f)', 'PLAYBACK_PAUSE_OK',
+                       'PLAYBACK_RESUME_OK', 'pause_resume=ok mute=ok',
+                       'awaitPlaybackHead(track, written / 2)',
+                       'getPlaybackHeadPosition()', 'writeSegment(track, pcm'):
+            self.assertIn(marker, source)
+        for marker in ('MONO_PLAYBACK_OK rate=', 'rate = 44100',
+                       'channels=1 frames=', 'frames = rate'):
+            self.assertIn(marker, source)
+        self.assertIn('CHANNEL_OUT_MONO=4', builder)
+        self.assertIn('public void pause(){}', builder)
+        self.assertIn('public int setVolume(float v)', builder)
 
 
 if __name__ == '__main__':

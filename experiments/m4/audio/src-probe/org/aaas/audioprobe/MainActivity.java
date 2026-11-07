@@ -67,28 +67,38 @@ public final class MainActivity extends Activity {
                 AudioTrack track = null;
                 try {
                     int rate = 48000;
-                    int frames = rate;
+                    int frames = rate * 4;
                     short[] pcm = new short[frames * 2];
                     for (int i = 0; i < frames; i++) {
                         short sample = (short)(3000.0 * Math.sin(2.0 * Math.PI * 440.0 * i / rate));
                         pcm[i * 2] = sample;
                         pcm[i * 2 + 1] = sample;
                     }
-                    int bufferBytes = Math.max(pcm.length * 2,
+                    int bufferBytes = Math.max(4096,
                             AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_STEREO,
                                     AudioFormat.ENCODING_PCM_16BIT));
                     track = new AudioTrack(AudioManager.STREAM_MUSIC, rate,
                             AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT,
                             bufferBytes, AudioTrack.MODE_STREAM);
                     track.play();
-                    int written = 0;
-                    while (written < pcm.length) {
-                        int count = track.write(pcm, written, pcm.length - written);
-                        if (count <= 0) throw new IllegalStateException("AudioTrack.write=" + count);
-                        written += count;
-                    }
-                    Log.i(TAG, "PLAYBACK_OK rate=" + rate + " channels=2 frames=" + (written / 2));
-                    Thread.sleep(6000);
+                    int written = writeSegment(track, pcm, 0, pcm.length / 4);
+                    awaitPlaybackHead(track, written / 2);
+                    track.pause();
+                    Log.i(TAG, "PLAYBACK_PAUSE_OK frames=" + (written / 2));
+                    Thread.sleep(1500);
+                    track.play();
+                    Log.i(TAG, "PLAYBACK_RESUME_OK");
+                    written += writeSegment(track, pcm, written, pcm.length / 2);
+                    awaitPlaybackHead(track, written / 2);
+                    track.setVolume(0.0f);
+                    written += writeSegment(track, pcm, written, pcm.length * 3 / 4);
+                    awaitPlaybackHead(track, written / 2);
+                    track.setVolume(1.0f);
+                    written += writeSegment(track, pcm, written, pcm.length);
+                    awaitPlaybackHead(track, written / 2);
+                    Log.i(TAG, "PLAYBACK_OK rate=" + rate + " channels=2 frames=" + (written / 2)
+                            + " pause_resume=ok mute=ok");
+                    Thread.sleep(1000);
                 } catch (Throwable error) {
                     Log.e(TAG, "PLAYBACK_FAILED " + error.getClass().getSimpleName(), error);
                 } finally {
@@ -97,8 +107,59 @@ public final class MainActivity extends Activity {
                         track.release();
                     }
                 }
+                startMonoPlayback();
             }
         }, "aaas-audio-probe").start();
+    }
+
+    private static void startMonoPlayback() {
+        AudioTrack track = null;
+        try {
+            final int rate = 44100;
+            final int frames = rate;
+            short[] pcm = new short[frames];
+            for (int i = 0; i < frames; i++) {
+                pcm[i] = (short)(1500.0 * Math.sin(2.0 * Math.PI * 660.0 * i / rate));
+            }
+            int bufferBytes = Math.max(4096,
+                    AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT));
+            track = new AudioTrack(AudioManager.STREAM_MUSIC, rate,
+                    AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                    bufferBytes, AudioTrack.MODE_STREAM);
+            track.play();
+            writeSegment(track, pcm, 0, pcm.length);
+            awaitPlaybackHead(track, frames);
+            Log.i(TAG, "MONO_PLAYBACK_OK rate=" + rate + " channels=1 frames=" + frames);
+        } catch (Throwable error) {
+            Log.e(TAG, "MONO_PLAYBACK_FAILED " + error.getClass().getSimpleName(), error);
+        } finally {
+            if (track != null) {
+                try { track.stop(); } catch (Throwable ignored) {}
+                track.release();
+            }
+        }
+    }
+
+    private static int writeSegment(AudioTrack track, short[] pcm, int start, int end) {
+        int written = start;
+        while (written < end) {
+            int count = track.write(pcm, written, end - written);
+            if (count <= 0) throw new IllegalStateException("AudioTrack.write=" + count);
+            written += count;
+        }
+        return written - start;
+    }
+
+    private static void awaitPlaybackHead(AudioTrack track, int targetFrames) throws Exception {
+        long deadline = android.os.SystemClock.elapsedRealtime() + 10000;
+        while (Integer.toUnsignedLong(track.getPlaybackHeadPosition()) < targetFrames) {
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) {
+                throw new IllegalStateException("AudioTrack playback head timeout at "
+                        + track.getPlaybackHeadPosition() + " of " + targetFrames);
+            }
+            Thread.sleep(20);
+        }
     }
 
     private void startCapture() {

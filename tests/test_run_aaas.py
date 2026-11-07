@@ -18,6 +18,15 @@ SESSION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SESSION)
 
 
+class AudioSeccompPolicyTests(unittest.TestCase):
+    def test_supplement_contains_only_memfd_shim_syscalls(self):
+        policy = SESSION.mediaextractor_seccomp_supplement()
+        self.assertEqual(policy.count('memfd_create: 1'), 1)
+        self.assertEqual(policy.count('ftruncate: 1'), 1)
+        self.assertEqual(policy.count('fcntl: 1'), 1)
+        self.assertNotIn('read: 1', policy)
+
+
 class DiagnosticOverlayManifestTests(unittest.TestCase):
     def _overlay_with_manifest(self, directory):
         import hashlib
@@ -525,6 +534,133 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertNotIn('/system/lib64/libaaas-audio-factory-probe.so', generated)
         self.assertNotIn('export LD_PRELOAD=/vendor/lib64/libaaas-audio-hal-probe.so',
                          generated)
+
+    def test_normal_audio_server_wrapper_keeps_selinux_compatibility_preload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hal = root / 'audio.primary.aaas.so'
+            hal.write_bytes(b'fixture')
+            server = root / 'audioserver'
+            server.write_bytes(b'stock server fixture')
+            compat = root / 'factory-compat.so'
+            compat.write_bytes(b'factory compatibility fixture')
+            session = root / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(
+                session, audio_hal_overlay=hal,
+                audio_server_overlay=server,
+                audio_factory_compat=compat).read_text()
+            wrapper = (session / 'audioserver-preload-wrapper.sh').read_text()
+        self.assertIn('export LD_PRELOAD=/system/lib64/libaaas-audio-factory-compat.so:'
+                      '/system/lib64/libselinux_shim.so', wrapper)
+        self.assertIn('exec /system/bin/audioserver.aaas-original', wrapper)
+        self.assertIn(f'--ro-bind {server.resolve()} '
+                      '/system/bin/audioserver.aaas-original', generated)
+        self.assertIn(f'--ro-bind {compat.resolve()} '
+                      '/system/lib64/libaaas-audio-factory-compat.so', generated)
+        self.assertNotIn(f'--ro-bind {server.resolve()} /system/bin/audioserver ', generated)
+
+    def test_audio_media_open_uses_media_store_uri_and_temporary_grant(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hal = root / 'audio.primary.aaas.so'
+            hal.write_bytes(b'fixture')
+            factory = root / 'factory-compat.so'
+            factory.write_bytes(b'factory')
+            session = root / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(
+                session, app_package='com.android.music', audio_hal_overlay=hal,
+                audio_factory_compat=factory,
+                audio_media_file='Music/AaaS-M4-Original-Tone.wav').read_text()
+        self.assertIn('content://media/external_primary/audio/media', generated)
+        self.assertIn('--projection _id:_data', generated)
+        self.assertIn('MEDIA_GUEST_PATH="/storage/emulated/0/Music/', generated)
+        self.assertIn('MEDIA_SCANNER_SCAN_FILE', generated)
+        self.assertIn('/system/bin/start media.swcodec', generated)
+        self.assertIn('/system/bin/setprop debug.stagefright.c2-poolmask 0x80000', generated)
+        self.assertIn('AAAS_MEDIA_SWCODEC_STATE=', generated)
+        self.assertIn('MEDIA_ID=${{MEDIA_QUERY#* _id=}}', generated)
+        self.assertIn("/storage/emulated/0/Music/AaaS-M4-Original-Tone.wav",
+                      generated)
+        self.assertIn('com.android.music/.AudioPreview', generated)
+        self.assertIn('-a android.intent.action.VIEW -d "$MEDIA_URI" -t audio/wav '
+                      '--grant-read-uri-permission',
+                      generated)
+        self.assertIn('AAAS_AUDIO_MEDIA_OPEN', generated)
+        self.assertNotIn('input tap 360 640', generated)
+
+    def test_media_controls_test_restores_existing_music_volume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hal = root / 'audio.primary.aaas.so'
+            hal.write_bytes(b'fixture')
+            session = root / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(
+                session, app_package='com.android.music', audio_hal_overlay=hal,
+                audio_media_file='Music/AaaS-M4-Original-Tone.wav',
+                audio_playback_volume_test=True).read_text()
+        self.assertIn('AAAS_MEDIA_VOLUME_INITIAL=$OLD_MEDIA_VOLUME', generated)
+        self.assertIn('cmd media_session volume --stream 3 --set 0', generated)
+        self.assertIn('AAAS_MEDIA_VOLUME_TEST_COMPLETE restored_volume=$OLD_MEDIA_VOLUME', generated)
+
+    def test_audio_media_launch_composes_with_virtual_display_broker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hal = root / 'audio.primary.aaas.so'
+            hal.write_bytes(b'fixture')
+            session = root / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(
+                session, app_package='com.android.music',
+                experimental_virtual_display=True, audio_hal_overlay=hal,
+                audio_media_file='Music/AaaS-M4-Original-Tone.wav').read_text()
+        broker = generated.index('=== STARTING TRUSTED AaaS VIRTUAL DISPLAY BROKER ===')
+        launch = generated.index('cmd activity start-activity --display "$VD_ID"')
+        self.assertLess(broker, launch)
+        self.assertIn('am start --display "$VD_ID"', generated)
+        self.assertIn('AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID', generated)
+        self.assertIn('content://media/external_primary/audio/media/$MEDIA_ID', generated)
+
+    def test_audio_session_binds_software_codec_service_init(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hal = root / 'audio.primary.aaas.so'
+            hal.write_bytes(b'fixture')
+            codec_init = root / 'mediaswcodec.rc'
+            codec_init.write_text('service media.swcodec /apex/com.android.media.swcodec/bin/mediaswcodec\n')
+            extractor_init = root / 'mediaextractor.rc'
+            extractor_init.write_text(
+                'service mediaextractor /system/bin/mediaextractor\n')
+            extractor_seccomp = root / 'mediaextractor.policy'
+            extractor_seccomp.write_text('read: 1\n')
+            shim = root / 'libaaas-audio-ashmem.so'
+            shim.write_bytes(b'shim')
+            session = root / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(
+                session, app_package='com.android.music', audio_hal_overlay=hal,
+                audio_media_file='Music/AaaS-M4-Original-Tone.wav',
+                audio_codec_init=codec_init, audio_mediaextractor_init=extractor_init,
+                audio_mediaextractor_seccomp=extractor_seccomp,
+                audio_ashmem_shim=shim).read_text()
+        self.assertIn(f'--ro-bind {codec_init.resolve()} '
+                      '/vendor/etc/init/hw/init.ranchu.rc', generated)
+        self.assertIn(f'--ro-bind {extractor_init.resolve()} '
+                      '/system/etc/init/mediaextractor.rc', generated)
+        self.assertIn(f'--ro-bind {extractor_seccomp.resolve()} '
+                      '/vendor/etc/seccomp_policy/mediaextractor.policy', generated)
+        self.assertIn(f'--ro-bind {shim.resolve()} '
+                      '/system/lib64/libaaas-audio-ashmem.so', generated)
+
+    def test_audio_media_path_rejects_traversal_and_wrong_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory) / 'session'
+            session.mkdir()
+            with self.assertRaisesRegex(ValueError, 'relative shared-media path'):
+                SESSION.make_session_runner(session, app_package='com.android.music',
+                    audio_media_file='../secret.wav')
 
     def test_two_app_mode_builds_capacity_two_composer(self):
         with tempfile.TemporaryDirectory() as directory:
