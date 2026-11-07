@@ -43,7 +43,7 @@ def main() -> int:
                     '-I', str(INCLUDE_DIR), '-I', str(SOURCE_DIR),
                     '-c', str(HAL_SOURCE), '-o', str(obj)], check=True)
     subprocess.run([args.clang, '-target', 'x86_64-linux-android36', '-nostdlib',
-                    '-shared', str(obj), '-L', str(libc.parent), '-lc',
+                    '-shared', str(obj), '-L', str(libc.parent), '-lc', '-llog',
                     '-Wl,--no-undefined', '-Wl,-soname,audio.primary.aaas.so',
                     '-o', str(args.output)], check=True)
     readelf = subprocess.run(['readelf', '-h', str(args.output)], check=True,
@@ -54,7 +54,8 @@ def main() -> int:
                              capture_output=True, text=True).stdout
     if 'Advanced Micro Devices X86-64' not in readelf:
         raise SystemExit('HAL output is not Android x86_64 ELF')
-    if '[libc.so]' not in dynamic or 'audio.primary.aaas.so' not in dynamic:
+    if ('[libc.so]' not in dynamic or '[liblog.so]' not in dynamic
+            or 'audio.primary.aaas.so' not in dynamic):
         raise SystemExit('HAL dynamic dependencies or SONAME are invalid')
     if not re.search(r'\bHMI\b', symbols):
         raise SystemExit('HAL_MODULE_INFO_SYM (HMI) is not exported')

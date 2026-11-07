@@ -681,7 +681,10 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         uninstall_package=None, assert_package_absent=None,
                         storage_scan_apk=None, persistent_userdata_dir=None,
                         native_bridge_exec=False, clipboard_apk=None,
-                        notification_apk=None, audio_hal_overlay=None):
+                        notification_apk=None, audio_hal_overlay=None,
+                        audio_hal_probe=None, audio_hal_factory_probe=None,
+                        audio_server_overlay=None, audiohal_overlay=None,
+                        audio_ashmem_shim=None):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     app_package = validate_app_package(app_package)
@@ -708,14 +711,123 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     clipboard_apk_bind = ""
     notification_apk_bind = ""
     audio_hal_bind = ""
+    audio_hal_probe_bind = ""
+    if audio_hal_probe is not None:
+        audio_probe = Path(audio_hal_probe).resolve(strict=True)
+        if not audio_probe.is_file():
+            raise ValueError('Android audio HAL probe must be a regular file')
+        audio_hal_probe_bind = (
+            f'  --ro-bind {shlex.quote(str(audio_probe))} '
+            '/vendor/lib64/libaaas-audio-hal-probe.so \\\n'
+            f'  --ro-bind {shlex.quote(str(audio_probe))} '
+            '/system/lib64/libaaas-audio-hal-probe.so \\\n'
+        )
+    audio_hal_factory_probe_bind = ""
+    if audio_hal_factory_probe is not None:
+        factory_probe = Path(audio_hal_factory_probe).resolve(strict=True)
+        if not factory_probe.is_file():
+            raise ValueError('Android audio factory probe must be a regular file')
+        audio_hal_factory_probe_bind = (
+            f'  --ro-bind {shlex.quote(str(factory_probe))} '
+            '/system/lib64/libaaas-audio-factory-probe.so \\\n'
+            f'  --ro-bind {shlex.quote(str(factory_probe))} '
+            '/vendor/lib64/libaaas-audio-factory-probe.so \\\n'
+        )
+    audio_server_overlay_path = None
+    if audio_server_overlay is not None:
+        audio_server_overlay_path = Path(audio_server_overlay).resolve(strict=True)
+        if not audio_server_overlay_path.is_file():
+            raise ValueError('Android audio server overlay must be a regular file')
+        if audio_hal_overlay is None:
+            raise ValueError('audio server overlay requires the experimental audio HAL')
+    audiohal_overlay_path = None
+    if audiohal_overlay is not None:
+        audiohal_overlay_path = Path(audiohal_overlay).resolve(strict=True)
+        if not audiohal_overlay_path.is_file():
+            raise ValueError('Android audiohal overlay must be a regular file')
+        if audio_hal_overlay is None:
+            raise ValueError('audiohal overlay requires the experimental audio HAL')
     if audio_hal_overlay is not None:
         audio_hal = Path(audio_hal_overlay).resolve(strict=True)
         if not audio_hal.is_file():
             raise ValueError('Android audio HAL overlay must be a regular file')
+        # The Ranchu 7.1 factory special-cases "primary" and creates its
+        # emulator-owned PrimaryDevice instead of using the legacy module
+        # selector. This rootless runtime has no Ranchu audio transport, so
+        # use the image's matching AOSP legacy HIDL adapter for this session.
+        # That adapter routes every module, including primary, through
+        # hw_get_module_by_class and the session-selected legacy HAL.
+        audio_hidl_factory = (
+            WORKSPACE / 'rootfs_m1b1/vendor/lib64/hw/'
+            'android.hardware.audio.legacy@7.1-impl.ranchu.so'
+        )
+        if not audio_hidl_factory.is_file():
+            raise ValueError('Android legacy HIDL audio factory is missing')
+        audio_service = WORKSPACE / 'rootfs_m1b1/vendor/bin/hw/android.hardware.audio.service'
+        audioserver = WORKSPACE / 'rootfs_m1b1/system/bin/audioserver'
+        if not audio_service.is_file():
+            raise ValueError('Android HIDL audio service executable is missing')
+        if not audioserver.is_file():
+            raise ValueError('Android audioserver executable is missing')
         audio_hal_bind = (
             f'  --ro-bind {shlex.quote(str(audio_hal))} '
             '/vendor/lib64/hw/audio.primary.aaas.so \\\n'
+            f'  --ro-bind {shlex.quote(str(audio_hidl_factory.resolve()))} '
+            '/vendor/lib64/hw/android.hardware.audio@7.1-impl.ranchu.so \\\n'
         )
+        if audio_ashmem_shim is not None:
+            ashmem_shim = Path(audio_ashmem_shim).resolve(strict=True)
+            if not ashmem_shim.is_file():
+                raise ValueError('Android audio ashmem shim must be a regular file')
+            audio_service_wrapper = Path(session) / 'audio-service-preload-wrapper.sh'
+            audio_service_wrapper.write_text(
+                '#!/system/bin/sh\n'
+                'export LD_PRELOAD=/vendor/lib64/libaaas-audio-ashmem.so\n'
+                'exec /vendor/bin/hw/android.hardware.audio.service.aaas-original "$@"\n'
+            )
+            audio_service_wrapper.chmod(0o755)
+            audio_hal_bind += (
+                f'  --ro-bind {shlex.quote(str(ashmem_shim))} '
+                '/vendor/lib64/libaaas-audio-ashmem.so \\\n'
+                f'  --ro-bind {shlex.quote(str(audio_service.resolve()))} '
+                '/vendor/bin/hw/android.hardware.audio.service.aaas-original \\\n'
+                f'  --ro-bind {shlex.quote(str(audio_service_wrapper.resolve()))} '
+                '/vendor/bin/hw/android.hardware.audio.service \\\n'
+            )
+        if audiohal_overlay_path is not None:
+            audio_hal_bind += (
+                f'  --ro-bind {shlex.quote(str(audiohal_overlay_path))} '
+                '/system/lib64/libaudiohal.so \\\n'
+            )
+        if audio_hal_probe_bind or audio_hal_factory_probe_bind:
+            audioserver_wrapper = Path(session) / 'audioserver-preload-wrapper.sh'
+            audioserver_preloads = [
+                *(['/system/lib64/libaaas-audio-hal-probe.so']
+                  if audio_hal_probe_bind else []),
+                *(['/system/lib64/libaaas-audio-factory-probe.so']
+                  if audio_hal_factory_probe_bind else []),
+                '/system/lib64/libselinux_shim.so',
+            ]
+            audioserver_wrapper.write_text(
+                '#!/system/bin/sh\n'
+                'export LD_PRELOAD=' + ':'.join(audioserver_preloads) + '\n'
+                'exec /system/bin/audioserver.aaas-original "$@"\n'
+            )
+            audioserver_wrapper.chmod(0o755)
+            selected_audio_server = (audio_server_overlay_path
+                                     if audio_server_overlay_path is not None
+                                     else audioserver)
+            audio_hal_bind += (
+                f'  --ro-bind {shlex.quote(str(selected_audio_server))} '
+                '/system/bin/audioserver.aaas-original \\\n'
+                f'  --ro-bind {shlex.quote(str(audioserver_wrapper.resolve()))} '
+                '/system/bin/audioserver \\\n'
+            )
+        elif audio_server_overlay_path is not None:
+            audio_hal_bind += (
+                f'  --ro-bind {shlex.quote(str(audio_server_overlay_path))} '
+                '/system/bin/audioserver \\\n'
+            )
     ordinary_apk_binds = ""
     if diagnostic_storage_apk is not None:
         storage_apk = Path(diagnostic_storage_apk).resolve(strict=True)
@@ -889,6 +1001,18 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    /system/bin/toybox ls -ld /data/media/0 '
             '/storage/emulated/0 /storage/emulated/0/Documents >> /aaas_session_commands 2>&1\n'
         )
+        if audio_hal_bind:
+            storage_probe += (
+                '    echo "=== AAAS AUDIO SERVICES AFTER SYSTEM START ===" '
+                '>> /aaas_session_commands\n'
+                '    /system/bin/dumpsys media.audio_policy 2>&1 | '
+                '/system/bin/toybox head -100 >> /aaas_session_commands\n'
+                '    /system/bin/dumpsys media.audio_flinger 2>&1 | '
+                '/system/bin/toybox head -100 >> /aaas_session_commands\n'
+                '    /system/bin/logcat -d -b all -s DevicesFactoryHAL:E '
+                'FactoryHal:V HAL:V 2>&1 | /system/bin/toybox tail -100 '
+                '>> /aaas_session_commands\n'
+            )
         if native_bridge_exec:
             storage_probe += (
                 '    echo "=== ARM64 EXECUTION DISPATCH STATE ===" >> /aaas_session_commands\n'
@@ -1242,12 +1366,21 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         source = replace_once(
             source,
             '{mapper_bind}{allocator_bind}',
-            audio_hal_bind + '{mapper_bind}{allocator_bind}',
+            audio_hal_bind + audio_hal_probe_bind + audio_hal_factory_probe_bind
+            + '{mapper_bind}{allocator_bind}',
         )
         source = replace_once(
             source,
             '    /system/bin/start vendor.audio-hal\n',
             '    /system/bin/setprop ro.hardware.audio.primary aaas\n'
+            '    /system/bin/setprop log.tag.HAL VERBOSE\n'
+            '    /system/bin/setprop log.tag.DevicesFactoryHAL VERBOSE\n'
+            '    /system/bin/setprop log.tag.DeviceHAL VERBOSE\n'
+            '    /system/bin/setprop log.tag.DevicesFactoryHalHidl VERBOSE\n'
+            '    /system/bin/setprop log.tag.FactoryHal VERBOSE\n'
+            '    /system/bin/setprop log.tag.AudioFlinger VERBOSE\n'
+            '    /system/bin/setprop log.tag.AudioPolicyManager VERBOSE\n'
+            '    /system/bin/setprop debug.ld.all dlopen\n'
             '    echo "AAAS_AUDIO_HAL_SELECTOR=$(getprop ro.hardware.audio.primary)" '
             '>> /aaas_session_commands\n'
             '    /system/bin/start vendor.audio-hal\n'
@@ -1279,6 +1412,47 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    /system/bin/toybox ls -l '
             '/vendor/lib64/hw/audio.primary.aaas.so '
             '>> /aaas_session_commands 2>&1\n',
+        )
+        source = replace_once(
+            source,
+            '    /system/bin/start audioserver\n',
+            '    /system/bin/start audioserver\n'
+            '    /system/bin/toybox sleep 2\n'
+            '    AAAS_HAL_SERVICE_PID=$(/system/bin/pidof android.hardware.audio.service 2>/dev/null)\n'
+            '    AAAS_AUDIO_SERVER_PID=$(/system/bin/pidof audioserver 2>/dev/null)\n'
+            '    echo "AAAS_AUDIO_PIDS hal=$AAAS_HAL_SERVICE_PID server=$AAAS_AUDIO_SERVER_PID" '
+            '>> /aaas_session_commands\n'
+            '    for AAAS_AUDIO_PID in $AAAS_HAL_SERVICE_PID $AAAS_AUDIO_SERVER_PID; do\n'
+            '      if [ -n "$AAAS_AUDIO_PID" ]; then\n'
+            '        echo "AAAS_AUDIO_PROCESS pid=$AAAS_AUDIO_PID" >> /aaas_session_commands\n'
+            '        /system/bin/toybox readlink /proc/$AAAS_AUDIO_PID/ns/mnt '
+            '>> /aaas_session_commands 2>&1\n'
+            '        /system/bin/toybox ls -l /proc/$AAAS_AUDIO_PID/root/vendor/lib64/hw/audio.primary.aaas.so '
+            '>> /aaas_session_commands 2>&1\n'
+            '        /system/bin/toybox grep -F audio.primary.aaas.so /proc/$AAAS_AUDIO_PID/maps '
+            '>> /aaas_session_commands 2>&1 || true\n'
+            '        /system/bin/toybox grep -E "libaudiohal|libhardware.so" /proc/$AAAS_AUDIO_PID/maps '
+            '>> /aaas_session_commands 2>&1 || true\n'
+            '        /system/bin/toybox grep -E "libaudiohal@|audio.primary" /proc/$AAAS_AUDIO_PID/maps '
+            '>> /aaas_session_commands 2>&1 || true\n'
+            '      fi\n'
+            '    done\n'
+            '    echo "AAAS_AUDIO_DEBUG_PROPERTIES" >> /aaas_session_commands\n'
+            '    /system/bin/getprop ro.hardware.audio.primary >> /aaas_session_commands\n'
+            '    /system/bin/getprop log.tag.FactoryHal >> /aaas_session_commands\n'
+            '    echo "AAAS_AUDIO_FACTORY_WAITED_BEFORE_AUDIOSERVER_START=1" '
+            '>> /aaas_session_commands\n'
+            '    /system/bin/getenforce >> /aaas_session_commands 2>&1\n'
+            '    /system/bin/toybox realpath /vendor/lib64/hw/audio.primary.aaas.so '
+            '>> /aaas_session_commands 2>&1\n'
+            '    /system/bin/toybox ls -lZ /vendor/lib64/hw/audio.primary.aaas.so '
+            '>> /aaas_session_commands 2>&1\n'
+            '    echo "AAAS_AUDIO_POLICY_DUMP_BEGIN" >> /aaas_session_commands\n'
+            '    /system/bin/dumpsys media.audio_policy 2>&1 | '
+            '/system/bin/toybox head -100 >> /aaas_session_commands\n'
+            '    echo "AAAS_AUDIO_POLICY_DUMP_END" >> /aaas_session_commands\n'
+            '    /system/bin/logcat -d -b all -s DevicesFactoryHAL:E FactoryHal:V HAL:V '
+            '2>&1 | /system/bin/toybox tail -100 >> /aaas_session_commands\n',
         )
     source = replace_once(
         source,
@@ -1536,6 +1710,33 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
         '/system/bin/am start -W -n "$APP_COMPONENT"',
     )
+    if audio_hal_bind and not experimental_virtual_display:
+        source = replace_once(
+            source,
+            '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
+            '/system/bin/am start -W -n "$APP_COMPONENT"',
+            '    /system/bin/cmd activity start-activity -W -n "$APP_COMPONENT" || '
+            '/system/bin/am start -W -n "$APP_COMPONENT"\n'
+            '    echo "=== AAAS AUDIO SERVICES AFTER APP LAUNCH ===" '
+            '>> /aaas_session_commands\n'
+            '    AAAS_AUDIO_POLICY_WAIT=0\n'
+            '    AAAS_AUDIO_POLICY_DUMP=""\n'
+            '    while [ "$AAAS_AUDIO_POLICY_WAIT" -lt 40 ]; do\n'
+            '      AAAS_AUDIO_POLICY_DUMP=$(/system/bin/dumpsys media.audio_policy 2>/dev/null)\n'
+            '      if echo "$AAAS_AUDIO_POLICY_DUMP" | /system/bin/toybox grep -Fq "AudioPolicyManager:"; then break; fi\n'
+            '      /system/bin/toybox sleep 0.25\n'
+            '      AAAS_AUDIO_POLICY_WAIT=$((AAAS_AUDIO_POLICY_WAIT + 1))\n'
+            '    done\n'
+            '    AAAS_AUDIO_MANAGER_STATE=$(echo "$AAAS_AUDIO_POLICY_DUMP" | /system/bin/toybox grep -F "AudioPolicyManager:" | /system/bin/toybox tail -1)\n'
+            '    echo "AAAS_AUDIO_MANAGER_STATE=$AAAS_AUDIO_MANAGER_STATE" >> /aaas_session_commands\n'
+            '    /system/bin/dumpsys media.audio_policy 2>&1 | '
+            '/system/bin/toybox head -120 >> /aaas_session_commands\n'
+            '    /system/bin/dumpsys media.audio_flinger 2>&1 | '
+            '/system/bin/toybox head -120 >> /aaas_session_commands\n'
+            '    /system/bin/logcat -d -b all -s DevicesFactoryHAL:E '
+            'FactoryHal:V HAL:V 2>&1 | /system/bin/toybox tail -100 '
+            '>> /aaas_session_commands',
+        )
     if experimental_virtual_display:
         source = replace_once(
             source,
@@ -2453,6 +2654,12 @@ def main():
                         help='Use the isolated M1E trusted virtual-display prototype')
     parser.add_argument('--experimental-audio-hal', action='store_true',
                         help='Opt in to the session-only Android PCM HAL prototype')
+    parser.add_argument('--experimental-audio-hal-diagnostics', action='store_true',
+                        help='Instrument Android audio services during HAL diagnosis')
+    parser.add_argument('--experimental-audio-server-overlay',
+                        help='Session-only replacement audioserver binary for HAL diagnosis')
+    parser.add_argument('--experimental-audiohal-overlay',
+                        help='Session-only replacement libaudiohal.so for HAL diagnosis')
     parser.add_argument('--show-primary-diagnostic', action='store_true',
                         help='Also present Android primary display in a diagnostic Wayland window')
     parser.add_argument('--diagnostic-vulkan-overlay',
@@ -2500,6 +2707,9 @@ def main():
     parser.add_argument('--test-tombstone-capture', action='store_true',
                         help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if ((args.experimental_audio_server_overlay or args.experimental_audiohal_overlay)
+            and not args.experimental_audio_hal):
+        parser.error('audio binary overlays require --experimental-audio-hal')
     native_bridge_bundle = native_bridge_entries = None
     if args.diagnostic_native_bridge_overlay:
         if not args.experimental_virtual_display:
@@ -2785,6 +2995,9 @@ def main():
         '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(NOTIFICATION_APK),
     ], check=True)
     audio_hal_overlay = None
+    audio_hal_probe = None
+    audio_hal_factory_probe = None
+    audio_ashmem_shim = None
     if args.experimental_audio_hal:
         audio_hal_overlay = TMP / 'm4-audio/audio.primary.aaas.so'
         subprocess.run([
@@ -2792,6 +3005,25 @@ def main():
             '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
             '--output', str(audio_hal_overlay),
         ], check=True)
+        audio_ashmem_shim = TMP / 'm4-audio/libaaas-audio-ashmem.so'
+        subprocess.run([
+            sys.executable, str(ROOT / 'experiments/m4/audio/build_ashmem_compat.py'),
+            '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+            '--output', str(audio_ashmem_shim),
+        ], check=True)
+        if args.experimental_audio_hal_diagnostics:
+            audio_hal_probe = TMP / 'm4-audio/libaaas-audio-hal-probe.so'
+            subprocess.run([
+                sys.executable, str(ROOT / 'experiments/m4/audio/build_hal_probe.py'),
+                '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+                '--output', str(audio_hal_probe),
+            ], check=True)
+            audio_hal_factory_probe = TMP / 'm4-audio/libaaas-audio-factory-probe.so'
+            subprocess.run([
+                sys.executable, str(ROOT / 'experiments/m4/audio/build_factory_probe.py'),
+                '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+                '--output', str(audio_hal_factory_probe),
+            ], check=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
                                  app_package=args.app,
                                  experimental_virtual_display=args.experimental_virtual_display,
@@ -2813,7 +3045,12 @@ def main():
                                  native_bridge_exec=args.diagnostic_native_bridge_exec,
                                  clipboard_apk=CLIPBOARD_APK,
                                  notification_apk=NOTIFICATION_APK,
-                                 audio_hal_overlay=audio_hal_overlay)
+                                 audio_hal_overlay=audio_hal_overlay,
+                                 audio_hal_probe=audio_hal_probe,
+                                 audio_hal_factory_probe=audio_hal_factory_probe,
+                                 audio_server_overlay=args.experimental_audio_server_overlay,
+                                 audiohal_overlay=args.experimental_audiohal_overlay,
+                                 audio_ashmem_shim=audio_ashmem_shim)
     env = os.environ.copy()
     env.update(paths)
     presenter_width, presenter_height = initial_window_size(

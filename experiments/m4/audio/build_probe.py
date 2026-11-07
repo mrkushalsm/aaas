@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a normal Android app that plays one deterministic AudioTrack tone."""
+"""Build an ordinary Android AudioTrack/AudioRecord acceptance probe."""
 from __future__ import annotations
 
 import argparse
@@ -21,6 +21,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('apktool', 'framework-res', 'apksig', 'dx', 'zipalign', 'keystore', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--capture', action='store_true',
+                        help='build a distinct package that requests RECORD_AUDIO on launch')
     args = parser.parse_args()
     for name in ('apktool', 'framework-res', 'apksig', 'dx', 'zipalign', 'keystore'):
         value = getattr(args, name.replace('-', '_')).resolve(strict=True)
@@ -29,15 +31,19 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix='aaas-audio-probe-') as temp:
         work = Path(temp)
         stubs = {
-            'android/app/Activity.java': '''package android.app; public class Activity extends android.content.Context { protected void onCreate(android.os.Bundle b){} public void setContentView(android.view.View v){} }''',
+            'android/app/Activity.java': '''package android.app; public class Activity extends android.content.Context { protected void onCreate(android.os.Bundle b){} public void setContentView(android.view.View v){} public android.content.Intent getIntent(){return null;} public int checkSelfPermission(String p){return 0;} public void requestPermissions(String[] p,int r){} public void onRequestPermissionsResult(int r,String[] p,int[] g){} }''',
             'android/content/Context.java': '''package android.content; public class Context { public static final String AUDIO_SERVICE="audio"; public Object getSystemService(String n){return null;} }''',
+            'android/content/Intent.java': '''package android.content; public class Intent { public boolean getBooleanExtra(String k,boolean d){return d;} }''',
+            'android/content/pm/PackageManager.java': '''package android.content.pm; public class PackageManager { public static final int PERMISSION_GRANTED=0; }''',
             'android/os/Bundle.java': '''package android.os; public class Bundle {}''',
             'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }''',
-            'android/view/View.java': '''package android.view; public class View {}''',
+            'android/view/View.java': '''package android.view; public class View { public interface OnClickListener { void onClick(View v); } public void setOnClickListener(OnClickListener l){} }''',
             'android/widget/TextView.java': '''package android.widget; public class TextView extends android.view.View { public TextView(android.content.Context c){} public void setText(CharSequence s){} }''',
             'android/media/AudioManager.java': '''package android.media; public class AudioManager { public static final int STREAM_MUSIC=3; }''',
-            'android/media/AudioFormat.java': '''package android.media; public class AudioFormat { public static final int CHANNEL_OUT_STEREO=12, ENCODING_PCM_16BIT=2; }''',
+            'android/media/AudioFormat.java': '''package android.media; public class AudioFormat { public static final int CHANNEL_OUT_STEREO=12, CHANNEL_IN_MONO=16, ENCODING_PCM_16BIT=2; }''',
             'android/media/AudioTrack.java': '''package android.media; public class AudioTrack { public static final int MODE_STREAM=1; public AudioTrack(int s,int r,int c,int f,int b,int m){} public static int getMinBufferSize(int r,int c,int f){return 4096;} public void play(){} public int write(short[] a,int o,int n){return n;} public void stop(){} public void release(){} }''',
+            'android/media/MediaRecorder.java': '''package android.media; public class MediaRecorder { public static class AudioSource { public static final int MIC=1; } }''',
+            'android/media/AudioRecord.java': '''package android.media; public class AudioRecord { public static final int STATE_INITIALIZED=1, RECORDSTATE_RECORDING=3, READ_BLOCKING=0; public AudioRecord(int s,int r,int c,int f,int b){} public static int getMinBufferSize(int r,int c,int f){return 4096;} public int getState(){return 1;} public void startRecording(){} public int read(short[] a,int o,int n,int m){return n;} public void stop(){} public int getRecordingState(){return 0;} public void release(){} }''',
         }
         stubroot = work / 'stubs'
         for relative, text in stubs.items():
@@ -49,14 +55,23 @@ def main() -> int:
                         *map(str, stubroot.rglob('*.java'))], check=True)
         classes = work / 'classes'; classes.mkdir()
         source = Path(__file__).resolve().parent / 'src-probe/org/aaas/audioprobe/MainActivity.java'
+        source_text = source.read_text()
+        package = 'org.aaas.audiocaptureprobe' if args.capture else 'org.aaas.audioprobe'
+        default_record = 'true' if args.capture else 'false'
+        source_copy = work / 'MainActivity.java'
+        source_copy.write_text(source_text.replace('package org.aaas.audioprobe;',
+                                                   f'package {package};')
+                               .replace('getBooleanExtra("record", false)',
+                                        f'getBooleanExtra("record", {default_record})'))
         subprocess.run(['javac', '--release', '8', '-cp', str(stubclasses),
-                        '-d', str(classes), str(source)], check=True)
+                        '-d', str(classes), str(source_copy)], check=True)
         dex = work / 'classes.dex'
         subprocess.run([str(args.dx), '--dex', f'--output={dex}', str(classes)], check=True)
         decoded = work / 'decoded'; (decoded / 'res').mkdir(parents=True)
-        (decoded / 'AndroidManifest.xml').write_text('''<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.aaas.audioprobe" android:versionCode="1" android:versionName="1.0">
+        (decoded / 'AndroidManifest.xml').write_text(f'''<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}" android:versionCode="1" android:versionName="1.0">
 <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35"/>
+<uses-permission android:name="android.permission.RECORD_AUDIO"/>
 <application android:label="AaaS Audio Probe" android:allowBackup="false" android:hasCode="true"><activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>''')
         (decoded / 'apktool.yml').write_text('''version: 3.0.3
 apkFileName: AaasAudioProbe.apk

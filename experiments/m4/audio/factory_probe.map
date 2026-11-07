@@ -1,0 +1,7 @@
+Base {
+  global: _ZN7android26DevicesFactoryHalInterface6createEv;
+          _ZN7android26EffectsFactoryHalInterface6createEv;
+          _ZN7android11AudioSystem17get_audio_flingerEv;
+          _ZN7android25AudioFlingerServerAdapter12loadHwModuleERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEPi;
+  local: *;
+};

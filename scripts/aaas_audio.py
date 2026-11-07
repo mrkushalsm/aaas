@@ -25,6 +25,30 @@ MAX_CLIENTS = 4
 HELLO = struct.Struct('<8sHHIHH')
 
 
+def pcm16_summary(data):
+    """Return bounded signal statistics without retaining or logging PCM."""
+    if len(data) % 2:
+        raise ValueError('unaligned S16LE PCM')
+    count = nonzero = crossings = peak = 0
+    total = total_squares = 0
+    previous = None
+    for (sample,) in struct.iter_unpack('<h', data):
+        count += 1
+        total += sample
+        total_squares += sample * sample
+        magnitude = abs(sample)
+        peak = max(peak, magnitude)
+        nonzero += magnitude != 0
+        if previous is not None and ((previous < 0 <= sample) or
+                                     (previous >= 0 > sample)):
+            crossings += 1
+        previous = sample
+    mean = total / count if count else 0.0
+    rms = max(0.0, total_squares / count - mean * mean) ** 0.5 if count else 0.0
+    return {'frames': count, 'nonzero': nonzero, 'peak': peak,
+            'rms': round(rms, 2), 'zero_crossings': crossings}
+
+
 class PaSampleSpec(ctypes.Structure):
     _fields_ = [('format', ctypes.c_int), ('rate', ctypes.c_uint32),
                 ('channels', ctypes.c_uint8)]
@@ -32,7 +56,7 @@ class PaSampleSpec(ctypes.Structure):
 
 class PulseSimple:
     """Small ctypes wrapper around Pulse's synchronous API (PipeWire-compatible)."""
-    def __init__(self, direction, rate, channels):
+    def __init__(self, direction, rate, channels, device=None):
         library = ctypes.util.find_library('pulse-simple')
         if not library:
             raise RuntimeError('libpulse-simple is unavailable')
@@ -54,8 +78,9 @@ class PulseSimple:
         # Pulse sample-format enum: PA_SAMPLE_S16LE = 3.
         spec = PaSampleSpec(3, rate, channels)
         error = ctypes.c_int(0)
+        selected_device = device.encode('utf-8') if device else None
         self.handle = self.lib.pa_simple_new(None, b'AaaS Android Audio', direction,
-            None, b'AaaS Android playback' if direction == PLAYBACK else b'AaaS Android microphone',
+            selected_device, b'AaaS Android playback' if direction == PLAYBACK else b'AaaS Android microphone',
             ctypes.byref(spec), None, None, ctypes.byref(error))
         if not self.handle:
             raise RuntimeError(f'Pulse/PipeWire stream creation failed (code {error.value})')
@@ -94,8 +119,11 @@ class AudioServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         # Treat client failures as a disconnect and never log media payloads.
         return
 
-    def __init__(self, socket_path, expected_uid):
+    def __init__(self, socket_path, expected_uid, playback_sink=None,
+                 capture_source=None):
         self.expected_uid = expected_uid
+        self.playback_sink = playback_sink
+        self.capture_source = capture_source
         self.client_lock = threading.Lock()
         self.active_clients = 0
         self.stop_event = threading.Event()
@@ -131,8 +159,8 @@ class AudioHandler(socketserver.BaseRequestHandler):
                 self._serve_stream(conn)
             finally:
                 self.server.release_client()
-        except (OSError, ValueError, RuntimeError):
-            # Payload data and notification content are intentionally never logged.
+        except (OSError, ValueError, RuntimeError) as error:
+            print(f'audio client rejected ({type(error).__name__})', flush=True)
             return
 
     def _read_exact(self, size):
@@ -152,8 +180,17 @@ class AudioHandler(socketserver.BaseRequestHandler):
                 or fmt != S16_LE):
             return
         frame_size = channels * 2
-        pulse = PulseSimple(direction, rate, channels)
+        device = (self.server.playback_sink if direction == PLAYBACK
+                  else self.server.capture_source)
+        pulse = PulseSimple(direction, rate, channels, device=device)
+        direction_name = 'playback' if direction == PLAYBACK else 'capture'
+        print(f'audio stream opened direction={direction_name} rate={rate} '
+              f'channels={channels} format=S16_LE', flush=True)
         conn.settimeout(None)
+        transferred = 0
+        capture_stats = {'frames': 0, 'nonzero': 0, 'peak': 0,
+                         'sum': 0, 'sum_squares': 0, 'crossings': 0,
+                         'previous': None}
         try:
             if direction == PLAYBACK:
                 pending = bytearray()
@@ -165,6 +202,7 @@ class AudioHandler(socketserver.BaseRequestHandler):
                     aligned = len(pending) - len(pending) % frame_size
                     if aligned:
                         pulse.write(bytes(pending[:aligned]))
+                        transferred += aligned
                         del pending[:aligned]
                     if len(pending) >= frame_size:
                         raise ValueError('invalid PCM frame alignment')
@@ -174,9 +212,34 @@ class AudioHandler(socketserver.BaseRequestHandler):
                 chunk_size = max(frame_size, rate // 50 * frame_size)
                 chunk_size = min(chunk_size - chunk_size % frame_size, MAX_BUFFER)
                 while not self.server.stop_event.is_set():
-                    conn.sendall(pulse.read(chunk_size))
+                    data = pulse.read(chunk_size)
+                    summary = pcm16_summary(data)
+                    capture_stats['frames'] += summary['frames']
+                    capture_stats['nonzero'] += summary['nonzero']
+                    capture_stats['peak'] = max(capture_stats['peak'], summary['peak'])
+                    for (sample,) in struct.iter_unpack('<h', data):
+                        capture_stats['sum'] += sample
+                        capture_stats['sum_squares'] += sample * sample
+                        previous = capture_stats['previous']
+                        if previous is not None and ((previous < 0 <= sample) or
+                                                     (previous >= 0 > sample)):
+                            capture_stats['crossings'] += 1
+                        capture_stats['previous'] = sample
+                    conn.sendall(data)
+                    transferred += len(data)
         finally:
             pulse.close()
+            message = (f'audio stream closed direction={direction_name} '
+                       f'bytes={transferred}')
+            if direction == CAPTURE:
+                frames = capture_stats['frames']
+                mean = capture_stats['sum'] / frames if frames else 0.0
+                rms = max(0.0, capture_stats['sum_squares'] / frames - mean * mean) ** 0.5 if frames else 0.0
+                message += (f' frames={frames} rms={rms:.2f} '
+                            f'peak={capture_stats["peak"]} '
+                            f'nonzero={capture_stats["nonzero"]} '
+                            f'zero_crossings={capture_stats["crossings"]}')
+            print(message, flush=True)
 
 
 def main(argv=None):
@@ -184,6 +247,10 @@ def main(argv=None):
     parser.add_argument('--socket', required=True)
     parser.add_argument('--android-host-uid', type=int, required=True,
                         help='host-mapped UID of Android audioserver (1041 in guest)')
+    parser.add_argument('--playback-sink', default=os.environ.get('AAAS_AUDIO_PLAYBACK_SINK'),
+                        help='optional PipeWire/Pulse sink name (defaults to host default)')
+    parser.add_argument('--capture-source', default=os.environ.get('AAAS_AUDIO_CAPTURE_SOURCE'),
+                        help='optional PipeWire/Pulse source name (defaults to host default)')
     args = parser.parse_args(argv)
     if args.android_host_uid < 0:
         parser.error('Android host UID must be nonnegative')
@@ -197,7 +264,8 @@ def main(argv=None):
         if not stat.S_ISSOCK(existing.st_mode):
             raise RuntimeError(f'refusing to replace non-socket: {path}')
         raise RuntimeError(f'refusing to replace existing socket: {path}')
-    server = AudioServer(path, args.android_host_uid)
+    server = AudioServer(path, args.android_host_uid, args.playback_sink,
+                         args.capture_source)
     os.chmod(path, 0o666)
     print('AaaS audio bridge ready (S16_LE, bounded sessions, UID checked)', flush=True)
 

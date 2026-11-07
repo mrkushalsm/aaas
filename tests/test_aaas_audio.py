@@ -14,10 +14,11 @@ from scripts import aaas_audio
 class FakePulse:
     instances = []
 
-    def __init__(self, direction, rate, channels):
+    def __init__(self, direction, rate, channels, device=None):
         self.direction = direction
         self.rate = rate
         self.channels = channels
+        self.device = device
         self.writes = []
         self.read_data = bytes(range(16))
         self.closed = False
@@ -42,7 +43,9 @@ class AudioBridgeTests(unittest.TestCase):
         FakePulse.instances.clear()
         self.temp = tempfile.TemporaryDirectory()
         self.path = Path(self.temp.name) / 'audio.sock'
-        self.server = aaas_audio.AudioServer(self.path, os.getuid())
+        self.server = aaas_audio.AudioServer(
+            self.path, os.getuid(), playback_sink='aaas-test-sink',
+            capture_source='aaas-test-source')
         self.thread = threading.Thread(target=self.server.serve_forever,
                                        kwargs={'poll_interval': 0.01}, daemon=True)
         self.thread.start()
@@ -81,6 +84,7 @@ class AudioBridgeTests(unittest.TestCase):
                 break
             time.sleep(0.01)
         self.assertEqual([pcm], FakePulse.instances[0].writes)
+        self.assertEqual('aaas-test-sink', FakePulse.instances[0].device)
         self.assertTrue(FakePulse.instances[0].drained)
         self.assertTrue(FakePulse.instances[0].closed)
 
@@ -91,6 +95,7 @@ class AudioBridgeTests(unittest.TestCase):
         while len(received) < expected_size:
             received.extend(client.recv(expected_size - len(received)))
         self.assertEqual(bytes(range(16)) * (expected_size // 16), bytes(received))
+        self.assertEqual('aaas-test-source', FakePulse.instances[0].device)
         client.close()
         for _ in range(100):
             if FakePulse.instances and FakePulse.instances[0].closed:
@@ -103,6 +108,14 @@ class AudioBridgeTests(unittest.TestCase):
         self.assertEqual(b'', client.recv(1))
         client.close()
         self.assertEqual([], FakePulse.instances)
+
+    def test_pcm_summary_is_metadata_only_and_rejects_partial_samples(self):
+        pcm = struct.pack('<hhhh', -100, 100, -100, 100)
+        self.assertEqual({'frames': 4, 'nonzero': 4, 'peak': 100,
+                          'rms': 100.0, 'zero_crossings': 3},
+                         aaas_audio.pcm16_summary(pcm))
+        with self.assertRaisesRegex(ValueError, 'unaligned'):
+            aaas_audio.pcm16_summary(b'\x01')
 
     def test_rejects_non_socket_replacement_path(self):
         self.server.server_close()

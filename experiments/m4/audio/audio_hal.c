@@ -23,6 +23,10 @@
 #include <time.h>
 #include <unistd.h>
 
+extern int __android_log_print(int priority, const char *tag, const char *format, ...);
+#define AAAS_LOGI(...) ((void)__android_log_print(4, "AaasAudioHAL", __VA_ARGS__))
+#define AAAS_LOGE(...) ((void)__android_log_print(6, "AaasAudioHAL", __VA_ARGS__))
+
 /* Bionic's errno accessor is __errno(); avoid binding to the host glibc ABI. */
 extern int *__errno(void);
 #undef errno
@@ -106,7 +110,9 @@ static int connect_audio(uint16_t direction, uint32_t rate,
     if (path_len >= sizeof(address.sun_path)) { close(fd); return -ENAMETOOLONG; }
     memcpy(address.sun_path, SOCKET_PATH, path_len + 1);
     if (connect(fd, (struct sockaddr *)&address, sizeof(address)) != 0) {
-        int error = errno; close(fd); return -error;
+        int error = errno;
+        AAAS_LOGE("socket_connect direction=%u failed errno=%d", direction, error);
+        close(fd); return -error;
     }
     struct aaas_audio_hello hello;
     memcpy(hello.magic, AAAS_AUDIO_MAGIC, sizeof(hello.magic));
@@ -117,8 +123,12 @@ static int connect_audio(uint16_t direction, uint32_t rate,
     hello.format = AAAS_AUDIO_FORMAT_S16_LE;
     ssize_t hello_result = write_all(fd, &hello, sizeof(hello));
     if (hello_result < 0) {
+        AAAS_LOGE("socket_hello direction=%u failed status=%d", direction,
+                  (int)hello_result);
         close(fd); return (int)hello_result;
     }
+    AAAS_LOGI("socket_connected direction=%u rate=%u channels=%u", direction,
+              rate, channels);
     return fd;
 }
 
@@ -189,6 +199,10 @@ static int out_set_volume(struct audio_stream_out *s, float left, float right) {
 }
 static ssize_t out_write(struct audio_stream_out *s, const void *buffer, size_t bytes) {
     struct aaas_stream_out *o = (struct aaas_stream_out *)s;
+    static volatile int first_write_logged;
+    if (!__atomic_exchange_n(&first_write_logged, 1, __ATOMIC_RELAXED))
+        AAAS_LOGI("output_write_enter bytes=%zu rate=%u channels=%u", bytes,
+                  o->rate, audio_channel_count_from_out_mask(o->channels));
     size_t fs = frame_size(o->rate, o->channels, false);
     if (!buffer || !fs || bytes % fs || bytes > AAAS_AUDIO_MAX_BUFFER) return -EINVAL;
     if (o->paused) {
@@ -220,7 +234,10 @@ static ssize_t out_write(struct audio_stream_out *s, const void *buffer, size_t 
     ssize_t result = write_all(o->fd, src, bytes);
     free(scaled);
     if (result < 0) {
-        int error = (int)-result; shutdown(o->fd, SHUT_RDWR); close(o->fd); o->fd = -1;
+        int error = (int)-result;
+        AAAS_LOGE("output_write_failed status=%d frames=%llu", (int)result,
+                  (unsigned long long)o->written_frames);
+        shutdown(o->fd, SHUT_RDWR); close(o->fd); o->fd = -1;
         return -error;
     }
     o->written_frames += bytes / fs;
@@ -277,6 +294,10 @@ static int in_gain(struct audio_stream_in *s, float gain) {
 }
 static ssize_t in_read(struct audio_stream_in *s, void *buffer, size_t bytes) {
     struct aaas_stream_in *i = (struct aaas_stream_in *)s;
+    static volatile int first_read_logged;
+    if (!__atomic_exchange_n(&first_read_logged, 1, __ATOMIC_RELAXED))
+        AAAS_LOGI("input_read_enter bytes=%zu rate=%u channels=%u", bytes,
+                  i->rate, audio_channel_count_from_in_mask(i->channels));
     size_t fs = frame_size(i->rate, i->channels, true);
     if (!buffer || !fs || bytes % fs || bytes > AAAS_AUDIO_MAX_BUFFER) return -EINVAL;
     if (__atomic_load_n(&i->device_owner->mic_muted, __ATOMIC_RELAXED)) {
@@ -295,7 +316,11 @@ static ssize_t in_read(struct audio_stream_in *s, void *buffer, size_t bytes) {
 }
 static uint32_t in_frames_lost(struct audio_stream_in *s) { (void)s; return 0; }
 
-static int adev_init_check(const struct audio_hw_device *dev) { (void)dev; return 0; }
+static int adev_init_check(const struct audio_hw_device *dev) {
+    (void)dev;
+    AAAS_LOGI("init_check status=0");
+    return 0;
+}
 static int adev_set_mode(struct audio_hw_device *dev, audio_mode_t mode) { (void)dev; (void)mode; return 0; }
 static int adev_set_voice_volume(struct audio_hw_device *dev, float volume) {
     (void)dev;
@@ -329,13 +354,23 @@ static int adev_open_output(struct audio_hw_device *dev, audio_io_handle_t handl
     audio_devices_t devices, audio_output_flags_t flags, struct audio_config *config,
     struct audio_stream_out **stream_out, const char *address) {
     (void)dev; (void)handle; (void)flags; (void)address;
-    if (!config || !stream_out) return -EINVAL;
+    if (!config || !stream_out) {
+        AAAS_LOGE("open_output_stream invalid arguments");
+        return -EINVAL;
+    }
     if (config->format == AUDIO_FORMAT_DEFAULT) config->format = AUDIO_FORMAT_PCM_16_BIT;
     if (config->sample_rate == 0) config->sample_rate = 48000;
-    if (config->format != AUDIO_FORMAT_PCM_16_BIT || config->sample_rate > AAAS_AUDIO_MAX_RATE) return -EINVAL;
+    if (config->format != AUDIO_FORMAT_PCM_16_BIT || config->sample_rate > AAAS_AUDIO_MAX_RATE) {
+        AAAS_LOGE("open_output_stream unsupported format=%#x rate=%u", config->format,
+                  config->sample_rate);
+        return -EINVAL;
+    }
     unsigned channels = audio_channel_count_from_out_mask(config->channel_mask);
     if (!channels) { config->channel_mask = AUDIO_CHANNEL_OUT_STEREO; channels = 2; }
-    if (channels > AAAS_AUDIO_MAX_CHANNELS) return -EINVAL;
+    if (channels > AAAS_AUDIO_MAX_CHANNELS) {
+        AAAS_LOGE("open_output_stream unsupported channels=%u", channels);
+        return -EINVAL;
+    }
     struct aaas_stream_out *o = (struct aaas_stream_out *)calloc(1, sizeof(*o));
     if (!o) return -ENOMEM;
     o->fd = -1; o->rate = config->sample_rate; o->channels = config->channel_mask;
@@ -352,7 +387,10 @@ static int adev_open_output(struct audio_hw_device *dev, audio_io_handle_t handl
     o->stream.get_latency = out_latency; o->stream.set_volume = out_set_volume; o->stream.write = out_write;
     o->stream.get_render_position = out_render_position; o->stream.get_next_write_timestamp = out_next_timestamp;
     o->stream.pause = out_pause; o->stream.resume = out_resume; o->stream.flush = out_flush;
-    *stream_out = &o->stream; return 0;
+    *stream_out = &o->stream;
+    AAAS_LOGI("open_output_stream status=0 rate=%u channels=%u format=%#x", o->rate,
+              channels, (unsigned)o->format);
+    return 0;
 }
 static void adev_close_output(struct audio_hw_device *dev, struct audio_stream_out *s) {
     (void)dev; if (!s) return; out_standby(&s->common); free(s);
@@ -381,14 +419,24 @@ static int adev_open_input(struct audio_hw_device *dev, audio_io_handle_t handle
     i->stream.common.set_parameters = stream_set_parameters; i->stream.common.get_parameters = stream_get_parameters;
     i->stream.common.add_audio_effect = stream_effect; i->stream.common.remove_audio_effect = stream_effect;
     i->stream.set_gain = in_gain; i->stream.read = in_read; i->stream.get_input_frames_lost = in_frames_lost;
-    *stream_in = &i->stream; return 0;
+    *stream_in = &i->stream;
+    AAAS_LOGI("open_input_stream status=0 rate=%u channels=%u format=%#x device=%#x",
+              i->rate, channels, (unsigned)i->format, (unsigned)i->device);
+    return 0;
 }
 static void adev_close_input(struct audio_hw_device *dev, struct audio_stream_in *s) {
     (void)dev; if (!s) return; in_standby(&s->common); free(s);
 }
 static int adev_close(hw_device_t *device) { free(device); return 0; }
 static int adev_open(const hw_module_t *module, const char *name, hw_device_t **out) {
-    if (!module || !name || !out || strcmp(name, AUDIO_HARDWARE_INTERFACE) != 0) return -EINVAL;
+    AAAS_LOGI("module_open name=%s id=%s module_api=%u hal_api=%u", name ? name : "(null)",
+              module && module->id ? module->id : "(null)",
+              module ? module->module_api_version : 0,
+              module ? module->hal_api_version : 0);
+    if (!module || !name || !out || strcmp(name, AUDIO_HARDWARE_INTERFACE) != 0) {
+        AAAS_LOGE("module_open invalid arguments or interface name");
+        return -EINVAL;
+    }
     struct aaas_device *d = (struct aaas_device *)calloc(1, sizeof(*d));
     if (!d) return -ENOMEM;
     d->hw.common.tag = HARDWARE_DEVICE_TAG;
@@ -407,7 +455,13 @@ static int adev_open(const hw_module_t *module, const char *name, hw_device_t **
     d->hw.close_output_stream = adev_close_output;
     d->hw.open_input_stream = adev_open_input;
     d->hw.close_input_stream = adev_close_input;
-    *out = &d->hw.common; return 0;
+    *out = &d->hw.common;
+    AAAS_LOGI("module_open status=0 device_api=%u", d->hw.common.version);
+    return 0;
+}
+
+__attribute__((constructor)) static void aaas_hal_loaded(void) {
+    AAAS_LOGI("library_loaded");
 }
 static struct hw_module_methods_t module_methods = { .open = adev_open };
 struct audio_module HAL_MODULE_INFO_SYM = {

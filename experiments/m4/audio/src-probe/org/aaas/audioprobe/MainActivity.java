@@ -3,19 +3,65 @@ package org.aaas.audioprobe;
 import android.app.Activity;
 import android.media.AudioFormat;
 import android.media.AudioManager;
+import android.media.AudioRecord;
 import android.media.AudioTrack;
+import android.media.MediaRecorder;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.TextView;
+import java.security.MessageDigest;
+import java.util.Locale;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "AaasAudioProbe";
+    private static final int RECORD_PERMISSION_REQUEST = 41;
+    private TextView statusView;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        final TextView view = new TextView(this);
-        view.setText("AaaS audio probe: playing a quiet 440 Hz stereo tone");
-        setContentView(view);
+        statusView = new TextView(this);
+        final boolean record = getIntent().getBooleanExtra("record", false);
+        statusView.setText(record ? "AaaS audio probe: request microphone permission to record"
+                : "AaaS audio probe: playing a quiet 440 Hz stereo tone");
+        setContentView(statusView);
+        if (record) {
+            if (checkSelfPermission("android.permission.RECORD_AUDIO")
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestCapturePermission();
+            } else {
+                Log.i(TAG, "RECORD_PERMISSION_ALREADY_GRANTED");
+                startCapture();
+            }
+            return;
+        }
+        startPlayback();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == RECORD_PERMISSION_REQUEST && grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            Log.i(TAG, "RECORD_PERMISSION_GRANTED");
+            startCapture();
+        } else if (requestCode == RECORD_PERMISSION_REQUEST) {
+            Log.i(TAG, "RECORD_PERMISSION_DENIED");
+            statusView.setText("Microphone denied; tap to request again");
+            statusView.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    requestCapturePermission();
+                }
+            });
+        }
+    }
+
+    private void requestCapturePermission() {
+        requestPermissions(new String[] {"android.permission.RECORD_AUDIO"},
+                RECORD_PERMISSION_REQUEST);
+    }
+
+    private void startPlayback() {
         new Thread(new Runnable() {
             @Override public void run() {
                 AudioTrack track = null;
@@ -42,7 +88,7 @@ public final class MainActivity extends Activity {
                         written += count;
                     }
                     Log.i(TAG, "PLAYBACK_OK rate=" + rate + " channels=2 frames=" + (written / 2));
-                    Thread.sleep(1100);
+                    Thread.sleep(6000);
                 } catch (Throwable error) {
                     Log.e(TAG, "PLAYBACK_FAILED " + error.getClass().getSimpleName(), error);
                 } finally {
@@ -53,5 +99,84 @@ public final class MainActivity extends Activity {
                 }
             }
         }, "aaas-audio-probe").start();
+    }
+
+    private void startCapture() {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                AudioRecord record = null;
+                try {
+                    final int rate = 48000;
+                    final int requestedBytes = Math.max(4096,
+                            AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO,
+                                    AudioFormat.ENCODING_PCM_16BIT));
+                    record = new AudioRecord(MediaRecorder.AudioSource.MIC, rate,
+                            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                            requestedBytes);
+                    if (record.getState() != AudioRecord.STATE_INITIALIZED) {
+                        throw new IllegalStateException("AudioRecord state=" + record.getState());
+                    }
+                    short[] pcm = new short[rate * 3];
+                    record.startRecording();
+                    int total = 0;
+                    while (total < pcm.length) {
+                        int count = record.read(pcm, total, pcm.length - total,
+                                AudioRecord.READ_BLOCKING);
+                        if (count <= 0) throw new IllegalStateException("AudioRecord.read=" + count);
+                        total += count;
+                    }
+                    record.stop();
+                    MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                    long sumSquares = 0;
+                    long sum = 0;
+                    short previous = 0;
+                    int crossings = 0;
+                    byte[] bytes = new byte[pcm.length * 2];
+                    for (int i = 0; i < pcm.length; i++) {
+                        short sample = pcm[i];
+                        bytes[i * 2] = (byte)(sample & 0xff);
+                        bytes[i * 2 + 1] = (byte)((sample >>> 8) & 0xff);
+                        sumSquares += (long)sample * sample;
+                        sum += sample;
+                        if (i > 0 && ((previous < 0 && sample >= 0)
+                                || (previous >= 0 && sample < 0))) crossings++;
+                        previous = sample;
+                    }
+                    byte[] hash = digest.digest(bytes);
+                    StringBuilder hex = new StringBuilder();
+                    for (byte value : hash) hex.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+                    double mean = (double)sum / pcm.length;
+                    double rms = Math.sqrt((double)sumSquares / pcm.length - mean * mean);
+                    int dominantHz = 0;
+                    double dominantPower = -1.0;
+                    for (int frequency = 300; frequency <= 600; frequency += 5) {
+                        double coefficient = 2.0 * Math.cos(2.0 * Math.PI * frequency / rate);
+                        double s1 = 0.0, s2 = 0.0;
+                        for (short sample : pcm) {
+                            double s0 = (sample - mean) + coefficient * s1 - s2;
+                            s2 = s1;
+                            s1 = s0;
+                        }
+                        double power = s1 * s1 + s2 * s2 - coefficient * s1 * s2;
+                        if (power > dominantPower) {
+                            dominantPower = power;
+                            dominantHz = frequency;
+                        }
+                    }
+                    Log.i(TAG, "CAPTURE_OK rate=" + rate + " channels=1 frames=" + pcm.length
+                            + " rms=" + String.format(Locale.ROOT, "%.2f", rms)
+                            + " zero_crossings=" + crossings + " dominant_hz=" + dominantHz
+                            + " sha256=" + hex);
+                } catch (Throwable error) {
+                    Log.e(TAG, "CAPTURE_FAILED " + error.getClass().getSimpleName(), error);
+                } finally {
+                    if (record != null) {
+                        try { if (record.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) record.stop(); }
+                        catch (Throwable ignored) {}
+                        record.release();
+                    }
+                }
+            }
+        }, "aaas-audio-capture-probe").start();
     }
 }
