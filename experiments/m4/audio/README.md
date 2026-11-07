@@ -1,6 +1,10 @@
 # Android audio HAL experiment
 
-**Status: PARTIAL/OPEN.** The host PCM adapter is verified separately, but the Android framework still cannot create an audio track through this experimental HAL. Playback and microphone acceptance are not passed.
+**Status: PARTIAL/OPEN.** The opt-in, session-local path now carries real
+Android AudioTrack playback into PipeWire and real PipeWire source samples into
+Android AudioRecord. It is not yet full M4 audio acceptance: ordinary media-app
+playback, permission revocation, playback controls/concurrency, failure-path
+coverage, and physical microphone behavior remain unverified.
 
 ## Image and interface findings
 
@@ -8,15 +12,25 @@ The workspace image is Android 16 x86_64 with `ro.hardware=ranchu`. Its vendor V
 
 The vendor audio policy XML is version 7.0 and declares a primary module with a speaker and built-in microphone. The image's existing `audio.primary.default.so` is present, while `audio.primary.ranchu.so` is an empty placeholder in the workspace image. The runtime reports `ro.hardware.audio.primary` unset. AOSP's Ranchu/Golfish history documents that module-specific property as the way to select a hardware-module variant before falling back to `ro.hardware` ([AOSP change](https://android.googlesource.com/device/generic/goldfish/%2B/0657d895cf0abe943ab3c1e833b979b79dad36c7)). Android documents that the framework supports either HIDL or AIDL Audio HALs ([AOSP HIDL/AIDL comparison](https://source.android.com/docs/core/audio/aidl-hidl-comp)).
 
-This experiment builds a legacy x86_64/Bionic HAL for the image's HIDL compatibility adapter. A session-only `--experimental-audio-hal` option binds it at `audio.primary.aaas.so`, sets `ro.hardware.audio.primary=aaas`, and starts the host bridge. This selector follows the AOSP module-selection mechanism; it did not resolve the live failure.
+This experiment builds a legacy x86_64/Bionic HAL for the image's HIDL compatibility adapter. A session-only `--experimental-audio-hal` option binds it at `audio.primary.aaas.so`, sets `ro.hardware.audio.primary=aaas`, and starts the host bridge. The selector alone did not resolve the failure. The live campaign found that the Ranchu 7.1 factory special-cased `primary` to its emulator device path instead of using the legacy module selector. A session-local bind of the image-matched AOSP legacy HIDL factory routes the primary module through `hw_get_module_by_class`.
 
 ## Transport prototype
 
 The HAL provides PCM S16LE playback and capture callbacks over a versioned Unix stream socket at `/dev/aaas/audio.sock`. The host process checks the mapped Android `audioserver` UID, limits the stream count, formats and message size, and connects through the host's existing `libpulse-simple` service (`pipewire-pulse`). Android still owns track creation, app microphone permission, and mic mute. The host helper starts only for opt-in sessions and terminates with the session.
 
+The legacy HIDL adapter also needs ashmem-backed FMQ allocation. The rootless
+guest does not expose `/dev/ashmem`; the stock ashmem setter rejects a memfd.
+The session-only vendor audio-service preload shim implements the required
+ashmem region API over a CLOEXEC, NOEXEC-sealed memfd and implements the
+relevant size/protection seals. This enabled the FMQ path without exposing an
+ashmem device node or changing the base image. Playback acceptance also used
+session-only stock-compatible `audioserver` and `libaudiohal.so` overlays;
+their use is diagnostic and not yet a reproducible default runtime
+configuration.
+
 The bridge was separately exercised with paced synthetic host PCM into a PipeWire null sink; its monitor capture contained a 440 Hz signal (262144 bytes, RMS 3896.3, 433 zero crossings). This verifies only the host Pulse/PipeWire transport. It is not Android-generated PCM evidence.
 
-## Live Android result
+## Historical first live result (2026-11-06)
 
 Session `m1b84_session_ckxzb6mf` used the opt-in overlay and an ordinary target-SDK 35 AudioTrack probe. The session log confirmed:
 
@@ -28,10 +42,52 @@ Session `m1b84_session_ckxzb6mf` used the opt-in overlay and an ordinary target-
 
 Earlier sessions also observed the HIDL factory registration and module lookup failures. The evidence does not establish whether the factory call failed before `hw_get_module_by_class`, the module loader rejected the HAL, or the HAL open/initialization returned an error. Therefore the exact root cause remains unresolved; the selector experiment is not recorded as a fix.
 
-The custom HAL compiles with `-Wall -Wextra -Werror` and a reproducible build manifest, but it has not been exercised by AudioFlinger. The implementation is a prototype, not accepted Android audio support.
+That first run did not load the primary HAL. Its original evidence and failure remain preserved in session `m1b84_session_ckxzb6mf`.
 
-## Microphone and limitations
+## Live playback and microphone continuation (2026-11-07)
 
-The HAL and host adapter include a capture path, but Android `AudioRecord` was not opened. No microphone samples crossed the boundary. Runtime permission grant/revocation, physical microphone behavior, source-disconnect handling, and capture cleanup have not been live accepted.
+The session-local path was subsequently exercised by the Android framework.
+In playback session `m1b84_session_2mbhio2e`, the legacy factory opened the
+HAL (`module_api=1`, `hal_api=256`), `init_check` and
+`open_output_stream` returned 0 for 48 kHz stereo PCM16, and AudioFlinger
+selected output 13 on the primary speaker route. The ordinary diagnostic
+`org.aaas.audioprobe` reported `PLAYBACK_OK ... frames=48000`; the HAL logged
+`output_write_enter` and connected to the host socket. The PipeWire null-sink
+monitor capture SHA-256 was
+`eead53103b2d60668afcb4390c571bceee7d3ae1eeb91ef8f59cf8b48a0cdb1c`.
+Analysis found 47,760 active samples per channel, active RMS 50.15, and a
+dominant frequency of 440.009 Hz. This is end-to-end AudioTrack PCM, not an
+idle stream or host-generated playback signal.
 
-Canonical M4 remains **PARTIAL/OPEN**. Required next engineering work is to capture the HIDL factory's actual `openDevice` result (including its `DevicesFactoryHAL` error), correct the session-scoped cause, and then verify AudioTrack PCM through PipeWire before proceeding to AudioRecord. Do not infer success from service registration, the module file existing, or host-only loopback.
+In microphone session `m1b84_session_7bmrswv1`, an ordinary target-SDK 35
+probe requested `RECORD_AUDIO` through Android's permission UI. A separate
+denial run (`m1b84_session_6fxx1kmc`) produced
+`RECORD_PERMISSION_DENIED` and no capture socket. After granting permission
+through the Android PermissionController UI in
+`m1b84_session_tgcfzkl7`, a subsequent complete runtime restart retained the
+grant (`RECORD_PERMISSION_ALREADY_GRANTED`) in
+`m1b84_session_7bmrswv1`. AudioRecord read 144,000 frames at 48 kHz mono;
+the app reported RMS 3535.08, 2,640 zero crossings, dominant 440 Hz, and
+SHA-256 `c17e0171a907e9c8db395333ff6f20e05c657062efdd06d129eab65079303d50`.
+The host bridge independently observed 145,920 frames, RMS 3535.16, peak
+5,000, and 145,676 nonzero samples from the controlled PipeWire virtual
+source. The fixture was a 440 Hz mono signal. Its PipeWire source was kept
+active with a host reader because the first test attempt allowed the virtual
+source to suspend and therefore delivered silence.
+
+## Remaining limitations
+
+The explicit permission-denied case and normal grant/persistence are verified;
+runtime-permission revocation and post-revocation AudioRecord denial remain
+open. The virtual source demonstrates software-only capture; no physical
+microphone was tested. The real-media-app path (including VLC/mpv URI access),
+pause/resume, volume/mute, concurrent clients, host sink/source disconnect,
+and idle/failure recovery remain open. Host and Android logs are retained only
+under the workspace's raw session records; no PCM payload was added to Git.
+
+The corrected route remains opt-in and currently needs session-local compatible
+audio framework/factory overlays plus the memfd ashmem shim. The base guest
+image is unchanged. See the dated `audio_microphone_continuation_2026_11_07`
+acceptance record for exact evidence hashes and regressions. Canonical M4
+remains **PARTIAL/OPEN**; the demonstrated vertical slices are not represented
+as complete platform acceptance.

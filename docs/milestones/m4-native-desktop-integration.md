@@ -125,8 +125,8 @@ Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`;
 |---|---|---|
 | On-demand start and reuse | Live cold launcher start, same-session app reuse, two concurrent launcher calls, cancellable idle period and automatic idle shutdown | Partial: broader failure-recovery gates remain |
 | User desktop launcher | PackageManager discovery, icon/label/version catalog, owned XDG entries, cold launch, runtime reuse, update reconciliation, and uninstall cleanup verified in the 2026-11-06 continuation | **PASS/CLOSED** for installed-app catalog and launcher integration |
-| Host audio playback | PipeWire 1.6.9, WirePlumber, and pipewire-pulse are active on host. An opt-in HIDL-compatible HAL and session-owned host PCM adapter prototype now exist. | PARTIAL/OPEN; Android AudioPolicyManager cannot load `primary`, AudioTrack returns `-19`, and no Android PCM reaches PipeWire |
-| Microphone | Host capture path exists in the prototype, but AudioFlinger has not opened its input HAL stream. | PARTIAL/OPEN; no live AudioRecord samples or Android permission grant/revocation proof |
+| Host audio playback | An opt-in session-local legacy HAL, Android AudioTrack probe, and PipeWire null-sink capture were exercised live. A 440.009 Hz signal crossed the full path. | PARTIAL/OPEN; ordinary media-app playback, controls, concurrency, and host-failure behavior remain unverified |
+| Microphone | An ordinary target-SDK 35 app received `RECORD_AUDIO` through Android's UI; AudioRecord samples from a controlled PipeWire source matched a 440 Hz signal after runtime restart. | PARTIAL/OPEN; revocation, physical input, app interaction, and disconnect behavior remain unverified |
 | Shared Android storage | Persistent backing is exposed directly to Linux and parent-bound at Android `/data/media`; vold/FUSE presents `/storage/emulated/0`. Ordinary-app SAF, active MediaStore reconciliation, ACL preflight, persistent userdata, app-specific external files, permissions, and security boundary tests pass. NTFS3 quotas/SELinux labels/fscrypt are unsupported profile features; BFE archive actions are application-specific. | **PASS/CLOSED** |
 | Android-to-XDG picker bridge | This capability is explicitly deferred; Android continues using its built-in picker and shared-storage APIs. | Deferred; not a storage-slice acceptance gate |
 | Clipboard | Historical capability audit before the 2026-11-06 clipboard implementation. | Superseded by the live acceptance below |
@@ -135,7 +135,86 @@ Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`;
 | Camera | `/dev/video*` devices exist on host, but are not bound into Android; no Android Camera HAL to authorized host source adapter is present. | Feasibility only; not supported |
 | M2/M3 regression | KWin Settings/Contacts presentation and teardown were exercised; M3 diagnostic was rerun with the full JNI PASS record in the Android log. | Partial M2 regression evidence |
 
-At the time of this earlier host-capability audit, audio, clipboard, and notifications were still open. The 2026-11-06 launcher and clipboard continuations below close those respective workstreams; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone and notification forwarding.
+At the time of this earlier host-capability audit, audio, clipboard, and notifications were still open. The dated launcher, clipboard, notification, and audio continuations below update those findings; canonical M4 remains `PARTIAL/OPEN` for the remaining audio and microphone acceptance gates.
+
+## Android audio and microphone continuation (2026-11-07)
+
+This continuation resolves the earlier HAL error far enough to carry actual
+samples in both directions. The original Ranchu HIDL 7.1 factory special-cases
+`primary` for its emulator device instead of reaching the legacy
+`hw_get_module_by_class` selection path. This rootless runtime has no working
+Ranchu audio transport. A session-local bind of the image-matched AOSP legacy
+HIDL factory allowed the standard module lookup to select
+`audio.primary.aaas.so`. The ordinary module path then loaded the x86_64/Bionic
+ELF (`module_api=1`, `hal_api=256`); `adev_open`, `init_check`, and the 48 kHz
+stereo PCM16 output stream returned success.
+
+The next blocker was the HIDL legacy FMQ's ashmem allocation: the rootless
+guest has no `/dev/ashmem`, and the platform setter rejected a memfd as an
+ashmem device. The session-local shim in
+[`experiments/m4/audio/ashmem_compat.c`](../../experiments/m4/audio/ashmem_compat.c)
+backs the limited ashmem API used by that FMQ with a CLOEXEC, NOEXEC-sealed
+memfd and the corresponding size/protection seals. This is preloaded only by
+the session's vendor audio service. The successful live run also used
+session-only stock-compatible `audioserver` and `libaudiohal.so` overlays to
+avoid the development image's incompatible audio-framework modifications;
+the base image was not modified. The current workaround remains an opt-in
+prototype and is not a reproducible default runtime configuration.
+
+In `m1b84_session_2mbhio2e`, AudioPolicyManager selected the primary speaker
+route and output 13. The ordinary Android `org.aaas.audioprobe` wrote 48,000
+stereo frames at 48 kHz; the HAL logged a PCM callback and host-socket
+connection. The PipeWire null-sink monitor captured the fixture. Its raw
+capture SHA-256 is
+`eead53103b2d60668afcb4390c571bceee7d3ae1eeb91ef8f59cf8b48a0cdb1c`; analysis
+found 47,760 active samples per channel, active RMS 50.15, and 440.009 Hz.
+This proves AudioTrack-to-PipeWire PCM, not merely AudioTrack initialization
+or an idle PipeWire node.
+
+Microphone permission denial was exercised through the ordinary Android
+permission dialog in `m1b84_session_6fxx1kmc`; the app reported
+`RECORD_PERMISSION_DENIED`, and no capture connection was opened. Permission
+was then granted through PermissionController UI in
+`m1b84_session_tgcfzkl7`. After a full runtime restart,
+`m1b84_session_7bmrswv1` reported `RECORD_PERMISSION_ALREADY_GRANTED`.
+AudioRecord read 144,000 mono frames at 48 kHz from a controlled PipeWire
+virtual source. The app computed RMS 3535.08, 2,640 zero crossings, dominant
+frequency 440 Hz, and SHA-256
+`c17e0171a907e9c8db395333ff6f20e05c657062efdd06d129eab65079303d50`. The
+host adapter independently recorded 145,920 frames, RMS 3535.16, peak 5000,
+and 145,676 nonzero samples. The virtual source was kept active during the
+successful capture; an earlier silent attempt was caused by PipeWire
+suspending the source while it had no active reader.
+
+| Gate | Result |
+|---|---|
+| Primary HAL selection/open and AudioFlinger output stream | PASS in opt-in overlay session |
+| Deterministic Android AudioTrack to PipeWire signal | PASS, `m1b84_session_2mbhio2e` |
+| Android microphone denial without `RECORD_AUDIO` | PASS, `m1b84_session_6fxx1kmc` |
+| Normal UI grant and grant persistence across runtime restart | PASS, `m1b84_session_tgcfzkl7` → `m1b84_session_7bmrswv1` |
+| AudioRecord capture from controlled PipeWire virtual source | PASS, 440 Hz signal, `m1b84_session_7bmrswv1` |
+| Permission revocation and post-revocation denial | OPEN |
+| Ordinary VLC/mpv playback, controls, concurrency, disconnect/recovery | OPEN |
+| Physical microphone | Not tested; no physical-device claim |
+
+The full Python suite passed 357 tests, with zero failures, errors, or skips;
+the focused audio and runner suite passed 86 tests. The HAL and ashmem shim
+built with `-Wall -Wextra -Werror`. Fresh M2 Settings/Contacts smoke passed:
+presenter import/release counts were 54/54 and 36/36, outstanding buffers
+were zero, and closing Contacts left Settings running. M3 returned
+`PASS mask=255` in `m1b84_session_cuspcn5l`, with a clean overlay removal. A
+bounded normal-session MediaStore/ACL regression passed in
+`m1b84_session_0ee286he`. The workspace guard passed on NTFS3 UUID
+`A2ACEDF2ACEDC0C1`: 73,241,320,448 bytes allocated (below the 80 GiB ceiling)
+and 297,532,612,608 bytes available (above the 20 GiB reserve). Sessions
+reached `STOPPED`; temporary PipeWire source/sink modules, FIFO, audio bridge,
+session sockets, and test captures were cleaned from their active locations.
+
+These results advance the audio vertical slices but do not close audio or
+canonical M4. The detailed raw session logs and captures remain outside Git
+under the workspace temporary directory. The dated machine-readable record is
+`audio_microphone_continuation_2026_11_07` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
 
 ### Installed application catalog and Linux launcher (2026-11-06)
 
