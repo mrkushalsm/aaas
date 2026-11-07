@@ -111,6 +111,15 @@ NTFS3 metadata probes, and healthy device evidence. An incomplete recovery
 attestation remains `HEALTH_UNKNOWN` and blocks NTFS3 startup. There is no
 automatic transition based on elapsed time or absence of new log messages.
 
+The attestation is bound to the volume UUID, stable device serial, current
+boot ID, and current mount ID. It requires hash-referenced offline, device,
+workspace-manifest, userdata-manifest, and metadata-probe evidence with bounded
+ages. While that status is active, the guard checks device-correlated NTFS3,
+block-I/O, UAS, and USB reset/disconnect events since the post-check timestamp;
+a new event re-blocks the guard. A changed boot, mount epoch, source identity,
+stale evidence, truncated/unavailable journal, or inaccessible device identity
+returns `HEALTH_UNKNOWN`.
+
 ## Recovery gate (procedure only; not performed)
 
 1. Keep Android stopped and do not write to or remount this volume.
@@ -145,3 +154,47 @@ which deliberately skips when the external workspace guard is unhealthy; it
 was not bypassed. Python compilation, both JSON validations, and
 `git diff --check` passed. No Android regression was run because the health
 gate remains active.
+
+## Post-CHKDSK Linux verification attempt (2026-11-07)
+
+The repository and bounded local search did not find a CHKDSK transcript,
+exported Windows event, command flags, completion result, repair summary, or
+bad-cluster report. The user reports running CHKDSK, but execution, completion,
+repair, and clean status remain unverified.
+
+After boot `c0a7b7de-753c-4c02-9042-2103818b72ef` started at
+2026-11-07 09:08:05 +05:30, the drive reappeared as `/dev/sda`, and `lsblk`
+reported `/dev/sda2`, NTFS, UUID `A2ACEDF2ACEDC0C1`, 465.7 GiB, and no
+mountpoint. Udev identified the same Crucial BX500 SSD (revision M6CR072,
+serial `2421E8B20AE0`) behind a USB 3.0 bridge, VID:PID `152d:0578`, UAS driver,
+USB path 2-3. The reported `ROTA=1` conflicts with the SSD model and udev's ATA
+rotation rate 0, so it is not used to infer a mechanical disk.
+
+The bounded current-boot journal contains no NTFS3 mount errors, UAS aborts,
+USB resets/disconnects, or block I/O errors for this device from enumeration
+through 09:12:42. The observation covers about four minutes while the
+partition was unmounted; it is not a transport stability test. A fresh
+passive `smartctl -x -n standby /dev/sda` again failed with permission denied.
+No SMART health or media counters are available.
+
+Because the volume is unmounted, the workspace marker, userdata manifest,
+PackageManager records, shared storage, and targeted NTFS metadata could not
+be checked. No mount or remount was attempted. The normal workspace check
+exited 2 because the marker was absent at the expected mount path. The explicit
+device diagnostic reported the tracked `DEVICE_FAILURE_SUSPECTED` quarantine,
+the UUID, no current-boot storage errors in the bounded observation, and
+unavailable SMART data. The policy remains unchanged; no Android session ran.
+
+This observation does not clear the quarantine. The next evidence needed is
+the actual CHKDSK result, authorized passive device-health data, an approved
+backup decision, and a user- or system-managed normal mount followed by
+post-mount metadata and stability checks. The exact structured result is
+`post_chkdsk_assessment_2026_11_07` in
+[`acceptance.json`](../../results/m4/acceptance.json).
+
+The post-repair guard suite passed 24 tests. The full Python suite ran 371
+tests and failed with 18 errors and 7 skips: 11 real cgroup-hierarchy tests
+could not find the delegated `user@1000.service/aaas` scope, and 7 audio
+runner tests could not find their Android HAL factory fixture on the unmounted
+workspace. The other 346 tests passed. Python compilation, JSON validation,
+and `git diff --check` passed. No test started Android or accessed userdata.

@@ -240,6 +240,13 @@ recursive capacity accounting. Android execution remains blocked pending
 offline consistency, device-health, and post-recovery evidence; details are in
 the [NTFS3 health assessment](../storage/ntfs3-health-assessment-2026-11-07.md).
 
+The post-CHKDSK Linux check found the expected UUID on the same USB-attached
+SSD, but the partition was not mounted. No CHKDSK result or passive SMART data
+was available; the short unmounted journal interval had no new storage errors
+but cannot validate the volume. The quarantine remains active and audio
+acceptance must not resume yet. See `post_chkdsk_assessment_2026_11_07` in the
+M4 acceptance JSON.
+
 ### Installed application catalog and Linux launcher (2026-11-06)
 
 **Installed-App Catalog and Launcher Integration: PASS/CLOSED.** The tested source revision is recorded in the matching `installed_app_catalog_launcher_2026_11_06` object in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). This closes the launcher workstream only; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone, bidirectional clipboard, and Android notification forwarding.

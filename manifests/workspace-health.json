@@ -17,6 +17,19 @@
         "block_read_io_errors": 2,
         "smart_status": "unavailable: smartctl denied access to /dev/sda; noninteractive sudo required a password"
       },
+      "post_chkdsk_observation": {
+        "observed_at": "2026-11-07T09:12:42+05:30",
+        "boot_id": "c0a7b7de-753c-4c02-9042-2103818b72ef",
+        "device_identity": "CT500BX500SSD1_2421E8B20AE0",
+        "filesystem_uuid_visible_in_lsblk": true,
+        "mounted": false,
+        "current_boot_ntfs3_errors": 0,
+        "current_boot_transport_or_io_errors": 0,
+        "observation_scope": "device enumerated at 09:08:05; approximately 4 minutes; partition was not mounted",
+        "chkdsk_completion_evidence": "not found in bounded local search; no transcript or exported Windows event was available",
+        "smart_status": "permission denied on passive smartctl query",
+        "classification_effect": "none; prior quarantine remains DEVICE_FAILURE_SUSPECTED"
+      },
       "recovery": null
     }
   }

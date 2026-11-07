@@ -810,3 +810,11 @@ The guard now blocks this UUID before its recursive accounting pass. See the
 [dated health assessment](ntfs3-health-assessment-2026-11-07.md) for the
 device evidence, recovery sequence, and policy transition requirements. No
 Android session or repair was performed in this continuation.
+
+The post-CHKDSK Linux check again identified the same UUID and Crucial SSD,
+but found no mounted partition and no local CHKDSK result. Current-boot logs
+show only device enumeration during an approximately four-minute unmounted
+interval; SMART remains inaccessible. The health policy remains
+`DEVICE_FAILURE_SUSPECTED`. No userdata or shared-media inspection was possible
+without mounting the volume. Details are in the dated post-CHKDSK assessment
+and `post_chkdsk_assessment_2026_11_07` in the acceptance JSON.
