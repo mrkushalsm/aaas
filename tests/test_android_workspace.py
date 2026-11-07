@@ -148,6 +148,21 @@ class WorkspaceGuardTest(unittest.TestCase):
                                         'DEVICE_FAILURE_SUSPECTED'):
                 guard.check(self.workspace)
 
+    def test_ext4_device_io_pause_blocks_before_accounting(self):
+        self.marker.update(filesystem='ext4',
+                           mount_uuid='094120c3-e1f8-4a61-a95a-c347ecb711d1')
+        (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
+        identity = {**self.identity, 'filesystem': 'ext4',
+                    'uuid': '094120c3-e1f8-4a61-a95a-c347ecb711d1',
+                    'source': '/dev/sda3'}
+        with patch.object(guard, 'HEALTH_POLICY', Path(__file__).parents[1] /
+                          'manifests' / 'workspace-health.json'), \
+             patch.object(guard, 'mount_identity', return_value=identity), \
+             patch.object(guard, 'allocated_bytes', side_effect=AssertionError('must not scan')):
+            with self.assertRaisesRegex(guard.WorkspaceError,
+                                        'DEVICE_FAILURE_SUSPECTED'):
+                guard.check(self.workspace)
+
     def test_journal_error_is_filtered_by_partition_and_error_priority(self):
         import json as json_module
         entries = [

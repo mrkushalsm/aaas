@@ -31,6 +31,32 @@
         "classification_effect": "none; prior quarantine remains DEVICE_FAILURE_SUSPECTED"
       },
       "recovery": null
+    },
+    "094120c3-e1f8-4a61-a95a-c347ecb711d1": {
+      "uuid": "094120c3-e1f8-4a61-a95a-c347ecb711d1",
+      "incident_id": "usb-workspace-io-2026-11-08",
+      "state": "DEVICE_FAILURE_SUSPECTED",
+      "reason": "The parent USB SSD had UAS aborts, USB reset, and block read I/O errors; while this ext4 workspace was mounted, the kernel logged a Buffer I/O error on sda3 with a lost-sync page write. Media versus USB bridge/cable/power/controller cause remains unresolved.",
+      "observed_after": "2026-11-07T23:08:11+05:30",
+      "source": "/dev/sda3",
+      "device": {
+        "path": "/dev/sda",
+        "model": "CT500BX500SSD1",
+        "serial": "2421E8B20AE0",
+        "transport": "usb/uas"
+      },
+      "boot_id": "019bfef2-ef76-45a4-971b-9612ccf7a155",
+      "evidence": {
+        "post_mount_write_error": "Buffer I/O error on dev sda3, logical block 15761408, lost sync page write",
+        "post_mount_write_error_time": "2026-11-07T23:08:11+05:30",
+        "parent_transport_events": [
+          "2026-11-07T21:20:08+05:30: block read I/O errors on sda during UAS recovery",
+          "2026-11-07T21:21:05+05:30: UAS host reset and SuperSpeed USB reset on usb 2-3"
+        ],
+        "smart_user_report": "SMART overall PASSED; reallocated/pending/uncorrectable/end-to-end counts zero; UDMA CRC count 717; SATA PHY ICRC 3, data FIS R_ERR 3, COMRESET 41",
+        "cable_change_order": "unknown relative to the journal events; do not interpret as a post-change clean interval"
+      },
+      "recovery": null
     }
   }
 }

@@ -1,0 +1,73 @@
+# ext4 workspace I/O incident — 2026-11-08
+
+## Classification
+
+`DEVICE_FAILURE_SUSPECTED`. AaaS startup and workspace-backed tests are
+blocked by the UUID-scoped guard entry for ext4 UUID
+`094120c3-e1f8-4a61-a95a-c347ecb711d1`. The filesystem is currently visible as
+read/write, but that does not clear the incident.
+
+## Device and mount
+
+The workspace is `/run/media/mrkus/Aaas/aaas-workspace`, on `/dev/sda3`, ext4,
+UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, mounted at `/run/media/mrkus/Aaas`.
+Its parent is USB/UAS SSD `/dev/sda`, model `CT500BX500SSD1`, serial
+`2421E8B20AE0`. At observation, kernel boot ID was
+`019bfef2-ef76-45a4-971b-9612ccf7a155`.
+
+## Kernel evidence
+
+The current-boot kernel journal reports UAS aborts and read I/O failures on
+`/dev/sda` around 21:20 on November 7, followed by a UAS host reset and a
+SuperSpeed USB reset around 21:21. At 23:08:11, while ext4 UUID
+`094120c3-e1f8-4a61-a95a-c347ecb711d1` was mounted, the kernel reported:
+
+- `Buffer I/O error on dev sda3, logical block 15761408, lost sync page write`
+- `JBD2: I/O error when updating journal superblock for sda3-8.`
+- `EXT4-fs (sda3): shut down requested (2)`
+- `EXT4-fs (sda3): unmounting filesystem ...`
+
+At 23:08:18, the kernel reported the same UUID mounted read/write and `recovery
+complete`. That automatic journal recovery is not proof that the underlying
+storage path is reliable. The cable-change timestamp is unavailable, so these
+events cannot be classified as definitely before or after that change.
+
+The user supplied passive SMART output for the same SSD: overall health
+`PASSED`; reallocated, pending, uncorrectable, and end-to-end error counts were
+zero; UDMA CRC count was 717; SATA PHY counters included 3 ICRC errors, 3 data
+FIS R_ERR responses, and 41 COMRESETs. These counters support an interface or
+transport concern but do not establish whether the SSD media, bridge, cable,
+port, or power caused the events. No SMART self-test or scan was run.
+
+No additional matching UAS, USB reset, block I/O, or ext4 journal messages
+appeared in the bounded journal query after 23:08:11 through the current
+observation. The short interval is not a stability test.
+
+## AaaS activity and cleanup
+
+After the 23:08 ext4 recovery, two bounded audio diagnostic sessions ran before
+the journal sequence was inspected:
+
+- `m1b84_session_e74t474f`: audio samples reached the default host output;
+  session stopped normally.
+- `m1b84_session_5alc1utr`: AudioTrack PCM reached the controlled PipeWire
+  null sink; session stopped normally and its bridge exited.
+
+Their logs and state records remain on the workspace. No more Android or
+workspace-backed AaaS sessions may run while the UUID is quarantined. These
+sessions are disclosed here and are not represented as a storage-health test.
+
+## Recovery requirements
+
+Do not write to this workspace or launch Android until the storage path and
+filesystem have been assessed. Preserve the journal evidence and existing
+userdata. Establish that the USB/SATA path is stable, obtain fresh passive
+device-health evidence, inspect the ext4 filesystem offline using the normal
+Linux recovery process only after data-preservation decisions, and then verify
+the workspace and userdata manifests. Any repair or full copy must be planned
+separately; do not run an online repair or treat the automatic replay as a
+clean result. Clear the UUID quarantine only through a documented,
+evidence-backed recovery transition.
+
+The prior NTFS3 incident remains preserved in
+[`ntfs3-health-assessment-2026-11-07.md`](ntfs3-health-assessment-2026-11-07.md).
