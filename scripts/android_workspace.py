@@ -242,7 +242,14 @@ def _classify_storage_event(message, priority, partition, disk, usb_path=None):
     match = re.search(r'ntfs3\(([^)]+)\):', message)
     if match and match.group(1) == partition and priority <= 4:
         return 'ntfs3_integrity'
+    ext4 = re.search(rf'EXT4-fs\s+\({re.escape(partition)}\):', message)
+    if ext4 and re.search(r'error|failed|shut down|abort', message, re.I):
+        return 'ext4_integrity'
+    if re.search(rf'(?:I/O error|Buffer I/O error|blk_update_request).*\bdev(?:ice)?\s+{re.escape(partition)}\b', message, re.I):
+        return 'block_io'
     if re.search(rf'(?:I/O error|Buffer I/O error|blk_update_request).*\bdev(?:ice)?\s+{re.escape(disk)}\b', message, re.I):
+        return 'block_io'
+    if disk in message and re.search(r'JBD2:.*(?:I/O error|failed|abort)', message, re.I):
         return 'block_io'
     if disk in message and re.search(r'uas_eh|uas.*(?:abort|reset)', message, re.I):
         return 'uas_transport'
@@ -251,6 +258,60 @@ def _classify_storage_event(message, priority, partition, disk, usb_path=None):
             re.I):
         return 'usb_transport'
     return None
+
+
+def _journal_workspace_storage_events(identity, timeout=3, limit=500):
+    """Read a bounded current-boot journal for this partition and its device."""
+    source = identity['source']
+    partition = Path(source).name
+    try:
+        parent_name = subprocess.run(
+            ['lsblk', '-ndo', 'PKNAME', source], capture_output=True,
+            text=True, check=True, timeout=3,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        parent_name = ''
+    disk = parent_name or partition
+    usb_path = None
+    try:
+        sysfs_path = str((Path('/sys/class/block') / disk / 'device').resolve(strict=True))
+        usb_match = re.search(r'/([0-9]+-[0-9]+(?:\\.[0-9]+)*)/', sysfs_path)
+        usb_path = usb_match.group(1) if usb_match else None
+    except OSError:
+        pass
+    pattern = (r'(?i)(ntfs3\(|EXT4-fs\s+\(|JBD2:|I/O error|Buffer I/O error|'
+               r'blk_update_request|uas.*(?:abort|reset)|usb\s+\S+:.*(?:reset|disconnect|error))')
+    result = subprocess.run(
+        ['journalctl', '-k', '-b', '--no-pager', '--output=json',
+         f'--grep={pattern}', f'--lines={limit}'], capture_output=True,
+        text=True, check=False, timeout=timeout,
+    )
+    # journalctl uses status 1 for a successful query with no matching entries.
+    if result.returncode not in (0, 1):
+        raise subprocess.CalledProcessError(
+            result.returncode, result.args, output=result.stdout, stderr=result.stderr)
+    lines = result.stdout.splitlines()
+    events = []
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = str(item.get('MESSAGE', ''))
+        try:
+            priority = int(item.get('PRIORITY', 7))
+        except (TypeError, ValueError):
+            priority = 7
+        kind = _classify_storage_event(message, priority, partition, disk, usb_path)
+        if kind:
+            events.append({
+                'kind': kind, 'message': message, 'priority': priority,
+                'boot_id': item.get('_BOOT_ID'),
+                'realtime_usec': item.get('__REALTIME_TIMESTAMP'),
+                'monotonic_usec': item.get('__MONOTONIC_TIMESTAMP'),
+            })
+    return {'events': events, 'bounded_lines': len(lines),
+            'truncated': len(lines) >= limit}
 
 
 def _journal_post_recovery_events(identity, entry, timeout=3):
@@ -389,8 +450,11 @@ def diagnose_workspace(workspace, policy_path=HEALTH_POLICY, smartctl='smartctl'
         raise WorkspaceError('workspace mount identity does not match its marker')
     policy = policy_health(identity, policy_path)
     try:
-        events = _journal_ntfs_events(identity['source'])
-        journal = {'available': True, 'current_boot_device_errors': events}
+        journal_result = _journal_workspace_storage_events(identity)
+        journal = {'available': not journal_result['truncated'],
+                   'current_boot_device_errors': journal_result['events'],
+                   'bounded_lines': journal_result['bounded_lines'],
+                   'truncated': journal_result['truncated']}
     except (OSError, subprocess.SubprocessError) as error:
         journal = {'available': False, 'error': str(error)}
     smart = {'attempted': False, 'available': False,

@@ -188,12 +188,29 @@ class WorkspaceGuardTest(unittest.TestCase):
                                    'sda2', 'sda'))
         self.assertEqual(classify('I/O error, dev sda, sector 123', 3,
                                   'sda2', 'sda'), 'block_io')
+        self.assertEqual(classify('Buffer I/O error on dev sda3, logical block 7', 3,
+                                  'sda3', 'sda'), 'block_io')
+        self.assertEqual(classify('JBD2: I/O error when updating journal superblock for sda3-8.', 3,
+                                  'sda3', 'sda'), 'block_io')
+        self.assertEqual(classify('EXT4-fs (sda3): shut down requested (2)', 3,
+                                  'sda3', 'sda'), 'ext4_integrity')
         self.assertEqual(classify('sd 0:0:0:0: [sda] uas_eh_abort_handler', 4,
                                   'sda2', 'sda'), 'uas_transport')
         self.assertEqual(classify('usb 2-3: reset SuperSpeed USB device', 4,
                                   'sda2', 'sda', '2-3'), 'usb_transport')
         self.assertIsNone(classify('usb 2-4: reset device', 4,
                                    'sda2', 'sda', '2-3'))
+
+    def test_workspace_journal_diagnostic_accepts_empty_match_set(self):
+        empty = SimpleNamespace(stdout='', returncode=1, args=['journalctl'], stderr='')
+        with patch.object(guard.subprocess, 'run', side_effect=[
+                SimpleNamespace(stdout='sda'), empty]) as run:
+            result = guard._journal_workspace_storage_events(
+                {'source': '/dev/sda3'})
+        self.assertEqual(result['events'], [])
+        self.assertFalse(result['truncated'])
+        self.assertIn('--lines=500', run.call_args.args[0])
+        self.assertTrue(any(arg.startswith('--grep=') for arg in run.call_args.args[0]))
 
     def test_post_recovery_journal_detects_new_transport_and_ntfs_errors(self):
         rows = [
