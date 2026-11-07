@@ -53,11 +53,12 @@ the journal sequence was inspected:
 - `m1b84_session_5alc1utr`: AudioTrack PCM reached the controlled PipeWire
   null sink; session stopped normally and its bridge exited.
 
-Their logs and state records remain on the workspace. No more Android or
-workspace-backed AaaS sessions may run while the UUID is quarantined. These
-sessions are disclosed here and are not represented as a storage-health test.
+Their logs and state records remain on the workspace. At incident-record time,
+the UUID was quarantined and no further Android or workspace-backed AaaS
+sessions were permitted. These sessions are disclosed here and are not
+represented as a storage-health test.
 
-## Recovery requirements
+## Recovery requirements recorded at incident time
 
 Do not write to this workspace or launch Android until the storage path and
 filesystem have been assessed. Preserve the journal evidence and existing
@@ -71,3 +72,20 @@ evidence-backed recovery transition.
 
 The prior NTFS3 incident remains preserved in
 [`ntfs3-health-assessment-2026-11-07.md`](ntfs3-health-assessment-2026-11-07.md).
+
+## Post-check recovery transition
+
+On 2026-11-08 the user ran `e2fsck -fn` while the filesystem was unmounted;
+all five passes completed without reported inconsistencies. The ext4 volume was
+then mounted at its verified UUID, and the workspace and userdata manifests
+were readable and matched. The bounded journal query after the recovery
+checkpoint found no new matching events. Passive SMART evidence supplied by
+the user reports a passing overall result and zero media-error counters, with
+historical nonzero interface counters; the report predates the incident and is
+not treated as a guarantee of transport health.
+
+The incident remains preserved as `DEVICE_FAILURE_SUSPECTED` in the policy
+history. Its effective state is now `HEALTHY_FOR_CONTROLLED_TESTING` through the
+validated recovery attestation in `workspace-health.json`. New device-correlated
+errors after that checkpoint reactivate quarantine. See
+[`ext4-controlled-recovery-2026-11-08.md`](ext4-controlled-recovery-2026-11-08.md).

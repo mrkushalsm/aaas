@@ -149,19 +149,27 @@ class WorkspaceGuardTest(unittest.TestCase):
                 guard.check(self.workspace)
 
     def test_ext4_device_io_pause_blocks_before_accounting(self):
+        import json as json_module
         self.marker.update(filesystem='ext4',
                            mount_uuid='094120c3-e1f8-4a61-a95a-c347ecb711d1')
         (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
         identity = {**self.identity, 'filesystem': 'ext4',
                     'uuid': '094120c3-e1f8-4a61-a95a-c347ecb711d1',
                     'source': '/dev/sda3'}
-        with patch.object(guard, 'HEALTH_POLICY', Path(__file__).parents[1] /
-                          'manifests' / 'workspace-health.json'), \
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp) / 'health.json'
+            policy.write_text(json_module.dumps({'schema': 1, 'volumes': {
+                identity['uuid']: {'uuid': identity['uuid'],
+                                   'incident_id': 'fixture-ext4-incident',
+                                   'state': 'DEVICE_FAILURE_SUSPECTED',
+                                   'reason': 'fixture unresolved I/O incident',
+                                   'recovery': None}}}))
+            with patch.object(guard, 'HEALTH_POLICY', policy), \
              patch.object(guard, 'mount_identity', return_value=identity), \
              patch.object(guard, 'allocated_bytes', side_effect=AssertionError('must not scan')):
-            with self.assertRaisesRegex(guard.WorkspaceError,
-                                        'DEVICE_FAILURE_SUSPECTED'):
-                guard.check(self.workspace)
+                with self.assertRaisesRegex(guard.WorkspaceError,
+                                            'DEVICE_FAILURE_SUSPECTED'):
+                    guard.check(self.workspace)
 
     def test_journal_error_is_filtered_by_partition_and_error_priority(self):
         import json as json_module
@@ -398,6 +406,62 @@ class WorkspaceGuardTest(unittest.TestCase):
                      'kind': 'block_io', 'message': 'I/O error, dev testdisk'}]):
                 result = guard.assess_workspace_health(identity, policy, now=1000)
         self.assertEqual(result['state'], 'DEVICE_FAILURE_SUSPECTED')
+
+    def test_ext4_recovery_clears_only_after_verified_checkpoint(self):
+        import hashlib
+        import time
+        from datetime import datetime, timezone
+        now = time.time()
+        iso = lambda age: datetime.fromtimestamp(now - age, timezone.utc).isoformat()
+        identity = {**self.identity, 'filesystem': 'ext4', 'uuid': 'ext4-id',
+                    'source': '/dev/testpart', 'mount_id': '246'}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def evidence(name, content):
+                path = root / name
+                path.write_text(content)
+                return {'evidence_path': name,
+                        'evidence_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+
+            recovery = {
+                'offline_check': {
+                    'tool': 'e2fsck -fn', 'mode': 'read-only', 'filesystem': 'ext4',
+                    'result': 'clean', 'volume_uuid': 'ext4-id',
+                    'completed_at': iso(600),
+                    **evidence('offline.txt', 'user supplied clean e2fsck report')},
+                'device_health': {
+                    'status': 'media_passed_transport_history',
+                    'serial': 'TEST_SERIAL', 'checked_at': iso(300),
+                    **evidence('device.txt', 'SMART passed; transport counters recorded')},
+                'post_check': {
+                    'checked_at': iso(60), 'boot_id': 'boot-current', 'uuid': 'ext4-id',
+                    'source': '/dev/testpart', 'device_serial': 'TEST_SERIAL',
+                    'mount_epoch': '246', 'filesystem_errors': 0,
+                    'transport_errors': 0, 'metadata_probes': 'pass',
+                    'workspace_manifest': 'pass', 'userdata_manifest': 'pass',
+                    **evidence('post.txt', 'post-check evidence')},
+            }
+            entry = {'uuid': 'ext4-id', 'state': 'DEVICE_FAILURE_SUSPECTED',
+                     'incident_id': 'ext4-incident', 'filesystem': 'ext4',
+                     'device': {'path': '/dev/testdisk', 'serial': 'TEST_SERIAL'},
+                     'recovery': recovery}
+            policy = Path(tmp) / 'health.json'
+            policy.write_text(json.dumps({'schema': 1,
+                                          'volumes': {'ext4-id': entry}}))
+            with patch.object(guard, '_current_boot_id', return_value='boot-current'), \
+                 patch.object(guard, '_device_serial', return_value='TEST_SERIAL'), \
+                 patch.object(guard, 'REPOSITORY_ROOT', root):
+                state = guard.policy_health(identity, policy)
+                self.assertEqual(state['state'], 'HEALTHY_FOR_CONTROLLED_TESTING')
+                self.assertEqual(state['incident_id'], 'ext4-incident')
+                with patch.object(guard, '_journal_post_recovery_events', return_value=[]):
+                    result = guard.assess_workspace_health(identity, policy, now=now)
+                self.assertEqual(result['state'], 'HEALTHY_FOR_CONTROLLED_TESTING')
+                with patch.object(guard, '_journal_post_recovery_events', return_value=[{
+                        'kind': 'block_io', 'message': 'I/O error, dev testdisk'}]):
+                    result = guard.assess_workspace_health(identity, policy, now=now + 6)
+                self.assertEqual(result['state'], 'DEVICE_FAILURE_SUSPECTED')
 
 
 if __name__ == '__main__':

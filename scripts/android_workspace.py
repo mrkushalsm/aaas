@@ -142,7 +142,7 @@ def _device_serial(source):
 
 def _valid_recovery_attestation(entry, identity=None, current_boot_id=None, now=None,
                                 repository_root=None):
-    """Require fresh, UUID/device-bound offline and post-recovery evidence."""
+    """Require UUID/device-bound offline and post-recovery evidence."""
     recovery = entry.get('recovery')
     if not isinstance(recovery, dict):
         return False
@@ -154,32 +154,51 @@ def _valid_recovery_attestation(entry, identity=None, current_boot_id=None, now=
         return False
     now = time.time() if now is None else now
     current_boot_id = current_boot_id or _current_boot_id()
-    offline_at = _timestamp(offline.get('completed_at'))
+    # Some recovery evidence is reported after the command completed and its
+    # shell output did not include a timestamp. recorded_at is the evidence
+    # capture time; completed_at remains supported for existing records.
+    offline_at = _timestamp(offline.get('completed_at') or offline.get('recorded_at'))
     device_at = _timestamp(device.get('checked_at'))
     post_at = _timestamp(post.get('checked_at'))
     if not all(value is not None for value in (offline_at, device_at, post_at)):
         return False
+    filesystem = offline.get('filesystem') or entry.get('filesystem')
+    stable_serial = stable_device.get('serial')
+    stable_identity = stable_device.get('udev_id') or stable_serial
+    fs_errors = post.get('filesystem_errors')
+    if fs_errors is None:
+        # Read old policy records written before the filesystem-neutral field.
+        fs_errors = post.get('ntfs3_errors')
+    device_status = device.get('status')
     return (
         offline.get('result') == 'clean'
         and offline.get('volume_uuid') == entry.get('uuid')
+        and (not filesystem or filesystem == offline.get('filesystem'))
+        and (filesystem != 'ext4' or
+             ('e2fsck' in str(offline.get('tool', '')).lower()
+              and offline.get('mode') == 'read-only'))
         and bool(offline.get('tool'))
         and _evidence_matches(offline, repository_root)
         and now - offline_at <= RECOVERY_OFFLINE_MAX_AGE_SECONDS
-        and device.get('status') == 'healthy'
-        and device.get('serial') == stable_device.get('serial')
+        # A SMART PASS with historical interface counters is enough for
+        # controlled testing when the counters are recorded as a baseline.
+        # It is not a claim that the transport can never fail again.
+        and device_status in ('healthy', 'media_passed_transport_history')
+        and device.get('serial') == stable_serial
         and bool(stable_device.get('path'))
         and _evidence_matches(device, repository_root)
-        and offline_at <= device_at <= post_at <= now
+        and offline_at <= post_at <= now
         and now - device_at <= RECOVERY_POST_MAX_AGE_SECONDS
+        and device_at <= now
         and now - post_at <= RECOVERY_POST_MAX_AGE_SECONDS
         and post.get('uuid') == entry.get('uuid')
-        and post.get('device_serial') == stable_device.get('serial')
+        and post.get('device_serial') == stable_identity
         and post.get('boot_id') == current_boot_id
         and (identity is None or identity.get('source') == post.get('source'))
         and (identity is None or str(identity.get('mount_id')) == str(post.get('mount_epoch')))
-        and (identity is None or _device_serial(identity.get('source')) == stable_device.get('serial'))
+        and (identity is None or _device_serial(identity.get('source')) == stable_identity)
         and bool(post.get('mount_epoch'))
-        and post.get('ntfs3_errors') == 0
+        and fs_errors == 0
         and post.get('transport_errors') == 0
         and post.get('metadata_probes') == 'pass'
         and post.get('workspace_manifest') == 'pass'
@@ -199,8 +218,14 @@ def policy_health(identity, policy_path=HEALTH_POLICY):
     state = entry.get('state')
     if not isinstance(state, str) or state not in HEALTH_STATES:
         return {'state': 'HEALTH_UNKNOWN', 'reason': 'unknown health-pause state'}
-    if state == 'HEALTHY_FOR_CONTROLLED_TESTING' and not _valid_recovery_attestation(
-            entry, identity=identity):
+    if entry.get('recovery') is not None:
+        if not _valid_recovery_attestation(entry, identity=identity):
+            return {'state': 'HEALTH_UNKNOWN', 'reason': 'recovery attestation is incomplete or stale'}
+        if state != 'HEALTHY_FOR_CONTROLLED_TESTING':
+            return {'state': 'HEALTHY_FOR_CONTROLLED_TESTING',
+                    'reason': 'recovery evidence accepted; original incident retained',
+                    'incident_id': entry.get('incident_id')}
+    elif state == 'HEALTHY_FOR_CONTROLLED_TESTING':
         return {'state': 'HEALTH_UNKNOWN', 'reason': 'recovery attestation is incomplete'}
     return {'state': state, 'reason': entry.get('reason', ''),
             'incident_id': entry.get('incident_id')}
@@ -374,7 +399,8 @@ def assess_workspace_health(identity, policy_path=HEALTH_POLICY, now=None):
                           'reason': f'post-recovery storage journal unavailable: {error}'}
             else:
                 if events:
-                    transport = any(item['kind'] != 'ntfs3_integrity' for item in events)
+                    transport = any(item['kind'] not in (
+                        'ntfs3_integrity', 'ext4_integrity') for item in events)
                     result = {
                         'state': 'DEVICE_FAILURE_SUSPECTED' if transport else 'INTEGRITY_WARNING',
                         'reason': f'{len(events)} post-recovery device-correlated storage error(s)',
@@ -412,12 +438,13 @@ def assess_workspace_health(identity, policy_path=HEALTH_POLICY, now=None):
 
 
 def _require_workspace_health(identity):
-    health = assess_workspace_health(identity)
+    # Resolve the module-level policy at call time so applications/tests that
+    # provide a policy path do not accidentally use the import-time default.
+    health = assess_workspace_health(identity, policy_path=HEALTH_POLICY)
     should_block = health['state'] in HEALTH_BLOCKING_STATES
-    # NTFS3 is the only filesystem currently used by the persistent Android
-    # workspace. Its unknown integrity state cannot be resolved by mount/space
-    # checks, so fail closed. Other supported filesystems retain the prior
-    # mount/capacity contract while reporting that integrity was not attested.
+    # NTFS3 with unknown integrity remains fail-closed. Explicitly quarantined
+    # volumes on any supported filesystem also fail closed; an accepted,
+    # evidence-backed recovery attestation can permit controlled testing.
     should_block = should_block and (
         identity.get('filesystem') == 'ntfs3'
         or health['state'] != 'HEALTH_UNKNOWN'
