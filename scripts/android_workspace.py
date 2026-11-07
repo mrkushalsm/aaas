@@ -27,6 +27,11 @@ MARKER = '.aaas-workspace.json'
 LAYOUT = ('images', 'sources', 'out', 'cache', 'logs', 'tmp', 'mnt')
 HEALTH_POLICY = Path(__file__).resolve().parents[1] / 'manifests' / 'workspace-health.json'
 REPOSITORY_ROOT = HEALTH_POLICY.parents[1]
+STORAGE_JOURNAL_PATTERN = (
+    r'(?i)(ntfs3\(|EXT4-fs\s+\(|JBD2:|I/O error|Buffer I/O error|'
+    r'blk_update_request|uas.*(?:abort|reset)|'
+    r'usb\s+\S+:.*(?:reset|disconnect|error))'
+)
 HEALTH_STATES = {
     'HEALTHY_FOR_CONTROLLED_TESTING', 'HEALTH_UNKNOWN', 'INTEGRITY_WARNING',
     'REPAIR_REQUIRED', 'DEVICE_FAILURE_SUSPECTED',
@@ -304,11 +309,9 @@ def _journal_workspace_storage_events(identity, timeout=3, limit=500):
         usb_path = usb_match.group(1) if usb_match else None
     except OSError:
         pass
-    pattern = (r'(?i)(ntfs3\(|EXT4-fs\s+\(|JBD2:|I/O error|Buffer I/O error|'
-               r'blk_update_request|uas.*(?:abort|reset)|usb\s+\S+:.*(?:reset|disconnect|error))')
     result = subprocess.run(
         ['journalctl', '-k', '-b', '--no-pager', '--output=json',
-         f'--grep={pattern}', f'--lines={limit}'], capture_output=True,
+         f'--grep={STORAGE_JOURNAL_PATTERN}', f'--lines={limit}'], capture_output=True,
         text=True, check=False, timeout=timeout,
     )
     # journalctl uses status 1 for a successful query with no matching entries.
@@ -348,10 +351,14 @@ def _journal_post_recovery_events(identity, entry, timeout=3):
     disk = Path(stable['path']).name
     command = [
         'journalctl', '-k', '-b', '--no-pager', '--output=json',
-        f"--since={post['checked_at']}", '--lines=500',
+        f"--since={post['checked_at']}",
+        f'--grep={STORAGE_JOURNAL_PATTERN}', '--lines=500',
     ]
     result = subprocess.run(command, capture_output=True, text=True,
-                            check=True, timeout=timeout)
+                            check=False, timeout=timeout)
+    if getattr(result, 'returncode', 0) not in (0, 1):
+        raise subprocess.CalledProcessError(
+            result.returncode, command, output=result.stdout, stderr=result.stderr)
     lines = result.stdout.splitlines()
     if len(lines) >= 500:
         raise WorkspaceError('post-recovery journal window exceeded its 500-entry bound')

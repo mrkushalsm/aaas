@@ -238,6 +238,20 @@ class WorkspaceGuardTest(unittest.TestCase):
                          ['block_io', 'ntfs3_integrity'])
         self.assertTrue(any(arg.startswith('--since=')
                             for arg in run.call_args.args[0]))
+        self.assertTrue(any(arg.startswith('--grep=')
+                            for arg in run.call_args.args[0]))
+
+    def test_post_recovery_journal_empty_filtered_result_is_available(self):
+        identity = {'source': '/dev/testpart'}
+        entry = {'device': {'path': '/dev/testdisk'},
+                 'recovery': {'post_check': {'checked_at': '2026-11-08T01:20:46+05:30'}}}
+        result = SimpleNamespace(stdout='', returncode=1, stderr='')
+        with patch.object(guard.subprocess, 'run', return_value=result) as run:
+            events = guard._journal_post_recovery_events(identity, entry)
+        self.assertEqual(events, [])
+        self.assertIn('--lines=500', run.call_args.args[0])
+        self.assertTrue(any(arg.startswith('--grep=')
+                            for arg in run.call_args.args[0]))
 
     def test_missing_or_unavailable_journal_is_unknown_for_ntfs3(self):
         identity = {**self.identity, 'filesystem': 'ntfs3',
