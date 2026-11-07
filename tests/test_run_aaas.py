@@ -429,8 +429,13 @@ class ForegroundRunnerTests(unittest.TestCase):
                       '/system/lib64/libselinux_shim.so', server_wrapper)
         self.assertIn('export LD_PRELOAD=/vendor/lib64/libaaas-audio-hal-probe.so:'
                       '/vendor/lib64/libaaas-audio-ashmem.so', service_wrapper)
-        self.assertIn('/vendor/bin/hw/android.hardware.audio.service.aaas-original',
-                      runner)
+        self.assertIn('/dev/aaas/audio-service-original', runner)
+        self.assertIn('exec /dev/aaas/audio-service-original "$@"',
+                      service_wrapper)
+        self.assertLess(runner.index('{ipc_bind}'),
+                        runner.index('/dev/aaas/audio-service-original'))
+        self.assertNotIn('/vendor/bin/hw/android.hardware.audio.service.aaas-original',
+                         runner)
 
     def test_audio_ashmem_compatibility_is_scoped_to_vendor_audio_service(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -446,11 +451,10 @@ class ForegroundRunnerTests(unittest.TestCase):
             wrapper = (session / 'audio-service-preload-wrapper.sh').read_text()
         self.assertIn(f'--ro-bind {shim.resolve()} '
                       '/vendor/lib64/libaaas-audio-ashmem.so', runner)
-        self.assertIn('/vendor/bin/hw/android.hardware.audio.service.aaas-original',
-                      runner)
+        self.assertIn('/dev/aaas/audio-service-original', runner)
         self.assertIn('export LD_PRELOAD=/vendor/lib64/libaaas-audio-ashmem.so',
                       wrapper)
-        self.assertIn('exec /vendor/bin/hw/android.hardware.audio.service.aaas-original "$@"',
+        self.assertIn('exec /dev/aaas/audio-service-original "$@"',
                       wrapper)
         self.assertNotIn('/system/lib64/libselinux_shim.so', wrapper)
 
@@ -471,8 +475,9 @@ class ForegroundRunnerTests(unittest.TestCase):
                 audio_server_overlay=server).read_text()
             wrapper = (session / 'audioserver-preload-wrapper.sh').read_text()
         self.assertIn(f'--ro-bind {server.resolve()} '
-                      '/system/bin/audioserver.aaas-original', runner)
-        self.assertIn('/system/bin/audioserver.aaas-original "$@"', wrapper)
+                      '/dev/aaas/audioserver-original', runner)
+        self.assertIn('exec /dev/aaas/audioserver-original "$@"', wrapper)
+        self.assertNotIn('/system/bin/audioserver.aaas-original', runner)
         self.assertIn('export LD_PRELOAD=/system/lib64/libaaas-audio-factory-probe.so:'
                       '/system/lib64/libselinux_shim.so', wrapper)
 

@@ -791,14 +791,14 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             audio_service_wrapper.write_text(
                 '#!/system/bin/sh\n'
                 'export LD_PRELOAD=' + ':'.join(audio_service_preloads) + '\n'
-                'exec /vendor/bin/hw/android.hardware.audio.service.aaas-original "$@"\n'
+                'exec /dev/aaas/audio-service-original "$@"\n'
             )
             audio_service_wrapper.chmod(0o755)
             audio_hal_bind += (
                 f'  --ro-bind {shlex.quote(str(ashmem_shim))} '
                 '/vendor/lib64/libaaas-audio-ashmem.so \\\n'
                 f'  --ro-bind {shlex.quote(str(audio_service.resolve()))} '
-                '/vendor/bin/hw/android.hardware.audio.service.aaas-original \\\n'
+                '/dev/aaas/audio-service-original \\\n'
                 f'  --ro-bind {shlex.quote(str(audio_service_wrapper.resolve()))} '
                 '/vendor/bin/hw/android.hardware.audio.service \\\n'
             )
@@ -819,7 +819,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             audioserver_wrapper.write_text(
                 '#!/system/bin/sh\n'
                 'export LD_PRELOAD=' + ':'.join(audioserver_preloads) + '\n'
-                'exec /system/bin/audioserver.aaas-original "$@"\n'
+                'exec /dev/aaas/audioserver-original "$@"\n'
             )
             audioserver_wrapper.chmod(0o755)
             selected_audio_server = (audio_server_overlay_path
@@ -827,7 +827,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                                      else audioserver)
             audio_hal_bind += (
                 f'  --ro-bind {shlex.quote(str(selected_audio_server))} '
-                '/system/bin/audioserver.aaas-original \\\n'
+                '/dev/aaas/audioserver-original \\\n'
                 f'  --ro-bind {shlex.quote(str(audioserver_wrapper.resolve()))} '
                 '/system/bin/audioserver \\\n'
             )
@@ -1373,9 +1373,9 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     if audio_hal_bind:
         source = replace_once(
             source,
-            '{mapper_bind}{allocator_bind}',
-            audio_hal_bind + audio_hal_probe_bind + audio_hal_factory_probe_bind
-            + '{mapper_bind}{allocator_bind}',
+            '{ipc_bind}',
+            '{ipc_bind}' + audio_hal_bind + audio_hal_probe_bind
+            + audio_hal_factory_probe_bind,
         )
         source = replace_once(
             source,
