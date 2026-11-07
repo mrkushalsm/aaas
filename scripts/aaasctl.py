@@ -12,7 +12,7 @@ import sys
 
 import aaas_storage
 
-TMP = Path('/run/media/mrkus/Homework/aaas-workspace/tmp')
+TMP = Path('/run/media/mrkus/Aaas/aaas-workspace/tmp')
 PACKAGE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 
 

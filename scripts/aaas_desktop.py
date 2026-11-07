@@ -18,7 +18,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNNER = ROOT / "scripts/run_aaas.py"
-WORKSPACE_TMP = Path("/run/media/mrkus/Homework/aaas-workspace/tmp")
+WORKSPACE_TMP = Path("/run/media/mrkus/Aaas/aaas-workspace/tmp")
 PACKAGE = re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+")
 ANCHORS = ("com.android.settings", "com.android.contacts")
 

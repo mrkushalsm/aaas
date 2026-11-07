@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 WORKSPACE_ROOT = Path("/home/mrkus/Work/personal/projects/aaas")
-EXTERNAL_ROOTFS = Path("/run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1")
-EXTERNAL_TMP = Path("/run/media/mrkus/Homework/aaas-workspace/tmp")
+EXTERNAL_ROOTFS = Path("/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1")
+EXTERNAL_TMP = Path("/run/media/mrkus/Aaas/aaas-workspace/tmp")
 
 
 class M1B5GraphicsTest(unittest.TestCase):

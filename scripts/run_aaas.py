@@ -36,7 +36,8 @@ import android_workspace
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = Path('/run/media/mrkus/Homework/aaas-workspace')
+WORKSPACE = Path('/run/media/mrkus/Aaas/aaas-workspace')
+WORKSPACE_UUID = '094120c3-e1f8-4a61-a95a-c347ecb711d1'
 TMP = WORKSPACE / 'tmp'
 RUNNER = ROOT / 'scripts/aaas_session_runner_base.py'
 PRESENTER = ROOT / 'experiments/m1a/build/wayland-host-presenter'
@@ -64,7 +65,7 @@ STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
-RUNNER_SHA256 = '2e93ad37536fc0cd84b434a646545583115bdd84d67eb0439fa05ae6e7e73b8e'
+RUNNER_SHA256 = '9cac808bb1ec6c3961dfed96213182ac6c3c9c4ae5bb11bce165105f7bb1c695'
 SWIFTSHADER_RUNTIME_OVERLAY = TMP / 'm1e_swiftshader_fixed_notrace_v2.so'
 SWIFTSHADER_RUNTIME_SHA256 = 'e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee'
 SWIFTSHADER_RUNTIME_SOURCE_DIFF_SHA256 = '49c1ce42f0cb09dd69a81645c9a3bec91a390c958ac3d49ff2bd3edf4df86ece'
@@ -2536,7 +2537,7 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     if check.returncode:
         raise RuntimeError(check.stdout + check.stderr)
     mount = json.loads(check.stdout)['mount']
-    if mount['filesystem'] != 'ntfs3' or not mount.get('uuid'):
+    if mount['filesystem'] != 'ext4' or mount.get('uuid') != WORKSPACE_UUID:
         raise RuntimeError(f'unexpected workspace filesystem: {mount}')
     if not PRESENTER.is_file():
         raise RuntimeError(f'build the presenter first: {PRESENTER}')

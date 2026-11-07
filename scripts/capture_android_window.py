@@ -25,7 +25,7 @@ with open(SCRIPT_JS, "w") as f:
 import sys
 
 def try_raise_and_capture(log_name="m1b7_live18_presenter.log"):
-    log_path = f"/run/media/mrkus/Homework/aaas-workspace/tmp/{log_name}"
+    log_path = f"/run/media/mrkus/Aaas/aaas-workspace/tmp/{log_name}"
     captured = False
     for attempt in range(60):
         time.sleep(0.5)

@@ -8,7 +8,7 @@ or mount anything; a separate inspect step does that.
 
 Usage:
     python3 scripts/fetch_android_image.py \
-        --workspace /run/media/mrkus/Homework/aaas-workspace \
+        --workspace /run/media/mrkus/Aaas/aaas-workspace \
         --image system-images;android-36;default;x86_64 \
         [--dry-run]
 """

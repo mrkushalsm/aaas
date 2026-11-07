@@ -11,7 +11,7 @@ import tempfile
 import time
 
 
-DEFAULT_WORKSPACE = Path('/run/media/mrkus/Homework/aaas-workspace')
+DEFAULT_WORKSPACE = Path('/run/media/mrkus/Aaas/aaas-workspace')
 STORAGE_RELATIVE_PATH = Path('shared-storage/android-user-0')
 ANDROID_MEDIA_RELATIVE_PATH = Path('shared-storage/android-media')
 ANDROID_MEDIA_RW_ID = 1023

@@ -28,7 +28,7 @@ def main():
     parser.add_argument(
         "--swiftshader-root",
         type=Path,
-        default=Path("/run/media/mrkus/Homework/aaas-workspace/sources/swiftshader"),
+        default=Path("/run/media/mrkus/Aaas/aaas-workspace/sources/swiftshader"),
     )
     parser.add_argument("--sanitize", action="store_true",
                         help="build the harness with ASan and UBSan")

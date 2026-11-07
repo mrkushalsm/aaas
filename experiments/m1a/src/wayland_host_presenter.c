@@ -20,7 +20,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr,
             "Usage: %s [options]\n"
             "Options:\n"
-            "  --socket <path>     UNIX domain socket path (default: /run/media/mrkus/Homework/aaas-workspace/tmp/aaas_wayland.sock)\n"
+            "  --socket <path>     UNIX domain socket path (default: /run/media/mrkus/Aaas/aaas-workspace/tmp/aaas_wayland.sock)\n"
             "  --title <title>     Wayland window title (default: 'AaaS Android 16 Desktop')\n"
             "  --app-id <id>       Wayland toplevel application identity\n"
             "  --width <w>         Initial window width (default: 1280)\n"
@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
     signal(SIGTERM, handle_signal);
     signal(SIGHUP, SIG_IGN);
 
-    const char *socket_path = "/run/media/mrkus/Homework/aaas-workspace/tmp/aaas_ipc/wayland.sock";
+    const char *socket_path = "/run/media/mrkus/Aaas/aaas-workspace/tmp/aaas_ipc/wayland.sock";
     const char *title = "AaaS Android 16 Desktop";
     const char *app_id = "org.aaas.android";
     uint32_t width = 1280;

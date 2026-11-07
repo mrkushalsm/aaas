@@ -69,6 +69,6 @@ def generate_bootanimation(output_zip: str):
     shutil.rmtree(tmp_dir)
 
 if __name__ == "__main__":
-    dst = "/run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1/system/media/bootanimation.zip"
+    dst = "/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1/system/media/bootanimation.zip"
     generate_bootanimation(dst)
     print("Generated:", dst)

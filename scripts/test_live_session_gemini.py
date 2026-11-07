@@ -11,7 +11,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = Path('/run/media/mrkus/Homework/aaas-workspace')
+WORKSPACE = Path('/run/media/mrkus/Aaas/aaas-workspace')
 TMP = WORKSPACE / 'tmp'
 DUMP_DIR = TMP / 'm1b84_gemini_repro_frames'
 OUT_SUMMARY = ROOT / 'results/m1b84/gemini_session_summary.json'

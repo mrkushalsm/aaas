@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 def main():
-    rootfs = Path("/run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1")
-    tmp_dir = Path("/run/media/mrkus/Homework/aaas-workspace/tmp")
+    rootfs = Path("/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1")
+    tmp_dir = Path("/run/media/mrkus/Aaas/aaas-workspace/tmp")
     kmsg_log = tmp_dir / "kmsg_prop_test.log"
     kmsg_log.write_text("")
 

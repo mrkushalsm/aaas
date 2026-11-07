@@ -1,7 +1,7 @@
 CC := clang
 CXX := clang++
 TARGET ?= x86_64-linux-android
-WORKSPACE_ROOT ?= /run/media/mrkus/Homework/aaas-workspace
+WORKSPACE_ROOT ?= /run/media/mrkus/Aaas/aaas-workspace
 ROOTFS ?= $(WORKSPACE_ROOT)/rootfs_m1b1
 OUT_DIR ?= build
 BIN ?= $(OUT_DIR)/aaas-input-adapter

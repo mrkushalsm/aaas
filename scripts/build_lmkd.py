@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = Path('/run/media/mrkus/Homework/aaas-workspace')
+WORKSPACE = Path('/run/media/mrkus/Aaas/aaas-workspace')
 SOURCES = WORKSPACE / 'sources'
 ROOTFS = WORKSPACE / 'rootfs_m1b1'
 TMP = WORKSPACE / 'tmp'

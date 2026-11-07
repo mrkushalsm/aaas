@@ -198,3 +198,25 @@ could not find the delegated `user@1000.service/aaas` scope, and 7 audio
 runner tests could not find their Android HAL factory fixture on the unmounted
 workspace. The other 346 tests passed. Python compilation, JSON validation,
 and `git diff --check` passed. No test started Android or accessed userdata.
+
+## Workspace migration to ext4 (2026-11-07)
+
+The user created ext4 partition `/dev/sda3`, UUID
+`094120c3-e1f8-4a61-a95a-c347ecb711d1`, mounted at
+`/run/media/mrkus/Aaas`. The workspace copy was made with rsync preserving POSIX
+ACLs, hardlinks, mode and numeric ownership while omitting NTFS3-private
+`$LX*` extended attributes. The source NTFS workspace remains intact.
+
+The copied marker was updated to the ext4 mount identity. Runtime and helper
+scripts now default to the ext4 workspace path, and the primary launcher
+requires the expected ext4 UUID. The workspace guard passed with 73,560,633,344
+bytes used and 44,609,417,216 bytes available, above the configured 20 GiB
+reserve and below the 80 GiB working ceiling. The new partition is on the same
+USB-attached SSD; the old SATA/USB CRC/COMRESET history remains a device-path
+risk and is not erased by changing filesystems. The NTFS quarantine remains in
+history and the original copy is retained.
+
+The rsync checksum dry run reported ACL-only differences outside the reviewed
+shared-storage security paths. `.picker_transcoded`, `Android/data`, and
+`Android/obb` ACLs were compared on both copies and matched. No Android session
+was started in this migration step.
