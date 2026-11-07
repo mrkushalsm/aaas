@@ -185,3 +185,8 @@ claimed. The bridge now limits concurrent handler threads to four, with a
 synthetic test for excess unauthenticated socket peers. Full suite: 390 tests
 passed. Canonical M4 remains **PARTIAL/OPEN** pending microphone permission
 revocation and the final integration matrix.
+
+Revocation-test setup session `m1b84_session_uahany_6` reached `RUNNING` and
+stopped normally, but the existing Android UI capture path could not capture
+virtual display 2 and its UIAutomator dump was killed. No permission change or
+revocation result is claimed; see the acceptance JSON for session evidence.

@@ -740,3 +740,14 @@ These runs revalidate M2 independent windows and M3 Native Bridge under the
 audio-enabled startup composition. They do not rerun the entire M4 storage,
 launcher, clipboard, and notification acceptance matrix together. Canonical M4
 remains **PARTIAL/OPEN**.
+
+An additional revocation-test setup session, `m1b84_session_uahany_6`, started
+Settings with the normal audio-enabled runner and stopped cleanly. The current
+notification UI capture helper could not capture the session's virtual
+display (`screencap` reported display ID 2 invalid), and the UIAutomator dump
+process was killed. No permission was changed, no AudioRecord revocation was
+claimed, and the session's audio bridge started/stopped without opening an
+audio stream. The virtual-display UI capture/control path must be fixed or a
+supported Android Settings interaction used before revocation acceptance can
+be completed. The session evidence hashes are retained in
+`audio_failure_followup_2026_11_08`.
