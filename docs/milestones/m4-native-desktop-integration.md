@@ -693,6 +693,39 @@ passed. Final M2/M3/M4 cross-feature regression and the remaining audio
 permission/failure matrix are still required; canonical M4 remains
 **PARTIAL/OPEN**.
 
+### Audio failure and worker-bound follow-up (2026-11-08)
+
+In `m1b84_session_0y_a97b6`, the selected virtual PipeWire capture source was
+removed while an authorized AudioRecord was active. AudioFlinger reported
+`read failed: framesRead=-61`; the Android probe completed its bounded read
+with zero-valued samples (144,000 requested frames, bridge summary 146,880
+frames, RMS 0, peak 0, no nonzero samples). The app did not hang, the runtime
+reached `STOPPED`, and the host bridge exited. This is source-loss fail-safe
+silence evidence; it does not establish permission-revocation behavior.
+
+In `m1b84_session_f655x46_`, the host bridge was terminated during Android
+startup. The runner detected the missing bridge, marked the session `FAILED`,
+and stopped it; this is fail-closed session detection, not successful
+in-flight playback recovery. A fresh session, `m1b84_session_9b2hx39k`, then
+completed 48 kHz stereo (192,000 frames) and 44.1 kHz mono (44,100 frames)
+AudioTrack probes, closed its host stream after 2,231,040 bytes, and reached
+`STOPPED`. This verifies a fresh-session restart after bridge failure, not
+automatic same-session bridge restart.
+
+The host bridge now bounds all accepted worker threads to `MAX_CLIENTS` (4),
+including unauthenticated connections that have not sent a protocol header.
+The synthetic regression test holds four header-less local clients, confirms
+the next connection is closed, then confirms capacity returns after client
+disconnect. The full Python suite passed 390 tests after this change.
+
+Session log hashes and the exact remaining gates are recorded in
+`audio_failure_followup_2026_11_08` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json). Canonical
+M4 remains **PARTIAL/OPEN**: active Android microphone-permission revocation
+and post-revocation denial are untested, PipeWire daemon failure and precise
+sink-fallback behavior are not established, and the final integrated
+cross-feature cleanup matrix remains outstanding.
+
 The integrated audio configuration also completed two cross-workstream
 regressions. In `m1b84_session_1vcgru8n`, Settings and Contacts ran on separate
 virtual displays with `--audio` enabled; Contacts was closed independently

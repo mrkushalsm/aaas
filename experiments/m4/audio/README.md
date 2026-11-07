@@ -171,3 +171,17 @@ Evidence hashes and remaining acceptance gates are in
 revocation, deterministic sink/source disappearance semantics, the final
 combined M2/M3/M4 regression, and the complete cleanup/failure matrix remain
 open.
+
+### Failure follow-up (2026-11-08)
+
+Removing the selected virtual capture source during AudioRecord caused
+AudioFlinger to report `framesRead=-61`; the bounded app probe returned silence
+and the session stopped without hanging (`m1b84_session_0y_a97b6`). Killing
+the host bridge during Android startup caused the runner to fail the session
+closed (`m1b84_session_f655x46_`). A fresh session then passed stereo and mono
+AudioTrack probes and shut down cleanly (`m1b84_session_9b2hx39k`). Automatic
+same-session bridge restart and PipeWire-daemon failure behavior are not
+claimed. The bridge now limits concurrent handler threads to four, with a
+synthetic test for excess unauthenticated socket peers. Full suite: 390 tests
+passed. Canonical M4 remains **PARTIAL/OPEN** pending microphone permission
+revocation and the final integration matrix.
