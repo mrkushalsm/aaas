@@ -91,3 +91,32 @@ image is unchanged. See the dated `audio_microphone_continuation_2026_11_07`
 acceptance record for exact evidence hashes and regressions. Canonical M4
 remains **PARTIAL/OPEN**; the demonstrated vertical slices are not represented
 as complete platform acceptance.
+
+## Runner overlay ordering regression (2026-11-07)
+
+The reusable runner initially rebound a selected `audioserver` binary over
+`/system/bin/audioserver` after placing the preload wrapper there. That later
+bind replaced the wrapper, so the stock server started without the session
+preloads and repeatedly died before publishing `media.audio_policy`. The
+runner now binds the selected server only at
+`/system/bin/audioserver.aaas-original` when diagnostics/preloads are active;
+the wrapper remains the executable at `/system/bin/audioserver`. A focused
+test asserts the selected server is bound once and the wrapper is retained.
+
+After this fix, session `m1b84_session_5alc1utr` loaded the legacy HAL through
+the HIDL service, returned success from `module_open` and `init_check`, opened
+48 kHz stereo PCM16 output, and reported `PLAYBACK_OK` for 48,000 AudioTrack
+frames. Its session bridge wrote PCM to the explicitly selected PipeWire null
+sink. The monitor capture had 45,680 left-channel samples above magnitude 5,
+active RMS 51.4, peak 71, and a 439.527 Hz zero-crossing estimate over the
+active span. Capture SHA-256 was
+`d83cf440fa3c6893762d3fe591dff4ac24c9a1cf5795ecdf653eba319912b10a`; the raw
+PCM was deleted after measurement. The runtime reached `RUNNING`, then
+`STOPPED`; the host bridge logged playback stream close and exit.
+
+This closes the session-overlay regression and re-verifies the AudioTrack
+vertical slice. It does not establish ordinary media-app playback, playback
+controls, concurrency, microphone revocation, host-device failure recovery, or
+normal non-diagnostic audio startup. The test used the existing opt-in audio
+configuration and a test-only `PULSE_SINK=aaas_m4_null` selection. Canonical
+M4 remains **PARTIAL/OPEN**.

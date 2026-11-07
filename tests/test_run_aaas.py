@@ -359,28 +359,30 @@ class ForegroundRunnerTests(unittest.TestCase):
             root = Path(directory)
             hal = root / 'audio.primary.default.so'
             hal.write_bytes(b'fixture')
+            shim = root / 'ashmem-shim.so'
+            shim.write_bytes(b'shim')
             session = root / 'session'
             session.mkdir()
             generated = SESSION.make_session_runner(
-                session, audio_hal_overlay=hal).read_text()
+                session, audio_hal_overlay=hal,
+                audio_ashmem_shim=shim).read_text()
         self.assertIn(f'--ro-bind {hal.resolve()} '
-                      '/vendor/lib64/hw/audio.primary.ranchu.so', generated)
+                      '/vendor/lib64/hw/audio.primary.aaas.so', generated)
         self.assertIn(
             f'--ro-bind {(SESSION.WORKSPACE / "rootfs_m1b1/vendor/lib64/hw/"
                           "android.hardware.audio.legacy@7.1-impl.ranchu.so").resolve()} '
             '/vendor/lib64/hw/android.hardware.audio@7.1-impl.ranchu.so',
             generated)
-        self.assertNotIn('audio-service-preload-wrapper.sh', generated)
-        self.assertNotIn('audioserver-preload-wrapper.sh', generated)
-        self.assertIn('setprop ro.hardware.audio.primary ranchu', generated)
-        self.assertLess(generated.index('setprop ro.hardware.audio.primary ranchu'),
+        self.assertIn('audio-service-preload-wrapper.sh', generated)
+        self.assertIn('setprop ro.hardware.audio.primary aaas', generated)
+        self.assertLess(generated.index('setprop ro.hardware.audio.primary aaas'),
                         generated.index('/system/bin/start vendor.audio-hal'))
         self.assertIn('AAAS_AUDIO_FACTORY_READY=0', generated)
         self.assertIn('lshal 2>/dev/null', generated)
         self.assertIn('AAAS_AUDIO_POLICY_DUMP_BEGIN', generated)
         self.assertIn('AAAS_AUDIO_MANAGER_STATE=', generated)
         self.assertNotIn('setprop debug.ld.all dlopen', generated)
-        self.assertIn('toybox realpath /vendor/lib64/hw/audio.primary.ranchu.so', generated)
+        self.assertIn('toybox realpath /vendor/lib64/hw/audio.primary.aaas.so', generated)
         self.assertIn('grep -E "libaudiohal@|audio.primary" /proc/$AAAS_AUDIO_PID/maps',
                       generated)
         self.assertIn('=== AAAS AUDIO SERVICES AFTER APP LAUNCH ===', generated)
@@ -399,12 +401,12 @@ class ForegroundRunnerTests(unittest.TestCase):
             runner = SESSION.make_session_runner(
                 session, audio_hal_overlay=hal,
                 audio_hal_factory_probe=probe).read_text()
-            init_rc = (session / 'audioserver.rc').read_text()
+            server_wrapper = (session / 'audioserver-preload-wrapper.sh').read_text()
         self.assertIn(f'--ro-bind {probe.resolve()} '
                       '/system/lib64/libaaas-audio-factory-probe.so', runner)
-        self.assertIn('service audioserver /system/bin/audioserver\n'
-                      '    setenv LD_PRELOAD /system/lib64/libaaas-audio-factory-probe.so:'
-                      '/system/lib64/libselinux_shim.so', init_rc)
+        self.assertIn('export LD_PRELOAD=/system/lib64/libaaas-audio-factory-probe.so:'
+                      '/system/lib64/libselinux_shim.so', server_wrapper)
+        self.assertIn('exec /system/bin/audioserver.aaas-original', server_wrapper)
 
     def test_audio_loader_probe_runs_in_vendor_service_and_audioserver(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -420,18 +422,18 @@ class ForegroundRunnerTests(unittest.TestCase):
             runner = SESSION.make_session_runner(
                 session, audio_hal_overlay=hal, audio_hal_probe=probe,
                 audio_ashmem_shim=shim).read_text()
-            server_rc = (session / 'audioserver.rc').read_text()
-            service_rc = (session / 'android.hardware.audio.service.rc').read_text()
+            server_wrapper = (session / 'audioserver-preload-wrapper.sh').read_text()
+            service_wrapper = (session / 'audio-service-preload-wrapper.sh').read_text()
         self.assertIn(f'--ro-bind {probe.resolve()} '
                       '/system/lib64/libaaas-audio-hal-probe.so', runner)
-        self.assertIn('setenv LD_PRELOAD /system/lib64/libaaas-audio-hal-probe.so:'
-                      '/system/lib64/libselinux_shim.so', server_rc)
-        self.assertIn('setenv LD_PRELOAD /vendor/lib64/libaaas-audio-hal-probe.so:'
-                      '/vendor/lib64/libaaas-audio-ashmem.so', service_rc)
-        self.assertIn('/vendor/etc/init/android.hardware.audio.service.rc', runner)
-        self.assertIn('/system/etc/init/audioserver.rc', runner)
-        self.assertNotIn('/dev/aaas/audio-service-original', runner)
-        self.assertNotIn('/dev/aaas/audioserver-original', runner)
+        self.assertIn('export LD_PRELOAD=/system/lib64/libaaas-audio-hal-probe.so:'
+                      '/system/lib64/libselinux_shim.so', server_wrapper)
+        self.assertIn('export LD_PRELOAD=/vendor/lib64/libaaas-audio-hal-probe.so:'
+                      '/vendor/lib64/libaaas-audio-ashmem.so', service_wrapper)
+        self.assertIn('exec /vendor/bin/hw/android.hardware.audio.service.aaas-original',
+                      service_wrapper)
+        self.assertIn('/vendor/bin/hw/android.hardware.audio.service.aaas-original', runner)
+        self.assertIn('/system/bin/audioserver.aaas-original', runner)
 
     def test_audio_ashmem_compatibility_is_scoped_to_vendor_audio_service(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -444,13 +446,13 @@ class ForegroundRunnerTests(unittest.TestCase):
             session.mkdir()
             runner = SESSION.make_session_runner(
                 session, audio_hal_overlay=hal, audio_ashmem_shim=shim).read_text()
-            service_rc = (session / 'android.hardware.audio.service.rc').read_text()
+            service_wrapper = (session / 'audio-service-preload-wrapper.sh').read_text()
         self.assertIn(f'--ro-bind {shim.resolve()} '
                       '/vendor/lib64/libaaas-audio-ashmem.so', runner)
-        self.assertIn('/vendor/etc/init/android.hardware.audio.service.rc', runner)
-        self.assertIn('setenv LD_PRELOAD /vendor/lib64/libaaas-audio-ashmem.so',
-                      service_rc)
-        self.assertNotIn('/system/lib64/libselinux_shim.so', service_rc)
+        self.assertIn('/vendor/bin/hw/android.hardware.audio.service.aaas-original', runner)
+        self.assertIn('export LD_PRELOAD=/vendor/lib64/libaaas-audio-ashmem.so',
+                      service_wrapper)
+        self.assertNotIn('/system/lib64/libselinux_shim.so', service_wrapper)
 
     def test_audio_server_overlay_is_session_scoped_with_diagnostics(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -467,11 +469,13 @@ class ForegroundRunnerTests(unittest.TestCase):
                 session, audio_hal_overlay=hal,
                 audio_hal_factory_probe=probe,
                 audio_server_overlay=server).read_text()
-            init_rc = (session / 'audioserver.rc').read_text()
+            server_wrapper = (session / 'audioserver-preload-wrapper.sh').read_text()
         self.assertIn(f'--ro-bind {server.resolve()} '
-                      '/system/bin/audioserver', runner)
-        self.assertIn('setenv LD_PRELOAD /system/lib64/libaaas-audio-factory-probe.so:'
-                      '/system/lib64/libselinux_shim.so', init_rc)
+                      '/system/bin/audioserver.aaas-original', runner)
+        self.assertIn('audioserver-preload-wrapper.sh', runner)
+        self.assertEqual(runner.count(f'--ro-bind {server.resolve()}'), 1)
+        self.assertIn('export LD_PRELOAD=/system/lib64/libaaas-audio-factory-probe.so:'
+                      '/system/lib64/libselinux_shim.so', server_wrapper)
 
     def test_audio_server_overlay_requires_audio_hal(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -772,7 +772,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             raise ValueError('Android audioserver executable is missing')
         audio_hal_bind = (
             f'  --ro-bind {shlex.quote(str(audio_hal))} '
-            '/vendor/lib64/hw/audio.primary.ranchu.so \\\n'
+            '/vendor/lib64/hw/audio.primary.aaas.so \\\n'
             f'  --ro-bind {shlex.quote(str(audio_hidl_factory.resolve()))} '
             '/vendor/lib64/hw/android.hardware.audio@7.1-impl.ranchu.so \\\n'
         )
@@ -780,28 +780,25 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             ashmem_shim = Path(audio_ashmem_shim).resolve(strict=True)
             if not ashmem_shim.is_file():
                 raise ValueError('Android audio ashmem shim must be a regular file')
+            audio_service_wrapper = Path(session) / 'audio-service-preload-wrapper.sh'
             audio_service_preloads = []
             if audio_hal_probe_bind:
                 audio_service_preloads.append(
                     '/vendor/lib64/libaaas-audio-hal-probe.so')
             audio_service_preloads.append('/vendor/lib64/libaaas-audio-ashmem.so')
-            audio_service_rc_source = (
-                WORKSPACE / 'rootfs_m1b1/vendor/etc/init/'
-                'android.hardware.audio.service.rc'
+            audio_service_wrapper.write_text(
+                '#!/system/bin/sh\n'
+                'export LD_PRELOAD=' + ':'.join(audio_service_preloads) + '\n'
+                'exec /vendor/bin/hw/android.hardware.audio.service.aaas-original "$@"\n'
             )
-            if not audio_service_rc_source.is_file():
-                raise ValueError('Android HIDL audio service init file is missing')
-            audio_service_rc = Path(session) / 'android.hardware.audio.service.rc'
-            audio_service_rc.write_text(replace_once(
-                audio_service_rc_source.read_text(),
-                '    setenv LD_PRELOAD ""',
-                '    setenv LD_PRELOAD ' + ':'.join(audio_service_preloads),
-            ))
+            audio_service_wrapper.chmod(0o755)
             audio_hal_bind += (
                 f'  --ro-bind {shlex.quote(str(ashmem_shim))} '
                 '/vendor/lib64/libaaas-audio-ashmem.so \\\n'
-                f'  --ro-bind {shlex.quote(str(audio_service_rc.resolve()))} '
-                '/vendor/etc/init/android.hardware.audio.service.rc \\\n'
+                f'  --ro-bind {shlex.quote(str(audio_service.resolve()))} '
+                '/vendor/bin/hw/android.hardware.audio.service.aaas-original \\\n'
+                f'  --ro-bind {shlex.quote(str(audio_service_wrapper.resolve()))} '
+                '/vendor/bin/hw/android.hardware.audio.service \\\n'
             )
         if audiohal_overlay_path is not None:
             image_audiohal = (WORKSPACE / 'rootfs_m1b1/system/lib64/libaudiohal.so').resolve()
@@ -811,6 +808,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                     '/system/lib64/libaudiohal.so \\\n'
                 )
         if audio_hal_probe_bind or audio_hal_factory_probe_bind:
+            audioserver_wrapper = Path(session) / 'audioserver-preload-wrapper.sh'
             audioserver_preloads = [
                 *(['/system/lib64/libaaas-audio-hal-probe.so']
                   if audio_hal_probe_bind else []),
@@ -818,25 +816,31 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                   if audio_hal_factory_probe_bind else []),
                 '/system/lib64/libselinux_shim.so',
             ]
-            audioserver_rc_source = WORKSPACE / 'rootfs_m1b1/system/etc/init/audioserver.rc'
-            if not audioserver_rc_source.is_file():
-                raise ValueError('Android audioserver init file is missing')
-            audioserver_rc = Path(session) / 'audioserver.rc'
-            audioserver_rc.write_text(replace_once(
-                audioserver_rc_source.read_text(),
-                'service audioserver /system/bin/audioserver\n',
-                'service audioserver /system/bin/audioserver\n'
-                '    setenv LD_PRELOAD ' + ':'.join(audioserver_preloads) + '\n',
-            ))
+            audioserver_wrapper.write_text(
+                '#!/system/bin/sh\n'
+                'export LD_PRELOAD=' + ':'.join(audioserver_preloads) + '\n'
+                'exec /system/bin/audioserver.aaas-original "$@"\n'
+            )
+            audioserver_wrapper.chmod(0o755)
+            selected_audio_server = (audio_server_overlay_path
+                                     if audio_server_overlay_path is not None
+                                     else audioserver)
             audio_hal_bind += (
-                f'  --ro-bind {shlex.quote(str(audioserver_rc.resolve()))} '
-                '/system/etc/init/audioserver.rc \\\n'
+                f'  --ro-bind {shlex.quote(str(selected_audio_server))} '
+                '/system/bin/audioserver.aaas-original \\\n'
+                f'  --ro-bind {shlex.quote(str(audioserver_wrapper.resolve()))} '
+                '/system/bin/audioserver \\\n'
             )
         if audio_server_overlay_path is not None:
             image_audioserver = (WORKSPACE / 'rootfs_m1b1/system/bin/audioserver').resolve()
             if audio_server_overlay_path == image_audioserver:
                 audio_server_overlay_path = None
-        if audio_server_overlay_path is not None:
+        # The diagnostic preload wrapper above executes the selected image
+        # through /system/bin/audioserver.aaas-original. Binding the overlay
+        # again over /system/bin/audioserver would hide the wrapper and skip
+        # the HIDL/FMQ compatibility preloads.
+        if (audio_server_overlay_path is not None
+                and not (audio_hal_probe_bind or audio_hal_factory_probe_bind)):
             audio_hal_bind += (
                 f'  --ro-bind {shlex.quote(str(audio_server_overlay_path))} '
                 '/system/bin/audioserver \\\n'
@@ -1385,7 +1389,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         source = replace_once(
             source,
             '    /system/bin/start vendor.audio-hal\n',
-            '    /system/bin/setprop ro.hardware.audio.primary ranchu\n'
+            '    /system/bin/setprop ro.hardware.audio.primary aaas\n'
             '    /system/bin/setprop log.tag.HAL VERBOSE\n'
             '    /system/bin/setprop log.tag.DevicesFactoryHAL VERBOSE\n'
             '    /system/bin/setprop log.tag.DeviceHAL VERBOSE\n'
@@ -1422,7 +1426,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             'primary=$(/system/bin/getprop ro.hardware.audio.primary)" '
             '>> /aaas_session_commands\n'
             '    /system/bin/toybox ls -l '
-            '/vendor/lib64/hw/audio.primary.ranchu.so '
+            '/vendor/lib64/hw/audio.primary.aaas.so '
             '>> /aaas_session_commands 2>&1\n',
         )
         source = replace_once(
@@ -1439,9 +1443,9 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '        echo "AAAS_AUDIO_PROCESS pid=$AAAS_AUDIO_PID" >> /aaas_session_commands\n'
             '        /system/bin/toybox readlink /proc/$AAAS_AUDIO_PID/ns/mnt '
             '>> /aaas_session_commands 2>&1\n'
-            '        /system/bin/toybox ls -l /proc/$AAAS_AUDIO_PID/root/vendor/lib64/hw/audio.primary.ranchu.so '
+            '        /system/bin/toybox ls -l /proc/$AAAS_AUDIO_PID/root/vendor/lib64/hw/audio.primary.aaas.so '
             '>> /aaas_session_commands 2>&1\n'
-            '        /system/bin/toybox grep -F audio.primary.ranchu.so /proc/$AAAS_AUDIO_PID/maps '
+            '        /system/bin/toybox grep -F audio.primary.aaas.so /proc/$AAAS_AUDIO_PID/maps '
             '>> /aaas_session_commands 2>&1 || true\n'
             '        /system/bin/toybox grep -E "libaudiohal|libhardware.so" /proc/$AAAS_AUDIO_PID/maps '
             '>> /aaas_session_commands 2>&1 || true\n'
@@ -1455,9 +1459,9 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    echo "AAAS_AUDIO_FACTORY_WAITED_BEFORE_AUDIOSERVER_START=1" '
             '>> /aaas_session_commands\n'
             '    /system/bin/getenforce >> /aaas_session_commands 2>&1\n'
-            '    /system/bin/toybox realpath /vendor/lib64/hw/audio.primary.ranchu.so '
+            '    /system/bin/toybox realpath /vendor/lib64/hw/audio.primary.aaas.so '
             '>> /aaas_session_commands 2>&1\n'
-            '    /system/bin/toybox ls -lZ /vendor/lib64/hw/audio.primary.ranchu.so '
+            '    /system/bin/toybox ls -lZ /vendor/lib64/hw/audio.primary.aaas.so '
             '>> /aaas_session_commands 2>&1\n'
             '    echo "AAAS_AUDIO_POLICY_DUMP_BEGIN" >> /aaas_session_commands\n'
             '    /system/bin/dumpsys media.audio_policy 2>&1 | '
