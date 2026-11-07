@@ -5,6 +5,8 @@ No cleanup is performed. A lost mount or exhausted budget terminates a managed
 process group and leaves its source and logs in place for inspection.
 """
 import argparse
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,6 +26,7 @@ GIB = 1 << 30
 MARKER = '.aaas-workspace.json'
 LAYOUT = ('images', 'sources', 'out', 'cache', 'logs', 'tmp', 'mnt')
 HEALTH_POLICY = Path(__file__).resolve().parents[1] / 'manifests' / 'workspace-health.json'
+REPOSITORY_ROOT = HEALTH_POLICY.parents[1]
 HEALTH_STATES = {
     'HEALTHY_FOR_CONTROLLED_TESTING', 'HEALTH_UNKNOWN', 'INTEGRITY_WARNING',
     'REPAIR_REQUIRED', 'DEVICE_FAILURE_SUSPECTED',
@@ -33,6 +36,8 @@ HEALTH_BLOCKING_STATES = {
     'DEVICE_FAILURE_SUSPECTED',
 }
 _HEALTH_CACHE = {}
+RECOVERY_POST_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+RECOVERY_OFFLINE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 
 
 class WorkspaceError(RuntimeError):
@@ -41,13 +46,13 @@ class WorkspaceError(RuntimeError):
 
 def mount_identity(target):
     result = subprocess.run(
-        ['findmnt', '-T', str(target), '-n', '-o', 'TARGET,SOURCE,FSTYPE,UUID'],
+        ['findmnt', '-T', str(target), '-n', '-o', 'TARGET,SOURCE,FSTYPE,UUID,ID'],
         capture_output=True, text=True, check=True, timeout=3,
     )
     fields = result.stdout.strip().split()
-    if len(fields) != 4:
+    if len(fields) != 5:
         raise WorkspaceError(f'cannot identify mount for {target}')
-    return dict(zip(('target', 'source', 'filesystem', 'uuid'), fields))
+    return dict(zip(('target', 'source', 'filesystem', 'uuid', 'mount_id'), fields))
 
 
 def _read_health_policy(path=HEALTH_POLICY):
@@ -63,29 +68,123 @@ def _read_health_policy(path=HEALTH_POLICY):
     return value
 
 
-def _valid_recovery_attestation(entry):
-    """Require explicit offline and post-recovery evidence to lift a pause."""
+def _timestamp(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc).timestamp()
+
+
+def _current_boot_id():
+    try:
+        return Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    except OSError:
+        return None
+
+
+def _sha256_evidence(value):
+    return isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value) is not None
+
+
+def _evidence_matches(record, repository_root=None):
+    if not isinstance(record, dict) or not _sha256_evidence(record.get('evidence_sha256')):
+        return False
+    relative = record.get('evidence_path')
+    evidence_relative = Path(relative) if isinstance(relative, str) else Path()
+    if (not isinstance(relative, str) or not relative or evidence_relative.is_absolute()
+            or '..' in evidence_relative.parts):
+        return False
+    root = Path(repository_root or REPOSITORY_ROOT).resolve()
+    candidate = root / relative
+    current = candidate
+    while current != root:
+        if current.is_symlink():
+            return False
+        current = current.parent
+        if not current.is_relative_to(root):
+            return False
+    path = candidate.resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        return False
+    try:
+        if path.stat().st_size > 16 * 1024 * 1024:
+            return False
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return False
+    return digest == record['evidence_sha256']
+
+
+def _device_serial(source):
+    try:
+        parent = subprocess.run(
+            ['lsblk', '-ndo', 'PKNAME', source], capture_output=True,
+            text=True, check=True, timeout=3,
+        ).stdout.strip()
+        if not parent:
+            return None
+        result = subprocess.run(
+            ['udevadm', 'info', '--query=property', '--name', str(Path('/dev') / parent)],
+            capture_output=True, text=True, check=True, timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith('ID_SERIAL='):
+            return line.partition('=')[2]
+    return None
+
+
+def _valid_recovery_attestation(entry, identity=None, current_boot_id=None, now=None,
+                                repository_root=None):
+    """Require fresh, UUID/device-bound offline and post-recovery evidence."""
     recovery = entry.get('recovery')
     if not isinstance(recovery, dict):
         return False
     offline = recovery.get('offline_check')
     post = recovery.get('post_check')
     device = recovery.get('device_health')
+    stable_device = entry.get('device')
+    if not all(isinstance(value, dict) for value in (offline, post, device, stable_device)):
+        return False
+    now = time.time() if now is None else now
+    current_boot_id = current_boot_id or _current_boot_id()
+    offline_at = _timestamp(offline.get('completed_at'))
+    device_at = _timestamp(device.get('checked_at'))
+    post_at = _timestamp(post.get('checked_at'))
+    if not all(value is not None for value in (offline_at, device_at, post_at)):
+        return False
     return (
-        isinstance(offline, dict)
-        and offline.get('result') == 'clean'
+        offline.get('result') == 'clean'
+        and offline.get('volume_uuid') == entry.get('uuid')
         and bool(offline.get('tool'))
-        and bool(offline.get('completed_at'))
-        and bool(offline.get('evidence_ref'))
-        and isinstance(post, dict)
-        and bool(post.get('checked_at'))
-        and bool(post.get('boot_id'))
-        and post.get('uuid') == entry.get('uuid')
-        and post.get('ntfs3_errors') == 0
-        and post.get('metadata_probes') == 'pass'
-        and isinstance(device, dict)
+        and _evidence_matches(offline, repository_root)
+        and now - offline_at <= RECOVERY_OFFLINE_MAX_AGE_SECONDS
         and device.get('status') == 'healthy'
-        and bool(device.get('evidence_ref'))
+        and device.get('serial') == stable_device.get('serial')
+        and bool(stable_device.get('path'))
+        and _evidence_matches(device, repository_root)
+        and offline_at <= device_at <= post_at <= now
+        and now - device_at <= RECOVERY_POST_MAX_AGE_SECONDS
+        and now - post_at <= RECOVERY_POST_MAX_AGE_SECONDS
+        and post.get('uuid') == entry.get('uuid')
+        and post.get('device_serial') == stable_device.get('serial')
+        and post.get('boot_id') == current_boot_id
+        and (identity is None or identity.get('source') == post.get('source'))
+        and (identity is None or str(identity.get('mount_id')) == str(post.get('mount_epoch')))
+        and (identity is None or _device_serial(identity.get('source')) == stable_device.get('serial'))
+        and bool(post.get('mount_epoch'))
+        and post.get('ntfs3_errors') == 0
+        and post.get('transport_errors') == 0
+        and post.get('metadata_probes') == 'pass'
+        and post.get('workspace_manifest') == 'pass'
+        and post.get('userdata_manifest') == 'pass'
+        and _evidence_matches(post, repository_root)
     )
 
 
@@ -100,7 +199,8 @@ def policy_health(identity, policy_path=HEALTH_POLICY):
     state = entry.get('state')
     if not isinstance(state, str) or state not in HEALTH_STATES:
         return {'state': 'HEALTH_UNKNOWN', 'reason': 'unknown health-pause state'}
-    if state == 'HEALTHY_FOR_CONTROLLED_TESTING' and not _valid_recovery_attestation(entry):
+    if state == 'HEALTHY_FOR_CONTROLLED_TESTING' and not _valid_recovery_attestation(
+            entry, identity=identity):
         return {'state': 'HEALTH_UNKNOWN', 'reason': 'recovery attestation is incomplete'}
     return {'state': state, 'reason': entry.get('reason', ''),
             'incident_id': entry.get('incident_id')}
@@ -138,10 +238,91 @@ def _journal_ntfs_events(source, timeout=3):
     return events
 
 
+def _classify_storage_event(message, priority, partition, disk, usb_path=None):
+    match = re.search(r'ntfs3\(([^)]+)\):', message)
+    if match and match.group(1) == partition and priority <= 4:
+        return 'ntfs3_integrity'
+    if re.search(rf'(?:I/O error|Buffer I/O error|blk_update_request).*\bdev(?:ice)?\s+{re.escape(disk)}\b', message, re.I):
+        return 'block_io'
+    if disk in message and re.search(r'uas_eh|uas.*(?:abort|reset)', message, re.I):
+        return 'uas_transport'
+    if usb_path and re.search(
+            rf'usb\s+{re.escape(usb_path)}:.*(?:reset|disconnect|error)', message,
+            re.I):
+        return 'usb_transport'
+    return None
+
+
+def _journal_post_recovery_events(identity, entry, timeout=3):
+    """Find device-correlated NTFS/transport errors after recovery evidence."""
+    recovery = entry['recovery']
+    post = recovery['post_check']
+    stable = entry['device']
+    partition = Path(identity['source']).name
+    disk = Path(stable['path']).name
+    command = [
+        'journalctl', '-k', '-b', '--no-pager', '--output=json',
+        f"--since={post['checked_at']}", '--lines=500',
+    ]
+    result = subprocess.run(command, capture_output=True, text=True,
+                            check=True, timeout=timeout)
+    lines = result.stdout.splitlines()
+    if len(lines) >= 500:
+        raise WorkspaceError('post-recovery journal window exceeded its 500-entry bound')
+    usb_path = stable.get('usb_path')
+    events = []
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = str(item.get('MESSAGE', ''))
+        try:
+            priority = int(item.get('PRIORITY', 7))
+        except (TypeError, ValueError):
+            priority = 7
+        kind = _classify_storage_event(message, priority, partition, disk,
+                                       usb_path)
+        if kind:
+            events.append({
+                'kind': kind, 'message': message, 'priority': priority,
+                'boot_id': item.get('_BOOT_ID'),
+                'realtime_usec': item.get('__REALTIME_TIMESTAMP'),
+                'monotonic_usec': item.get('__MONOTONIC_TIMESTAMP'),
+            })
+    return events
+
+
 def assess_workspace_health(identity, policy_path=HEALTH_POLICY, now=None):
     """Classify filesystem health without implying a full consistency check."""
     tracked = policy_health(identity, policy_path)
     if tracked:
+        if tracked['state'] == 'HEALTHY_FOR_CONTROLLED_TESTING':
+            policy = _read_health_policy(policy_path)
+            entry = policy['volumes'][identity.get('uuid')]
+            post = entry['recovery']['post_check']
+            key = (identity.get('uuid'), identity.get('source'), post['checked_at'])
+            now_mono = time.monotonic() if now is None else now
+            cached = _HEALTH_CACHE.get(key)
+            if cached and now_mono - cached[0] < 5:
+                return cached[1]
+            try:
+                events = _journal_post_recovery_events(identity, entry)
+            except (OSError, subprocess.SubprocessError, WorkspaceError) as error:
+                result = {'state': 'HEALTH_UNKNOWN',
+                          'reason': f'post-recovery storage journal unavailable: {error}'}
+            else:
+                if events:
+                    transport = any(item['kind'] != 'ntfs3_integrity' for item in events)
+                    result = {
+                        'state': 'DEVICE_FAILURE_SUSPECTED' if transport else 'INTEGRITY_WARNING',
+                        'reason': f'{len(events)} post-recovery device-correlated storage error(s)',
+                        'events': events,
+                    }
+                else:
+                    result = tracked
+            _HEALTH_CACHE[key] = (now_mono, result)
+            return result
         return tracked
     filesystem = identity.get('filesystem')
     if filesystem != 'ntfs3':
@@ -236,11 +417,139 @@ def diagnose_workspace(workspace, policy_path=HEALTH_POLICY, smartctl='smartctl'
             smart['output'] = (result.stdout + result.stderr)[-4000:]
         except (OSError, subprocess.SubprocessError) as error:
             smart['error'] = str(error)
-    health = policy or assess_workspace_health(identity, policy_path)
+    health = assess_workspace_health(identity, policy_path)
     return {'workspace': str(workspace), 'mount': identity, 'health': health,
             'journal': journal, 'smart': smart,
             'read_only': True,
             'scope_note': 'no full filesystem consistency check is performed'}
+
+
+def _flatten_lsblk(nodes):
+    for node in nodes:
+        yield node
+        yield from _flatten_lsblk(node.get('children') or [])
+
+
+def diagnose_device(device_path, policy_path=HEALTH_POLICY, smartctl='smartctl'):
+    """Inspect block-device metadata without mounting or writing the volume."""
+    requested = str(device_path)
+    if not requested.startswith('/dev/') or '\x00' in requested:
+        raise WorkspaceError('device path must name a block device under /dev')
+    try:
+        result = subprocess.run(
+            ['lsblk', '--json', '-o',
+             'NAME,PATH,TYPE,FSTYPE,UUID,MOUNTPOINTS,MODEL,SERIAL,TRAN,ROTA,RO,SIZE',
+             requested], capture_output=True, text=True, check=True, timeout=3,
+        )
+        tree = json.loads(result.stdout).get('blockdevices', [])
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, AttributeError) as error:
+        raise WorkspaceError(f'cannot inspect block device {requested}: {error}') from error
+    nodes = list(_flatten_lsblk(tree))
+    selected = next((item for item in nodes if item.get('path') == requested), None)
+    if selected is None:
+        raise WorkspaceError(f'block device not present in lsblk output: {requested}')
+    if selected.get('type') == 'part':
+        partition = selected
+        parent = next((item for item in tree if item.get('name') == selected.get('pkname')), None)
+        if parent is None:
+            try:
+                parent_name = subprocess.run(
+                    ['lsblk', '-ndo', 'PKNAME', requested], capture_output=True,
+                    text=True, check=True, timeout=3,
+                ).stdout.strip()
+                parent_path = str(Path('/dev') / parent_name) if parent_name else requested
+            except (OSError, subprocess.SubprocessError):
+                parent_path = requested
+        else:
+            parent_path = parent.get('path', requested)
+    else:
+        parent = selected
+        partition = next((item for item in nodes
+                          if item.get('type') == 'part' and item.get('uuid')),
+                         selected)
+        parent_path = selected.get('path', requested)
+    identity = {'source': partition.get('path', requested),
+                'filesystem': partition.get('fstype'),
+                'uuid': partition.get('uuid')}
+    if not identity['uuid']:
+        raise WorkspaceError('selected filesystem partition has no readable UUID')
+    try:
+        udev_result = subprocess.run(
+            ['udevadm', 'info', '--query=property', '--name', parent_path],
+            capture_output=True, text=True, check=True, timeout=3,
+        )
+        properties = dict(line.split('=', 1) for line in udev_result.stdout.splitlines()
+                          if '=' in line)
+    except (OSError, subprocess.SubprocessError) as error:
+        properties = {'_error': str(error)}
+    disk_name = Path(parent_path).name
+    partition_name = Path(identity['source']).name
+    sysfs_device = Path('/sys/class/block') / disk_name / 'device'
+    try:
+        sysfs_path = str(sysfs_device.resolve(strict=True))
+    except OSError:
+        sysfs_path = ''
+    usb_match = re.search(r'/(\d+-\d+(?:\.\d+)*)/', sysfs_path)
+    usb_path = usb_match.group(1) if usb_match else None
+    try:
+        journal_result = subprocess.run(
+            ['journalctl', '-k', '-b', '--no-pager', '--output=json', '--lines=500'],
+            capture_output=True, text=True, check=True, timeout=3,
+        )
+        journal_lines = journal_result.stdout.splitlines()
+        events = []
+        for line in journal_lines:
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            message = str(item.get('MESSAGE', ''))
+            priority = int(item.get('PRIORITY', 7)) if str(item.get('PRIORITY', '7')).isdigit() else 7
+            kind = _classify_storage_event(message, priority, partition_name,
+                                           disk_name, usb_path)
+            if kind:
+                events.append({'kind': kind, 'message': message,
+                               'priority': priority, 'boot_id': item.get('_BOOT_ID'),
+                               'realtime_usec': item.get('__REALTIME_TIMESTAMP'),
+                               'monotonic_usec': item.get('__MONOTONIC_TIMESTAMP')})
+        truncated = len(journal_lines) >= 500
+        journal = {'available': not truncated, 'boot_id': _current_boot_id(),
+                   'storage_errors': events, 'bounded_lines': len(journal_lines),
+                   'truncated': truncated}
+    except (OSError, subprocess.SubprocessError) as error:
+        journal = {'available': False, 'error': str(error)}
+    tracked = policy_health(identity, policy_path)
+    if tracked and not (tracked['state'] == 'HEALTHY_FOR_CONTROLLED_TESTING'
+                        and journal.get('truncated')):
+        health = tracked
+    elif tracked:
+        health = {'state': 'HEALTH_UNKNOWN',
+                  'reason': 'current-boot storage journal exceeded diagnostic bound'}
+    elif journal.get('storage_errors'):
+        errors = journal['storage_errors']
+        transport = any(item['kind'] != 'ntfs3_integrity' for item in errors)
+        health = {'state': 'DEVICE_FAILURE_SUSPECTED' if transport else 'INTEGRITY_WARNING',
+                  'reason': f'{len(errors)} current-boot device-correlated storage error(s)'}
+    else:
+        health = {'state': 'HEALTH_UNKNOWN',
+                  'reason': 'offline filesystem check and device-health evidence are unverified'}
+    smart = {'attempted': False, 'available': False}
+    try:
+        smart_result = subprocess.run(
+            [smartctl, '-x', '-n', 'standby', parent_path],
+            capture_output=True, text=True, timeout=5,
+        )
+        smart.update(attempted=True, available=smart_result.returncode == 0,
+                     returncode=smart_result.returncode,
+                     output=(smart_result.stdout + smart_result.stderr)[-4000:])
+    except (OSError, subprocess.SubprocessError) as error:
+        smart.update(attempted=True, error=str(error))
+    return {'device': selected, 'partition': partition, 'parent_path': parent_path,
+            'udev': properties, 'usb_sysfs_path': sysfs_path,
+            'mounted': bool(selected.get('mountpoints') or partition.get('mountpoints')),
+            'health': health, 'journal': journal, 'smart': smart,
+            'read_only': True,
+            'scope_note': 'no mount, full filesystem check, repair, test, or scan performed'}
 
 
 def validate_mounted_workspace(workspace, sentinels=()):
@@ -414,13 +723,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace', default=os.environ.get('AAAS_WORKSPACE'))
     parser.add_argument('--mount', help='mounted external volume for init')
+    parser.add_argument('--device', help='block device for read-only health diagnostics')
     parser.add_argument('--predict-gib', type=float, default=0)
     parser.add_argument('--interval', type=float, default=2)
     parser.add_argument('--log', type=Path)
     parser.add_argument('action', choices=('init', 'check', 'health', 'run'))
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
-    if not args.workspace:
+    if not args.workspace and not (args.action == 'health' and args.device):
         parser.error('--workspace or AAAS_WORKSPACE is required')
     try:
         predicted = int(args.predict_gib * GIB)
@@ -433,7 +743,8 @@ def main():
             print(json.dumps(check(args.workspace, predicted), indent=2))
             return 0
         if args.action == 'health':
-            report = diagnose_workspace(args.workspace)
+            report = (diagnose_device(args.device) if args.device
+                      else diagnose_workspace(args.workspace))
             print(json.dumps(report, indent=2))
             return 0 if report['health']['state'] == 'HEALTHY_FOR_CONTROLLED_TESTING' else 2
         command = args.command[1:] if args.command[:1] == ['--'] else args.command

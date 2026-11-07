@@ -165,6 +165,40 @@ class WorkspaceGuardTest(unittest.TestCase):
         self.assertIn('-b', run.call_args.args[0])
         self.assertIn('--lines=200', run.call_args.args[0])
 
+    def test_storage_event_classifier_correlates_partition_disk_and_usb_path(self):
+        classify = guard._classify_storage_event
+        self.assertEqual(classify('ntfs3(sda2): inode mi_enum_attr', 3,
+                                  'sda2', 'sda'), 'ntfs3_integrity')
+        self.assertIsNone(classify('ntfs3(sdb2): inode mi_enum_attr', 3,
+                                   'sda2', 'sda'))
+        self.assertEqual(classify('I/O error, dev sda, sector 123', 3,
+                                  'sda2', 'sda'), 'block_io')
+        self.assertEqual(classify('sd 0:0:0:0: [sda] uas_eh_abort_handler', 4,
+                                  'sda2', 'sda'), 'uas_transport')
+        self.assertEqual(classify('usb 2-3: reset SuperSpeed USB device', 4,
+                                  'sda2', 'sda', '2-3'), 'usb_transport')
+        self.assertIsNone(classify('usb 2-4: reset device', 4,
+                                   'sda2', 'sda', '2-3'))
+
+    def test_post_recovery_journal_detects_new_transport_and_ntfs_errors(self):
+        rows = [
+            {'MESSAGE': 'I/O error, dev testdisk, sector 7', 'PRIORITY': '3',
+             '_BOOT_ID': 'boot', '__REALTIME_TIMESTAMP': '1'},
+            {'MESSAGE': 'ntfs3(testpart): ino=abc, "x" mi_enum_attr',
+             'PRIORITY': '3', '_BOOT_ID': 'boot'},
+        ]
+        output = '\n'.join(json.dumps(row) for row in rows)
+        identity = {'source': '/dev/testpart'}
+        entry = {'device': {'path': '/dev/testdisk', 'serial': 'test'},
+                 'recovery': {'post_check': {'checked_at': '2026-11-07T09:00:00+05:30'}}}
+        with patch.object(guard.subprocess, 'run',
+                          return_value=SimpleNamespace(stdout=output)) as run:
+            events = guard._journal_post_recovery_events(identity, entry)
+        self.assertEqual([item['kind'] for item in events],
+                         ['block_io', 'ntfs3_integrity'])
+        self.assertTrue(any(arg.startswith('--since=')
+                            for arg in run.call_args.args[0]))
+
     def test_missing_or_unavailable_journal_is_unknown_for_ntfs3(self):
         identity = {**self.identity, 'filesystem': 'ntfs3',
                     'uuid': 'unknown-uuid', 'source': '/dev/test2'}
@@ -206,24 +240,132 @@ class WorkspaceGuardTest(unittest.TestCase):
                 guard.policy_health({'uuid': 'test-uuid'}, policy)
 
     def test_recovery_requires_offline_device_and_post_mount_evidence(self):
-        base = {'uuid': 'test-uuid', 'state': 'HEALTHY_FOR_CONTROLLED_TESTING'}
+        import time
+        now = time.time()
+        base = {'uuid': 'test-uuid', 'state': 'HEALTHY_FOR_CONTROLLED_TESTING',
+                'device': {'path': '/dev/testdisk', 'serial': 'TEST_SERIAL',
+                           'usb_path': '2-3'}}
+        identity = {**self.identity, 'source': '/dev/testpart', 'mount_id': '41'}
+        def iso(seconds):
+            from datetime import datetime, timezone
+            return datetime.fromtimestamp(seconds, timezone.utc).isoformat()
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def evidence(name):
+                content = f'synthetic test fixture {name}'.encode()
+                (root / name).write_bytes(content)
+                import hashlib
+                return {'evidence_path': name,
+                        'evidence_sha256': hashlib.sha256(content).hexdigest()}
+            recovery = {
+                'offline_check': {'tool': 'Windows CHKDSK', 'result': 'clean',
+                                  'volume_uuid': 'test-uuid',
+                                  'completed_at': iso(now - 3600),
+                                  **evidence('offline.txt')},
+                'device_health': {'status': 'healthy', 'serial': 'TEST_SERIAL',
+                                  'checked_at': iso(now - 1800),
+                                  **evidence('device.txt')},
+                'post_check': {'checked_at': iso(now - 600),
+                               'boot_id': 'boot-current', 'uuid': 'test-uuid',
+                               'source': '/dev/testpart',
+                               'device_serial': 'TEST_SERIAL', 'mount_epoch': '41',
+                               'ntfs3_errors': 0, 'transport_errors': 0,
+                               'metadata_probes': 'pass', 'workspace_manifest': 'pass',
+                               'userdata_manifest': 'pass', **evidence('post.txt')},
+            }
             policy = Path(tmp) / 'health.json'
-            policy.write_text(json.dumps({'schema': 1, 'volumes': {'test-uuid': base}}))
+            policy.write_text(json.dumps({'schema': 1,
+                                          'volumes': {'test-uuid': base}}))
             self.assertEqual(guard.policy_health({'uuid': 'test-uuid'}, policy)['state'],
                              'HEALTH_UNKNOWN')
-            valid = {**base, 'recovery': {
-                'offline_check': {'tool': 'Windows CHKDSK', 'result': 'clean',
-                                  'completed_at': '2026-11-08', 'evidence_ref': 'record-1'},
-                'post_check': {'checked_at': '2026-11-08', 'boot_id': 'boot-2',
-                               'uuid': 'test-uuid', 'ntfs3_errors': 0,
-                               'metadata_probes': 'pass'},
-                'device_health': {'status': 'healthy', 'evidence_ref': 'smart-1'},
-            }}
+            valid = {**base, 'recovery': recovery}
             policy.write_text(json.dumps({'schema': 1,
                                           'volumes': {'test-uuid': valid}}))
-            self.assertEqual(guard.policy_health({'uuid': 'test-uuid'}, policy)['state'],
-                             'HEALTHY_FOR_CONTROLLED_TESTING')
+            with patch.object(guard, '_current_boot_id', return_value='boot-current'), \
+                 patch.object(guard, '_device_serial', return_value='TEST_SERIAL'), \
+                 patch.object(guard, 'REPOSITORY_ROOT', root):
+                self.assertEqual(guard.policy_health(identity, policy)['state'],
+                                 'HEALTHY_FOR_CONTROLLED_TESTING')
+                self.assertEqual(guard.policy_health(
+                    {**identity, 'mount_id': '42'}, policy)['state'], 'HEALTH_UNKNOWN')
+            with patch.object(guard, '_current_boot_id', return_value='new-boot'), \
+                 patch.object(guard, '_device_serial', return_value='TEST_SERIAL'), \
+                 patch.object(guard, 'REPOSITORY_ROOT', root):
+                self.assertEqual(guard.policy_health(identity, policy)['state'],
+                                 'HEALTH_UNKNOWN')
+            (root / 'device.txt').write_text('tampered evidence')
+            with patch.object(guard, '_current_boot_id', return_value='boot-current'), \
+                 patch.object(guard, '_device_serial', return_value='TEST_SERIAL'), \
+                 patch.object(guard, 'REPOSITORY_ROOT', root):
+                self.assertEqual(guard.policy_health(identity, policy)['state'],
+                                 'HEALTH_UNKNOWN')
+            (root / 'device.txt').write_text('synthetic test fixture device.txt')
+            import hashlib
+            recovery['device_health']['evidence_sha256'] = hashlib.sha256(
+                (root / 'device.txt').read_bytes()).hexdigest()
+            stale_recovery = json.loads(json.dumps(recovery))
+            stale_recovery['post_check']['checked_at'] = iso(
+                now - guard.RECOVERY_POST_MAX_AGE_SECONDS - 1)
+            stale_recovery['device_health']['checked_at'] = stale_recovery[
+                'post_check']['checked_at']
+            stale_recovery['offline_check']['completed_at'] = iso(now - 100000)
+            policy.write_text(json.dumps({'schema': 1, 'volumes': {
+                'test-uuid': {**base, 'recovery': stale_recovery}}}))
+            with patch.object(guard, '_current_boot_id', return_value='boot-current'), \
+                 patch.object(guard, '_device_serial', return_value='TEST_SERIAL'), \
+                 patch.object(guard, 'REPOSITORY_ROOT', root):
+                self.assertEqual(guard.policy_health(identity, policy)['state'],
+                                 'HEALTH_UNKNOWN')
+
+    def test_post_recovery_device_error_reactivates_quarantine(self):
+        import time
+        now = time.time()
+        from datetime import datetime, timezone
+        iso = lambda age: datetime.fromtimestamp(now - age, timezone.utc).isoformat()
+        identity = {**self.identity, 'filesystem': 'ntfs3', 'uuid': 'recovered-id',
+                    'source': '/dev/testpart', 'mount_id': '77'}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def evidence(name):
+                content = f'synthetic test fixture {name}'.encode()
+                (root / name).write_bytes(content)
+                import hashlib
+                return {'evidence_path': name,
+                        'evidence_sha256': hashlib.sha256(content).hexdigest()}
+            entry = {'uuid': 'recovered-id',
+                     'state': 'HEALTHY_FOR_CONTROLLED_TESTING',
+                     'device': {'path': '/dev/testdisk', 'serial': 'TEST_SERIAL',
+                                'usb_path': '2-3'},
+                     'recovery': {
+                         'offline_check': {'tool': 'CHKDSK', 'result': 'clean',
+                                           'volume_uuid': 'recovered-id',
+                                           'completed_at': iso(3600),
+                                           **evidence('offline.txt')},
+                         'device_health': {'status': 'healthy',
+                                           'serial': 'TEST_SERIAL',
+                                           'checked_at': iso(1800),
+                                           **evidence('device.txt')},
+                         'post_check': {'checked_at': iso(600),
+                                        'boot_id': 'boot-current',
+                                        'uuid': 'recovered-id',
+                                        'source': '/dev/testpart',
+                                        'device_serial': 'TEST_SERIAL',
+                                        'mount_epoch': '77', 'ntfs3_errors': 0,
+                                        'transport_errors': 0,
+                                        'metadata_probes': 'pass',
+                                        'workspace_manifest': 'pass',
+                                        'userdata_manifest': 'pass',
+                                        **evidence('post.txt')}}}
+            policy = Path(tmp) / 'health.json'
+            policy.write_text(json.dumps({'schema': 1,
+                                          'volumes': {'recovered-id': entry}}))
+            with patch.object(guard, '_current_boot_id', return_value='boot-current'), \
+                 patch.object(guard, '_device_serial', return_value='TEST_SERIAL'), \
+                 patch.object(guard, 'REPOSITORY_ROOT', root), \
+                 patch.object(guard, '_journal_post_recovery_events', return_value=[{
+                     'kind': 'block_io', 'message': 'I/O error, dev testdisk'}]):
+                result = guard.assess_workspace_health(identity, policy, now=1000)
+        self.assertEqual(result['state'], 'DEVICE_FAILURE_SUSPECTED')
 
 
 if __name__ == '__main__':
