@@ -55,6 +55,20 @@ filesystem attestation. A clean install path must also checksum the source
 archive and use a fresh extraction, with an inventory of every intentional
 overlay and its license.
 
+## Workspace filesystem-health gate
+
+`scripts/android_workspace.py check` validates mount identity and capacity,
+then applies the UUID-scoped policy in
+`manifests/workspace-health.json` before recursive workspace accounting.
+`DEVICE_FAILURE_SUSPECTED`, `REPAIR_REQUIRED`, `INTEGRITY_WARNING`, and
+`HEALTH_UNKNOWN` block NTFS3 runtime use. The separate `health` action performs
+bounded, read-only current-boot journal inspection and a passive `smartctl`
+information query; it does not run a consistency check or repair. A clean
+mount or empty recent journal cannot clear a pause. Recovery requires explicit
+offline-check, device-health, and post-mount evidence. Current volume status
+and recovery criteria are recorded in
+[`ntfs3-health-assessment-2026-11-07.md`](storage/ntfs3-health-assessment-2026-11-07.md).
+
 ## Upstream graphics path and exact blocker
 
 The Android 16 SDK image declares Ranchu AIDL allocator v2 and native Mapper

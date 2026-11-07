@@ -793,3 +793,20 @@ relying on the current backing state until it is assessed. Exact messages and
 the stopped-testing classification are recorded in
 `filesystem_integrity_stop_2026_11_07` in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+
+### Read-only follow-up and enforced workspace pause
+
+The 2026-11-07 investigation correlated all four priority-3 NTFS3 reports with
+`/dev/sda2`, UUID `A2ACEDF2ACEDC0C1`, and the same current boot. The parent USB
+device also logged UAS aborts/resets and two block read I/O errors. The
+expected `android-userdata/data/system/install_sessions.xml.new` entry is now
+absent. Upstream source describes both persistent malformed MFT records and a
+concurrent attribute-walk race as possible `mi_enum_attr` paths; the incident
+cause remains unconfirmed. Passive SMART access was denied, so media health is
+unknown. The classification is **`DEVICE_FAILURE_SUSPECTED`**, not a confirmed
+SSD failure or a clean-volume finding.
+
+The guard now blocks this UUID before its recursive accounting pass. See the
+[dated health assessment](ntfs3-health-assessment-2026-11-07.md) for the
+device evidence, recovery sequence, and policy transition requirements. No
+Android session or repair was performed in this continuation.

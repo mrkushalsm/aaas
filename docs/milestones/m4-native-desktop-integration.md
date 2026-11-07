@@ -232,6 +232,14 @@ current backing-health revalidation remains open. See
 `filesystem_integrity_stop_2026_11_07` in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
 
+The follow-up read-only assessment found same-device UAS resets and block
+read I/O errors, while passive SMART data was inaccessible without elevated
+device access. A tracked UUID-scoped safety policy now makes the ordinary
+workspace guard reject this volume as `DEVICE_FAILURE_SUSPECTED` before
+recursive capacity accounting. Android execution remains blocked pending
+offline consistency, device-health, and post-recovery evidence; details are in
+the [NTFS3 health assessment](../storage/ntfs3-health-assessment-2026-11-07.md).
+
 ### Installed application catalog and Linux launcher (2026-11-06)
 
 **Installed-App Catalog and Launcher Integration: PASS/CLOSED.** The tested source revision is recorded in the matching `installed_app_catalog_launcher_2026_11_06` object in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). This closes the launcher workstream only; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone, bidirectional clipboard, and Android notification forwarding.
