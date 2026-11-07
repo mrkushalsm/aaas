@@ -206,6 +206,8 @@ class AudioHandler(socketserver.BaseRequestHandler):
                         del pending[:aligned]
                     if len(pending) >= frame_size:
                         raise ValueError('invalid PCM frame alignment')
+                if pending and not self.server.stop_event.is_set():
+                    raise ValueError('invalid PCM frame alignment')
                 if not self.server.stop_event.is_set():
                     pulse.drain()
             else:
