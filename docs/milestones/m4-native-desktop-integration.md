@@ -905,3 +905,32 @@ Seven tests cover the manifest validator, including absent campaign/gate/evidenc
 Canonical M4 is **PASS/CLOSED** for this supported configuration. Capture recovers by closing the failed stream and opening a fresh stream after PipeWire returns; automatic continuation of an existing AudioRecord across a daemon outage is not claimed. Bluetooth, camera, broad host portals, rich/XWayland clipboard, universal ARM64 app compatibility, M5 performance and M6 portability remain deferred.
 
 Verified implementation and acceptance commits: `4c155e0` bounds audio capture failure and shutdown; `b6becb6` fixes the clipboard probe's null-label crash; `094389a` adds the manifest validator; `675bb23` makes the workspace preflight fail closed on health classification. The current source revision used for final tests is recorded as `675bb23dfbff9f063b10a7c6eba835642f527063` in the acceptance JSON.
+
+### Shared-storage partition and relocated app-context follow-up (2026-11-09)
+
+The active workspace guard no longer applies the historical 80 GiB allocated
+workspace ceiling. It checks actual unprivileged available blocks on the
+enrolled ext4 partition, with a configurable 2 GiB default partition reserve,
+while retaining the UUID/mount/health checks and the separate 20 GiB host-root
+reserve. The final check identified `/dev/sda3`, UUID
+`094120c3-e1f8-4a61-a95a-c347ecb711d1`, with 36,056,395,776 available bytes;
+the workspace used 82,114,392,064 allocated bytes. Host root retained
+23,000,895,488 available bytes. The incident history remains enrolled.
+
+The direct Linux shared directory passed small offline filesystem operations
+on the dedicated partition. Four headless sessions against the separate
+relocated installation verified MediaStore app-owned write/read through an
+ordinary target-SDK 35 package, host edits visible through the app's persisted
+URI after Android restart, denial of raw-path access to a host-created file,
+host MediaStore create/modify/rename/delete reconciliation, and clean session
+shutdown. The fourth session launched the persisted package without an APK
+installation and observed its app-private persistence marker. Its saved
+MediaStore URI had already been deleted, so its expected missing-row diagnostic
+is not counted as a read pass. No AaaS presenter was started; KWin/Plasma/SDDM remained running.
+Interactive SAF/DocumentsUI and graphical presenter acceptance remain
+`NOT_TESTED_SAFETY_BLOCKED`; the presenter is not being permanently removed,
+and the KWin/Mesa incident remains unresolved rather than attributed to an
+AaaS defect. M4 is therefore **PARTIAL/OPEN** for the current relocated
+installation. See the detailed
+[storage record](../../results/m4/shared-storage-partition-2026-11-09.json)
+and [host graphics incident](../incidents/host-graphics-impact-2026-11-09.md).

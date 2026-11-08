@@ -98,6 +98,91 @@ workspace using the host's normal removable-storage process, then re-run
 AaaS.
 
 When Android is stopped, this backing directory remains available to Linux.
+
+## Dedicated-partition and relocated-installation follow-up (2026-11-09)
+
+The primary enrolled workspace is now on the dedicated ext4 partition
+`/dev/sda3`, UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, mounted at
+`/run/media/mrkus/Aaas`. Its Linux-visible shared directory is
+`/run/media/mrkus/Aaas/aaas-workspace/shared-storage/android-media/0`. It is a
+normal persistent directory; AaaS creates no Linux FUSE or bind mount for it.
+It remains usable by Linux while Android is stopped. `aaasctl storage path`,
+`status`, `sync` (ACL repair only), and the active-session `scan RELATIVE_PATH`
+commands remain the interface. Ordinary filesystem paths can be opened in a
+local file manager, but no GUI file-manager test was run during this
+continuation.
+
+The former fixed 80 GiB workspace limit has been removed. Capacity admission
+uses unprivileged filesystem available blocks (`f_bavail`), with a configurable
+2 GiB default free-space reserve for this partition. The host root filesystem
+still has its separate 20 GiB reserve. At the final guard check, the dedicated
+filesystem had 36,056,395,776 bytes available; host root had 23,000,895,488
+bytes available. Workspace allocated bytes (82,114,392,064) and filesystem
+usage (85,787,475,968) are reported separately. UUID, mount identity, ext4
+health policy, and the retained `usb-workspace-io-2026-11-08` incident remain
+active. See [workspace capacity policy](workspace-capacity-policy.md).
+
+The relocated developer installation under
+`/home/mrkus/.local/share/aaas-portable-installation` deliberately has its own
+workspace at `/home/mrkus/.local/share/aaas-portable-workspace`, on the host
+root ext4 filesystem. Its Android `/data` backing is
+`android-userdata/data`; `/data/app`, `/data/user/0`, PackageManager databases,
+and app-private state live there. Its Android shared-media backing is
+`shared-storage/android-media/0`. This is separate from the primary external
+workspace and from the historical Android installation. No userdata was
+migrated or copied. The headless app-context sessions below exercised this
+fresh relocated installation, while the direct Linux filesystem suite used
+the dedicated ext4 workspace path above.
+
+The direct Linux suite ran with Android stopped on the dedicated partition.
+It verified empty and binary files, Unicode/space filenames, sequential and
+random-access I/O, truncation, file and directory rename, same-filesystem
+move, deletion, 16 concurrent readers with matching SHA-256, exclusive-create
+conflict behavior, and recovery from an abruptly exited temporary writer. All
+small, uniquely named fixtures were removed. These checks establish ordinary
+filesystem semantics and offline Linux access; they do not substitute for a
+human-operated SAF picker.
+
+Four headless Android sessions used the relocated installation and never
+started the AaaS Wayland presenter. Sessions
+`m1b84_session_ynharg68`, `m1b84_session_p8yludr_`, and
+`m1b84_session_11pkil49` reached `RUNNING` with `sys.boot_completed=1`,
+`system_server`, and `vold`. Each recorded the existing `emulated;0` mount and
+avoided a duplicate `sm mount`. The ordinary target-SDK 35 test APK had no
+storage permissions in its manifest and ran as UID 10153. It created a
+Downloads row using `ContentResolver`, wrote 29 bytes with SHA-256
+`821f29d32c1ead3538ec70d35a2702b418199ae9f272fa98bfe55d9ab1d974dc`, and
+persisted the content URI in app-private data. Linux read and changed the
+shared backing file to 26 bytes (SHA-256
+`50639cbcfdafd52878aa2e7a76d4ecf3589b75eb586989c431146908505b58ad`). After
+Android stopped and restarted, the same package UID and app-private directory
+were observed, and the app reopened that URI through `ContentResolver` and
+reported the host-edited hash. `READ_MEDIA_IMAGES` remained `DENIED`; opening a
+separate host-created Download by raw path returned `EACCES`. This confirms
+app-owned MediaStore access and a scoped-storage denial in the ordinary app
+context. It does not claim that an app may read arbitrary host-created files
+without a SAF grant.
+
+In headless session `m1b84_session_p8yludr_`, `aaasctl storage scan` confirmed
+MediaStore presence after host create and modify, indexed a renamed path, and
+removed stale rows for the old path and then the deleted path. A separate
+session scan confirmed removal of the app-owned row after its host backing was
+deleted. A fourth session launched the package without reinstalling it; its
+app-private persistence marker and UID 10153 remained. Its saved MediaStore
+URI referenced a row already deleted by the preceding test, so the resulting
+missing-row log is expected. MediaStore database edits were not made directly.
+App-private data, the package, and the user-data backing persisted across the
+Android restart. The relocated test did not acquire a new SAF grant to read a
+separate host-created file.
+
+Interactive SAF/DocumentsUI acceptance is
+`NOT_TESTED_SAFETY_BLOCKED`: this requires the existing graphical presenter,
+which remains barred from the active KDE/KWin session pending the unresolved
+2026-11-09 KWin/Mesa crash investigation. The storage workstream passes its
+direct filesystem, headless app-context, MediaStore, and restart subgates, but
+the interactive picker remains open. Canonical M4 therefore remains
+`PARTIAL/OPEN`. Machine-readable details and raw log paths are in
+[`shared-storage-partition-2026-11-09.json`](../../results/m4/shared-storage-partition-2026-11-09.json).
 Android's FUSE mount is session-owned and disappears with the Android session;
 the host files persist. A subsequent AaaS session rebinds the same parent.
 

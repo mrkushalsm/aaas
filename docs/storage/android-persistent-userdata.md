@@ -416,3 +416,39 @@ host-only targets. The NTFS3 limitation is explicit: this development profile
 has no stock Android FBE/fscrypt or SELinux-label guarantee and does not prove
 per-package project-quota enforcement. Canonical M4 remains open independently
 for audio/microphone, clipboard, notifications, and launcher catalog.
+
+### Relocated developer installation placement (2026-11-09)
+
+The current primary workspace and the relocated portable diagnostic
+installation are separate storage trees. The primary workspace's persistent
+Android `/data` backing is
+`/run/media/mrkus/Aaas/aaas-workspace/android-userdata/data` on enrolled ext4
+UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`. The relocated installation's
+fresh `/data` is
+`/home/mrkus/.local/share/aaas-portable-workspace/android-userdata/data` on
+the host root filesystem (UUID `db2996df-91ff-4bed-8e69-2faeb5e81edc`). Its
+`/data/app`, `/data/user/0`, and test package private files are inside that
+directory backing; the shared-media directory is a sibling, not part of
+`/data`. These paths are ordinary directories, not symlinks or image files.
+The relocated installation's headless app-context acceptance used that fresh
+userdata and shared-media pair; the existing primary userdata was neither
+mounted into the relocated runtime nor modified. No migration was necessary
+for this acceptance, so none was attempted.
+
+Across Android sessions `m1b84_session_ynharg68`,
+`m1b84_session_p8yludr_`, `m1b84_session_11pkil49`, and
+`m1b84_session_7wjrm17b`, the ordinary
+`org.aaas.storagetest` package remained UID 10153. Its `/data/user/0` directory
+device/inode and private persistence digest remained stable. The second and
+third launches observed `internalFile_PERSISTED_MATCH`, reopened the saved
+MediaStore URI, and read the host-edited shared file. The fourth session resolved and launched the package without reinstalling
+the APK; its existing internal persistence file still matched. This confirms
+package and private app-data persistence for the relocated root-filesystem-backed
+installation. The `aaas dev verify` workspace guard separately kept the 20
+GiB host-root reserve; package growth is therefore charged to host-root
+availability in this relocated installation. The primary external workspace
+uses the same 2 GiB filesystem-available reserve policy as its shared media.
+
+See [workspace capacity policy](workspace-capacity-policy.md) and the
+[2026-11-09 storage acceptance record](../../results/m4/shared-storage-partition-2026-11-09.json)
+for block-availability measurements, runtime logs, and test hashes.
