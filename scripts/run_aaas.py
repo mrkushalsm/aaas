@@ -27,6 +27,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aaas_config
+import aaas_idmap
 import aaas_cgroup
 import aaas_bluetooth
 import aaas_resources
@@ -90,7 +91,6 @@ MEDIA_TEST_COMPONENTS = {
 APP_PACKAGE_PATTERN = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 SESSION_STATUS_VALUES = {'STARTING', 'RUNNING', 'STOPPING', 'STOPPED', 'FAILED'}
 WORKSPACE_HEALTH_INTERVAL_SECONDS = 1.0
-ANDROID_AUDIO_SERVER_HOST_UID = 101040  # Android uid 1041 through 1:100000 uid_map.
 
 
 def sha256(path):
@@ -619,14 +619,9 @@ def copy_tree_in_user_namespace(source, destination):
             time.sleep(.01)
         else:
             raise TimeoutError('rootless Aconfig copy namespace mapping timed out')
-        subprocess.run(
-            ['newuidmap', str(process.pid), '0', str(os.getuid()), '1',
-             '1', '100000', '65535'], check=True,
-        )
-        subprocess.run(
-            ['newgidmap', str(process.pid), '0', str(os.getgid()), '1',
-             '1', '100000', '65535'], check=True,
-        )
+        uid_map, gid_map, _uid_range, _gid_range = aaas_idmap.map_commands(process.pid)
+        subprocess.run(uid_map, check=True)
+        subprocess.run(gid_map, check=True)
         with ready.open('w') as stream:
             stream.write('go\n')
         _stdout, stderr = process.communicate(timeout=15)
@@ -2618,12 +2613,9 @@ def framework_transition_overlay_is_current():
         receipt = json.loads(FRAMEWORK_TRANSITION_RECEIPT.read_text())
         return (
             receipt.get('revision') == '99b01a65cc4c104933788b3143285ab6bae65827'
-            and receipt.get('input') == str(source.resolve())
             and receipt.get('input_sha256') == sha256(source)
             and receipt.get('apktool_sha256') == sha256(APKTOOL)
-            and receipt.get('builder') == str(FRAMEWORK_TRANSITION_BUILDER.resolve())
             and receipt.get('builder_sha256') == sha256(FRAMEWORK_TRANSITION_BUILDER)
-            and receipt.get('overlay') == str(FRAMEWORK_TRANSITION_OVERLAY.resolve())
             and receipt.get('overlay_sha256') == sha256(FRAMEWORK_TRANSITION_OVERLAY)
         )
     except (OSError, ValueError, KeyError, TypeError):
@@ -3932,7 +3924,7 @@ def main():
                     audio_process = subprocess.Popen(
                         [sys.executable, str(ROOT / 'scripts/aaas_audio.py'),
                          '--socket', str(ipc / 'audio.sock'),
-                         '--android-host-uid', str(ANDROID_AUDIO_SERVER_HOST_UID),
+                         '--android-host-uid', str(aaas_idmap.android_host_id(1041)),
                          *(['--playback-sink', args.audio_playback_sink]
                            if args.audio_playback_sink else []),
                          *(['--capture-source', args.audio_capture_source]

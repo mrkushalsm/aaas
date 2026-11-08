@@ -11,18 +11,22 @@ import tempfile
 import time
 
 import aaas_config
+import aaas_idmap
 
 DEFAULT_WORKSPACE = aaas_config.resolve_config().workspace
 STORAGE_RELATIVE_PATH = Path('shared-storage/android-user-0')
 ANDROID_MEDIA_RELATIVE_PATH = Path('shared-storage/android-media')
 ANDROID_MEDIA_RW_ID = 1023
-SUBID_BASE = 100000
 PUBLIC_STORAGE_DIRECTORIES = (
     'Alarms', 'Audiobooks', 'DCIM', 'Documents', 'Download', 'Movies',
     'Music', 'Notifications', 'Pictures', 'Podcasts', 'Ringtones',
 )
 ANDROID_STORAGE_DIRECTORIES = ('data', 'media', 'obb')
 STORAGE_SCAN_COMPONENT = re.compile(r'[^/\x00-\x1f\x7f]+')
+
+
+def _android_media_host_uid():
+    return aaas_idmap.android_host_id(ANDROID_MEDIA_RW_ID, kind='uid')
 
 
 def validate_media_scan_path(relative_path, root=None):
@@ -106,7 +110,8 @@ def _ensure_android_storage_directories(path):
         if candidate.is_symlink() or (candidate.exists() and not candidate.is_dir()):
             raise RuntimeError(f'Android/{name} must be a real directory')
 
-    if path.stat().st_uid not in (os.getuid(), SUBID_BASE + ANDROID_MEDIA_RW_ID - 1):
+    mapped_media_rw = aaas_idmap.android_host_id(ANDROID_MEDIA_RW_ID, kind='uid')
+    if path.stat().st_uid not in (os.getuid(), mapped_media_rw):
         raise RuntimeError('shared storage owner changed unexpectedly')
     setup_as_host_owner = path.stat().st_uid == os.getuid()
     prepare_script = (
@@ -147,14 +152,9 @@ def _run_mapped_storage_command(path, script, mode):
             time.sleep(.01)
         else:
             raise TimeoutError('rootless storage helper UID mapping timed out')
-        subprocess.run(
-            ['newuidmap', str(process.pid), '0', str(os.getuid()), '1',
-             '1', str(SUBID_BASE), '65535'], check=True,
-        )
-        subprocess.run(
-            ['newgidmap', str(process.pid), '0', str(os.getgid()), '1',
-             '1', str(SUBID_BASE), '65535'], check=True,
-        )
+        uid_map, gid_map, _uid_range, _gid_range = aaas_idmap.map_commands(process.pid)
+        subprocess.run(uid_map, check=True)
+        subprocess.run(gid_map, check=True)
         process.stdin.write('ready\n')
         process.stdin.flush()
         _stdout, stderr = process.communicate(timeout=10)
@@ -183,7 +183,7 @@ def ensure_host_access(path):
         return
     if path.stat().st_uid == uid:
         _apply_acl_as_host(path)
-    elif path.stat().st_uid == SUBID_BASE + ANDROID_MEDIA_RW_ID - 1:
+    elif path.stat().st_uid == aaas_idmap.android_host_id(ANDROID_MEDIA_RW_ID, kind='uid'):
         _apply_acl_as_mapped_media_rw(path)
     else:
         raise RuntimeError(
@@ -216,7 +216,7 @@ def _ensure_public_directory_acls(path):
         return
     if path.stat().st_uid == uid:
         _apply_acl_as_host(path, present)
-    elif path.stat().st_uid == SUBID_BASE + ANDROID_MEDIA_RW_ID - 1:
+    elif path.stat().st_uid == aaas_idmap.android_host_id(ANDROID_MEDIA_RW_ID, kind='uid'):
         _apply_acl_as_mapped_media_rw(path, present)
     else:
         raise RuntimeError('shared storage owner changed unexpectedly')
@@ -282,14 +282,9 @@ def _apply_acl_as_mapped_media_rw(path, directories=()):
             time.sleep(.01)
         else:
             raise TimeoutError('rootless ACL helper UID mapping timed out')
-        subprocess.run(
-            ['newuidmap', str(process.pid), '0', str(os.getuid()), '1',
-             '1', str(SUBID_BASE), '65535'], check=True,
-        )
-        subprocess.run(
-            ['newgidmap', str(process.pid), '0', str(os.getgid()), '1',
-             '1', str(SUBID_BASE), '65535'], check=True,
-        )
+        uid_map, gid_map, _uid_range, _gid_range = aaas_idmap.map_commands(process.pid)
+        subprocess.run(uid_map, check=True)
+        subprocess.run(gid_map, check=True)
         process.stdin.write('ready\n')
         process.stdin.flush()
         _stdout, stderr = process.communicate(timeout=10)

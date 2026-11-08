@@ -118,6 +118,12 @@ class TransitionInputPatchTests(unittest.TestCase):
                   patch.object(RUNNER, "FRAMEWORK_TRANSITION_OVERLAY", overlay),
                   patch.object(RUNNER, "FRAMEWORK_TRANSITION_RECEIPT", receipt_path)):
                 self.assertTrue(RUNNER.framework_transition_overlay_is_current())
+                receipt = json.loads(receipt_path.read_text())
+                receipt['input'] = '/old-workspace/rootfs_m1b1/system/framework/framework.jar'
+                receipt['builder'] = '/old-home/aaas/scripts/build_m1e_transition_input_overlay.py'
+                receipt['overlay'] = '/old-workspace/tmp/m1e_framework_transition_input.jar'
+                receipt_path.write_text(json.dumps(receipt))
+                self.assertTrue(RUNNER.framework_transition_overlay_is_current())
                 builder.write_bytes(b"changed builder")
                 self.assertFalse(RUNNER.framework_transition_overlay_is_current())
 

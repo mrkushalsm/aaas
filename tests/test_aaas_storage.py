@@ -116,7 +116,7 @@ class SharedStorageBackingTests(unittest.TestCase):
             )
             self.assertEqual(
                 root.stat().st_uid,
-                aaas_storage.SUBID_BASE + aaas_storage.ANDROID_MEDIA_RW_ID - 1,
+                aaas_storage._android_media_host_uid(),
             )
             self.assertFalse(os.access(root, os.R_OK | os.W_OK | os.X_OK))
 

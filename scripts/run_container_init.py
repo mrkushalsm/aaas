@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aaas_config
+import aaas_idmap
 
 class BinderctlNum(ctypes.Structure):
     _fields_ = [
@@ -121,8 +122,10 @@ exec bwrap \\
     p = subprocess.Popen(["unshare", "-U", "-m", "-p", "-f", str(child_script)])
     uid = os.getuid()
     gid = os.getgid()
-    subprocess.run(["newuidmap", str(p.pid), "0", str(uid), "1", "1", "100000", "65535"], check=True)
-    subprocess.run(["newgidmap", str(p.pid), "0", str(gid), "1", "1", "100000", "65535"], check=True)
+    uid_map, gid_map, _uid_range, _gid_range = aaas_idmap.map_commands(
+        p.pid, host_uid=uid, host_gid=gid)
+    subprocess.run(uid_map, check=True)
+    subprocess.run(gid_map, check=True)
 
     with open(fifo_path, "w") as f:
         f.write("go\n")

@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import tempfile
 import time
+import aaas_idmap
 
 
 SCHEMA = 1
@@ -203,16 +204,18 @@ print(total)
                 raise UserdataError(
                     f'rootless userdata accounting helper identity changed after {helper}')
 
-        map_identity('newuidmap', '0', str(os.getuid()), '1',
-                     '1', '100000', '65535')
-        expected_uid_map = f'0 {os.getuid()} 1\n1 100000 65535'
+        uid_map, gid_map, uid_range, gid_range = aaas_idmap.map_commands(
+            process.pid)
+        map_identity('newuidmap', *uid_map[2:])
+        expected_uid_map = (f'0 {os.getuid()} 1\n'
+                            f'1 {uid_range.start} {aaas_idmap.MAP_LENGTH}')
         actual_uid_map = Path(f'/proc/{process.pid}/uid_map').read_text().strip()
         if ' '.join(actual_uid_map.split()) != ' '.join(expected_uid_map.split()):
             raise UserdataError(
                 f'rootless userdata accounting UID map is unexpected: {actual_uid_map}')
-        map_identity('newgidmap', '0', str(os.getgid()), '1',
-                     '1', '100000', '65535')
-        expected_gid_map = f'0 {os.getgid()} 1\n1 100000 65535'
+        map_identity('newgidmap', *gid_map[2:])
+        expected_gid_map = (f'0 {os.getgid()} 1\n'
+                            f'1 {gid_range.start} {aaas_idmap.MAP_LENGTH}')
         actual_gid_map = Path(f'/proc/{process.pid}/gid_map').read_text().strip()
         if ' '.join(actual_gid_map.split()) != ' '.join(expected_gid_map.split()):
             raise UserdataError(

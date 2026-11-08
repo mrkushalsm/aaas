@@ -7,10 +7,10 @@ import signal
 import subprocess
 import tempfile
 import time
+import aaas_idmap
 
 MAGIC = b'AASCLIP1\n'
 MAX_TEXT_BYTES = 64 * 1024
-SUBID_BASE = 100000
 
 
 def encode_frame(text: str | None) -> bytes:
@@ -135,7 +135,7 @@ def app_uid_to_host_uid(android_uid: int) -> int:
     """Translate Android user-0 app UID through the runtime's subordinate map."""
     if isinstance(android_uid, bool) or not isinstance(android_uid, int) or not 10000 <= android_uid <= 65535:
         raise ValueError('Android application UID is outside the mapped app range')
-    return SUBID_BASE + android_uid - 1
+    return aaas_idmap.android_host_id(android_uid, kind='uid')
 
 
 def parse_runtime_state(value: str) -> tuple[int, bool] | None:
@@ -206,15 +206,15 @@ def start_mapped_bridge(command: list[str], *, stdout, env=None):
 
         host_uid = os.getuid()
         host_gid = os.getgid()
-        map_identity('newuidmap', ('0', str(host_uid), '1',
-                                   '1', str(SUBID_BASE), '65535'))
-        expected_uid_map = f'0 {host_uid} 1\n1 {SUBID_BASE} 65535'
+        uid_map, gid_map, uid_range, gid_range = aaas_idmap.map_commands(
+            process.pid, host_uid=host_uid, host_gid=host_gid)
+        map_identity('newuidmap', tuple(uid_map[2:]))
+        expected_uid_map = f'0 {host_uid} 1\n1 {uid_range.start} {aaas_idmap.MAP_LENGTH}'
         actual_uid_map = Path(f'/proc/{process.pid}/uid_map').read_text().strip()
         if ' '.join(actual_uid_map.split()) != ' '.join(expected_uid_map.split()):
             raise RuntimeError('clipboard bridge UID mapping is unexpected')
-        map_identity('newgidmap', ('0', str(host_gid), '1',
-                                   '1', str(SUBID_BASE), '65535'))
-        expected_gid_map = f'0 {host_gid} 1\n1 {SUBID_BASE} 65535'
+        map_identity('newgidmap', tuple(gid_map[2:]))
+        expected_gid_map = f'0 {host_gid} 1\n1 {gid_range.start} {aaas_idmap.MAP_LENGTH}'
         actual_gid_map = Path(f'/proc/{process.pid}/gid_map').read_text().strip()
         if ' '.join(actual_gid_map.split()) != ' '.join(expected_gid_map.split()):
             raise RuntimeError('clipboard bridge GID mapping is unexpected')

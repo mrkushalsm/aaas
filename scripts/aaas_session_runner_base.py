@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+import aaas_idmap
 
 
 def main():
@@ -552,8 +553,10 @@ exec bwrap \\
         time.sleep(0.01)
     else:
         raise TimeoutError("unshare did not enter a new user namespace")
-    subprocess.run(["newuidmap", str(p.pid), "0", str(uid), "1", "1", "100000", "65535"], check=True)
-    subprocess.run(["newgidmap", str(p.pid), "0", str(gid), "1", "1", "100000", "65535"], check=True)
+    uid_map, gid_map, _uid_range, _gid_range = aaas_idmap.map_commands(
+        p.pid, host_uid=uid, host_gid=gid)
+    subprocess.run(uid_map, check=True)
+    subprocess.run(gid_map, check=True)
 
     with open(fifo_path, "w") as f:
         f.write("go\n")
