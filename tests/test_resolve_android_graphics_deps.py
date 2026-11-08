@@ -1,7 +1,7 @@
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from scripts import resolve_android_graphics_deps as resolver
 
@@ -53,10 +53,13 @@ class GraphicsSourceResolverTest(unittest.TestCase):
                         b'"revision":"' + b'a' * 40 + b'"}')
 
         from urllib.error import HTTPError
+        response_body = MagicMock()
+        not_found = HTTPError('url', 404, 'missing', {}, response_body)
         with patch.object(resolver, 'urlopen', side_effect=[
-                HTTPError('url', 404, 'missing', {}, None), Response()]):
+                not_found, Response()]):
             entry = resolver.superproject_entry('b' * 40,
                                                  'external/starlark-go/starlark')
+        response_body.close.assert_called_once_with()
         self.assertEqual(entry['path'], 'external/starlark-go')
 
 

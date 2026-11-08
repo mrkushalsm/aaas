@@ -47,9 +47,12 @@ def superproject_entry(superproject, missing):
             with urlopen(url, timeout=20) as response:
                 entry = json.loads(response.read().decode().removeprefix(")]}'\n"))
         except HTTPError as exc:
-            if exc.code == 404:
-                continue
-            raise
+            try:
+                if exc.code == 404:
+                    continue
+                raise
+            finally:
+                exc.close()
         source_url = urlparse(entry.get('url', ''))
         if (entry.get('path') == project_path
                 and source_url.scheme == 'https'
