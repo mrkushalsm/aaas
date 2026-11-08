@@ -99,6 +99,24 @@
         "checkout": "system-sepolicy-qpr2",
         "revision": "43e4494a5a78317819dcc2766a11927c12ef3dfd",
         "layout": "copy"
+      },
+      {
+        "path": "system/tools/hidl",
+        "checkout": "system-tools-hidl-qpr2",
+        "revision": "9ea202c0fba585c2884a6bb2b1ba2dab46e98a8f",
+        "layout": "copy"
+      },
+      {
+        "path": "system/tools/xsdc",
+        "checkout": "system-tools-xsdc-qpr2",
+        "revision": "ef55c63066afcba5fd8781c2b056ccbe4c6ce687",
+        "layout": "copy"
+      },
+      {
+        "path": "system/tools/aidl",
+        "checkout": "system-tools-aidl-qpr2",
+        "revision": "3747384b876442e7ea0c355fe5adc75b29362833",
+        "layout": "copy"
       }
     ]
   },

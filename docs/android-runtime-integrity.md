@@ -243,13 +243,22 @@ was extended with `kernel/configs` revision
 `82c305fe2a7af49cbe9928e9b2fe1416f7810a41` and `system/sepolicy` revision
 `43e4494a5a78317819dcc2766a11927c12ef3dfd`, resolved from superproject
 `cc66c82349f536b77341e13862a548c01b048963`. Soong bootstrap then completed,
-but module discovery failed with unrecognized `hidl_interface`,
-`hidl_package_root`, `aidl_interface`, and `xsd_config` module types across the
-partial source snapshot. The required Soong plugin registration/source closure
-is not present in this probe. The build exited 1 before compiling minigbm; no
-allocator or mapper artifact was produced or installed. This QPR2 graph also
-does not match the SDK image's earlier build ABI and cannot be overlaid onto it
-without a matched build and compatibility evidence.
+but module discovery first failed with unrecognized `hidl_interface`,
+`hidl_package_root`, `aidl_interface`, and `xsd_config` types. The resolver now
+maps these types to their AOSP plugin projects, fetched at exact superproject
+revisions: `system/tools/hidl`
+`9ea202c0fba585c2884a6bb2b1ba2dab46e98a8f`, `system/tools/aidl`
+`3747384b876442e7ea0c355fe5adc75b29362833`, and `system/tools/xsdc`
+`ef55c63066afcba5fd8781c2b056ccbe4c6ce687`. On retry those parser errors
+disappeared. Soong then reported undefined platform modules across the partial
+graph, including `llvm-build-host-tools-defaults`,
+`libvintf_static_user_defaults`, `latest_android_media_audio_common_types_import_interface`,
+and test defaults. The build exited 1 before compiling minigbm; no allocator
+or mapper artifact was produced or installed. Expanding to a complete Android
+source checkout is not safe within the workspace's remaining 10 GiB quota
+headroom. This QPR2 graph also does not match the SDK image's earlier build ABI
+and cannot be overlaid onto it without a matched build and compatibility
+evidence.
 
 Added tests preserve existing graphics resolver/probe assertions, cover repair
 of stale generated links, and require source projects to be copied for Soong
@@ -257,8 +266,8 @@ module discovery while keeping large prebuilts linked. Profile tests now
 validate trust-classification values, and the production `verify` readiness
 predicate rejects experimental classifications. No Android session was
 started. Workspace health remains accepted by the existing guard; the current
-mount is ext4 UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, with 75,676,934,144
+mount is ext4 UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, with 75,820,453,888
 bytes accounted against the 85,899,345,920-byte workspace ceiling and
-42,493,853,696 bytes free. No matching new kernel storage errors were observed
-in the 15-minute post-build journal window. The build output remains a bounded
-diagnostic cache in the workspace and is not a runtime artifact.
+42,350,333,952 bytes free. No matching new kernel storage errors were observed
+in the post-build journal window. The build output remains a bounded diagnostic
+cache in the workspace and is not a runtime artifact.

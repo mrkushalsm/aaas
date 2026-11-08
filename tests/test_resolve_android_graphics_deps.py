@@ -7,6 +7,14 @@ from scripts import resolve_android_graphics_deps as resolver
 
 
 class GraphicsSourceResolverTest(unittest.TestCase):
+    def test_maps_soong_plugin_module_types_to_their_pinned_projects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / 'probe.log'
+            log.write_text('error: interface/Android.bp: unrecognized module type '
+                           '"hidl_interface"')
+            self.assertEqual(resolver.missing_source(log, Path(tmp) / 'build'),
+                             'system/tools/hidl')
+
     def test_soong_source_projects_are_copied_but_large_prebuilts_are_linked(self):
         self.assertEqual(resolver.project_layout('build/make'), 'copy')
         self.assertEqual(resolver.project_layout('kernel/configs'), 'copy')

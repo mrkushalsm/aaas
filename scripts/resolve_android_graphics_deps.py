@@ -19,6 +19,15 @@ import probe_android_graphics_build as graphics
 ERROR = re.compile(r'Error parsing directory "([^"]+)"')
 EXEC_ERROR = re.compile(r'fork/exec (prebuilts/[^ :]+): no such file or directory')
 MAKE_ERROR = re.compile(r'error: ([^ :]+): No such file or directory')
+MODULE_TYPE_ERROR = re.compile(r'unrecognized module type \"([^\"]+)\"')
+MODULE_TYPE_PROJECT = {
+    'hidl_interface': 'system/tools/hidl',
+    'hidl_package_root': 'system/tools/hidl',
+    'prebuilt_hidl_interfaces': 'system/tools/hidl',
+    'aidl_interface': 'system/tools/aidl',
+    'aidl_interface_defaults': 'system/tools/aidl',
+    'xsd_config': 'system/tools/xsdc',
+}
 BASE = 'https://android.googlesource.com/platform/superproject'
 
 
@@ -35,6 +44,9 @@ def project_layout(project_path):
 
 def missing_source(log, build_root):
     contents = Path(log).read_text()
+    module_type = MODULE_TYPE_ERROR.search(contents)
+    if module_type:
+        return MODULE_TYPE_PROJECT.get(module_type.group(1))
     match = ERROR.search(contents)
     if not match:
         other = EXEC_ERROR.search(contents) or MAKE_ERROR.search(contents)
