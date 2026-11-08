@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PASS/CLOSED** for the supported Android 16 x86_64 runtime under KWin. M2 lifecycle, M4 storage, installed-app catalog/launcher, bidirectional clipboard, notification forwarding, audio playback, microphone capture and permission enforcement have current or retained live acceptance evidence. The 2026-11-08 closure campaign repaired bounded capture failure on PipeWire loss and reran the integrated desktop regressions; details and evidence hashes are appended below and in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). BFE archive actions remain an application-specific compatibility limitation. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Current status: PARTIAL/OPEN.** The earlier M4 closure campaign and its evidence remain preserved in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). The resumed relocated-installation acceptance now has headless shared-storage and MediaStore restart evidence in [`results/m4/headless-shared-storage-2026-11-09.json`](../../results/m4/headless-shared-storage-2026-11-09.json). Interactive SAF and graphical application acceptance remain incomplete; the latter is paused under the unresolved KWin/Mesa safety concern in [`docs/incidents/host-graphics-impact-2026-11-09.md`](../incidents/host-graphics-impact-2026-11-09.md). M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 

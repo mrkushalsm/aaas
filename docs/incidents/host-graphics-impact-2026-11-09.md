@@ -81,3 +81,29 @@ acceptance until the proposed correction can be reviewed and safely tested.
 
 The historical Android userdata, original `rootfs_m1b1`, and existing bundle
 were not modified by this investigation.
+
+## Follow-up: isolated headless storage verification
+
+After the above incident review, the relocated runner was refreshed from the
+corrected source (`runtime/scripts/run_aaas.py`, SHA-256
+`1237e264658ad3da7df8b37cc1cee24775f0b02b6387d44870adaf5eab02fd93`). Three
+headless sessions (`m1b84_session_xec0v0at`, `m1b84_session_h3osoj6k`, and
+`m1b84_session_35eaufrt`) reached `RUNNING`, observed `sys.boot_completed=1`,
+`system_server`, `vold`, and the normal `emulated;0 mounted` volume. The
+idempotent hook logged `AAAS_EMULATED_STORAGE_ALREADY_MOUNTED` and did not issue
+a duplicate mount. Android-created shared-storage sentinels were visible on the
+host with matching SHA-256 values; a host-created file was scanned by Android
+MediaScanner and returned by MediaStore as
+`content://media/external_primary/file/18`. A prior Android-created sentinel
+remained visible and queryable after stop/start as
+`content://media/external_primary/file/19`. Each session stopped with status
+`STOPPED`; no AaaS runner, presenter, or installation workspace mount remained
+in the host namespace. Detailed machine-readable results are in
+[`results/m4/headless-shared-storage-2026-11-09.json`](../../results/m4/headless-shared-storage-2026-11-09.json).
+
+These tests did not launch the Wayland presenter, access the active KDE
+compositor, or exercise the SAF picker. Android-to-host writing used the
+headless session shell rather than an Android app permission context. The
+KWin/Mesa crash remains correlated but causation is not established; this
+follow-up does not resolve or attribute that crash and does not close graphical
+acceptance.
