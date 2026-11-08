@@ -86,8 +86,15 @@ or publish this local bundle.
 Automated tests create and relocate synthetic bundles, detect tampering, install
 two instances under different config/data/workspace roots, and verify that
 runtime security remains blocked. A real local installation uses a separate
-XDG config/data root, workspace and installation path. It confirms path
-relocation and integrity, not Android boot. The installed `aaas start` returned
-the existing security rejection before launching a session. M4's historical
-live acceptance remains the evidence for the original diagnostic installation;
-it is not evidence that a relocated Android runtime booted.
+XDG config/data root, workspace and installation path. The bundle and installed
+copy each verified 6,946 entries for bundle ID
+`e7efd621aeeb4297a36a770d57eadf22`. The installed workspace has staged bundle
+inputs but is not enrolled: `aaas setup` refused to adopt the nonempty directory
+without the explicit adoption option, and no workspace marker was created. The
+installed `aaas start` exited 2 before launching a session because the known
+SELinux bypass was detected, enforcement is unverified, the workspace is
+unenrolled, and runtime closure is partial. Status remained `STOPPED`. This
+confirms relocation and integrity, not Android boot. M4's historical live
+acceptance remains evidence for the original diagnostic installation only.
+The tests and observed statuses are recorded in
+[local bundle acceptance](../results/m6/local-bundle-acceptance-2026-11-08.json).
