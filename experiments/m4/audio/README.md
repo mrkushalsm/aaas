@@ -4,9 +4,11 @@
 selects session-local HAL/framework overlays, starts a UID-checked host bridge,
 and routes ordinary Android Music playback through PipeWire. AudioTrack
 controls, mono mixing, concurrent media/probe output, virtual and physical
-microphone capture, and clean shutdown have live evidence. Permission
-revocation, complete device-loss behavior, and final cross-workstream M4
-acceptance remain open.
+microphone capture, and clean shutdown have live evidence. Normal permission
+grant, active-capture revocation, fresh denial, regrant, and resumed capture are
+verified. Playback disconnect and recovery after private PipeWire restart are
+verified; synchronous capture waits for that restart. The full cross-workstream
+M4 acceptance remains open.
 
 ## Image and interface findings
 
@@ -79,19 +81,20 @@ source to suspend and therefore delivered silence.
 
 ## Remaining limitations
 
-The explicit permission-denied case and normal grant/persistence are verified;
-runtime-permission revocation and post-revocation AudioRecord denial remain
-open. The virtual source demonstrates software-only capture; no physical
-microphone was tested. The real-media-app path (including VLC/mpv URI access),
-pause/resume, volume/mute, concurrent clients, host sink/source disconnect,
-and idle/failure recovery remain open. Host and Android logs are retained only
-under the workspace's raw session records; no PCM payload was added to Git.
+The statements in this dated section describe the initial 2026-11-07
+acceptance state and are superseded by the follow-ups below. Later sessions
+verified ordinary Music playback, pause/resume, volume/mute, mono mixing,
+concurrent clients, a physical microphone, source/sink loss behavior, normal
+Android permission revocation and regrant, and private PipeWire service restart.
+The remaining audio limitation is that synchronous capture waits during a
+PipeWire outage until the service returns; immediate fail-fast behavior is not
+claimed. Host and Android raw logs remain in the workspace, and no PCM payload
+was added to Git.
 
-The corrected route remains opt-in and uses session-local compatible audio
+The route remains opt-in and uses session-local compatible audio
 framework/factory overlays plus the memfd ashmem shim. The base guest image is
-unchanged. See the dated `audio_microphone_continuation_2026_11_07`
-acceptance record for historical evidence. Canonical M4 remains
-**PARTIAL/OPEN**; vertical slices are not represented as complete acceptance.
+unchanged. The final combined M2/M3/M4 acceptance and resource-cleanup matrix
+remains open, so canonical M4 remains **PARTIAL/OPEN**.
 
 ## Runner overlay ordering regression (2026-11-07)
 
@@ -211,3 +214,36 @@ restart; a fresh capture then received PCM. This establishes restart-dependent
 transport recovery, not prompt capture failure. M4 remains **PARTIAL/OPEN**
 until microphone regrant, active-capture revocation, and the coherent combined
 M2/M3/M4 acceptance campaign pass.
+
+### Permission revocation and regrant verification (2026-11-08)
+
+The follow-up session `m1b84_session__6e4oa_6` used Android Settings through the
+supported display-aware AaaS tap path. PermissionController logged the normal
+request denial, Settings grant, active-session revocation, post-revocation
+normal-dialog denial, and a later Settings regrant. During active revocation,
+the audio bridge closed the capture stream after 67,200 frames; Android did not
+continue the requested 30-second recording. After regrant the ordinary
+nonprivileged probe received 1,440,000 controlled 48 kHz mono frames from a
+440 Hz PipeWire virtual source: RMS 3461.40, 25,311 zero crossings, dominant
+frequency 440 Hz. No raw PCM capture was retained. Session evidence hashes and
+the exact event sequence are recorded in `results/m4/acceptance.json`.
+
+The private PipeWire daemon outage experiment is also documented there. Playback
+disconnected and recovered on a fresh stream after service restart. Capture
+resumed after private service restart but its synchronous Pulse read waited
+during the outage; this is not an immediate failure guarantee. The combined
+M2/M3/M4 acceptance campaign remains open, so canonical M4 remains
+**PARTIAL/OPEN**.
+
+
+### Final acceptance follow-up (2026-11-08)
+
+A normal Android Settings grant/revocation/regrant sequence was tested against
+an active `AudioRecord` session. Revocation closed the active host stream; a new
+recording request was denied; after regrant, a fresh controlled 440 Hz virtual
+source capture passed. Audio-enabled M2 and M3 cross-runs also passed, as did
+Android notification post forwarding in an audio-enabled session. The isolated
+PipeWire outage test remains restart-dependent: playback disconnects and resumes
+on a fresh stream after restart; synchronous capture waits for restart. The
+full combined M4 acceptance matrix remains open. Session IDs, limitations, and
+evidence hashes are recorded in `results/m4/acceptance.json`.

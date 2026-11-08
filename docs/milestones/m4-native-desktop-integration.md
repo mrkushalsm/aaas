@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Status: PARTIAL/OPEN.** M2 lifecycle, M4 storage, installed-app catalog/launcher, bidirectional clipboard, and Android notification forwarding have accepted evidence. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation below. **Installed-App Catalog and Launcher Integration is PASS/CLOSED** in the 2026-11-06 launcher continuation. **Bidirectional Clipboard Integration is PASS/CLOSED for bounded UTF-8 text on KWin** in the [clipboard integration record](../m4-clipboard-integration.md). **Android Notification Forwarding is PASS/CLOSED** in the [notification integration record](../m4-notifications.md). BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. Canonical M4 remains open for host audio and microphone. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
+**Status: PARTIAL/OPEN.** M2 lifecycle, M4 storage, installed-app catalog/launcher, bidirectional clipboard, and Android notification forwarding have accepted evidence. **M4 Storage Integration is PASS/CLOSED** in the 2026-11-06 continuation below. **Installed-App Catalog and Launcher Integration is PASS/CLOSED** in the 2026-11-06 launcher continuation. **Bidirectional Clipboard Integration is PASS/CLOSED for bounded UTF-8 text on KWin** in the [clipboard integration record](../m4-clipboard-integration.md). **Android Notification Forwarding is PASS/CLOSED** in the [notification integration record](../m4-notifications.md). Audio playback, PCM controls, concurrent clients, controlled microphone capture, and permission revocation/regrant have accepted vertical and cross-run evidence. PipeWire playback disconnect/restart recovery passed in an isolated live transport test; capture waits for service recovery. Audio-enabled M2, M3, and notification sessions passed. The unified full cross-feature acceptance and cleanup matrix remains open, so canonical M4 remains **PARTIAL/OPEN**. BFE's archive actions remain an application-specific compatibility limitation; its ordinary shared-file operations are separately verified. M4 follows the [canonical roadmap](../roadmap.md); M5 performance and M6 compositor portability remain separate.
 
 ## Baseline and scope
 
@@ -797,4 +797,83 @@ campaign. Canonical M4 remains **PARTIAL/OPEN** pending verified microphone
 regrant and active-capture revocation, an accepted capture outage policy, and
 the combined integration and cleanup run. Structured details are in
 `post_acceptance_verification_2026_11_08` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+
+### Completed revocation and regrant verification (2026-11-08)
+
+The earlier `post_acceptance_verification_2026_11_08` entry records the
+incomplete first attempt; it is retained as historical evidence. Follow-up
+session `m1b84_session__6e4oa_6` used the ordinary nonprivileged
+`org.aaas.audiocaptureprobe`, Android Settings, the supported display-aware tap
+path, and a bounded 30-second capture build. No `pm grant`, AppOps override,
+privileged policy, or raw microphone recording was used.
+
+Android PermissionController first reported the app's normal permission request
+denied. Settings then granted “Allow only while using the app”; a new
+AudioRecord session received 1,440,000 frames of controlled 48 kHz mono 440 Hz
+PCM (RMS 3461.40, 25,311 zero crossings, dominant frequency 440 Hz). Settings
+revoked RECORD_AUDIO while another AudioRecord session was active. The
+PermissionController UI audit recorded the granted-to-denied transition at
+guest time 04:28:23.957, and the host bridge closed that capture stream after
+67,200 frames (about 1.4 seconds), rather than forwarding the remaining
+30-second request. Launching the app again presented Android's normal
+permission dialog; choosing “Don’t allow” produced PermissionController result
+7 and `RECORD_PERMISSION_DENIED`. A subsequent Settings regrant was followed by
+a fresh successful 1,440,000-frame 440 Hz capture (RMS 3461.40, dominant
+frequency 440 Hz). This verifies Android revocation enforcement, fresh denial,
+normal regrant, and post-regrant controlled capture.
+
+A temporary 40-second synthetic 440 Hz WAV fed a temporary user-session
+PipeWire null sink for this test only. The sink module, WAV, playback process,
+Android session, audio bridge, presenters, and session socket were removed or
+stopped after acceptance. The session reached `STOPPED`. Its logcat SHA-256 is
+`482b5bd8a36ebcc2696084008467796c9346500361c4482d60024c18182f51bb`; its audio
+bridge log SHA-256 is
+`8c373fe59dd8f77fc81b8532a0a92863d5144fd51678a30bd7891e11512d458f`.
+
+The separate private PipeWire outage test remains as recorded above: playback
+observed disconnect and worked on a fresh stream after service restart; capture
+resumed after the same private service restarted, though the synchronous read
+waited during the outage. This is bounded-session recovery evidence, not a
+claim of immediate fail-fast capture behavior. The final unified M2/M3/M4
+cross-feature acceptance campaign and its complete cleanup matrix remain open;
+canonical M4 therefore remains **PARTIAL/OPEN**.
+
+
+## Integrated acceptance follow-up (2026-11-08)
+
+The ordinary Android microphone permission cycle is now verified in
+`m1b84_session__6e4oa_6`: initial denial, Settings grant, controlled AudioRecord,
+Settings revocation during active capture, fresh denial, Settings regrant, and a
+fresh successful capture. Active revocation closed the host capture stream after
+67,200 frames; the later controlled 48 kHz mono capture received 1,440,000
+frames of 440 Hz virtual-source PCM. No raw microphone recording was retained.
+
+Three live audio-enabled cross-runs followed. `m1b84_session_we0dsscc` opened
+Settings and Contacts in independent native windows, closed Contacts while
+Settings remained alive, and then passed the AudioTrack pause/resume, mute,
+volume, 48 kHz stereo, and 44.1 kHz mono probes while closing the unrelated
+Settings window. Presenter import/release counts balanced with zero outstanding
+buffers. `m1b84_session_01fi7o3w` passed the existing M3 diagnostic with the
+required `M3 ARM64 Native Bridge PASS mask=255` signature while the normal
+audio-enabled runner configured its session-local overlays; session teardown
+removed the Native Bridge overlay. `m1b84_session_ndi7p7d4` posted an ordinary
+Android notification through NotificationManager and the authorized session
+adapter forwarded it to the host while audio was enabled. Earlier accepted
+notification records still establish update/replacement and cancellation; this
+combined follow-up observed the post event. All sessions reached normal
+shutdown and their runtime processes stopped.
+
+The HAL, memfd ashmem compatibility shim, and HIDL factory interposer were
+rebuilt from the current source using the configured Android x86_64 toolchain
+with `-Wall -Wextra -Werror`; output hashes are in the structured record. The
+private PipeWire daemon outage result is unchanged: playback disconnected and a
+fresh stream succeeded after service restart; the synchronous capture read
+waited for service restart and then resumed. No automatic in-session restart or
+immediate capture failure is claimed. The combined sessions did not re-run the
+full clipboard transfer, launcher, storage security, notification update/cancel,
+and every cleanup assertion in one acceptance campaign. The full M4 integration
+matrix therefore remains **PARTIAL/OPEN**. Structured records are in
+`integrated_audio_m2_m3_sessions_2026_11_08` and
+`final_acceptance_crossruns_2026_11_08` in
 [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
