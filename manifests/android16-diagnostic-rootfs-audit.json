@@ -1,0 +1,384 @@
+{
+  "schema": 1,
+  "kind": "diagnostic-rootfs-provenance-baseline",
+  "not_a_build_recipe": true,
+  "status": "PARTIAL/OPEN",
+  "base_image": {
+    "sdk_package": "system-images;android-36;default;x86_64",
+    "revision": "r02",
+    "build_id": "BE2A.250530.026.D1",
+    "archive": "x86_64-36_r02.zip",
+    "size_bytes": 844217077,
+    "sha1": "829c076e8ff448a336097ae25a355b495ba36e2c",
+    "sha256": "e1b9d9fb665001ef27b16e57d8762a2d54aec6bff617e17506edb8676667b9da",
+    "sha256_provenance": "locally measured after matching the SDK-index size and SHA-1; not independently published by Google",
+    "archive_inspection": "PASS integrity; runtime compatibility remains UNVERIFIED"
+  },
+  "observed_diagnostic_rootfs": "workspace-relative: rootfs_m1b1",
+  "source_partition_inputs": [
+    "tmp/partitions/system.raw.img",
+    "tmp/partitions/system_ext.raw.img",
+    "tmp/partitions/vendor.raw.img"
+  ],
+  "audit_tool": "scripts/audit_android_runtime.py",
+  "audit_result_counts": {
+    "modified_base_files": 16,
+    "unchanged_base_files": 1,
+    "known_selinux_shim_overlays": 2,
+    "locally_modified_swiftshader_checkout_entries": 11
+  },
+  "assembly_recipe": "UNRESOLVED: current diagnostic rootfs is not to be used as a build input; complete source lock and safe transformations are absent",
+  "entries": [
+    {
+      "path": "system/bin/apexd",
+      "classification": "UNRESOLVED",
+      "original_sha256": "b3d4648fa580fab6bdd636d4e834f080b01b8fcddd30f6f36e56e34930cee17e",
+      "diagnostic_sha256": "078155264ee90a929bde9886da2cff3feb49252761bf1fd05e059cf7ad2d2aef",
+      "original_bytes": 1109056,
+      "diagnostic_bytes": 241,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/bin/servicemanager",
+      "classification": "UNRESOLVED",
+      "original_sha256": "43d82e239a024758c210d4d8e46d759e4fd82b5126f692625ae9cd586b904a8b",
+      "diagnostic_sha256": "f512132f23c0de2266efb29ee2c7bc8fccf813c808af22f4cd67fdd4d20ac46d",
+      "original_bytes": 120536,
+      "diagnostic_bytes": 120536,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/bin/surfaceflinger",
+      "classification": "UNCHANGED_BASE",
+      "original_sha256": "a6d1ddc34b15c5841ac7e89fd57e6210b718013cf4888cecb9c397f858d64848",
+      "diagnostic_sha256": "a6d1ddc34b15c5841ac7e89fd57e6210b718013cf4888cecb9c397f858d64848",
+      "source_image": "system-images;android-36;default;x86_64 r02",
+      "transformation": null,
+      "validation": "byte-identical to corresponding extracted base partition",
+      "provenance": "base image input"
+    },
+    {
+      "path": "system/bin/vdc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764",
+      "diagnostic_sha256": "803615d5c38a1617beb42f45dc145c6e1e1c244c2df13a182dd6602e4051ff02",
+      "original_bytes": 136128,
+      "diagnostic_bytes": 24,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/bin/vold",
+      "classification": "UNRESOLVED",
+      "original_sha256": "7347e89dc918ddc5b8afcca12f370992d2dd8721998efc60112c9d47156ca3c9",
+      "diagnostic_sha256": "8382c47269bac76f2e77c507118059fe0d5115948c458347db8cb0f30df00051",
+      "original_bytes": 1073168,
+      "diagnostic_bytes": 1073168,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/lib64/libandroid_runtime.so",
+      "classification": "UNRESOLVED",
+      "original_sha256": "b83f9229dbe4f6c74796db848bfc743eff7bf0c2286e7e92e414f1616ab0d0cc",
+      "diagnostic_sha256": "8ba85738c39ba0d4ec6ca56597bb0287db3d1ae22406fd0c98b689dd553b1350",
+      "original_bytes": 2923384,
+      "diagnostic_bytes": 2923384,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/lib64/libbinder.so",
+      "classification": "UNRESOLVED",
+      "original_sha256": "7f355db5308449a1d5015aeedf73ce33557bb5eec0c49f8930fbc20927da06f2",
+      "diagnostic_sha256": "5bdb61a5b5ab0b423c272b7ca95985c82832002d99238eb1e30cc7b8823c8b92",
+      "original_bytes": 851696,
+      "diagnostic_bytes": 851696,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/lib64/libhidlbase.so",
+      "classification": "UNRESOLVED",
+      "original_sha256": "7bd28a8bf7ba1f5d355ba2bfd603111b209fd7ec21dd44945dd0c5ce7b454a54",
+      "diagnostic_sha256": "454c3f08e67fd716df9ed5cce2aaeddf1a3f9b8c8175302a65a37219664b60a2",
+      "original_bytes": 745272,
+      "diagnostic_bytes": 745272,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system_ext/bin/hwservicemanager",
+      "classification": "UNRESOLVED",
+      "original_sha256": "aabf26cbafe3c1154da5ec323d272365259f38e9dbc45f4a224ed5d3de1d0a96",
+      "diagnostic_sha256": "53e63662ba3164cd22492a840d53b09c2d8d5a807b93fdba0be70dce64781ee5",
+      "original_bytes": 120136,
+      "diagnostic_bytes": 120136,
+      "source_partition": "system_ext",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/etc/init/apexd.rc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "1f4fc2d8195da261dddcbbc3cf0759ef48b2d14c4e98c445be0bb50a4ac077ba",
+      "diagnostic_sha256": "6a7418ffab1ee4cbeeaadbd91bb0a108ce51e2cf940192e8c3a82e7a51b81d9b",
+      "original_bytes": 1197,
+      "diagnostic_bytes": 1193,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/etc/init/hw/init.rc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "133923deca1bb776b83856eba406441849fb1903f8aa2f96940183ae976e205d",
+      "diagnostic_sha256": "7f94b3ff23e3a709300b83484eeee51ab6d514b59d97493acde66225583a8309",
+      "original_bytes": 58047,
+      "diagnostic_bytes": 58045,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/etc/init/netbpfload.rc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "b084ef36f4410b92ebf71ba6644baa989b84267b0d773661ecaebb7ea5a3c270",
+      "diagnostic_sha256": "7f91ee352212ec49e3c0d6df27467703f424bba2f59dbfe691a6d3883a8c6ef8",
+      "original_bytes": 3907,
+      "diagnostic_bytes": 3907,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/etc/init/vold.rc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "655dabdfc2899115be32ff7ca923070c76443caced6923996fb0a07d42e2097b",
+      "diagnostic_sha256": "c1616de7d75f3a51f1fbfcf9e9c4b9c1e2d574fa6ab3fcf59e6a3d0981dbf8e2",
+      "original_bytes": 377,
+      "diagnostic_bytes": 395,
+      "source_partition": "system",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "vendor/etc/init/hw/init.ranchu.rc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "4395b0e2bd9a06c58a02059322130f510684b0cef8fde2cc731f6cbccd188672",
+      "diagnostic_sha256": "8894cb68d8ebb21e13e5837ed322ec0d381899870f9d3fb36e723f02aa55c64a",
+      "original_bytes": 6370,
+      "diagnostic_bytes": 6380,
+      "source_partition": "vendor",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "vendor/etc/init/hwc3.rc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "4ebfc0c9606ebaa5191c487d28c51226b1bd5b1ade0e711d8d8643a5b1e1821c",
+      "diagnostic_sha256": "bd7d7435a8d70f4e0c53c63c9b111b08f8400bece1ca4c19247ba2848463433e",
+      "original_bytes": 259,
+      "diagnostic_bytes": 312,
+      "source_partition": "vendor",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "vendor/etc/init/android.hardware.graphics.allocator-service.ranchu.rc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "74085591d7da4ee3015170f239197871aa4531ce374bbf4e39be5c281be50df1",
+      "diagnostic_sha256": "6f9b50ebc6a4604fbde176a1856856c10d12e4420fd54339d73e16f85952aa14",
+      "original_bytes": 266,
+      "diagnostic_bytes": 318,
+      "source_partition": "vendor",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "vendor/etc/init/lights-default.rc",
+      "classification": "UNRESOLVED",
+      "original_sha256": "8c628bd4dadc54ec1732326d73e0b14ce464f74a86c4f87077e2b84183d240bb",
+      "diagnostic_sha256": "abf6a10bc992313eecf89f366f309ffe9b54cdfe218d3176b6333f8a791a5bdf",
+      "original_bytes": 153,
+      "diagnostic_bytes": 236,
+      "source_partition": "vendor",
+      "source_image": "system-images;android-36;default;x86_64 r02 (build BE2A.250530.026.D1)",
+      "purpose": "not established from a reproducible, reviewed source change",
+      "required_for": [
+        "unverified"
+      ],
+      "transformation": "no source-controlled transformation recipe established",
+      "compatibility": "only observed in this diagnostic rootfs; no clean runtime validation",
+      "validation": "hash comparison confirms difference from extracted source partition; does not establish correctness"
+    },
+    {
+      "path": "system/lib64/libselinux_shim.so",
+      "classification": "UNNECESSARY_LEGACY_CHANGE",
+      "diagnostic_sha256": "e2c9dd0b05ad56267a3405a2c19ee089657fd9e7d8cddc32d823bf6ea33619cb",
+      "source": "experiments/m1b/shim_selinux.c",
+      "purpose": "diagnostic compatibility shim; includes SELinux success responses and is forbidden in a secure candidate",
+      "required_for": [
+        "diagnostic runtime only; not acceptable for reconstructed secure runtime"
+      ],
+      "transformation": "copied into diagnostic rootfs; no production recipe",
+      "validation": "static source inspection detects always-success authorization/context APIs; not security-valid",
+      "source_sha256": "7d1298371f7821d60b1be23107d215aa17a79721a3acb4c7fcf8e29a2cdb5e7b"
+    },
+    {
+      "path": "vendor/lib64/libselinux_shim.so",
+      "classification": "UNNECESSARY_LEGACY_CHANGE",
+      "diagnostic_sha256": "e2c9dd0b05ad56267a3405a2c19ee089657fd9e7d8cddc32d823bf6ea33619cb",
+      "source": "experiments/m1b/shim_selinux.c",
+      "purpose": "diagnostic compatibility shim; includes SELinux success responses and is forbidden in a secure candidate",
+      "required_for": [
+        "diagnostic runtime only; not acceptable for reconstructed secure runtime"
+      ],
+      "transformation": "copied into diagnostic rootfs; no production recipe",
+      "validation": "static source inspection detects always-success authorization/context APIs; not security-valid",
+      "source_sha256": "7d1298371f7821d60b1be23107d215aa17a79721a3acb4c7fcf8e29a2cdb5e7b"
+    },
+    {
+      "path": "sources/swiftshader",
+      "classification": "UNRESOLVED",
+      "modified_entry_count": 11,
+      "modified_paths": [
+        "src/Vulkan/VkDevice.hpp",
+        "src/Vulkan/VkDeviceMemory.cpp",
+        "src/Vulkan/VkDeviceMemoryExternalAndroid.cpp",
+        "src/Vulkan/VkGetProcAddress.cpp",
+        "src/Vulkan/VkImage.cpp",
+        "src/Vulkan/VkImage.hpp",
+        "src/Vulkan/VkPhysicalDevice.cpp",
+        "src/Vulkan/VkPhysicalDevice.hpp",
+        "src/Vulkan/libVulkan.cpp",
+        "third_party/llvm-subzero/lib/Support/ManagedStatic.cpp",
+        "src/Vulkan/CMakeLists.txt.orig"
+      ],
+      "tracked_diff_sha256": "48bcbfc58c712cc6832c48e9cfde05f6c560cb6f09c22aaa02b8741a21f26080",
+      "purpose": "local Android external-memory and Vulkan behavior changes; accepted evidence warns of fence/synchronization semantics changes",
+      "required_for": [
+        "diagnostic graphics path; exact dependency not independently proven"
+      ],
+      "transformation": "local working-tree changes are not a pinned source patch",
+      "validation": "repository status audit detected modifications; reproducible build not established"
+    }
+  ],
+  "security_gate": {
+    "selinux_authorization_bypass_present": true,
+    "selinux_enforcement_verified": false,
+    "apex_activation_verified": false,
+    "provisionable": false,
+    "reason": "host kernel exposes capability,landlock,lockdown,yama,bpf and no SELinux LSM/selinuxfs; diagnostic shim fakes authorization success; APEX audit observes 47 package records, zero active claims, and does not prove apexd activation"
+  },
+  "created_from": "live read-only comparison on 2026-11-08; historical diagnostic changes remain preserved",
+  "validation": {
+    "profile_inspection": "compatibility MATCH; provenance UNVERIFIED; security BYPASS_DETECTED; enforcement UNVERIFIED; provisionable false; exit 2",
+    "normal_cli_verify": "workspace PASS; ready false; exit 2",
+    "normal_cli_start": "refused before runtime startup; exit 2",
+    "apex_audit": "47 package records; 0 active claims; activation_verified false; 0 package metadata errors",
+    "python_tests": "423 passed; 1 skipped; 0 failures/errors",
+    "focused_profile_tests": "6 passed",
+    "workspace_guard": "HEALTHY_FOR_CONTROLLED_TESTING; used 74472550400 bytes; ceiling 85899345920 bytes; free 43698237440 bytes; reserve 21474836480 bytes",
+    "fresh_android_session": "not started; insecure diagnostic rootfs was not booted"
+  }
+}

@@ -140,3 +140,12 @@ source-built replacements needed for a policy-preserving runtime have not been
 built against a matching Android image ABI. See
 [`android-runtime-integrity.md`](android-runtime-integrity.md) and
 [`android-source-lock.md`](android-source-lock.md).
+
+The 2026-11-08 assessment confirmed that the host kernel exposes no SELinux
+LSM or SELinux policy interface. The profile inspector now reports the
+diagnostic shim as `BYPASS_DETECTED` and cannot mark SELinux enforcement
+verified from static image contents. `aaas setup`, `verify`, and `start` must
+continue to fail closed for this profile until a policy-preserving runtime
+architecture and fresh live security tests exist. The accepted M4 results
+describe the controlled diagnostic configuration and do not certify it for
+untrusted applications or distribution.

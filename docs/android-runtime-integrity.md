@@ -152,3 +152,75 @@ installer. An installable runtime needs capability detection, configurable
 paths, per-distribution prerequisites, and fail-closed checks for Binder,
 namespaces, cgroups, security policy, and the graphics stack. No host-wide
 security setting should be weakened by setup or runtime scripts.
+
+## Reconstructed-rootfs security gate (2026-11-08)
+
+The retained Android 16 SDK archive was re-read and verified against the
+recorded package size and SHA-1; its locally measured SHA-256 also matches the
+manifest. The SHA-256 is local evidence, not a Google-published digest. This
+validates the input archive only, not a runnable or secure AaaS image.
+
+A fresh read-only comparison of `rootfs_m1b1` against the extracted `system`,
+`system_ext`, and `vendor` partitions found 16 changed critical files, one
+unchanged critical file (`surfaceflinger`), two `libselinux_shim.so` overlays,
+and a modified SwiftShader checkout with 11 worktree entries (10 tracked
+changes and one untracked backup). The exact original/current hashes and
+classification for each finding are in
+[`android16-diagnostic-rootfs-audit.json`](../../manifests/android16-diagnostic-rootfs-audit.json).
+All 16 critical changes remain `UNRESOLVED`: the diagnostic source image
+shows their outputs, but no reviewed source patch/build recipe establishes
+their provenance or security behavior. The diagnostic rootfs is not a
+reconstruction input.
+
+The two SELinux shim overlays are an explicit security failure. The source in
+`experiments/m1b/shim_selinux.c` returns success for `selinux_check_access`,
+policy-loading/status calls, and context/label operations, fabricates SELinux
+contexts, and alters Binder flags. It cannot be included in a reconstructed
+runtime for third-party applications. The current host kernel's
+`/sys/kernel/security/lsm` reports `capability,landlock,lockdown,yama,bpf`;
+`/sys/fs/selinux/load` and `/sys/fs/selinux/enforce` are absent. AOSP's SELinux
+bring-up requires a kernel built with SELinux support and Android init loading
+policy into the kernel; see the [AOSP SELinux implementation
+guide](https://source.android.com/docs/security/features/selinux/implement)
+and [policy validation guidance](https://source.android.com/docs/security/features/selinux/validate).
+This shared-kernel rootless session therefore cannot establish an independent
+Android enforcing policy on this host. No SELinux enforcement or app-domain
+isolation claim is made for the diagnostic runtime.
+
+The read-only APEX audit parsed 47 package records, found no active claims,
+and reports `activation_verified: false`. The diagnostic `/system/bin/apexd`
+wrapper sets `apexd.status` properties and exits successfully for bootstrap
+requests; that is not package verification, mount activation, or linker
+namespace setup. APEX activation remains unresolved. No APEX library is copied
+into a new rootfs as a substitute for activation.
+
+The profile inspector now reports known SELinux bypass artifacts and preload
+references. It labels enforcement `UNVERIFIED` even when no known shim is
+found, because static image inspection cannot prove kernel policy state. The
+CLI requires explicit verified enforcement before an image can be considered
+ready. The Android 16 profile remains `automatically_installable: false`.
+
+The two missing extracted comparison inputs (`system_ext` and `vendor`) were
+recreated from the retained `tmp/system.img` with
+`scripts/extract_super_partitions.py`; the old rootfs and userdata were not
+modified. Current storage still has limited headroom under the workspace
+ceiling. A complete 1,015-project Android source checkout and platform build
+was not started: the repository has no resolved full source lock, and the
+documented graphics-source probe previously stopped at an incomplete Soong
+dependency graph. The independent secure rootfs and live M2/M3/M4 acceptance
+remain open.
+
+The profile inspector returned `compatibility: MATCH` but
+`provenance: UNVERIFIED`, `security: BYPASS_DETECTED`,
+`enforcement: UNVERIFIED`, and `provisionable: false` for the diagnostic
+rootfs. With the configured workspace enrolled, both `aaas verify` and
+`aaas start` exited 2; `start` refused before launching a session. No fresh
+Android session was started. The full Python suite passed 423 tests with one
+existing skip; the focused profile tests passed six. Python compilation, JSON
+validation, and `git diff --check` passed.
+
+The re-extracted `system_ext` and `vendor` comparison images occupy 318,361,600
+bytes. Workspace guard accounting after extraction was 74,472,550,400 bytes
+used against an 85,899,345,920-byte ceiling; filesystem availability was
+43,698,237,440 bytes against a 21,474,836,480-byte reserve. Health remains
+`HEALTHY_FOR_CONTROLLED_TESTING`; historical device incidents are retained.
