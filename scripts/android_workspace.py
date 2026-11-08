@@ -743,11 +743,17 @@ def validate_mounted_workspace(workspace, sentinels=()):
 def allocated_bytes(root):
     total = 0
     seen = set()
+    root = Path(root)
+    candidates = root / 'rootfs-candidates'
+    candidate_bytes = _allocated_bytes_rootless(candidates) if (
+        candidates.is_dir() and not candidates.is_symlink()) else 0
     private_userdata = Path(root) / aaas_userdata.DIRECTORY_NAME
     scan_private_userdata = private_userdata.is_dir() and not private_userdata.is_symlink()
     for base, dirs, files in os.walk(root, followlinks=False):
-        if scan_private_userdata and Path(base) == Path(root):
-            dirs[:] = [name for name in dirs if name != aaas_userdata.DIRECTORY_NAME]
+        if Path(base) == root:
+            dirs[:] = [name for name in dirs if name != 'rootfs-candidates']
+            if scan_private_userdata:
+                dirs[:] = [name for name in dirs if name != aaas_userdata.DIRECTORY_NAME]
         for name in dirs + files:
             path = os.path.join(base, name)
             st = os.lstat(path)
@@ -757,7 +763,23 @@ def allocated_bytes(root):
                 total += st.st_blocks * 512
     if scan_private_userdata:
         total += aaas_userdata.allocated_bytes_rootless(private_userdata)
-    return total
+    return total + candidate_bytes
+
+
+def _allocated_bytes_rootless(path):
+    """Account Android-owned candidate trees through the runner's UID map."""
+    try:
+        result = subprocess.run(
+            ['unshare', '--user', '--map-root-user', '--map-auto', 'du', '-s',
+             '--block-size=1', '--', str(path)],
+            capture_output=True, text=True, check=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WorkspaceError(f'cannot account rootfs-candidates in a mapped user namespace: {error}') from error
+    try:
+        return int(result.stdout.split()[0])
+    except (IndexError, ValueError) as error:
+        raise WorkspaceError('rootless du returned invalid candidate usage') from error
 
 
 def _filesystem_mount_target(path):

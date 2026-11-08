@@ -136,6 +136,17 @@ def inspect_rootfs(rootfs, profile_id='android16-ranchu-x86_64'):
     mismatches = {key: {'expected': expected[key], 'actual': actual[key]}
                   for key in expected if actual[key] != expected[key]}
     security = _selinux_security(root, profile)
+    assembly_manifest = None
+    manifest_path = root.parent / 'manifest.json'
+    if manifest_path.is_file() and not manifest_path.is_symlink():
+        try:
+            candidate_manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            candidate_manifest = None
+        if (isinstance(candidate_manifest, dict)
+                and candidate_manifest.get('schema') == 1
+                and candidate_manifest.get('candidate_rootfs_relative') == 'rootfs'):
+            assembly_manifest = candidate_manifest
     provisioning_blockers = []
     if not profile['provisioning']['automatically_installable']:
         provisioning_blockers.append(profile['provisioning']['reason'])
@@ -145,10 +156,14 @@ def inspect_rootfs(rootfs, profile_id='android16-ranchu-x86_64'):
         provisioning_blockers.append('SELinux enforcement has not been verified in a live runtime')
     return {
         'profile': profile_id,
-        'trust_classification': profile['trust_classification'],
+        'trust_classification': (assembly_manifest.get('trust_classification')
+                                 if assembly_manifest else profile['trust_classification']),
+        'assembly_status': (assembly_manifest.get('status') if assembly_manifest else None),
+        'runtime_ready': bool(assembly_manifest and assembly_manifest.get('runtime_ready'))
+                         if assembly_manifest else None,
         'rootfs': str(root),
         'compatibility': 'MATCH' if not missing and not mismatches else 'UNSUPPORTED',
-        'provenance': 'UNVERIFIED',
+        'provenance': ('VERIFIED_BASE_ASSEMBLY' if assembly_manifest else 'UNVERIFIED'),
         'provisionable': (profile['provisioning']['automatically_installable']
                           and not provisioning_blockers),
         'security': security,

@@ -49,6 +49,23 @@ class AndroidProfileTests(unittest.TestCase):
         self.assertEqual(result['security']['enforcement'], 'UNVERIFIED')
         self.assertFalse(result['provisionable'])
 
+    def test_candidate_manifest_is_reported_as_incomplete_and_never_provisionable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate = Path(temporary) / 'candidate'
+            root = candidate / 'rootfs'
+            root.mkdir(parents=True)
+            self.rootfs(root)
+            (candidate / 'manifest.json').write_text(json.dumps({
+                'schema': 1, 'status': 'ASSEMBLED_INCOMPLETE',
+                'trust_classification': 'RECONSTRUCTED_EXPERIMENTAL',
+                'runtime_ready': False, 'candidate_rootfs_relative': 'rootfs',
+            }))
+            result = aaas_profiles.inspect_rootfs(root)
+        self.assertEqual(result['assembly_status'], 'ASSEMBLED_INCOMPLETE')
+        self.assertEqual(result['trust_classification'], 'RECONSTRUCTED_EXPERIMENTAL')
+        self.assertFalse(result['runtime_ready'])
+        self.assertFalse(result['provisionable'])
+
     def test_selinux_success_shim_makes_rootfs_explicitly_unsafe(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'rootfs'

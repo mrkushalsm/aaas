@@ -267,6 +267,12 @@ def _parser():
     image_commands = images.add_subparsers(dest='images_command', required=True)
     image_commands.add_parser('list')
     inspect = image_commands.add_parser('inspect'); inspect.add_argument('path', type=Path)
+    build = image_commands.add_parser('build', help='assemble a verified SDK image into an incomplete rootfs candidate')
+    build.add_argument('profile')
+    build.add_argument('--image', type=Path,
+                       help='use an explicitly located copy of the profile image archive')
+    build.add_argument('--dry-run', action='store_true',
+                       help='check workspace capacity and print the assembly plan')
     return parser
 
 
@@ -344,6 +350,14 @@ def main(argv=None):
         if args.command == 'images':
             if args.images_command == 'list':
                 _emit(list(aaas_profiles.profiles().values()), json_output); return 0
+            if args.images_command == 'build':
+                command = ['--workspace', config.workspace, '--profile', args.profile]
+                if args.image:
+                    command.extend(('--image', args.image.expanduser().absolute()))
+                if args.dry_run:
+                    command.append('--dry-run')
+                return _run_script('assemble_android_rootfs.py', *command,
+                                   config=config)
             path = args.path
             is_rootfs = path.is_dir()
             result = (aaas_profiles.inspect_rootfs(path) if is_rootfs

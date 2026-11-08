@@ -1,0 +1,262 @@
+{
+  "schema": 1,
+  "kind": "android16-sdk-r02-diagnostic-transformation-recovery",
+  "status": "PARTIAL",
+  "base_image": {
+    "sdk_package": "system-images;android-36;default;x86_64",
+    "revision": "r02",
+    "build_id": "BE2A.250530.026.D1",
+    "archive": "x86_64-36_r02.zip",
+    "size_bytes": 844217077,
+    "sha1": "829c076e8ff448a336097ae25a355b495ba36e2c",
+    "sha256": "e1b9d9fb665001ef27b16e57d8762a2d54aec6bff617e17506edb8676667b9da",
+    "sha256_provenance": "locally measured after matching the SDK-index size and SHA-1; not independently published by Google",
+    "archive_inspection": "PASS integrity; runtime compatibility remains UNVERIFIED"
+  },
+  "source_audit": "manifests/android16-diagnostic-rootfs-audit.json",
+  "entries": [
+    {
+      "path": "system/bin/apexd",
+      "classification": "UNNECESSARY_LEGACY_CHANGE",
+      "source_partition": "system",
+      "base_sha256": "b3d4648fa580fab6bdd636d4e834f080b01b8fcddd30f6f36e56e34930cee17e",
+      "diagnostic_sha256": "078155264ee90a929bde9886da2cff3feb49252761bf1fd05e059cf7ad2d2aef",
+      "diagnostic_bytes": 241,
+      "historical_purpose": "The 241-byte diagnostic wrapper sets status properties and does not establish APEX verification or mounts.",
+      "reconstruction": "Exclude the wrapper and retain stock apexd. APEX activation remains unresolved and must be implemented before runtime use.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred.",
+      "evidence": [
+        "docs/android-runtime-integrity.md",
+        "docs/m1b3-status.md",
+        "scripts/audit_m1b3_apex.py"
+      ]
+    },
+    {
+      "path": "system/bin/servicemanager",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "43d82e239a024758c210d4d8e46d759e4fd82b5126f692625ae9cd586b904a8b",
+      "diagnostic_sha256": "f512132f23c0de2266efb29ee2c7bc8fccf813c808af22f4cd67fdd4d20ac46d",
+      "diagnostic_bytes": 120536,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "system/bin/surfaceflinger",
+      "classification": "UNCHANGED_BASE",
+      "base_sha256": "a6d1ddc34b15c5841ac7e89fd57e6210b718013cf4888cecb9c397f858d64848",
+      "diagnostic_sha256": "a6d1ddc34b15c5841ac7e89fd57e6210b718013cf4888cecb9c397f858d64848",
+      "reconstruction": "Retain directly from the verified SDK partition.",
+      "validation": "The historic audit found byte identity; the fresh candidate retains the verified source file."
+    },
+    {
+      "path": "system/bin/vdc",
+      "classification": "UNNECESSARY_LEGACY_CHANGE",
+      "source_partition": "system",
+      "base_sha256": "b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764",
+      "diagnostic_sha256": "803615d5c38a1617beb42f45dc145c6e1e1c244c2df13a182dd6602e4051ff02",
+      "diagnostic_bytes": 24,
+      "historical_purpose": "The diagnostic rootfs contains a 24-byte exit-0 stub that skipped Android init user-0/Vold initialization.",
+      "reconstruction": "Retain stock SDK vdc in the base. M1D uses the same verified original binary read-only per session.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred.",
+      "corrected_runtime_transformation": {
+        "classification": "SESSION_OVERLAY",
+        "source": "Verified original Android 16 SDK system partition",
+        "sha256": "b91c93e100f3892880665f9b47630d1170dc1fce4ee3cf249ec8f20e583fd764",
+        "destination": "/system/bin/vdc",
+        "mode": "read-only session bind overlay",
+        "validation": "Vold fscrypt_init_user0 and user data preparation completed in M1D acceptance"
+      },
+      "evidence": [
+        "results/m1d/unlock_text_entry_followup.json",
+        "results/m1d/acceptance.json"
+      ]
+    },
+    {
+      "path": "system/bin/vold",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "7347e89dc918ddc5b8afcca12f370992d2dd8721998efc60112c9d47156ca3c9",
+      "diagnostic_sha256": "8382c47269bac76f2e77c507118059fe0d5115948c458347db8cb0f30df00051",
+      "diagnostic_bytes": 1073168,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "system/lib64/libandroid_runtime.so",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "b83f9229dbe4f6c74796db848bfc743eff7bf0c2286e7e92e414f1616ab0d0cc",
+      "diagnostic_sha256": "8ba85738c39ba0d4ec6ca56597bb0287db3d1ae22406fd0c98b689dd553b1350",
+      "diagnostic_bytes": 2923384,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "system/lib64/libbinder.so",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "7f355db5308449a1d5015aeedf73ce33557bb5eec0c49f8930fbc20927da06f2",
+      "diagnostic_sha256": "5bdb61a5b5ab0b423c272b7ca95985c82832002d99238eb1e30cc7b8823c8b92",
+      "diagnostic_bytes": 851696,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred.",
+      "security_note": "History includes caller SID/security-context workarounds. The binary change is not reconstructed; no authorization behavior may be bypassed."
+    },
+    {
+      "path": "system/lib64/libhidlbase.so",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "7bd28a8bf7ba1f5d355ba2bfd603111b209fd7ec21dd44945dd0c5ce7b454a54",
+      "diagnostic_sha256": "454c3f08e67fd716df9ed5cce2aaeddf1a3f9b8c8175302a65a37219664b60a2",
+      "diagnostic_bytes": 745272,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred.",
+      "security_note": "History includes caller SID/security-context workarounds. The binary change is not reconstructed; no authorization behavior may be bypassed."
+    },
+    {
+      "path": "system_ext/bin/hwservicemanager",
+      "classification": "UNRESOLVED",
+      "source_partition": "system_ext",
+      "base_sha256": "aabf26cbafe3c1154da5ec323d272365259f38e9dbc45f4a224ed5d3de1d0a96",
+      "diagnostic_sha256": "53e63662ba3164cd22492a840d53b09c2d8d5a807b93fdba0be70dce64781ee5",
+      "diagnostic_bytes": 120136,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred.",
+      "security_note": "History includes caller SID/security-context workarounds. The binary change is not reconstructed; no authorization behavior may be bypassed."
+    },
+    {
+      "path": "system/etc/init/apexd.rc",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "1f4fc2d8195da261dddcbbc3cf0759ef48b2d14c4e98c445be0bb50a4ac077ba",
+      "diagnostic_sha256": "6a7418ffab1ee4cbeeaadbd91bb0a108ce51e2cf940192e8c3a82e7a51b81d9b",
+      "diagnostic_bytes": 1193,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred.",
+      "security_note": "Historical APEX completion properties are not activation evidence; no shimmed status or fake ready state is reproduced."
+    },
+    {
+      "path": "system/etc/init/hw/init.rc",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "133923deca1bb776b83856eba406441849fb1903f8aa2f96940183ae976e205d",
+      "diagnostic_sha256": "7f94b3ff23e3a709300b83484eeee51ab6d514b59d97493acde66225583a8309",
+      "diagnostic_bytes": 58045,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "system/etc/init/netbpfload.rc",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "b084ef36f4410b92ebf71ba6644baa989b84267b0d773661ecaebb7ea5a3c270",
+      "diagnostic_sha256": "7f91ee352212ec49e3c0d6df27467703f424bba2f59dbfe691a6d3883a8c6ef8",
+      "diagnostic_bytes": 3907,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "system/etc/init/vold.rc",
+      "classification": "UNRESOLVED",
+      "source_partition": "system",
+      "base_sha256": "655dabdfc2899115be32ff7ca923070c76443caced6923996fb0a07d42e2097b",
+      "diagnostic_sha256": "c1616de7d75f3a51f1fbfcf9e9c4b9c1e2d574fa6ab3fcf59e6a3d0981dbf8e2",
+      "diagnostic_bytes": 395,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "vendor/etc/init/hw/init.ranchu.rc",
+      "classification": "UNRESOLVED",
+      "source_partition": "vendor",
+      "base_sha256": "4395b0e2bd9a06c58a02059322130f510684b0cef8fde2cc731f6cbccd188672",
+      "diagnostic_sha256": "8894cb68d8ebb21e13e5837ed322ec0d381899870f9d3fb36e723f02aa55c64a",
+      "diagnostic_bytes": 6380,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "vendor/etc/init/hwc3.rc",
+      "classification": "UNRESOLVED",
+      "source_partition": "vendor",
+      "base_sha256": "4ebfc0c9606ebaa5191c487d28c51226b1bd5b1ade0e711d8d8643a5b1e1821c",
+      "diagnostic_sha256": "bd7d7435a8d70f4e0c53c63c9b111b08f8400bece1ca4c19247ba2848463433e",
+      "diagnostic_bytes": 312,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "vendor/etc/init/android.hardware.graphics.allocator-service.ranchu.rc",
+      "classification": "UNRESOLVED",
+      "source_partition": "vendor",
+      "base_sha256": "74085591d7da4ee3015170f239197871aa4531ce374bbf4e39be5c281be50df1",
+      "diagnostic_sha256": "6f9b50ebc6a4604fbde176a1856856c10d12e4420fd54339d73e16f85952aa14",
+      "diagnostic_bytes": 318,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "vendor/etc/init/lights-default.rc",
+      "classification": "UNRESOLVED",
+      "source_partition": "vendor",
+      "base_sha256": "8c628bd4dadc54ec1732326d73e0b14ce464f74a86c4f87077e2b84183d240bb",
+      "diagnostic_sha256": "abf6a10bc992313eecf89f366f309ffe9b54cdfe218d3176b6333f8a791a5bdf",
+      "diagnostic_bytes": 236,
+      "historical_purpose": "The audit reports no reproducible reviewed source change; exact rationale is not established.",
+      "reconstruction": "Do not copy the diagnostic output. Candidate retains the hash-verified original SDK file.",
+      "validation": "Original SDK file hash matched during fresh assembly; no runtime behavior is inferred."
+    },
+    {
+      "path": "sources/swiftshader",
+      "classification": "UNRESOLVED",
+      "historical_worktree_entries": 11,
+      "reconstruction": "Do not use the locally modified checkout. Changes include altered external-memory/Vulkan behavior and require source review plus real fence semantics tests.",
+      "evidence": [
+        "docs/android-runtime-integrity.md",
+        "docs/m1e-status.md"
+      ]
+    }
+  ],
+  "excluded_security_artifacts": [
+    {
+      "path": "system/lib64/libselinux_shim.so",
+      "diagnostic_sha256": "e2c9dd0b05ad56267a3405a2c19ee089657fd9e7d8cddc32d823bf6ea33619cb",
+      "classification": "EXCLUDED_SECURITY_BYPASS",
+      "reason": "Known SELinux compatibility shim fabricates authorization, context, or policy success; never materialize it in a candidate."
+    },
+    {
+      "path": "vendor/lib64/libselinux_shim.so",
+      "diagnostic_sha256": "e2c9dd0b05ad56267a3405a2c19ee089657fd9e7d8cddc32d823bf6ea33619cb",
+      "classification": "EXCLUDED_SECURITY_BYPASS",
+      "reason": "Known SELinux compatibility shim fabricates authorization, context, or policy success; never materialize it in a candidate."
+    }
+  ],
+  "assembly_observation": {
+    "fresh_candidate": "workspace-relative: rootfs-candidates/android16-ranchu-x86_64/BE2A.250530.026.D1",
+    "source_only": true,
+    "diagnostic_rootfs_used": false,
+    "verified_original_critical_files": 16,
+    "mismatched_files": 0,
+    "missing_files": 0
+  },
+ "unresolved_count": 15,
+  "notes": [
+    "This map distinguishes diagnostic mutations from corrected session-local transforms.",
+    "Retaining a stock source file does not prove runtime boot without diagnostic changes.",
+    "The assembled candidate is incomplete and not activated."
+  ]
+}

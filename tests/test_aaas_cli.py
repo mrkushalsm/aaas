@@ -28,7 +28,26 @@ class AaasCliTests(unittest.TestCase):
         self.assertEqual(parser.parse_args(['doctor', '--json']).command, 'doctor')
         self.assertEqual(parser.parse_args(['apps', '--json', 'list']).apps_command, 'list')
         self.assertEqual(parser.parse_args(['images', '--json', 'list']).images_command, 'list')
+        build = parser.parse_args(['images', 'build', 'android16-ranchu-x86_64',
+                                   '--dry-run', '--image', '/tmp/image.zip'])
+        self.assertEqual(build.images_command, 'build')
+        self.assertTrue(build.dry_run)
+        self.assertEqual(build.image, Path('/tmp/image.zip'))
         self.assertEqual(parser.parse_args(['verify', '--json']).command, 'verify')
+
+    def test_images_build_dispatches_to_source_assembler(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            with mock.patch.object(aaas_cli.aaas_config, 'resolve_config',
+                                   return_value=config), \
+                    mock.patch.object(aaas_cli, '_run_script', return_value=0) as run:
+                result = aaas_cli.main(['images', 'build', 'android16-ranchu-x86_64',
+                                        '--image', '/tmp/image.zip', '--dry-run'])
+        self.assertEqual(result, 0)
+        args = run.call_args
+        self.assertEqual(args.args[:2], ('assemble_android_rootfs.py', '--workspace'))
+        self.assertIn('--profile', args.args)
+        self.assertIn('--dry-run', args.args)
 
     def test_status_ignores_stale_running_sentinel_when_lock_is_free(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -105,6 +105,16 @@ class WorkspaceGuardTest(unittest.TestCase):
         scan.assert_called_once_with(private)
         self.assertGreaterEqual(result, 8192)
 
+    def test_rootfs_candidates_are_accounted_through_mapped_namespace(self):
+        candidate = self.workspace / 'rootfs-candidates'
+        candidate.mkdir()
+        (candidate / 'candidate').mkdir()
+        with patch.object(guard, '_allocated_bytes_rootless', return_value=16384) as scan:
+            result = guard.allocated_bytes(self.workspace)
+        scan.assert_called_once_with(candidate)
+        marker_bytes = (self.workspace / guard.MARKER).stat().st_blocks * 512
+        self.assertGreaterEqual(result, marker_bytes + 16384)
+
     def test_stops_child_after_actual_growth(self):
         self.marker.update(budget_gib=4, reserve_gib=1, working_ceiling_gib=2)
         (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
