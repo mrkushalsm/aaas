@@ -94,3 +94,24 @@ The retained candidate is outside Git and is intentionally not a release
 artifact. M4's historical `PASS/CLOSED` status is unchanged; the portable
 runtime foundation and independently runnable Android 16 rootfs remain
 `PARTIAL/OPEN`.
+
+## First-boot preflight
+
+`aaas debug boot --candidate PATH --json` performs a read-only, candidate-bound
+preflight. It checks workspace enrollment/health, candidate identity, assembly
+record validity, profile compatibility, known SELinux bypass artifacts, the
+host SELinux policy interface, and declared missing components. It never
+launches Android, mounts APEX images, creates a session, or falls back to
+`rootfs_m1b1`. A nonzero exit means the candidate is blocked; `launch_permitted`
+is always false until a separately validated runtime profile and launcher
+exist.
+
+On 2026-11-08 the preflight reported `SECURITY_BLOCKED`: the assembly record,
+profile, workspace health, and static bypass scan passed, while the host had
+LSMs `capability,landlock,lockdown,yama,bpf` and no SELinux policy-load
+interface. APEX activation was unverified and the exact-image graphics
+allocator/mapper/Composer stack was missing. No Android process was started.
+Historical M1B evidence in `docs/m1b4-runtime-decision.md` records the stock
+ServiceManager abort at `selinux_status_open`; that is diagnostic history, not
+a new test of this candidate. The preflight deliberately refuses to turn that
+failure into a successful boot by adding an authorization shim.

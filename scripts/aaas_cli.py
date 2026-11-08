@@ -273,6 +273,12 @@ def _parser():
                        help='use an explicitly located copy of the profile image archive')
     build.add_argument('--dry-run', action='store_true',
                        help='check workspace capacity and print the assembly plan')
+    debug = commands.add_parser('debug', help='run read-only runtime diagnostics')
+    debug_commands = debug.add_subparsers(dest='debug_command', required=True)
+    boot = debug_commands.add_parser(
+        'boot', help='preflight a reconstructed candidate; never launches Android')
+    boot.add_argument('--candidate', type=Path, required=True)
+    json_flag(boot)
     return parser
 
 
@@ -371,6 +377,11 @@ def main(argv=None):
                                  'enforcement') == 'VERIFIED') else 2
             return 0 if (result.get('declared_match')
                          and result.get('runtime_compatibility') == 'VERIFIED') else 2
+        if args.command == 'debug' and args.debug_command == 'boot':
+            import aaas_boot
+            result = aaas_boot.inspect_candidate(args.candidate, config.workspace)
+            _emit(result, json_output)
+            return 0 if result['outcome'] == 'PREFLIGHT_ONLY' else 2
         if args.command == 'apps':
             if args.apps_command == 'list':
                 return _run_script('aaas_desktop.py', 'catalog', 'list', config=config)
