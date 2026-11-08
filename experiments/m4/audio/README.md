@@ -7,8 +7,9 @@ controls, mono mixing, concurrent media/probe output, virtual and physical
 microphone capture, and clean shutdown have live evidence. Normal permission
 grant, active-capture revocation, fresh denial, regrant, and resumed capture are
 verified. Playback disconnect and recovery after private PipeWire restart are
-verified; synchronous capture waits for that restart. The full cross-workstream
-M4 acceptance remains open.
+verified; capture transport now fails promptly and a fresh capture stream works
+after recovery. Canonical M4 is PASS/CLOSED for the documented supported runtime;
+see the final acceptance entry below.
 
 ## Image and interface findings
 
@@ -86,15 +87,14 @@ acceptance state and are superseded by the follow-ups below. Later sessions
 verified ordinary Music playback, pause/resume, volume/mute, mono mixing,
 concurrent clients, a physical microphone, source/sink loss behavior, normal
 Android permission revocation and regrant, and private PipeWire service restart.
-The remaining audio limitation is that synchronous capture waits during a
-PipeWire outage until the service returns; immediate fail-fast behavior is not
-claimed. Host and Android raw logs remain in the workspace, and no PCM payload
-was added to Git.
+The synchronous-read limitation below was corrected by the 2026-11-08 capture
+failure repair documented at the end of this file. Host and Android raw logs
+remain in the workspace, and no PCM payload was added to Git.
 
 The route remains opt-in and uses session-local compatible audio
 framework/factory overlays plus the memfd ashmem shim. The base guest image is
-unchanged. The final combined M2/M3/M4 acceptance and resource-cleanup matrix
-remains open, so canonical M4 remains **PARTIAL/OPEN**.
+unchanged. At this historical point the final combined M2/M3/M4 acceptance
+matrix remained open; the dated closure campaign below supersedes that status.
 
 ## Runner overlay ordering regression (2026-11-07)
 
@@ -247,3 +247,29 @@ PipeWire outage test remains restart-dependent: playback disconnects and resumes
 on a fresh stream after restart; synchronous capture waits for restart. The
 full combined M4 acceptance matrix remains open. Session IDs, limitations, and
 evidence hashes are recorded in `results/m4/acceptance.json`.
+
+## PipeWire capture outage repair and closure (2026-11-08)
+
+### Root cause and transport behavior
+
+The capture bridge used `pa_simple_read()`. That synchronous Pulse-compatible call can remain blocked while the server is unavailable, so placing a timeout around it would return control while leaking a blocked worker. The capture side now owns an asynchronous libpulse mainloop and uses stream/context state checks, a read callback, bounded in-memory PCM, and a cancellable event loop. Connect is bounded to 3 seconds, each read fragment to 1 second, and cancellation is polled every 5 ms. Loss causes the bridge to close the Android-facing stream and release its worker. No stale PCM is replayed.
+
+The HAL latches failure for the current capture stream and returns paced silence until standby/close; a later stream may connect again. The probe rejects a silent tail as `CAPTURE_FAILED`. An existing AudioRecord does not seamlessly reconnect. Recovery means create a fresh stream after the service is restored. Android permission revocation remains authoritative and prevents host capture from being reopened without a new authorized AudioRecord stream.
+
+### Outage tests
+
+`dbus-run-session -- python3 scripts/test_aaas_audio_pipewire.py` ran two private PipeWire/WirePlumber/pipewire-pulse outage and restart cycles. It verified controlled 440 Hz capture before and after outages. In-flight capture observed EOF 1.9–2.0 ms after service loss; while unavailable, a fresh capture attempt failed in 2.3–2.6 ms. SIGTERM joined the bridge worker and removed the socket in about 114 ms. The desktop audio service was not touched.
+
+`AAAS_AUDIO_CAPTURE_APK=/tmp/AaasAudioCaptureProbe.apk python3 scripts/test_aaas_audio_android_outage.py` used the normal `--audio` AaaS runner and an isolated private PipeWire service. `m1b84_session_v6jzxitt` reported `CAPTURE_FAILED` with a silent tail after outage and the host stream closed in about 3.3 ms. After restarting the private service, `m1b84_session_a51g_5o4` created a fresh stream and captured 1,440,000 frames at 48 kHz mono, RMS 5656.45, 440 Hz dominant frequency, SHA-256 `ff728cc60861f9af534ae413b917c9bb87cfa00214ceb270526231e19934e67f`. Both sessions reached STOPPED. Android logs are retained in the workspace; the raw capture was not committed.
+
+The bridge is bounded to four concurrent direct transport clients. A fifth is rejected, and a released slot accepts a subsequent client. This is intentional resource protection, not support for an arbitrary number of direct clients. Android playback tracks are mixed by AudioFlinger; concurrent Android client acceptance is separately recorded.
+
+### Regression and build evidence
+
+- `python3 -m unittest tests.test_aaas_audio -q`: 14 tests passed, including four-client limit, fifth-client rejection, slot release, disconnect cleanup, bridge shutdown, and probe silence classification.
+- `python3 -m unittest discover -s tests -q`: 400 tests passed, zero failures/errors/skips.
+- Private PipeWire outage test and live Android outage/recovery test passed.
+- Android x86_64 HAL, memfd ashmem shim, and HIDL factory interposer rebuilt with `-Wall -Wextra -Werror`; hashes: HAL `d01a64d9d150b2bc2961f6b819f523e83678e594e7904b32b8fa35f78cb1fe4e`, shim `1b7e8759a139a00ff530d7eb35568470c7772e999a05f4419a33f52868e1c3f0`, factory `9d6aedb4d3e9dfc886a0fffff2936ce972b1d62e4099191b26dc917d6b418c19`.
+- `python3 -m compileall -q scripts tests experiments/m4/audio experiments/m4/clipboard`, JSON validation, and `git diff --check` passed.
+
+This closes the prior capture-outage blocker for M4's bounded failure and clean-recovery contract. It does not claim gapless playback/capture or automatic continuation of an active AudioRecord through a PipeWire daemon restart.
