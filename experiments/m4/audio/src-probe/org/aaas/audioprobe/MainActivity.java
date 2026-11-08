@@ -206,8 +206,20 @@ public final class MainActivity extends Activity {
                     byte[] hash = digest.digest(bytes);
                     StringBuilder hex = new StringBuilder();
                     for (byte value : hash) hex.append(String.format(Locale.ROOT, "%02x", value & 0xff));
-                    double mean = (double)sum / pcm.length;
-                    double rms = Math.sqrt((double)sumSquares / pcm.length - mean * mean);
+                    int tailFrames = Math.min(rate, pcm.length);
+                    long tailSumSquares = 0;
+                    long tailSum = 0;
+                    for (int i = pcm.length - tailFrames; i < pcm.length; i++) {
+                        tailSumSquares += (long)pcm[i] * pcm[i];
+                        tailSum += pcm[i];
+                    }
+                    double mean = (double)tailSum / tailFrames;
+                    double rms = Math.sqrt((double)tailSumSquares / tailFrames - mean * mean);
+                    if (rms < 1.0) {
+                        Log.e(TAG, "CAPTURE_FAILED silent PCM frames=" + pcm.length
+                                + " tail_frames=" + tailFrames);
+                        return;
+                    }
                     int dominantHz = 0;
                     double dominantPower = -1.0;
                     for (int frequency = 300; frequency <= 600; frequency += 5) {

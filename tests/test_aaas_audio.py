@@ -11,11 +11,17 @@ from unittest.mock import patch
 from scripts import aaas_audio
 
 
+def make_fake_capture(rate, channels, device=None, *, stop_event=None):
+    return FakePulse(aaas_audio.CAPTURE, rate, channels, device,
+                     stop_event=stop_event)
+
+
 class FakePulse:
     instances = []
     fail_write = False
+    fail_read = False
 
-    def __init__(self, direction, rate, channels, device=None):
+    def __init__(self, direction, rate, channels, device=None, *, stop_event=None):
         self.direction = direction
         self.rate = rate
         self.channels = channels
@@ -23,6 +29,7 @@ class FakePulse:
         self.writes = []
         self.read_data = bytes(range(16))
         self.closed = False
+        self.stop_event = stop_event
         self.drained = False
         self.instances.append(self)
 
@@ -32,6 +39,8 @@ class FakePulse:
         self.writes.append(bytes(data))
 
     def read(self, size):
+        if self.fail_read:
+            raise RuntimeError('simulated PipeWire capture disconnect')
         return (self.read_data * ((size + len(self.read_data) - 1) // len(self.read_data)))[:size]
 
     def close(self):
@@ -54,13 +63,16 @@ class AudioBridgeTests(unittest.TestCase):
         self.thread.start()
         self.patch = patch.object(aaas_audio, 'PulseSimple', FakePulse)
         self.patch.start()
+        self.capture_patch = patch.object(aaas_audio, 'PulseCapture', make_fake_capture)
+        self.capture_patch.start()
 
     def tearDown(self):
-        self.server.stop_event.set()
+        self.server.request_stop()
         threading.Thread(target=self.server.shutdown, daemon=True).start()
         self.server.server_close()
         self.thread.join(timeout=1)
         self.patch.stop()
+        self.capture_patch.stop()
         self.temp.cleanup()
 
     def connect(self, direction=aaas_audio.PLAYBACK, rate=48000, channels=2, fmt=aaas_audio.S16_LE):
@@ -122,11 +134,15 @@ class AudioBridgeTests(unittest.TestCase):
 
     def test_capture_peer_disconnect_closes_pipewire_source(self):
         client = self.connect(direction=aaas_audio.CAPTURE, rate=8000, channels=1)
+        deadline = time.monotonic() + 1
+        while not FakePulse.instances and time.monotonic() < deadline:
+            time.sleep(0.005)
         client.close()
-        for _ in range(100):
-            if FakePulse.instances and FakePulse.instances[0].closed:
-                break
-            time.sleep(0.01)
+        deadline = time.monotonic() + 1
+        while self.server.active_workers and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertEqual(0, self.server.active_workers)
+        self.assertTrue(FakePulse.instances)
         self.assertTrue(FakePulse.instances[0].closed)
 
     def test_capture_returns_host_pcm_frames(self):
@@ -142,6 +158,35 @@ class AudioBridgeTests(unittest.TestCase):
             if FakePulse.instances and FakePulse.instances[0].closed:
                 break
             time.sleep(0.01)
+        self.assertTrue(FakePulse.instances[0].closed)
+
+    def test_capture_transport_failure_closes_stream_and_releases_worker(self):
+        FakePulse.fail_read = True
+        client = self.connect(direction=aaas_audio.CAPTURE, rate=8000, channels=1)
+        started = time.monotonic()
+        try:
+            self.assertEqual(b'', client.recv(1))
+        finally:
+            client.close()
+            FakePulse.fail_read = False
+        deadline = time.monotonic() + 1
+        while self.server.active_workers and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual(0, self.server.active_workers)
+        self.assertTrue(FakePulse.instances[0].closed)
+
+    def test_session_shutdown_cancels_active_capture_worker(self):
+        client = self.connect(direction=aaas_audio.CAPTURE, rate=8000, channels=1)
+        self.assertTrue(client.recv(320))
+        started = time.monotonic()
+        self.server.request_stop()
+        deadline = time.monotonic() + 1
+        while self.server.active_workers and time.monotonic() < deadline:
+            time.sleep(0.005)
+        client.close()
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual(0, self.server.active_workers)
         self.assertTrue(FakePulse.instances[0].closed)
 
     def test_invalid_header_does_not_create_audio_stream(self):
@@ -181,6 +226,55 @@ class AudioBridgeTests(unittest.TestCase):
             time.sleep(0.01)
         self.assertTrue(FakePulse.instances)
 
+    def test_four_live_capture_clients_enforce_limit_and_release_capacity(self):
+        clients = []
+        excess = None
+        recovered = None
+        try:
+            clients = [self.connect(direction=aaas_audio.CAPTURE, rate=8000, channels=1)
+                       for _ in range(aaas_audio.MAX_CLIENTS)]
+            deadline = time.monotonic() + 1
+            while len(FakePulse.instances) < aaas_audio.MAX_CLIENTS and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual(aaas_audio.MAX_CLIENTS, len(FakePulse.instances))
+            self.assertEqual(aaas_audio.MAX_CLIENTS, self.server.active_workers)
+
+            try:
+                excess = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                excess.settimeout(1)
+                excess.connect(str(self.path))
+                excess.sendall(aaas_audio.HELLO.pack(
+                    aaas_audio.MAGIC, aaas_audio.VERSION, aaas_audio.CAPTURE,
+                    8000, 1, aaas_audio.S16_LE))
+                rejected = excess.recv(1) == b''
+            except (BrokenPipeError, ConnectionResetError):
+                rejected = True
+            self.assertTrue(rejected, 'fifth client must be closed by the bridge')
+            excess.close()
+            self.assertEqual(aaas_audio.MAX_CLIENTS, len(FakePulse.instances))
+
+            for client in clients:
+                client.close()
+            deadline = time.monotonic() + 1
+            while self.server.active_workers and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual(0, self.server.active_workers)
+
+            recovered = self.connect(direction=aaas_audio.CAPTURE, rate=8000, channels=1)
+            self.assertTrue(recovered.recv(320))
+            recovered.close()
+            deadline = time.monotonic() + 1
+            while self.server.active_workers and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual(0, self.server.active_workers)
+            self.assertEqual(aaas_audio.MAX_CLIENTS + 1, len(FakePulse.instances))
+        finally:
+            for client in clients:
+                client.close()
+            for client in (excess, recovered):
+                if client is not None:
+                    client.close()
+
     def test_pcm_summary_is_metadata_only_and_rejects_partial_samples(self):
         pcm = struct.pack('<hhhh', -100, 100, -100, 100)
         self.assertEqual({'frames': 4, 'nonzero': 4, 'peak': 100,
@@ -200,6 +294,15 @@ class AudioBridgeTests(unittest.TestCase):
         source = (Path(__file__).parents[1] / 'experiments/m4/audio/audio_hal.c').read_text()
         for callback in ('set_voice_volume', 'set_parameters', 'get_parameters'):
             self.assertIn(f'd->hw.{callback} = adev_{callback}', source)
+        self.assertIn('transport_failed = true', source)
+        self.assertIn('transport_failed = false', source)
+        self.assertIn('return in_silence(i, buffer, bytes, fs)', source)
+        host = (Path(__file__).parents[1] / 'scripts/aaas_audio.py').read_text()
+        self.assertIn('pa_stream_set_read_callback', host)
+        self.assertIn("os.environ.get('PULSE_SERVER')", host)
+        probe = (Path(__file__).parents[1] / 'experiments/m4/audio/src-probe/'
+                 'org/aaas/audioprobe/MainActivity.java').read_text()
+        self.assertIn('CAPTURE_FAILED silent PCM', probe)
 
     def test_android_playback_probe_exercises_pause_resume_and_mute(self):
         root = Path(__file__).parents[1] / 'experiments/m4/audio'

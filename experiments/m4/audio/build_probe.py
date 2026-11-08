@@ -41,7 +41,7 @@ def main() -> int:
             'android/content/pm/PackageManager.java': '''package android.content.pm; public class PackageManager { public static final int PERMISSION_GRANTED=0; }''',
             'android/os/Bundle.java': '''package android.os; public class Bundle {}''',
             'android/os/SystemClock.java': '''package android.os; public class SystemClock { public static long elapsedRealtime(){return 0;} }''',
-            'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }''',
+            'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} public static int e(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }''',
             'android/view/View.java': '''package android.view; public class View { public interface OnClickListener { void onClick(View v); } public void setOnClickListener(OnClickListener l){} }''',
             'android/widget/TextView.java': '''package android.widget; public class TextView extends android.view.View { public TextView(android.content.Context c){} public void setText(CharSequence s){} }''',
             'android/media/AudioManager.java': '''package android.media; public class AudioManager { public static final int STREAM_MUSIC=3; }''',

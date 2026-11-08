@@ -65,6 +65,7 @@ struct aaas_stream_in {
     audio_devices_t device;
     size_t frames;
     struct aaas_device *device_owner;
+    bool transport_failed;
 };
 
 static ssize_t write_all(int fd, const void *buffer, size_t bytes) {
@@ -281,6 +282,7 @@ static int in_set_format(struct audio_stream *s, audio_format_t format) {
 static int in_standby(struct audio_stream *s) {
     struct aaas_stream_in *i = (struct aaas_stream_in *)s;
     if (i->fd >= 0) { shutdown(i->fd, SHUT_RDWR); close(i->fd); i->fd = -1; }
+    i->transport_failed = false;
     return 0;
 }
 static audio_devices_t in_device(const struct audio_stream *s) {
@@ -292,6 +294,15 @@ static int in_set_device(struct audio_stream *s, audio_devices_t device) {
 static int in_gain(struct audio_stream_in *s, float gain) {
     (void)s; return gain >= 0.0f && gain <= 1.0f ? 0 : -EINVAL;
 }
+static ssize_t in_silence(struct aaas_stream_in *i, void *buffer, size_t bytes,
+                          size_t frame_bytes) {
+    memset(buffer, 0, bytes);
+    uint64_t frames = bytes / frame_bytes;
+    struct timespec delay = { .tv_sec = (time_t)(frames / i->rate),
+        .tv_nsec = (long)((frames % i->rate) * 1000000000ULL / i->rate) };
+    while (nanosleep(&delay, &delay) < 0 && errno == EINTR) {}
+    return (ssize_t)bytes;
+}
 static ssize_t in_read(struct audio_stream_in *s, void *buffer, size_t bytes) {
     struct aaas_stream_in *i = (struct aaas_stream_in *)s;
     static volatile int first_read_logged;
@@ -301,17 +312,26 @@ static ssize_t in_read(struct audio_stream_in *s, void *buffer, size_t bytes) {
     size_t fs = frame_size(i->rate, i->channels, true);
     if (!buffer || !fs || bytes % fs || bytes > AAAS_AUDIO_MAX_BUFFER) return -EINVAL;
     if (__atomic_load_n(&i->device_owner->mic_muted, __ATOMIC_RELAXED)) {
-        memset(buffer, 0, bytes);
-        struct timespec delay = { .tv_sec = bytes / (fs * i->rate),
-            .tv_nsec = (long)((bytes % (fs * i->rate)) * 1000000000ULL / (fs * i->rate)) };
-        nanosleep(&delay, NULL); return (ssize_t)bytes;
+        return in_silence(i, buffer, bytes, fs);
     }
+    if (i->transport_failed) return in_silence(i, buffer, bytes, fs);
     if (i->fd < 0) {
         i->fd = connect_audio(AAAS_AUDIO_CAPTURE, i->rate, i->channels);
-        if (i->fd < 0) return i->fd;
+        if (i->fd < 0) {
+            i->transport_failed = true;
+            AAAS_LOGE("input transport unavailable; returning paced silence until standby");
+            return in_silence(i, buffer, bytes, fs);
+        }
     }
     ssize_t n = read_all(i->fd, buffer, bytes);
-    if (n < 0) { int error = (int)-n; shutdown(i->fd, SHUT_RDWR); close(i->fd); i->fd = -1; return -error; }
+    if (n < 0) {
+        int error = (int)-n;
+        shutdown(i->fd, SHUT_RDWR); close(i->fd); i->fd = -1;
+        i->transport_failed = true;
+        AAAS_LOGE("input transport failed error=%d; returning paced silence until standby",
+                  error);
+        return in_silence(i, buffer, bytes, fs);
+    }
     return n;
 }
 static uint32_t in_frames_lost(struct audio_stream_in *s) { (void)s; return 0; }
