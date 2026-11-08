@@ -44,6 +44,23 @@ def sha1_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def image_matches(path: Path, image: dict) -> bool:
+    if path.stat().st_size != image['size_bytes']:
+        return False
+    if sha1_file(path) != image['sha1']:
+        return False
+    expected_sha256 = image.get('sha256')
+    return expected_sha256 is None or sha256_file(path) == expected_sha256
+
+
 def download(url: str, dest: Path, expected_bytes: int) -> dict:
     """Download url to dest with a progress callback.  Returns timing stats."""
     tmp = dest.with_suffix('.tmp')
@@ -96,11 +113,14 @@ def main():
     url = img['url']
     size_bytes = img['size_bytes']
     expected_sha1 = img['sha1']
+    expected_sha256 = img.get('sha256')
 
     print(f'image  : {img["sdk_path"]}')
     print(f'url    : {url}')
     print(f'size   : {size_bytes // 1024 // 1024} MiB ({size_bytes} bytes)')
     print(f'sha1   : {expected_sha1}')
+    if expected_sha256:
+        print(f'sha256 : {expected_sha256}')
 
     try:
         budget = ws.check(args.workspace, predicted=size_bytes)
@@ -122,11 +142,10 @@ def main():
         return 0
 
     if dest.exists():
-        actual = sha1_file(dest)
-        if actual == expected_sha1:
+        if image_matches(dest, img):
             print(f'already present and verified: {dest}')
             return 0
-        print(f'existing file has wrong SHA1 ({actual}); re-downloading', file=sys.stderr)
+        print('existing file has the wrong size or digest; re-downloading', file=sys.stderr)
         dest.unlink()
 
     print('downloading...')
@@ -139,7 +158,12 @@ def main():
             partial.unlink()
         return 2
 
-    print(f'verifying SHA1...')
+    print('verifying image size and digests...')
+    if dest.stat().st_size != size_bytes:
+        print(f"size mismatch: expected {size_bytes}, got {dest.stat().st_size}",
+              file=sys.stderr)
+        dest.unlink()
+        return 2
     actual_sha1 = sha1_file(dest)
     if actual_sha1 != expected_sha1:
         print(f'SHA1 mismatch: expected {expected_sha1}, got {actual_sha1}', file=sys.stderr)
@@ -147,6 +171,14 @@ def main():
         return 2
 
     print(f'SHA1 verified: {actual_sha1}')
+    actual_sha256 = sha256_file(dest) if expected_sha256 else None
+    if expected_sha256 and actual_sha256 != expected_sha256:
+        print(f'SHA256 mismatch: expected {expected_sha256}, got {actual_sha256}',
+              file=sys.stderr)
+        dest.unlink()
+        return 2
+    if actual_sha256:
+        print(f'SHA256 verified: {actual_sha256}')
 
     receipt = {
         'sdk_path': img['sdk_path'],
@@ -154,6 +186,7 @@ def main():
         'dest': str(dest),
         'size_bytes': stats['bytes'],
         'sha1': actual_sha1,
+        'sha256': actual_sha256,
         'elapsed_s': stats['elapsed_s'],
         'rate_kib_s': stats['rate_kib_s'],
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),

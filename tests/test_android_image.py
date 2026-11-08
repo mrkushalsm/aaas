@@ -40,6 +40,14 @@ class ManifestValidationTest(unittest.TestCase):
                              f'{img["sdk_path"]} SHA1 must be 40 hex chars')
             int(img['sha1'], 16)  # must be valid hex
 
+    def test_declared_sha256_hashes_are_correct_length(self):
+        manifest = json.loads(MANIFEST_PATH.read_text())
+        for img in manifest['images']:
+            if 'sha256' in img:
+                self.assertEqual(len(img['sha256']), 64,
+                                 f'{img["sdk_path"]} SHA256 must be 64 hex chars')
+                int(img['sha256'], 16)
+
     def test_android36_x86_64_is_present(self):
         manifest = json.loads(MANIFEST_PATH.read_text())
         paths = {img['sdk_path'] for img in manifest['images']}
@@ -65,6 +73,26 @@ class FetchScriptTest(unittest.TestCase):
         f.write_bytes(data)
         expected = hashlib.sha1(data).hexdigest()
         self.assertEqual(fetch.sha1_file(f), expected)
+
+    def test_sha256_file_matches_hashlib(self):
+        f = self.images_dir / 'probe-sha256.bin'
+        data = b'AaaS test data for SHA256' * 100
+        f.write_bytes(data)
+        expected = hashlib.sha256(data).hexdigest()
+        self.assertEqual(fetch.sha256_file(f), expected)
+
+    def test_image_match_requires_declared_size_and_digests(self):
+        data = b'verified SDK fixture'
+        f = self.images_dir / 'fixture.zip'
+        f.write_bytes(data)
+        entry = {'size_bytes': len(data), 'sha1': hashlib.sha1(data).hexdigest(),
+                 'sha256': hashlib.sha256(data).hexdigest()}
+        self.assertTrue(fetch.image_matches(f, entry))
+        entry['sha256'] = '0' * 64
+        self.assertFalse(fetch.image_matches(f, entry))
+        entry['sha256'] = hashlib.sha256(data).hexdigest()
+        entry['size_bytes'] += 1
+        self.assertFalse(fetch.image_matches(f, entry))
 
     def test_load_manifest_returns_images(self):
         manifest = fetch.load_manifest()

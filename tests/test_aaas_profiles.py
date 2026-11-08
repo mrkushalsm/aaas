@@ -48,6 +48,7 @@ class AndroidProfileTests(unittest.TestCase):
             result = aaas_profiles.inspect_archive(archive)
         self.assertIn('system.img', result['layout'])
         self.assertEqual(result['compatibility'], 'UNVERIFIED')
+        self.assertEqual(len(result['sha256']), 64)
         self.assertFalse(result['declared_match'])
         self.assertIn('emulator', result['archive_type'].lower())
 

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "comment": "Public Android SDK system images. sha1 is the 40-hex SHA1 from the SDK XML repository index (sys-img2-1.xml). These are emulator system images, not full AOSP build outputs. They are suitable for feasibility probing within the storage budget.",
+  "comment": "Public Android SDK system images. sha1 is the 40-hex SHA1 from the SDK XML repository index (sys-img2-1.xml). Where present, sha256 is an AaaS-observed digest of the locally retained archive whose size and SHA-1 matched that historical index; it was not independently published by Google. These are emulator system images, not full AOSP build outputs. They are suitable for feasibility probing within the storage budget.",
   "sdk_xml_url": "https://dl.google.com/android/repository/sys-img/android/sys-img2-1.xml",
   "sdk_xml_fetched": "2026-10-25",
   "images": [
@@ -14,7 +14,8 @@
       "size_bytes": 844217077,
       "size_mib": 805.1,
       "sha1": "829c076e8ff448a336097ae25a355b495ba36e2c",
-      "notes": "Android 16 (API 36) x86_64 AOSP default system image. Verified available 2026-10-25. SHA1 from Google SDK XML; no SHA256 provided by Google in this index. This is the primary feasibility target.",
+      "sha256": "e1b9d9fb665001ef27b16e57d8762a2d54aec6bff617e17506edb8676667b9da",
+      "notes": "Android 16 (API 36) x86_64 AOSP default system image. URL, size and SHA1 were recorded from Google SDK XML on 2026-10-25. SHA256 was calculated from the locally retained archive after it matched that size and SHA1; Google did not publish this SHA256 in the recorded index. This is the primary feasibility target.",
       "status": "available"
     },
     {

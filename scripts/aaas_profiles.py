@@ -102,17 +102,22 @@ def inspect_archive(path):
     entry = next((item for item in declared.get('images', [])
                   if Path(item['url']).name == path.name), None)
     result = {'archive': str(path), 'size_bytes': path.stat().st_size,
-              'sha1': None, 'declared_match': False, 'layout': [],
+              'sha1': None, 'sha256': None, 'declared_match': False, 'layout': [],
               'compatibility': 'UNVERIFIED'}
+    digest = hashlib.sha1()
+    strong_digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+            strong_digest.update(chunk)
+    result['sha1'] = digest.hexdigest()
+    result['sha256'] = strong_digest.hexdigest()
     if entry:
-        digest = hashlib.sha1()
-        with path.open('rb') as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-                digest.update(chunk)
-        result['sha1'] = digest.hexdigest()
         result['declared_match'] = (
             result['size_bytes'] == entry['size_bytes']
-            and result['sha1'] == entry['sha1'])
+            and result['sha1'] == entry['sha1']
+            and (entry.get('sha256') is None
+                 or result['sha256'] == entry['sha256']))
         result['package'] = entry['sdk_path']
         result['revision'] = entry['revision']
     try:
