@@ -820,7 +820,7 @@ def filesystem_capability_probe(workspace, *, require_acl=True):
             getfacl = shutil.which('getfacl')
             if not getfacl:
                 raise WorkspaceError('missing dependency getfacl; install the host ACL tools')
-            acl = subprocess.run([getfacl, '-cp', str(acl_path)], capture_output=True,
+            acl = subprocess.run([getfacl, '-ncp', str(acl_path)], capture_output=True,
                                  text=True, check=True, timeout=3).stdout
             report['acl'] = any(
                 line.startswith(f'user:{probe_uid}:rw') for line in acl.splitlines())
@@ -866,8 +866,13 @@ def initialize(workspace, mount_target=None, *, adopt=False,
             raise WorkspaceError('missing workspace marker; existing data is unmarked; '
                                  'pass --adopt-existing only after reviewing its contents')
     else:
-        if not os.access(target, os.W_OK | os.X_OK):
-            raise WorkspaceError('mount is not writable')
+        creation_parent = workspace.parent
+        while not creation_parent.exists() and creation_parent != target:
+            creation_parent = creation_parent.parent
+        if (not creation_parent.is_dir()
+                or not os.access(creation_parent, os.W_OK | os.X_OK)):
+            raise WorkspaceError(
+                f'workspace parent is not writable: {creation_parent}')
         workspace.mkdir(mode=0o700, parents=True)
     if budget_gib <= reserve_gib or working_ceiling_gib <= 0:
         raise WorkspaceError('workspace budget and reserve values are inconsistent')

@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 import tempfile
@@ -24,6 +25,14 @@ class WorkspaceGuardTest(unittest.TestCase):
         (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
         self.identity = dict(target=str(self.mount), source='/dev/test',
                              filesystem='ext4', uuid='test-uuid')
+
+    @unittest.skipUnless(shutil.which('setfacl') and shutil.which('getfacl'),
+                         'ACL tools are not installed')
+    def test_filesystem_capability_probe_parses_numeric_acl_ids(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(guard, 'mount_identity', return_value=self.identity):
+            result = guard.filesystem_capability_probe(Path(temporary))
+        self.assertTrue(result['acl'])
 
     def test_rejects_unmounted_target(self):
         with patch.object(guard, 'mount_identity', return_value={**self.identity, 'target': '/'}):
@@ -130,6 +139,22 @@ class WorkspaceGuardTest(unittest.TestCase):
             self.assertTrue(all((self.workspace / name).is_dir() for name in guard.LAYOUT))
             guard.initialize(self.workspace, self.mount)
             self.assertEqual(json.loads((self.workspace / guard.MARKER).read_text()), marker)
+
+    def test_initialize_uses_writable_workspace_parent_not_mount_root(self):
+        workspace = self.mount / 'home' / 'developer' / 'aaas-workspace'
+        workspace.parent.mkdir(parents=True)
+
+        def access(path, mode):
+            return Path(path) != self.mount
+
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard, 'filesystem_capability_probe', return_value={'acl': True}), \
+             patch.object(guard.os, 'access', side_effect=access), \
+             patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(
+                 f_bavail=200, f_frsize=guard.GIB)):
+            result = guard.initialize(workspace, self.mount)
+        self.assertEqual(result['workspace'], str(workspace))
+        self.assertTrue((workspace / guard.MARKER).is_file())
 
     def test_initialize_refuses_existing_unmarked_data(self):
         (self.workspace / guard.MARKER).unlink()
