@@ -26,11 +26,14 @@ SDDM or terminate the current desktop as part of investigating this event.
   `WorkspaceScene::paint`). This is a host compositor/driver crash, not an
   Android process failure.
 - The AaaS session active in this period ran the Wayland presenter with an
-  Android virtual-display stream. Its log showed submitted frames and presenter
-  slot exhaustion without Wayland buffer-release events. The timing and
-  rendering path make presenter buffer import/release a plausible trigger or
-  stressor for the Mesa/KWin crash. The core does not identify the originating
-  Wayland client or prove causation, so this remains a correlation.
+  Android virtual-display stream. Its log shows 32 submitted CPU-staged frames,
+  then `slot_registry_exhausted` for the next frames. The presenter source
+  confirms that `release_ack=true` on this rejection means its AaaS IPC
+  `buffer_rejected` reply was sent; it is not a Wayland `wl_buffer.release`
+  event. The Android runner later logged `Error flushing display: Broken pipe`
+  after KWin died. The timing and rendering path make the presenter a plausible
+  trigger or stressor for the Mesa/KWin crash. The core does not identify the
+  originating Wayland client or prove causation, so this remains a correlation.
 - KWin restarted under the existing Plasma session manager. SDDM remains
   running, the desktop is currently active, and no AaaS runner, presenter,
   Android process, or AaaS/Binder mount remains in the host namespace.
