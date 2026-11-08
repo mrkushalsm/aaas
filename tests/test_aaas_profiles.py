@@ -4,6 +4,7 @@ import tempfile
 import json
 import unittest
 import zipfile
+import hashlib
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -55,16 +56,57 @@ class AndroidProfileTests(unittest.TestCase):
             root = candidate / 'rootfs'
             root.mkdir(parents=True)
             self.rootfs(root)
+            profile = aaas_profiles.profiles()['android16-ranchu-x86_64']
+            inventory = b'{"sample":true}\n'
+            (candidate / 'file-inventory.jsonl').write_bytes(inventory)
+            map_hash = hashlib.sha256(aaas_profiles.TRANSFORMATION_MANIFEST.read_bytes()).hexdigest()
             (candidate / 'manifest.json').write_text(json.dumps({
                 'schema': 1, 'status': 'ASSEMBLED_INCOMPLETE',
+                'profile': profile['id'], 'build_id': profile['build_id'],
                 'trust_classification': 'RECONSTRUCTED_EXPERIMENTAL',
                 'runtime_ready': False, 'candidate_rootfs_relative': 'rootfs',
+                'distribution_approved': False,
+                'source_archive': {'size_bytes': profile['source_image']['size_bytes'],
+                                   'sha1': profile['source_image']['sha1'],
+                                   'sha256': profile['source_image']['sha256']},
+                'file_inventory': {'path': 'file-inventory.jsonl',
+                                   'sha256': hashlib.sha256(inventory).hexdigest()},
+                'historical_transformations': {
+                    'map': 'manifests/android16-reconstruction-transformations.json',
+                    'map_sha256': map_hash},
+                'critical_base_file_verification': {'mismatch_count': 0,
+                                                    'missing_count': 0},
+                'security': {'authorization_bypass_artifacts': {'status': 'PASS'}},
             }))
             result = aaas_profiles.inspect_rootfs(root)
         self.assertEqual(result['assembly_status'], 'ASSEMBLED_INCOMPLETE')
         self.assertEqual(result['trust_classification'], 'RECONSTRUCTED_EXPERIMENTAL')
+        self.assertEqual(result['provenance'], 'ASSEMBLY_RECORD_VALID')
+        self.assertEqual(result['assembly_record_validation'], 'PASS')
         self.assertFalse(result['runtime_ready'])
         self.assertFalse(result['provisionable'])
+
+    def test_candidate_manifest_with_corrupt_inventory_is_not_trusted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate = Path(temporary) / 'candidate'
+            root = candidate / 'rootfs'
+            root.mkdir(parents=True)
+            self.rootfs(root)
+            profile = aaas_profiles.profiles()['android16-ranchu-x86_64']
+            (candidate / 'file-inventory.jsonl').write_text('changed\n')
+            (candidate / 'manifest.json').write_text(json.dumps({
+                'schema': 1, 'profile': profile['id'],
+                'candidate_rootfs_relative': 'rootfs',
+                'status': 'ASSEMBLED_INCOMPLETE',
+                'runtime_ready': False, 'distribution_approved': False,
+                'source_archive': {'size_bytes': profile['source_image']['size_bytes'],
+                                   'sha1': profile['source_image']['sha1'],
+                                   'sha256': profile['source_image']['sha256']},
+                'file_inventory': {'path': 'file-inventory.jsonl', 'sha256': '0' * 64},
+            }))
+            result = aaas_profiles.inspect_rootfs(root)
+        self.assertEqual(result['assembly_record_validation'], 'FAIL')
+        self.assertEqual(result['provenance'], 'UNVERIFIED')
 
     def test_selinux_success_shim_makes_rootfs_explicitly_unsafe(self):
         with tempfile.TemporaryDirectory() as temporary:

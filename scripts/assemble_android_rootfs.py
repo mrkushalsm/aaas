@@ -606,6 +606,7 @@ def assemble(workspace: Path, profile_id: str, *, image_path: Path | None = None
         'schema': 1,
         'status': 'ASSEMBLED_INCOMPLETE',
         'profile': profile_id,
+        'build_id': build_id,
         'trust_classification': 'RECONSTRUCTED_EXPERIMENTAL',
         'runtime_ready': False,
         'distribution_approved': False,

@@ -14,10 +14,19 @@ TRUST_CLASSIFICATIONS = {
     'SECURITY_VALIDATED', 'DISTRIBUTABLE',
 }
 IMAGE_MANIFEST = ROOT / 'manifests/android-images.json'
+TRANSFORMATION_MANIFEST = ROOT / 'manifests/android16-reconstruction-transformations.json'
 
 
 class ProfileError(ValueError):
     pass
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def profiles():
@@ -137,16 +146,51 @@ def inspect_rootfs(rootfs, profile_id='android16-ranchu-x86_64'):
                   for key in expected if actual[key] != expected[key]}
     security = _selinux_security(root, profile)
     assembly_manifest = None
+    assembly_record_validation = 'NOT_PRESENT'
     manifest_path = root.parent / 'manifest.json'
     if manifest_path.is_file() and not manifest_path.is_symlink():
         try:
             candidate_manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-        except (OSError, json.JSONDecodeError):
+            source = candidate_manifest.get('source_archive', {})
+            inventory = candidate_manifest.get('file_inventory', {})
+            inventory_name = Path(inventory.get('path', ''))
+            inventory_path = manifest_path.parent / inventory_name
+            transform_record = candidate_manifest.get('historical_transformations', {})
+            transformation = json.loads(TRANSFORMATION_MANIFEST.read_text(encoding='utf-8'))
+            valid_record = (
+                candidate_manifest.get('schema') == 1
+                and candidate_manifest.get('profile') == profile_id
+                and candidate_manifest.get('build_id', profile.get('build_id')) == profile['build_id']
+                and candidate_manifest.get('trust_classification') == 'RECONSTRUCTED_EXPERIMENTAL'
+                and candidate_manifest.get('candidate_rootfs_relative') == 'rootfs'
+                and candidate_manifest.get('status') == 'ASSEMBLED_INCOMPLETE'
+                and candidate_manifest.get('runtime_ready') is False
+                and candidate_manifest.get('distribution_approved') is False
+                and source.get('size_bytes') == profile['source_image']['size_bytes']
+                and source.get('sha1') == profile['source_image']['sha1']
+                and source.get('sha256') == profile['source_image']['sha256']
+                and inventory_name.name == str(inventory_name)
+                and len(inventory_name.parts) == 1
+                and inventory_path.is_file() and not inventory_path.is_symlink()
+                and _sha256_file(inventory_path) == inventory.get('sha256')
+                and transform_record.get('map') == 'manifests/android16-reconstruction-transformations.json'
+                and transform_record.get('map_sha256') == hashlib.sha256(
+                    TRANSFORMATION_MANIFEST.read_bytes()).hexdigest()
+                and transformation.get('base_image', {}).get('sha256') == source.get('sha256')
+                and candidate_manifest.get('critical_base_file_verification', {}).get(
+                    'mismatch_count') == 0
+                and candidate_manifest.get('critical_base_file_verification', {}).get(
+                    'missing_count') == 0
+                and candidate_manifest.get('security', {}).get(
+                    'authorization_bypass_artifacts', {}).get('status') == 'PASS'
+            )
+            if valid_record:
+                assembly_manifest = candidate_manifest
+                assembly_record_validation = 'PASS'
+            else:
+                assembly_record_validation = 'FAIL'
+        except (OSError, json.JSONDecodeError, TypeError, ValueError, AttributeError):
             candidate_manifest = None
-        if (isinstance(candidate_manifest, dict)
-                and candidate_manifest.get('schema') == 1
-                and candidate_manifest.get('candidate_rootfs_relative') == 'rootfs'):
-            assembly_manifest = candidate_manifest
     provisioning_blockers = []
     if not profile['provisioning']['automatically_installable']:
         provisioning_blockers.append(profile['provisioning']['reason'])
@@ -163,7 +207,8 @@ def inspect_rootfs(rootfs, profile_id='android16-ranchu-x86_64'):
                          if assembly_manifest else None,
         'rootfs': str(root),
         'compatibility': 'MATCH' if not missing and not mismatches else 'UNSUPPORTED',
-        'provenance': ('VERIFIED_BASE_ASSEMBLY' if assembly_manifest else 'UNVERIFIED'),
+        'provenance': ('ASSEMBLY_RECORD_VALID' if assembly_manifest else 'UNVERIFIED'),
+        'assembly_record_validation': assembly_record_validation,
         'provisionable': (profile['provisioning']['automatically_installable']
                           and not provisioning_blockers),
         'security': security,
