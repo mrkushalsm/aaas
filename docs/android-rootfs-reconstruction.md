@@ -75,9 +75,13 @@ excluded. No APEX activation is inferred from extracted payloads or status
 properties.
 
 The candidate's Android build properties and required-file paths match the
-profile, and the 16 critical original hashes verify. This is structural image
-acceptance only. APEX activation, SELinux enforcement, rootless runtime
-containment, exact-image graphics allocator/mapper/Composer compatibility,
+profile, and the 16 critical original hashes verify. The profile inspector
+checks the pinned source identity, transformation-map hash, critical-file
+summary, and inventory-file hash. This validates the assembly record only; it
+is not a signed image attestation and does not recalculate all rootfs file
+hashes. This is structural image acceptance only. APEX activation, SELinux
+enforcement, rootless runtime containment, exact-image graphics
+allocator/mapper/Composer compatibility,
 Native Bridge, audio, desktop helpers, and live Android startup remain
 unverified. Do not use `aaas start` or install applications into this
 candidate.

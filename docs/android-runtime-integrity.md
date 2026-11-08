@@ -301,8 +301,11 @@ locally modified SwiftShader source are excluded. See the [assembly
 procedure](android-rootfs-reconstruction.md) and its structured
 [`result`](../results/m6/android16-rootfs-assembly-2026-11-08.json).
 
-Static profile inspection reports the candidate's Android 16 build identity
-as matching, its base assembly provenance as verified, and its SELinux
-enforcement as unverified. The candidate remains blocked from runtime use.
+Static profile inspection reports the candidate's Android build identity as
+matching and its assembly record as internally valid (source/profile identity,
+transformation-map hash, critical-file summary, and inventory-file hash). It
+does not rehash the full rootfs against that inventory and is not a signed
+image attestation. SELinux enforcement remains unverified, so the candidate is
+blocked from runtime use.
 No APEX activation, graphics, Native Bridge, audio, desktop integration, or
 live Android boot is claimed.
