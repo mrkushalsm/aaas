@@ -22,6 +22,8 @@ import uuid
 
 GIB = 1 << 30
 MIN_FREE_RESERVE = 20 * GIB
+INSTALL_ROOTFS_MOUNTPOINTS = ('data', 'metadata', 'cache', 'storage', 'mnt', 'dev',
+                              'proc', 'sys', 'tmp', 'linkerconfig', 'debug_ramdisk')
 
 SCHEMA = 1
 PROFILE = 'android16-ranchu-x86_64'
@@ -70,6 +72,7 @@ EXTRA_BINARIES = {
     'experiments/m1c/input_adapter/build/aaas-input-adapter',
     'experiments/m4/clipboard/build/aaas-wayland-clipboard',
 }
+RUNTIME_FILES = ('experiments/perf/input_latency_probe/build_probe.py',)
 WORKSPACE_FILES = (
     'tmp/m1b84_composer_portrait_720x1280',
     'tmp/android.hardware.graphics.composer3-service.aaas',
@@ -106,7 +109,9 @@ WORKSPACE_FILES = (
 )
 WORKSPACE_TREES = ('tmp/m3_native_bridge/digitalis',)
 BUILD_TOOLS = ('sources/prebuilts-build-tools-qpr2/common/bin/dx',
-               'sources/prebuilts-build-tools-qpr2/linux-x86/bin/zipalign')
+               'sources/prebuilts-build-tools-qpr2/common/framework/dx.jar',
+               'sources/prebuilts-build-tools-qpr2/linux-x86/bin/zipalign',
+               'sources/prebuilts-build-tools-qpr2/linux-x86/lib64/libc++.so')
 
 
 class BundleError(RuntimeError):
@@ -171,6 +176,12 @@ def _copy_selected_runtime(repo: Path, workspace: Path, dest: Path):
         if source.is_dir():
             _copy_tree(source, dest / relative)
     for relative in EXTRA_BINARIES:
+        source = repo / relative
+        if source.is_file() and not source.is_symlink():
+            target = dest / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    for relative in RUNTIME_FILES:
         source = repo / relative
         if source.is_file() and not source.is_symlink():
             target = dest / relative
@@ -525,6 +536,154 @@ def verify_installation(installation: Path):
             'runtime_security': 'NOT_APPROVED', 'general_runtime_start': 'BLOCKED'}
 
 
+def refresh_runtime_file(*, bundle: Path, installation: Path, source: Path,
+                         relative: str):
+    """Atomically refresh one reviewed runtime source file without recopying images.
+
+    The same relative artifact must be present in a verified bundle and its
+    installation. Bundle identity is preserved; only the artifact digest and
+    size are updated. This is intended for small runtime-script fixes.
+    """
+    bundle = Path(bundle).expanduser().resolve(strict=True)
+    installation = Path(installation).expanduser().resolve(strict=True)
+    source = Path(source).expanduser().resolve(strict=True)
+    rel = _safe_relative(relative)
+    if not relative.startswith('runtime/'):
+        raise BundleError('refresh is limited to runtime artifacts')
+    if source.is_symlink() or not source.is_file():
+        raise BundleError('refresh source must be a regular file')
+    bundle_report = verify_bundle(bundle)
+    install_report = verify_installation(installation)
+    if bundle_report['bundle_id'] != install_report.get('bundle_id'):
+        raise BundleError('bundle and installation identities do not match')
+    bundle_path = bundle / rel
+    install_path = installation / rel
+    if bundle_path.is_symlink() or install_path.is_symlink():
+        raise BundleError('refusing to refresh a symlinked runtime artifact')
+    bundle_manifest_path = bundle / 'manifest.json'
+    install_manifest_path = installation / 'bundle-manifest.json'
+    bundle_manifest = inspect_bundle(bundle)
+    install_manifest = json.loads(install_manifest_path.read_text(encoding='utf-8'))
+    bundle_entries = {item['path']: item for item in bundle_manifest['artifacts']}
+    install_entries = {item['path']: item for item in install_manifest['artifacts']}
+    key = rel.as_posix()
+    if key not in bundle_entries or key not in install_entries:
+        raise BundleError(f'runtime artifact is not declared in both manifests: {key}')
+    if bundle_entries[key] != install_entries[key]:
+        raise BundleError(f'bundle and installation artifact records differ: {key}')
+    if not bundle_path.is_file() or not install_path.is_file():
+        raise BundleError(f'runtime artifact is missing: {key}')
+    source_hash = _sha(source)
+    source_mode = stat.S_IMODE(source.stat().st_mode)
+    entry = dict(bundle_entries[key])
+    entry.update({'type': 'file', 'mode': source_mode,
+                  'size': source.stat().st_size, 'sha256': source_hash})
+    bundle_manifest['artifacts'] = [entry if item['path'] == key else item
+                                    for item in bundle_manifest['artifacts']]
+    install_manifest['artifacts'] = [entry if item['path'] == key else item
+                                     for item in install_manifest['artifacts']]
+    # Stage both payload copies and preserve the old bytes for rollback. No
+    # rootfs or userdata files are copied or rewritten.
+    targets = (bundle_path, install_path)
+    staged = []
+    backups = []
+    staged_manifests = []
+    manifest_backups = []
+    def refresh_temp(parent, prefix):
+        descriptor, name = tempfile.mkstemp(prefix=prefix, dir=parent)
+        os.close(descriptor)
+        return Path(name)
+    try:
+        for target, stage_parent in zip(targets, (bundle.parent, installation.parent)):
+            temporary = refresh_temp(stage_parent, '.aaas-refresh-')
+            shutil.copy2(source, temporary)
+            staged.append((temporary, target))
+            backup = refresh_temp(stage_parent, '.aaas-refresh-backup-')
+            shutil.copy2(target, backup)
+            backups.append((backup, target))
+        for path, stage_parent in zip((bundle_manifest_path, install_manifest_path),
+                                      (bundle.parent, installation.parent)):
+            backup = refresh_temp(stage_parent, '.aaas-refresh-manifest-backup-')
+            shutil.copy2(path, backup)
+            manifest_backups.append((backup, path))
+        for path, value, stage_parent in (
+                (bundle_manifest_path, bundle_manifest, bundle.parent),
+                (install_manifest_path, install_manifest, installation.parent)):
+            temporary = refresh_temp(stage_parent, '.aaas-refresh-manifest-')
+            temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n',
+                                 encoding='utf-8')
+            staged_manifests.append((temporary, path))
+        for temporary, target in staged:
+            os.replace(temporary, target)
+        for temporary, target in staged_manifests:
+            os.replace(temporary, target)
+        if verify_bundle(bundle)['integrity'] != 'PASS' or \
+                verify_installation(installation)['integrity'] != 'PASS':
+            raise BundleError('refreshed artifact failed post-install integrity verification')
+    except Exception:
+        for backup, target in manifest_backups:
+            if backup.exists():
+                os.replace(backup, target)
+        for backup, target in backups:
+            if backup.exists():
+                os.replace(backup, target)
+        raise
+    finally:
+        for temporary, _ in staged:
+            temporary.unlink(missing_ok=True)
+        for temporary, _ in staged_manifests:
+            temporary.unlink(missing_ok=True)
+        for backup, _ in backups:
+            backup.unlink(missing_ok=True)
+        for backup, _ in manifest_backups:
+            backup.unlink(missing_ok=True)
+    return {'bundle': str(bundle), 'installation': str(installation),
+            'artifact': key, 'sha256': source_hash,
+            'bundle_integrity': verify_bundle(bundle)['integrity'],
+            'installation_integrity': verify_installation(installation)['integrity']}
+
+
+def enroll_installer_workspace(installation: Path, workspace: Path):
+    """Enroll only a workspace whose staged payload exactly matches this install."""
+    installation = Path(installation).resolve(strict=True)
+    workspace = Path(workspace).resolve(strict=True)
+    record = json.loads((installation / 'installation.json').read_text(encoding='utf-8'))
+    if (record.get('classification') != 'LOCAL_DEVELOPMENT_DIAGNOSTIC'
+            or Path(record.get('paths', {}).get('workspace', '')).resolve() != workspace):
+        raise BundleError('workspace is not owned by this diagnostic installation')
+    if verify_installation(installation).get('integrity') != 'PASS':
+        raise BundleError('installation integrity check failed before workspace enrollment')
+    import android_workspace
+    import aaas_userdata
+    marker = workspace / android_workspace.MARKER
+    if marker.is_file():
+        enrolled = android_workspace.check(workspace)
+        marker_data = json.loads(marker.read_text(encoding='utf-8'))
+        recorded_id = record.get('workspace_id')
+        if recorded_id and marker_data.get('workspace_id') != recorded_id:
+            raise BundleError('workspace identity does not match installation record')
+    else:
+        source = installation / 'workspace-artifacts'
+        allowed_top = {'tmp', 'sources'}
+        actual_top = {item.name for item in workspace.iterdir()}
+        if not actual_top.issubset(allowed_top):
+            raise BundleError('workspace contains data outside installer-staged tmp/sources')
+        for base in allowed_top:
+            expected = source / base
+            actual = workspace / base
+            if expected.exists() != actual.exists():
+                raise BundleError(f'installer workspace payload mismatch: {base}')
+            if expected.exists() and _inventory(expected) != _inventory(actual):
+                raise BundleError(f'installer workspace payload was changed: {base}')
+        enrolled = android_workspace.initialize(workspace, adopt=True)
+    userdata = aaas_userdata.prepare_userdata_directory(workspace)
+    marker_data = json.loads(marker.read_text(encoding='utf-8'))
+    return {'workspace': str(workspace), 'enrollment': 'PASS',
+            'workspace_id': marker_data.get('workspace_id'),
+            'health': enrolled.get('health'), 'userdata': str(userdata),
+            'userdata_state': 'fresh; no source user data copied'}
+
+
 def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
                    config_home: Path, data_home: Path):
     verified = verify_bundle(bundle)
@@ -579,7 +738,7 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
         shutil.copytree(bundle / 'rootfs', stage / 'rootfs', symlinks=True,
                         copy_function=shutil.copy2)
         shutil.copy2(bundle / 'manifest.json', stage / 'bundle-manifest.json')
-        for name in ('data', 'metadata', 'cache', 'storage', 'mnt', 'dev', 'proc', 'sys', 'tmp'):
+        for name in INSTALL_ROOTFS_MOUNTPOINTS:
             (stage / 'rootfs' / name).mkdir(exist_ok=True)
         install_manifest = {
             'schema': 1, 'bundle_id': verified['bundle_id'], 'profile': PROFILE,
@@ -591,6 +750,7 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
             'general_runtime_start': 'BLOCKED',
             'userdata': 'fresh path; not initialized or copied from source',
             'runtime_closure': 'PARTIAL',
+            'generated_rootfs_mountpoints': list(INSTALL_ROOTFS_MOUNTPOINTS),
         }
         (stage / 'installation.json').write_text(
             json.dumps(install_manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
@@ -628,13 +788,25 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
                              encoding='utf-8')
         os.replace(data_temp, installed_data_manifest)
         data_written = True
-        workspace_created = not workspace.exists()
+        # The destination was verified absent or empty before staging; from
+        # this point onward this installation transaction owns its contents.
+        workspace_created = True
         workspace.mkdir(parents=True, exist_ok=True)
         for base in ('tmp', 'sources'):
             staged_artifacts = install_root / 'workspace-artifacts' / base
             if staged_artifacts.is_dir():
                 shutil.copytree(staged_artifacts, workspace / base, dirs_exist_ok=True,
                                 symlinks=True, copy_function=shutil.copy2)
+        workspace_enrollment = enroll_installer_workspace(install_root, workspace)
+        install_manifest['workspace_enrollment'] = 'PASS'
+        install_manifest['workspace_id'] = workspace_enrollment['workspace_id']
+        install_manifest['userdata'] = 'fresh installation-local backing initialized'
+        (install_root / 'installation.json').write_text(
+            json.dumps(install_manifest, indent=2, sort_keys=True) + '\n',
+            encoding='utf-8')
+        installed_data_manifest.write_text(
+            json.dumps(install_manifest, indent=2, sort_keys=True) + '\n',
+            encoding='utf-8')
         data_home.mkdir(parents=True, exist_ok=True)
         return {'installation': str(install_root), 'workspace': str(workspace),
                 'config': str(cfg), 'installation_integrity': 'PASS',
@@ -642,7 +814,8 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
                                'workspace': workspace_probe},
                 'verified_artifacts': install_integrity['artifact_count'],
                 'runtime_security': 'NOT_APPROVED', 'general_runtime_start': 'BLOCKED',
-                'runtime_closure': 'PARTIAL', 'userdata': 'fresh path prepared; not initialized'}
+                'runtime_closure': 'PARTIAL', 'userdata': workspace_enrollment['userdata_state'],
+                'workspace_enrollment': workspace_enrollment}
     except Exception:
         if stage.exists():
             shutil.rmtree(stage)
@@ -656,8 +829,16 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
             installed_data_manifest.unlink(missing_ok=True)
         if installed and install_root.exists():
             shutil.rmtree(install_root)
-        if workspace_created and workspace.exists() and not any(workspace.iterdir()):
-            workspace.rmdir()
+        if workspace_created and workspace.exists():
+            # Only remove a workspace created by this transaction when it
+            # contains no files outside the staged payload and generated state.
+            try:
+                allowed = {'tmp', 'sources', 'images', 'out', 'cache', 'logs', 'mnt',
+                           '.aaas-workspace.json', 'android-userdata'}
+                if {item.name for item in workspace.iterdir()}.issubset(allowed):
+                    shutil.rmtree(workspace)
+            except (OSError, NameError):
+                pass
         raise
 
 

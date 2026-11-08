@@ -91,6 +91,23 @@ class AaasCliTests(unittest.TestCase):
                 result = aaas_cli._verify(config)
         self.assertFalse(result['ready'])
 
+    def test_developer_start_uses_installed_runtime_payload_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            payload = Path(temporary) / 'installation/runtime'
+            host = {'ip': '/usr/bin/ip'}
+            report = {'development_launch': 'PERMITTED', 'checks': {'host': host}}
+            with mock.patch.object(aaas_cli.aaas_config, 'resolve_config',
+                                   return_value=config), \
+                    mock.patch.object(aaas_cli.aaas_dev, 'verify', return_value=report), \
+                    mock.patch.object(aaas_cli.aaas_dev, 'runtime_root',
+                                      return_value=payload), \
+                    mock.patch.object(aaas_cli, '_run_script', return_value=0) as run:
+                result = aaas_cli.main(['dev', 'start'])
+        self.assertEqual(result, 0)
+        self.assertEqual(run.call_args.kwargs['env_extra']['AAAS_RUNTIME_ROOT'],
+                         str(payload))
+
 
 if __name__ == '__main__':
     unittest.main()

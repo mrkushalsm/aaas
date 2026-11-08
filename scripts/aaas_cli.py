@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import signal
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,7 @@ import aaas_config
 import aaas_profiles
 import aaas_bundle
 import aaas_graphics
+import aaas_dev
 
 
 class CliError(RuntimeError):
@@ -33,7 +35,7 @@ def _emit(value, as_json=False):
         print(value)
 
 
-def _run_script(script, *args, config=None, check=True):
+def _run_script(script, *args, config=None, check=True, env_extra=None):
     config = config or aaas_config.resolve_config(repository=ROOT)
     env = dict(os.environ)
     env.update(AAAS_WORKSPACE=str(config.workspace), AAAS_ROOTFS=str(config.rootfs),
@@ -41,11 +43,33 @@ def _run_script(script, *args, config=None, check=True):
                AAAS_IDLE_TIMEOUT_SECONDS=str(config.idle_timeout_seconds),
                AAAS_AUDIO='1' if config.audio else '0',
                PYTHONPATH=str(ROOT / 'scripts') + os.pathsep + env.get('PYTHONPATH', ''))
-    result = subprocess.run([sys.executable, str(ROOT / 'scripts' / script), *map(str, args)],
-                            env=env, check=False)
-    if check and result.returncode:
-        raise CliError(f'{script} exited with status {result.returncode}')
-    return result.returncode
+    if env_extra:
+        env.update(env_extra)
+    process = subprocess.Popen(
+        [sys.executable, str(ROOT / 'scripts' / script), *map(str, args)],
+        env=env, start_new_session=True)
+    try:
+        returncode = process.wait()
+    except KeyboardInterrupt:
+        # run_aaas owns the Android namespace and presenter children. Signal
+        # their process group so an interrupted foreground launch cannot leave
+        # init or the Wayland presenter running after its controller exits.
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        return 130
+    if check and returncode:
+        raise CliError(f'{script} exited with status {returncode}')
+    return returncode
 
 
 def _status(config):
@@ -307,6 +331,19 @@ def _parser():
     install_bundle.add_argument('--data-home', type=Path)
     json_flag(create_bundle); json_flag(inspect_bundle); json_flag(verify_bundle)
     json_flag(install_bundle)
+    dev = commands.add_parser('dev', help='explicitly run the historical M4 diagnostic profile')
+    dev_commands = dev.add_subparsers(dest='dev_command', required=True)
+    for name in ('setup', 'verify', 'status', 'stop'):
+        json_flag(dev_commands.add_parser(name))
+    dev_start = json_flag(dev_commands.add_parser('start'))
+    dev_start.add_argument('--audio', action='store_true')
+    dev_storage = dev_commands.add_parser(
+        'storage', help='run shared-storage verification without host display presentation')
+    dev_storage_commands = dev_storage.add_subparsers(dest='storage_command', required=True)
+    json_flag(dev_storage_commands.add_parser('verify'))
+    json_flag(dev_storage_commands.add_parser('start'))
+    dev_logs = json_flag(dev_commands.add_parser('logs'))
+    dev_logs.add_argument('--lines', type=int, default=100)
     return parser
 
 
@@ -333,6 +370,83 @@ def main(argv=None):
             cli['workspace'] = str(args.workspace.expanduser().absolute())
         config = aaas_config.resolve_config(repository=ROOT, cli=cli)
         json_output = getattr(args, 'json', False) or getattr(args, 'json_local', False)
+        if args.command == 'dev':
+            if args.dev_command == 'storage':
+                if args.storage_command == 'verify':
+                    result = aaas_dev.verify_storage(config)
+                    _emit(result, json_output)
+                    return 0 if result['headless_storage_launch'] == 'PERMITTED' else 2
+                result = aaas_dev.verify_storage(config)
+                if result['headless_storage_launch'] != 'PERMITTED':
+                    _emit(result, True)
+                    raise CliError('headless storage prerequisites are incomplete; no session started')
+                print('AaaS headless Android storage session', flush=True)
+                print('Host Wayland presenter: disabled', flush=True)
+                print('Android SELinux enforcement: unavailable', flush=True)
+                print('Runtime security approval: not granted', flush=True)
+                return _run_script(
+                    'run_aaas.py', '--headless-storage', '--startup-timeout', '180',
+                    '--idle-timeout-seconds', config.idle_timeout_seconds,
+                    '--app', 'com.android.settings', config=config,
+                    env_extra={'AAAS_DEV_COMPAT': '1', 'AAAS_HEADLESS_STORAGE': '1',
+                               'AAAS_RUNTIME_ROOT': str(aaas_dev.runtime_root(config))})
+            if args.dev_command == 'setup':
+                enrolled = aaas_dev.enroll_owned_installation(config)
+                key = aaas_dev.ensure_signing_key(config.workspace)
+                _emit({'development_profile': 'DIAGNOSTIC_LEGACY',
+                       'workspace_enrollment': enrolled,
+                       'signing_key': str(key),
+                       'key_mode': oct(key.stat().st_mode & 0o777),
+                       'runtime_security': 'NOT_APPROVED',
+                       'production_launch': 'BLOCKED'}, json_output)
+                return 0
+            if args.dev_command == 'verify':
+                result = aaas_dev.verify(config)
+                _emit(result, json_output)
+                return 0 if result['development_launch'] == 'PERMITTED' else 2
+            if args.dev_command == 'status':
+                result = _status(config)
+                result.update({'development_profile': 'DIAGNOSTIC_LEGACY',
+                               'runtime_security': 'NOT_APPROVED',
+                               'selinux_enforcement': 'UNAVAILABLE'})
+                _emit(result, json_output)
+                return 0
+            if args.dev_command == 'logs':
+                if not 1 <= args.lines <= 10000:
+                    raise CliError('--lines must be between 1 and 10000')
+                sessions = sorted((config.workspace / 'tmp').glob('m1b84_session_*'),
+                                  key=lambda p: p.stat().st_mtime, reverse=True)
+                if not sessions:
+                    raise CliError('no AaaS developer session logs found')
+                logs = sessions[0] / 'android.log'
+                print(''.join(logs.read_text(errors='replace').splitlines(keepends=True)[-args.lines:]),
+                      end='')
+                return 0
+            if args.dev_command == 'stop':
+                return _run_script('aaasctl.py', 'stop', config=config,
+                                   env_extra={'AAAS_DEV_COMPAT': '1'})
+            result = aaas_dev.verify(config)
+            if result['development_launch'] != 'PERMITTED':
+                _emit(result, True)
+                raise CliError('developer runtime prerequisites are incomplete; no session started')
+            print('AaaS development compatibility runtime', flush=True)
+            print('Android SELinux enforcement: unavailable', flush=True)
+            print('Legacy compatibility shim: enabled', flush=True)
+            print('Runtime security approval: not granted', flush=True)
+            print('Only trusted development workloads are supported', flush=True)
+            command = ['--startup-timeout', '120', '--idle-timeout-seconds',
+                       config.idle_timeout_seconds, '--experimental-virtual-display',
+                       '--app', 'com.android.settings']
+            if config.resource_limit:
+                command.extend(('--memory-policy', config.resource_limit))
+            if args.audio:
+                command.append('--audio')
+            return _run_script('run_aaas.py', *command, config=config,
+                               env_extra={'AAAS_DEV_COMPAT': '1',
+                                          'AAAS_IP': result['checks']['host']['ip'],
+                                          'AAAS_PRESENTER_IMPLICIT_SYNC': '1',
+                                          'AAAS_RUNTIME_ROOT': str(
+                                              aaas_dev.runtime_root(config))})
         if args.command == 'doctor':
             result = _doctor(config)
             _emit(result if json_output else '\n'.join(

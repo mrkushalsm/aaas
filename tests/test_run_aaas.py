@@ -10,12 +10,15 @@ import time
 import unittest
 import zipfile
 from unittest.mock import patch
+import sys
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/run_aaas.py'
 SPEC = importlib.util.spec_from_file_location('run_aaas', SCRIPT)
 SESSION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SESSION)
+sys.path.insert(0, str(SCRIPT.parent))
+import aaas_session_runner_base
 
 
 class AudioSeccompPolicyTests(unittest.TestCase):
@@ -355,6 +358,55 @@ class DiagnosticApkNativeLibraryTests(unittest.TestCase):
                     SESSION.validate_native_bridge_bundle(bundle)
 
 class ForegroundRunnerTests(unittest.TestCase):
+    def test_presenter_keeps_host_window_and_android_framebuffer_sizes_distinct(self):
+        self.assertEqual(
+            SESSION.presenter_geometry_args((420, 740), (720, 1280)),
+            ['--width', '420', '--height', '740', '--display-width', '720',
+             '--display-height', '1280'])
+
+    def test_implicit_sync_is_explicitly_opted_in_for_compatibility_sessions(self):
+        self.assertEqual(SESSION.presenter_sync_args({}), [])
+        self.assertEqual(SESSION.presenter_sync_args(
+            {'AAAS_PRESENTER_IMPLICIT_SYNC': '1'}), ['--implicit-sync'])
+        self.assertEqual(SESSION.presenter_sync_args(
+            {'AAAS_PRESENTER_IMPLICIT_SYNC': 'true'}), [])
+
+    def test_developer_mode_keeps_android_transient_mounts_writable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory) / 'session'
+            session.mkdir()
+            with patch.dict('os.environ', {
+                    'AAAS_DEV_COMPAT': '1',
+                    'AAAS_DRM_RENDER_NODE': '/dev/dri/renderD128'}, clear=False), \
+                    patch.object(Path, 'is_char_device', return_value=True):
+                generated = SESSION.make_session_runner(session).read_text()
+        self.assertIn('--tmpfs /mnt', generated)
+        self.assertIn('mount -t proc proc /proc || exit 70', generated)
+        self.assertIn('link add dummy0 type dummy', generated)
+        self.assertIn('if Path("/dev/net/tun").exists() else "")', generated)
+        self.assertNotIn('exists() and not dev_compat', generated)
+        self.assertIn('mount -t sysfs -o nosuid,nodev,noexec sysfs ', generated)
+        self.assertIn('aaas_net_sysfs_', generated)
+        self.assertIn('--ro-bind ', generated)
+        self.assertIn('/class/net /sys/class/net', generated)
+        self.assertIn("mnt_tmpfs = '  --tmpfs /mnt", generated)
+        self.assertIn("mnt_tmpfs = ''", generated)
+
+    def test_isolated_netd_interfaces_are_namespace_local_and_read_only_inside(self):
+        setup, mounts, nested_namespace = (
+            aaas_session_runner_base.developer_network_configuration(
+                True, '/usr/sbin/ip', '/workspace/tmp/session-sysfs'))
+        self.assertIn('/usr/sbin/ip link add dummy0 type dummy', setup)
+        self.assertIn('mount -t sysfs -o nosuid,nodev,noexec sysfs /workspace/tmp/session-sysfs', setup)
+        self.assertIn('--ro-bind /workspace/tmp/session-sysfs/class/net /sys/class/net', mounts)
+        self.assertIn('--ro-bind /workspace/tmp/session-sysfs/devices/virtual/net '
+                      '/sys/devices/virtual/net', mounts)
+        self.assertEqual(nested_namespace, '')
+        ordinary_setup, ordinary_mounts, _ = (
+            aaas_session_runner_base.developer_network_configuration(False))
+        self.assertEqual(ordinary_setup, '')
+        self.assertEqual(ordinary_mounts, '  --ro-bind /sys/class/net /sys/class/net \\\n')
+
     def test_audio_hal_overlay_is_absent_from_normal_runner(self):
         with tempfile.TemporaryDirectory() as directory:
             session = Path(directory) / 'session'
@@ -798,6 +850,70 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertNotIn('/system/bin/init second_stage &', generated)
         self.assertIn('    echo RUNNING > /aaas_session_status', generated)
 
+    def test_emulated_storage_mount_is_idempotent_and_fails_closed(self):
+        import os
+        import subprocess
+
+        with tempfile.TemporaryDirectory(prefix='aaas-storage-mount-') as directory:
+            root = Path(directory)
+            sm = root / 'sm'
+            toybox = root / 'toybox'
+            state = root / 'state'
+            calls = root / 'calls'
+            log = root / 'session.log'
+            sm.write_text(
+                '#!/bin/sh\n'
+                f'state={shlex.quote(str(state))}\n'
+                f'calls={shlex.quote(str(calls))}\n'
+                'case "$1" in\n'
+                '  list-volumes) printf "emulated;0 %s null\\n" "$(cat "$state")" ;;\n'
+                '  mount) echo "$*" >> "$calls"; '
+                '[ "${FAIL_MOUNT:-0}" = 1 ] || echo mounted > "$state" ;;\n'
+                '  *) exit 2 ;;\n'
+                'esac\n')
+            toybox.write_text(
+                '#!/bin/sh\n'
+                'case "$1" in\n'
+                '  grep) shift; exec grep "$@" ;;\n'
+                '  cut) shift; exec cut "$@" ;;\n'
+                '  tee) shift; exec tee "$@" ;;\n'
+                '  sleep) exit 0 ;;\n'
+                '  *) exit 2 ;;\n'
+                'esac\n')
+            sm.chmod(0o755)
+            toybox.chmod(0o755)
+            script = SESSION.emulated_storage_mount_script(
+                sm=sm, toybox=toybox, log_path=log, escape_fstring=False)
+            # The production Android command is itself nested in a single
+            # quoted `sh -c` argument. Exercise that additional shell parse.
+            nested_command = "sh -c '" + script.rstrip() + "'"
+
+            state.write_text('mounted\n')
+            result = subprocess.run(['/bin/sh', '-c', nested_command],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(calls.exists(), 'already-mounted volume was mounted again')
+            self.assertIn('AAAS_EMULATED_STORAGE_ALREADY_MOUNTED', log.read_text())
+
+            calls.unlink(missing_ok=True)
+            log.unlink(missing_ok=True)
+            state.write_text('unmounted\n')
+            result = subprocess.run(['/bin/sh', '-c', nested_command],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls.read_text().splitlines(), ['mount emulated;0'])
+            self.assertEqual(state.read_text().strip(), 'mounted')
+
+            calls.unlink(missing_ok=True)
+            log.unlink(missing_ok=True)
+            state.write_text('unmounted\n')
+            env = dict(os.environ, FAIL_MOUNT='1')
+            result = subprocess.run(['/bin/sh', '-c', nested_command], env=env,
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 75)
+            self.assertIn('AAAS_EMULATED_STORAGE_NOT_MOUNTED state=unmounted',
+                          log.read_text())
+
     def test_runner_binds_persistent_shared_storage_and_starts_storaged(self):
         with tempfile.TemporaryDirectory(prefix='aaas storage ') as directory:
             root = Path(directory)
@@ -812,12 +928,51 @@ class ForegroundRunnerTests(unittest.TestCase):
                       generated)
         self.assertLess(generated.index('--tmpfs /data'),
                         generated.index('{shared_storage_bind}'))
-        self.assertIn('{fuse_bind}  --dev-bind /dev/dri /dev/dri', generated)
+        self.assertIn('{tun_bind}{fuse_bind}{drm_bind}{network_namespace}', generated)
         self.assertLess(generated.index('/system/bin/start storaged'),
                         generated.index('/system/bin/start vold'))
+        self.assertIn('if [ "$AAAS_EMULATED_STATE" != mounted ]; then', generated)
+        self.assertIn('AAAS_EMULATED_STORAGE_ALREADY_MOUNTED', generated)
         self.assertIn('/system/bin/sm mount "emulated;0"', generated)
+        self.assertIn('AAAS_EMULATED_STORAGE_NOT_MOUNTED', generated)
+        self.assertIn('exit 75', generated)
+        self.assertLess(generated.index('if [ "$AAAS_EMULATED_STATE" != mounted ]; then'),
+                        generated.index('/system/bin/sm mount "emulated;0"'))
         self.assertNotIn('aaas-storage-android-to-host.txt', generated)
         self.assertNotIn('aaas-storage-host-to-android.txt', generated)
+
+    def test_headless_storage_runner_has_no_host_display_adapter(self):
+        import subprocess
+        with tempfile.TemporaryDirectory(prefix='aaas headless storage ') as directory:
+            root = Path(directory)
+            shared = root / 'persistent' / 'android-media' / '0'
+            shared.mkdir(parents=True)
+            scan_apk = root / 'AaaSStorageScan.apk'
+            scan_apk.write_bytes(b'fixture')
+            session = root / 'm1b84_session_testid'
+            session.mkdir()
+            generated_path = SESSION.make_session_runner(
+                session, app_package='com.android.settings',
+                shared_storage_dir=shared, storage_scan_apk=scan_apk,
+                headless_storage=True)
+            generated = generated_path.read_text()
+            compiled = subprocess.run([sys.executable, '-m', 'py_compile',
+                                       str(generated_path)], capture_output=True, text=True)
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertIn('AAAS_HEADLESS_STORAGE_READY', generated)
+        self.assertIn('system_server=running vold=running', generated)
+        self.assertIn('AAAS_HEADLESS_ANDROID_WRITE_OK', generated)
+        self.assertIn('grep "^emulated;0 " | /system/bin/toybox cut -d " " -f 2', generated)
+        self.assertIn('storage_scan_query_request', generated)
+        self.assertIn('content://media/*', generated)
+        self.assertIn('case "$SCAN_ID" in', generated)
+        self.assertNotIn('AAAS_STORAGE_SCAN_SERVICE', generated)
+        self.assertIn('            esac ;;\n', generated)
+        self.assertEqual(generated.count(
+            'echo AAAS_HEADLESS_STORAGE_FRAMEWORK_STOPPED >> /aaas_session_commands'), 1)
+        self.assertIn('if [ "{settings_sigquit}" = "1" ]; then', generated)
+        self.assertNotIn('aaas-input-adapter --socket /dev/aaas/input.sock', generated)
+        self.assertNotIn('AAAS_PRIMARY_PRESENTER', generated)
 
     def test_runner_binds_persistent_userdata_before_shared_media(self):
         with tempfile.TemporaryDirectory(prefix='aaas userdata ') as directory:
@@ -1116,10 +1271,22 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('/system/bin/toybox tail -n 1', generated)
         self.assertIn('APP_PACKAGE=com.example.reader', generated)
         self.assertIn('aaas_app_task_alive()', generated)
-        self.assertIn('grep -F "u0 $APP_PACKAGE/"', generated)
+        self.assertIn('grep -F "$APP_PACKAGE/"', generated)
+        self.assertIn('AAAS_TASK_CHECK_TRANSIENT_MISS package=$APP_PACKAGE', generated)
+        self.assertIn('dumpsys window 2>&1', generated)
+        self.assertIn('AAAS_TASK_CHECK_WINDOW_MANAGER package=$APP_PACKAGE', generated)
+        self.assertIn('sleep 0.2', generated)
         self.assertNotIn('pidof com.example.reader', generated)
         self.assertIn('No launchable activity for com.example.reader', generated)
         self.assertNotIn('start-activity -W -n com.android.settings/.Settings', generated)
+
+    def test_virtual_display_lifecycle_uses_display_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), app_package='com.example.reader',
+                experimental_virtual_display=True).read_text()
+        self.assertIn('cat /dev/aaas/vdisplay_control_ack_1', generated)
+        self.assertIn('[ -n "$VD_ID" ] && return 0', generated)
 
     def test_storage_probe_is_installed_as_an_ordinary_user_package(self):
         with tempfile.TemporaryDirectory() as directory:

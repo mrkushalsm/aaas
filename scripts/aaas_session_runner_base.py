@@ -2,6 +2,7 @@
 """Test Android 16 Zygote (app_process64) startup while property service is active."""
 
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -10,6 +11,43 @@ import threading
 import time
 from pathlib import Path
 import aaas_idmap
+
+
+def developer_network_configuration(enabled, ip_tool='ip', sysfs_root='/tmp/aaas-netns-sysfs'):
+    """Build isolated netd support without exposing host network devices."""
+    if not enabled:
+        return ('', '  --ro-bind /sys/class/net /sys/class/net \\\n', '')
+    command = shlex.quote(ip_tool)
+    sysfs = shlex.quote(str(sysfs_root))
+    setup = (
+        f'mkdir -p {sysfs}\n'
+        f'{command} link set lo up || exit 71\n'
+        f'{command} link add dummy0 type dummy || exit 72\n'
+        f'{command} link set dummy0 up || exit 73\n'
+        f'mount -t sysfs -o nosuid,nodev,noexec sysfs {sysfs} || exit 74\n')
+    mounts = (
+        '  --dir /sys/class \\\n'
+        '  --dir /sys/devices \\\n'
+        '  --dir /sys/devices/virtual \\\n'
+        f'  --ro-bind {sysfs}/class/net /sys/class/net \\\n'
+        f'  --ro-bind {sysfs}/devices/virtual/net /sys/devices/virtual/net \\\n')
+    return setup, mounts, ''
+
+
+def _aaas_cgroup_directory():
+    """Use the current user's delegated service cgroup, never a fixed UID path."""
+    try:
+        entry = next(line for line in Path('/proc/self/cgroup').read_text().splitlines()
+                     if line.startswith('0::'))
+        current = Path('/sys/fs/cgroup').joinpath(*entry[3:].strip('/').split('/'))
+    except (OSError, StopIteration) as error:
+        raise RuntimeError(f'cannot resolve the unified cgroup for this process: {error}') from error
+    for candidate in (current, *current.parents):
+        if candidate.name.endswith('.service') and candidate.is_dir():
+            target = candidate / 'aaas'
+            if target.is_dir() or os.access(candidate, os.W_OK | os.X_OK):
+                return target
+    raise RuntimeError('no writable user service cgroup is available for Android runtime')
 
 
 def main():
@@ -64,7 +102,7 @@ def main():
     fake_mmap_compat.write_text("16\n")
     fake_cmdline.write_text("console=tty0 androidboot.hardware=ranchu androidboot.fstab_suffix=ranchu androidboot.serialno=aaas001 androidboot.hardwareegl=angle androidboot.hardware.vulkan=pastel androidboot.hardware.egl=angle androidboot.vendor.hwcomposer.display_finder_mode=noop androidboot.vendor.hwcomposer.mode=client androidboot.hardware.hwcomposer.mode=client androidboot.hardware.hwcomposer.display_finder_mode=noop\n")
 
-    cgroup_dir = Path("/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/aaas")
+    cgroup_dir = _aaas_cgroup_directory()
     cgroup_dir.mkdir(parents=True, exist_ok=True)
 
     fifo_path = tmp_dir / f"zygote_fifo_{os.getpid()}"
@@ -223,11 +261,43 @@ def main():
     sf_sigquit = os.environ.get("AAAS_SF_SIGQUIT", "0")
     boot_wait = os.environ.get("AAAS_BOOT_WAIT", "60.0")
     boot_wait_int = int(float(boot_wait))
-    tun_bind = "  --dir /dev/net \\\n  --dev-bind /dev/net/tun /dev/net/tun \\\n  --dev-bind /dev/net/tun /dev/tun \\\n" if Path("/dev/net/tun").exists() else ""
+    dev_compat = os.environ.get('AAAS_DEV_COMPAT') == '1'
+    network_sysfs_root = tmp_dir / f'aaas_net_sysfs_{os.getpid()}'
+    network_setup, network_class_bind, network_namespace = developer_network_configuration(
+        dev_compat, os.environ.get('AAAS_IP', 'ip'), network_sysfs_root)
+    network_cleanup = (
+        f'umount {shlex.quote(str(network_sysfs_root))} 2>/dev/null || true\n'
+        f'rmdir {shlex.quote(str(network_sysfs_root))} 2>/dev/null || true\n'
+        if dev_compat else '')
+    # TUN is visible only inside the already-created private network
+    # namespace. That permits Android's optional Thread service to initialize
+    # without exposing a host uplink or changing host network policy.
+    tun_bind = ("  --dir /dev/net \\\n  --dev-bind /dev/net/tun /dev/net/tun \\\n  --dev-bind /dev/net/tun /dev/tun \\\n"
+                if Path("/dev/net/tun").exists() else "")
+    headless_storage = os.environ.get('AAAS_HEADLESS_STORAGE') == '1'
+    if dev_compat and not headless_storage:
+        render_node = Path(os.environ.get('AAAS_DRM_RENDER_NODE', ''))
+        if (not render_node.is_absolute() or render_node.parent != Path('/dev/dri')
+                or not render_node.name.startswith('renderD') or not render_node.is_char_device()):
+            raise RuntimeError('developer profile requires one discovered DRM render node')
+        drm_bind = (f'  --dir /dev/dri \\\n  --dev-bind "{render_node}" "{render_node}" \\\n')
+        # Android's stock init remounts / read-only at post-fs. Preserve a
+        # writable session-local mountpoint tree after that remount.
+        mnt_tmpfs = '  --tmpfs /mnt \\\n'
+    elif not headless_storage:
+        drm_bind = '  --dev-bind /dev/dri /dev/dri \\\n'
+        mnt_tmpfs = ''
+    else:
+        # Storage-only sessions do not expose DRM devices or start a host
+        # presenter. Android may initialize its own display service, but no
+        # buffers are presented to the desktop.
+        drm_bind = ''
+        mnt_tmpfs = '  --tmpfs /mnt \\\n'
 
     runner_script = tmp_dir / f"run_zygote_probe_{os.getpid()}.sh"
     script_text = f"""#!/bin/sh
 read line < "{fifo_path}"
+mount -t proc proc /proc || exit 70
 mkdir -p /tmp/binder_mnt
 mount -t binder binder /tmp/binder_mnt
 python3 -c '
@@ -247,14 +317,15 @@ for name in ["binder", "hwbinder", "vndbinder", "binder-control"]:
     if os.path.exists(p):
         os.chmod(p, 0o666)
 '
-exec bwrap \\
+{network_setup}bwrap \\
   --as-pid-1 \\
   --unshare-pid \\
   --bind "{rootfs}" / \\
+{mnt_tmpfs}\\
 {mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}{libvulkan_bind}{angle_bind}{probe_bind}{egl_test_bind}{host_debug_bind}{bootanim_debug_bind}{apex_info_bind}{ranging_jar_bind}{networkstats_lib_bind}{meminfo_lib_bind}{wifi_feature_bind}{services_jar_bind}{keystore_sid_bind}{hwsm_sid_bind}{keystore_trace_bind}  --proc /proc \\
   --bind "{fake_cmdline}" /proc/cmdline \\
   --dev /dev \\
-{tun_bind}  --dev-bind /dev/dri /dev/dri \\
+{tun_bind}{fuse_bind}{drm_bind}{network_namespace} \\
   --dev-bind /tmp/binder_mnt /dev/binderfs \\
   --symlink /dev/binderfs/binder /dev/binder \\
   --symlink /dev/binderfs/hwbinder /dev/hwbinder \\
@@ -266,7 +337,7 @@ exec bwrap \\
   --bind "{allocator_log}" /data_allocator.log \\
   --bind "{egl_test_log}" /egl_test_result.log \\
   --bind "{cgroup_dir}" /sys/fs/cgroup \
-  --ro-bind /sys/class/net /sys/class/net \\
+{network_class_bind} \\
   --bind "{fake_kptr}" /proc/sys/kernel/kptr_restrict \\
   --bind "{fake_sysrq}" /proc/sys/kernel/sysrq \\
   --bind "{fake_modprobe}" /proc/sys/kernel/modprobe \\
@@ -530,6 +601,8 @@ exec bwrap \\
 
     kill -9 $INIT_PID 2>/dev/null
   '
+runner_status=$?
+{network_cleanup}exit "$runner_status"
 """
     runner_script.write_text(script_text)
     runner_script.chmod(0o755)

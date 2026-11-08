@@ -39,7 +39,8 @@ import android_workspace
 import aaas_graphics
 
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(os.environ.get('AAAS_RUNTIME_ROOT',
+                          str(Path(__file__).resolve().parent.parent))).resolve()
 CONFIG = aaas_config.resolve_config(repository=ROOT)
 WORKSPACE = CONFIG.workspace
 ROOTFS = CONFIG.rootfs
@@ -51,7 +52,8 @@ def configured_rootfs():
         return WORKSPACE / 'rootfs_m1b1'
     return ROOTFS
 TMP = WORKSPACE / 'tmp'
-RUNNER = ROOT / 'scripts/aaas_session_runner_base.py'
+RUNNER = Path(os.environ.get('AAAS_SESSION_RUNNER_BASE',
+                             str(ROOT / 'scripts/aaas_session_runner_base.py'))).resolve()
 PRESENTER = ROOT / 'experiments/m1a/build/wayland-host-presenter'
 INPUT_ADAPTER = ROOT / 'experiments/m1c/input_adapter/build/aaas-input-adapter'
 COMPOSER_PORTRAIT = TMP / 'm1b84_composer_portrait_720x1280'
@@ -77,7 +79,7 @@ STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
-RUNNER_SHA256 = 'b8125e8ec91c4f0731d7911a60830140dd3fc017432dab8f45f7d8fd6fcd52f1'
+RUNNER_SHA256 = '6fabac989cb4ba26380668a68896499cee9e052b14d1acfa0e7ef488fb62694a'
 SWIFTSHADER_RUNTIME_OVERLAY = TMP / 'm1e_swiftshader_fixed_notrace_v2.so'
 SWIFTSHADER_RUNTIME_SHA256 = 'e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee'
 SWIFTSHADER_RUNTIME_SOURCE_DIFF_SHA256 = '49c1ce42f0cb09dd69a81645c9a3bec91a390c958ac3d49ff2bd3edf4df86ece'
@@ -678,6 +680,52 @@ def initial_display_size(orientation, requested=None):
     return (720, 1280) if orientation == 'portrait' else (1280, 720)
 
 
+def presenter_geometry_args(window_size, display_size):
+    """Keep host toplevel geometry separate from Android framebuffer geometry."""
+    return ['--width', str(window_size[0]), '--height', str(window_size[1]),
+            '--display-width', str(display_size[0]),
+            '--display-height', str(display_size[1])]
+
+
+def emulated_storage_mount_script(sm='/system/bin/sm', toybox='/system/bin/toybox',
+                                  log_path='/aaas_session_commands',
+                                  escape_fstring=True):
+    """Mount Android emulated storage only when framework startup has not done so."""
+    sm_cmd = shlex.quote(str(sm))
+    toybox_cmd = shlex.quote(str(toybox))
+    log_file = shlex.quote(str(log_path))
+    # Parse the fixed three-column `sm list-volumes` format with toybox
+    # grep/cut. This avoids nested awk quoting through the generated `sh -c`
+    # wrapper and preserves the state as emitted by Android.
+    volume_filter = '"^emulated;0 "'
+    return (
+        '    AAAS_EMULATED_STATE=$(' + sm_cmd + ' list-volumes all | ' +
+        toybox_cmd + ' grep ' + volume_filter + ' | ' + toybox_cmd +
+        ' cut -d " " -f 2)\n'
+        '    if [ "$AAAS_EMULATED_STATE" != mounted ]; then\n'
+        '      ' + sm_cmd + ' mount "emulated;0" >> ' + log_file + ' 2>&1\n'
+        '    else\n'
+        '      echo AAAS_EMULATED_STORAGE_ALREADY_MOUNTED >> ' + log_file + '\n'
+        '    fi\n'
+        '    ' + toybox_cmd + ' sleep 2\n'
+        '    AAAS_EMULATED_STATE=$(' + sm_cmd + ' list-volumes all | ' +
+        toybox_cmd + ' tee -a ' + log_file + ' | ' +
+        toybox_cmd + ' grep ' + volume_filter + ' | ' + toybox_cmd +
+        ' cut -d " " -f 2)\n'
+        '    if [ "$AAAS_EMULATED_STATE" != mounted ]; then\n'
+        '      echo "AAAS_EMULATED_STORAGE_NOT_MOUNTED state=$AAAS_EMULATED_STATE" '
+        '>> ' + log_file + '\n'
+        '      exit 75\n'
+        '    fi\n'
+    )
+
+
+def presenter_sync_args(environ=None):
+    """Select the measured-safe release path for a controlled dev session."""
+    env = os.environ if environ is None else environ
+    return ['--implicit-sync'] if env.get('AAAS_PRESENTER_IMPLICIT_SYNC') == '1' else []
+
+
 def parse_display_density(value):
     try:
         density = int(value)
@@ -705,9 +753,13 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         audio_ashmem_shim=None, audio_factory_compat=None,
                         audio_codec_init=None, audio_mediaextractor_init=None,
                         audio_mediaextractor_seccomp=None,
-                        audio_media_file=None, audio_playback_volume_test=False):
+                        audio_media_file=None, audio_playback_volume_test=False,
+                        headless_storage=False):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
+    if headless_storage and (experimental_virtual_display or app_package2 is not None
+                             or audio_media_file is not None):
+        raise ValueError('headless storage mode cannot use virtual displays or media playback')
     app_package = validate_app_package(app_package)
     for package, option in ((uninstall_package, '--uninstall-package'),
                             (assert_package_absent, '--assert-package-absent')):
@@ -1001,11 +1053,6 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         )
         source = replace_once(
             source,
-            '{tun_bind}  --dev-bind /dev/dri /dev/dri',
-            '{tun_bind}{fuse_bind}  --dev-bind /dev/dri /dev/dri',
-        )
-        source = replace_once(
-            source,
             '    /system/bin/start vold\n',
             '    /system/bin/start storaged\n'
             '    /system/bin/start vold\n',
@@ -1034,23 +1081,41 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '"System unlocked users|CE unlocked users|emulated;0" | '
             'while read -r AAAS_STORAGE_LINE; do '
             '/system/bin/log -t AaaSStorageState "$AAAS_STORAGE_LINE"; done\n'
-            '    /system/bin/sm mount "emulated;0" >> /aaas_session_commands 2>&1\n'
-            '    /system/bin/toybox sleep 2\n'
-            '    /system/bin/sm list-volumes all >> /aaas_session_commands 2>&1\n'
-            '    /system/bin/dumpsys mount | /system/bin/toybox grep -E '
-            '"emulated;0|System unlocked users|CE unlocked users" >> /aaas_session_commands 2>&1\n'
-            '    /system/bin/dumpsys mount | /system/bin/toybox grep -E '
-            '"System unlocked users|CE unlocked users|emulated;0" | '
-            'while read -r AAAS_STORAGE_LINE; do '
-            '/system/bin/log -t AaaSStorageState "$AAAS_STORAGE_LINE"; done\n'
-            '    /system/bin/dumpsys media.provider | /system/bin/toybox grep -i '
-            'external_primary | while read -r AAAS_STORAGE_LINE; do '
-            '/system/bin/log -t AaaSStorageState "$AAAS_STORAGE_LINE"; done\n'
-            '    /system/bin/toybox mount | /system/bin/toybox grep -E '
-            '"fuse|/data/media|/storage" >> /aaas_session_commands 2>&1\n'
-            '    /system/bin/toybox ls -ld /data/media/0 '
-            '/storage/emulated/0 /storage/emulated/0/Documents >> /aaas_session_commands 2>&1\n'
+            # This fragment is inserted into a generated Python f-string;
+            # escape its awk braces there so the resulting shell gets singles.
+            + emulated_storage_mount_script()
+            + '    /system/bin/dumpsys mount | /system/bin/toybox grep -E '
+            + '"emulated;0|System unlocked users|CE unlocked users" >> /aaas_session_commands 2>&1\n'
+            + '    /system/bin/dumpsys mount | /system/bin/toybox grep -E '
+            + '"System unlocked users|CE unlocked users|emulated;0" | '
+            + 'while read -r AAAS_STORAGE_LINE; do '
+            + '/system/bin/log -t AaaSStorageState "$AAAS_STORAGE_LINE"; done\n'
+            + '    /system/bin/dumpsys media.provider | /system/bin/toybox grep -i '
+            + 'external_primary | while read -r AAAS_STORAGE_LINE; do '
+            + '/system/bin/log -t AaaSStorageState "$AAAS_STORAGE_LINE"; done\n'
+            + '    /system/bin/toybox mount | /system/bin/toybox grep -E '
+            + '"fuse|/data/media|/storage" >> /aaas_session_commands 2>&1\n'
+            + '    /system/bin/toybox ls -ld /data/media/0 '
+            + '/storage/emulated/0 /storage/emulated/0/Documents >> /aaas_session_commands 2>&1\n'
         )
+        if headless_storage:
+            marker = f'aaas-headless-android-to-host-{Path(session).name}.txt'
+            if not re.fullmatch(r'[A-Za-z0-9._-]+', marker):
+                raise ValueError('invalid headless storage marker name')
+            storage_probe += (
+                '    AAAS_HEADLESS_MARKER=/storage/emulated/0/Download/' + marker + '\n'
+                '    if [ -e "$AAAS_HEADLESS_MARKER" ]; then\n'
+                '      echo "AAAS_HEADLESS_ANDROID_WRITE_COLLISION $AAAS_HEADLESS_MARKER" '
+                '>> /aaas_session_commands\n'
+                '    else\n'
+                '      printf %s ' + shlex.quote('aaas-android-to-host-v1')
+                + ' > "$AAAS_HEADLESS_MARKER" || exit 76\n'
+                '      /system/bin/toybox sha256sum "$AAAS_HEADLESS_MARKER" '
+                '>> /aaas_session_commands 2>&1\n'
+                '      echo "AAAS_HEADLESS_ANDROID_WRITE_OK $AAAS_HEADLESS_MARKER" '
+                '>> /aaas_session_commands\n'
+                '    fi\n'
+            )
         if audio_hal_bind:
             storage_probe += (
                 '    echo "=== AAAS AUDIO SERVICES AFTER SYSTEM START ===" '
@@ -1520,8 +1585,10 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     )
     source = replace_once(
         source,
-        '    kill -9 $INIT_PID 2>/dev/null\n  \'\n"""',
-        '    :\n    ) &\n    exec /system/bin/init second_stage\n  \'\n"""',
+        '    kill -9 $INIT_PID 2>/dev/null\n  \'\n'
+        'runner_status=$?\n{network_cleanup}exit "$runner_status"\n"""',
+        '    :\n    ) &\n    exec /system/bin/init second_stage\n  \'\n'
+        'runner_status=$?\n{network_cleanup}exit "$runner_status"\n"""',
     )
     if experimental_virtual_display:
         # Record whether this image includes the platform flag. The scoped
@@ -1733,17 +1800,18 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             "'enable_display_content_mode_management' >> /aaas_session_commands\n"
             '    echo "=== STEP 1: SETTING APEX & KEYSTORE PROPS ==="',
         )
-    source = replace_once(
-        source,
-        '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
-        '    if [ -x /system/bin/aaas-input-adapter ]; then\n'
-        '      /system/bin/aaas-input-adapter --socket /dev/aaas/input.sock '
-        '--session-file /dev/aaas/input_session --log /aaas_input_adapter.log &\n'
-        '      INPUT_ADAPTER_PID=$!\n'
-        '      echo "AAAS_INPUT_ADAPTER_STARTED $INPUT_ADAPTER_PID"\n'
-        '    fi\n'
-        '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
-    )
+    if not headless_storage:
+        source = replace_once(
+            source,
+            '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
+            '    if [ -x /system/bin/aaas-input-adapter ]; then\n'
+            '      /system/bin/aaas-input-adapter --socket /dev/aaas/input.sock '
+            '--session-file /dev/aaas/input_session --log /aaas_input_adapter.log &\n'
+            '      INPUT_ADAPTER_PID=$!\n'
+            '      echo "AAAS_INPUT_ADAPTER_STARTED $INPUT_ADAPTER_PID"\n'
+            '    fi\n'
+            '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
+        )
     if audio_media_file is None:
         app_launch_script = (
             '    echo "=== RESOLVING AND LAUNCHING ANDROID APPLICATION ==="\n'
@@ -2122,10 +2190,48 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         + (
         '    # Track the Android activity/task lifecycle; process names may be custom.\n'
         '    aaas_app_task_alive() {{\n'
-        '      [ "$(/system/bin/toybox cat /dev/aaas/app1_forced_closed 2>/dev/null)" '
-        '!= "$APP_PACKAGE" ] || return 1\n'
-        '      /system/bin/dumpsys activity activities | '
-        '/system/bin/toybox grep -F "u0 $APP_PACKAGE/" >/dev/null 2>&1\n'
+        '      AAAS_FORCED_CLOSED=$(/system/bin/toybox cat /dev/aaas/app1_forced_closed 2>/dev/null)\n'
+        '      [ "$AAAS_FORCED_CLOSED" != "$APP_PACKAGE" ] || {{ echo AAAS_TASK_CHECK_FORCED_CLOSED >> /aaas_session_commands; return 1; }}\n'
+        + (
+            '      AAAS_DISPLAY_ACK=$(/system/bin/toybox cat /dev/aaas/vdisplay_control_ack_1 2>/dev/null)\n'
+            '      case "$AAAS_DISPLAY_ACK" in released*) echo AAAS_TASK_CHECK_DISPLAY_RELEASED >> /aaas_session_commands; return 1 ;; esac\n'
+            '      [ -n "$VD_ID" ] && return 0\n'
+            '      echo AAAS_TASK_CHECK_DISPLAY_ID_MISSING >> /aaas_session_commands\n'
+            if experimental_virtual_display else ''
+        )
+        + (
+        '      AAAS_TASK_DUMP=$(/system/bin/dumpsys activity activities 2>&1)\n'
+        '      if printf "%s\\n" "$AAAS_TASK_DUMP" | '
+        '/system/bin/toybox grep -F "$APP_PACKAGE/" >/dev/null 2>&1; then return 0; fi\n'
+        '      # Android 16 omits some non-focused virtual-display tasks from the global '
+        '      # ActivityTaskManager dump while WindowManager still owns their live window.\n'
+        '      AAAS_WINDOW_DUMP=$(/system/bin/dumpsys window 2>&1)\n'
+        '      if printf "%s\\n" "$AAAS_WINDOW_DUMP" | '
+        '/system/bin/toybox grep -F "$APP_PACKAGE/" >/dev/null 2>&1; then return 0; fi\n'
+        '      /system/bin/toybox sleep 0.2\n'
+        '      AAAS_TASK_DUMP=$(/system/bin/dumpsys activity activities 2>&1)\n'
+        '      if printf "%s\\n" "$AAAS_TASK_DUMP" | '
+        '/system/bin/toybox grep -F "$APP_PACKAGE/" >/dev/null 2>&1; then\n'
+        '        echo "AAAS_TASK_CHECK_TRANSIENT_MISS package=$APP_PACKAGE" '
+        '>> /aaas_session_commands\n'
+        '        return 0\n'
+        '      fi\n'
+        '      AAAS_WINDOW_DUMP=$(/system/bin/dumpsys window 2>&1)\n'
+        '      if printf "%s\\n" "$AAAS_WINDOW_DUMP" | '
+        '/system/bin/toybox grep -F "$APP_PACKAGE/" >/dev/null 2>&1; then\n'
+        '        echo "AAAS_TASK_CHECK_WINDOW_MANAGER package=$APP_PACKAGE" '
+        '>> /aaas_session_commands\n'
+        '        return 0\n'
+        '      fi\n'
+        '      echo "AAAS_TASK_CHECK_MISSING package=$APP_PACKAGE" '
+        '>> /aaas_session_commands\n'
+        '      printf "%s\\n" "$AAAS_WINDOW_DUMP" | '
+        '/system/bin/toybox grep -F "$APP_PACKAGE" | '
+        '/system/bin/toybox tail -n 5 >> /aaas_session_commands\n'
+        '      printf "%s\\n" "$AAAS_TASK_DUMP" | '
+        '/system/bin/toybox grep -F "ActivityRecord" | '
+        '/system/bin/toybox tail -n 5 >> /aaas_session_commands\n'
+        '      return 1\n'
         '    }}\n'
         '    /system/bin/toybox sleep 3\n'
         '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
@@ -2139,6 +2245,64 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         'aaas_app_task_alive'
         )
     )
+    )
+    if headless_storage:
+        readiness_and_watch = (
+            '    /system/bin/toybox sleep 3\n'
+            '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
+            '! /system/bin/toybox pidof system_server >/dev/null || '
+            '! /system/bin/toybox pidof vold >/dev/null; then\n'
+            '      echo AAAS_HEADLESS_STORAGE_FRAMEWORK_NOT_READY >> /aaas_session_commands\n'
+            '      echo FAILED > /aaas_session_status; exit 1\n'
+            '    fi\n'
+            '    echo RUNNING > /aaas_session_status\n'
+            '    echo AAAS_HEADLESS_STORAGE_READY boot_completed=1 system_server=running vold=running '
+            '>> /aaas_session_commands\n'
+            '    while [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
+            '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
+            '[ -n "$(/system/bin/toybox pidof vold)" ] && '
+            '[ "$(/system/bin/toybox cat /aaas_session_status)" != STOPPING ]; do\n'
+            + ('      if [ -s /dev/aaas/storage_scan_request ]; then\n'
+               '        read SCAN_ID SCAN_PATH_B64 < /dev/aaas/storage_scan_request\n'
+               '        : > /dev/aaas/storage_scan_request\n'
+               '        SCAN_PATH=$(printf "%s" "$SCAN_PATH_B64" | '
+               '/system/bin/toybox base64 -d 2>/dev/null)\n'
+               '        case "$SCAN_ID" in\n'
+               '          ""|*[!0-9a-f]*) echo "failed $SCAN_ID invalid_path" '
+               '> /dev/aaas/storage_scan_ack ;;\n'
+               '          *) case "$SCAN_PATH" in\n'
+               '          /storage/emulated/0/*)\n'
+               '            case "$SCAN_PATH" in *"/../"*|*"/.."|*"/Android/data"*|*"/Android/obb"*) '
+               'echo "failed $SCAN_ID invalid_path" > /dev/aaas/storage_scan_ack ;;\n'
+               '            *) SCAN_OUTPUT=$(/system/bin/am broadcast --include-stopped-packages '
+               '--user 0 -n org.aaas.storagescan/.ScanReceiver --es path "$SCAN_PATH" '
+               '--es requestId "$SCAN_ID" 2>&1); SCAN_STATUS=$?; '
+               'if [ "$SCAN_STATUS" -eq 0 ]; then echo "started $SCAN_ID $SCAN_PATH" '
+               '> /dev/aaas/storage_scan_ack; else echo "failed $SCAN_ID $SCAN_OUTPUT" '
+               '> /dev/aaas/storage_scan_ack; fi ;;\n'
+               '            esac ;;\n'
+               '          *) echo "failed $SCAN_ID invalid_path" > /dev/aaas/storage_scan_ack ;;\n'
+               '          esac ;;\n'
+               '        esac\n'
+               '      fi\n'
+               '      if [ -s /dev/aaas/storage_scan_query_request ]; then\n'
+               '        read QUERY_ID QUERY_URI_B64 < /dev/aaas/storage_scan_query_request\n'
+               '        : > /dev/aaas/storage_scan_query_request\n'
+               '        QUERY_URI=$(printf "%s" "$QUERY_URI_B64" | '
+               '/system/bin/toybox base64 -d 2>/dev/null)\n'
+               '        case "$QUERY_URI" in content://media/*) QUERY_OUTPUT=$('
+               '/system/bin/content query --uri "$QUERY_URI" '
+               '--projection _id:_display_name:_data 2>&1); QUERY_STATUS=$? ;;\n'
+               '          *) QUERY_OUTPUT=invalid_content_uri; QUERY_STATUS=2 ;; esac\n'
+               '        QUERY_OUTPUT_B64=$(printf "%s" "$QUERY_OUTPUT" | '
+               '/system/bin/toybox base64 | /system/bin/toybox tr -d "\\\\n")\n'
+               '        echo "$QUERY_ID $QUERY_STATUS $QUERY_OUTPUT_B64" '
+               '> /dev/aaas/storage_scan_query_ack\n'
+               '      fi\n' if storage_scan_apk is not None else '')
+            + '      /system/bin/toybox sleep 1\n'
+            '    done\n'
+            '    echo AAAS_HEADLESS_STORAGE_FRAMEWORK_STOPPED >> /aaas_session_commands\n'
+        )
     if experimental_virtual_display:
         readiness_and_watch = readiness_and_watch.replace(
             '    echo RUNNING > /aaas_session_status\n',
@@ -2186,9 +2350,15 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    aaas_app2_task_alive() {{\n'
             '      [ "$(/system/bin/toybox cat /dev/aaas/app2_forced_closed 2>/dev/null)" '
             '!= "$APP_PACKAGE2" ] || return 1\n'
-            '      /system/bin/dumpsys activity activities | '
+            + (
+                '      case "$(/system/bin/toybox cat /dev/aaas/vdisplay_control_ack_2 2>/dev/null)" in released*) return 1 ;; esac\n'
+                '      [ -n "$VD_ID2" ] && return 0\n'
+                if experimental_virtual_display else ''
+            )
+            + ('      /system/bin/dumpsys activity activities | '
             '/system/bin/toybox grep -F "u0 $APP_PACKAGE2/" >/dev/null 2>&1\n'
-            '    }}\n'
+            )
+            + '    }}\n'
             '    /system/bin/toybox sleep 3\n'
             '    if [ "$(/system/bin/getprop sys.boot_completed)" != "1" ] || '
             '! aaas_app_task_alive || ! aaas_app2_task_alive; then\n'
@@ -2457,7 +2627,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '      echo FAILED > /aaas_session_status\n'
             '    fi\n'
         )
-    else:
+    elif not headless_storage:
         readiness_and_watch += '; do\n'
         if storage_scan_apk is not None:
             readiness_and_watch += (
@@ -2529,10 +2699,19 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    done\n'
             '    echo FAILED > /aaas_session_status\n'
         )
-    readiness_and_watch += (
-        '    exit 1\n'
-        '    if [ "{settings_sigquit}"'
-    )
+    if headless_storage:
+        readiness_and_watch += (
+            '    if [ "$(/system/bin/toybox cat /aaas_session_status)" = STOPPING ]; then exit 0; fi\n'
+            '    echo AAAS_HEADLESS_STORAGE_FRAMEWORK_STOPPED_UNEXPECTEDLY >> /aaas_session_commands\n'
+            '    echo FAILED > /aaas_session_status\n'
+            '    exit 1\n'
+            '    if [ "{settings_sigquit}"'
+        )
+    else:
+        readiness_and_watch += (
+            '    exit 1\n'
+            '    if [ "{settings_sigquit}"'
+        )
     source = replace_once(
         source,
         '    /system/bin/toybox sleep 3\n    if [ "{settings_sigquit}"',
@@ -2683,7 +2862,7 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
                         diagnostic_vulkan_overlay=None,
                         diagnostic_framework_overlay=None,
                         diagnostic_framework_sha256=None,
-                        audio_enabled=False):
+                        audio_enabled=False, storage_only=False):
     check = subprocess.run(
         [sys.executable, str(ROOT / 'scripts/android_workspace.py'),
          '--workspace', str(WORKSPACE), 'check'],
@@ -2707,10 +2886,10 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
         if missing_audio:
             raise RuntimeError('Android 16 Ranchu audio profile is incomplete: '
                                + ', '.join(missing_audio))
-    if not PRESENTER.is_file():
+    if not storage_only and not PRESENTER.is_file():
         raise RuntimeError(f'build the presenter first: {PRESENTER}')
-    drm_render_node = aaas_graphics.discover_render_node()
-    if not INPUT_ADAPTER.is_file():
+    drm_render_node = None if storage_only else aaas_graphics.discover_render_node()
+    if not storage_only and not INPUT_ADAPTER.is_file():
         print(f'AaaS: input adapter not built; pointer input disabled ({INPUT_ADAPTER})',
               file=sys.stderr)
     lmkd_overlay_entry = select_lmkd_overlay(use_source_lmkd)
@@ -2766,7 +2945,8 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     if expected_composer_hash and sha256(composer) != expected_composer_hash:
         raise RuntimeError(f'Composer overlay checksum changed: {composer}')
     paths['AAAS_COMPOSER_OVERLAY'] = str(composer)
-    paths['AAAS_DRM_RENDER_NODE'] = str(drm_render_node)
+    if drm_render_node is not None:
+        paths['AAAS_DRM_RENDER_NODE'] = str(drm_render_node)
     return paths
 
 
@@ -2789,6 +2969,8 @@ def build_multi_output_composer():
 
 def show_primary_diagnostic(args):
     """Keep the primary Wayland window for diagnostics, not normal app mode."""
+    if getattr(args, 'headless_storage', False):
+        return False
     return not (args.experimental_virtual_display and args.app) or args.show_primary_diagnostic
 
 
@@ -2873,6 +3055,8 @@ def main():
                         help='verify a controlled org.aaas package and its user data are absent')
     parser.add_argument('--diagnostic-storage-open', action='store_true',
                         help='select the first file in DocumentsUI for the storage diagnostic APK')
+    parser.add_argument('--headless-storage', action='store_true',
+                        help='run storage checks without host Wayland presentation')
     parser.add_argument('--diagnostic-native-bridge-overlay',
                         help='hash-verified Android Native Bridge bundle for isolated ARM64 tests')
     parser.add_argument('--diagnostic-native-bridge-arm64-first', action='store_true',
@@ -2888,6 +3072,10 @@ def main():
     parser.add_argument('--test-tombstone-capture', action='store_true',
                         help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.headless_storage and (args.experimental_virtual_display or args.app2 or
+                                  args.audio or args.experimental_audio_hal or
+                                  args.show_primary_diagnostic):
+        parser.error('--headless-storage cannot enable displays, a second app, or audio')
     audio_enabled = args.audio or args.experimental_audio_hal
     if ((args.experimental_audio_server_overlay or args.experimental_audiohal_overlay)
             and not audio_enabled):
@@ -2985,7 +3173,8 @@ def main():
                                 diagnostic_vulkan_overlay=args.diagnostic_vulkan_overlay,
                                 diagnostic_framework_overlay=args.diagnostic_framework_overlay,
                                 diagnostic_framework_sha256=args.diagnostic_framework_sha256,
-                                audio_enabled=audio_enabled)
+                                audio_enabled=audio_enabled,
+                                storage_only=args.headless_storage)
     if not args.experimental_virtual_display:
         paths['AAAS_SERVICES_JAR_OVERLAY'] = str(build_storage_services_overlay())
     if args.experimental_virtual_display:
@@ -3165,15 +3354,20 @@ def main():
                   file=sys.stderr, flush=True)
     shared_storage_path = aaas_storage.prepare_backing_directory(WORKSPACE)
     persistent_userdata_path = aaas_userdata.prepare_userdata_directory(WORKSPACE)
-    clipboard_ipc_dir = aaas_clipboard.prepare_ipc_directory(ipc)
-    notification_ipc_dir = aaas_notifications.prepare_ipc_directory(ipc)
+    clipboard_ipc_dir = None
+    notification_ipc_dir = None
+    clipboard_apk = None
+    notification_apk = None
     if not shutil.which('setfacl'):
-        raise RuntimeError('clipboard integration requires the host acl utilities')
-    subprocess.run(['make', '-C', str(ROOT / 'experiments/m4/clipboard')],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                   text=True)
-    if not CLIPBOARD_BRIDGE.is_file():
-        raise RuntimeError('clipboard Wayland bridge build did not produce its executable')
+        raise RuntimeError('shared storage requires the host ACL utilities')
+    if not args.headless_storage:
+        clipboard_ipc_dir = aaas_clipboard.prepare_ipc_directory(ipc)
+        notification_ipc_dir = aaas_notifications.prepare_ipc_directory(ipc)
+        subprocess.run(['make', '-C', str(ROOT / 'experiments/m4/clipboard')],
+                       check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       text=True)
+        if not CLIPBOARD_BRIDGE.is_file():
+            raise RuntimeError('clipboard Wayland bridge build did not produce its executable')
     scan_builder = ROOT / 'experiments/m4/storage_scan_helper/build_scan_helper.py'
     subprocess.run([
         sys.executable, str(scan_builder), '--apktool', str(APKTOOL),
@@ -3181,22 +3375,23 @@ def main():
         '--keystore', str(STORAGE_SCAN_KEYSTORE),
         '--output', str(STORAGE_SCAN_APK),
     ], check=True)
-    clipboard_builder = ROOT / 'experiments/m4/clipboard/build_clipboard_ime.py'
-    subprocess.run([
-        sys.executable, str(clipboard_builder), '--apktool', str(APKTOOL),
-        '--framework-res', str(configured_rootfs() / 'system/framework/framework-res.apk'),
-        '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
-        '--zipalign', str(ANDROID_ZIPALIGN),
-        '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(CLIPBOARD_APK),
-    ], check=True)
-    notification_builder = ROOT / 'experiments/m4/notifications/build_listener.py'
-    subprocess.run([
-        sys.executable, str(notification_builder), '--apktool', str(APKTOOL),
-        '--framework-res', str(configured_rootfs() / 'system/framework/framework-res.apk'),
-        '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
-        '--zipalign', str(ANDROID_ZIPALIGN),
-        '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(NOTIFICATION_APK),
-    ], check=True)
+    if not args.headless_storage:
+        clipboard_builder = ROOT / 'experiments/m4/clipboard/build_clipboard_ime.py'
+        subprocess.run([
+            sys.executable, str(clipboard_builder), '--apktool', str(APKTOOL),
+            '--framework-res', str(configured_rootfs() / 'system/framework/framework-res.apk'),
+            '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
+            '--zipalign', str(ANDROID_ZIPALIGN),
+            '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(CLIPBOARD_APK),
+        ], check=True)
+        notification_builder = ROOT / 'experiments/m4/notifications/build_listener.py'
+        subprocess.run([
+            sys.executable, str(notification_builder), '--apktool', str(APKTOOL),
+            '--framework-res', str(configured_rootfs() / 'system/framework/framework-res.apk'),
+            '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
+            '--zipalign', str(ANDROID_ZIPALIGN),
+            '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(NOTIFICATION_APK),
+        ], check=True)
     audio_hal_overlay = None
     audio_hal_probe = None
     audio_hal_factory_probe = None
@@ -3302,8 +3497,8 @@ def main():
                                  storage_scan_apk=storage_scan_apk,
                                  persistent_userdata_dir=persistent_userdata_path,
                                  native_bridge_exec=args.diagnostic_native_bridge_exec,
-                                 clipboard_apk=CLIPBOARD_APK,
-                                 notification_apk=NOTIFICATION_APK,
+                                 clipboard_apk=clipboard_apk if args.headless_storage else CLIPBOARD_APK,
+                                 notification_apk=notification_apk if args.headless_storage else NOTIFICATION_APK,
                                  audio_hal_overlay=audio_hal_overlay,
                                  audio_hal_probe=audio_hal_probe,
                                  audio_hal_factory_probe=audio_hal_factory_probe,
@@ -3315,7 +3510,8 @@ def main():
                                  audio_mediaextractor_init=audio_mediaextractor_init,
                                  audio_mediaextractor_seccomp=audio_mediaextractor_seccomp,
                                  audio_media_file=args.audio_media_file,
-                                 audio_playback_volume_test=args.audio_playback_volume_test)
+                                 audio_playback_volume_test=args.audio_playback_volume_test,
+                                 headless_storage=args.headless_storage)
     env = os.environ.copy()
     env.update(paths)
     env.update(AAAS_WORKSPACE=str(WORKSPACE), AAAS_ROOTFS=str(configured_rootfs()))
@@ -3353,6 +3549,13 @@ def main():
     clipboard_active_uid = None
     clipboard_failed_uid = None
     presenter_trace_args = []
+    # Some Wayland compositors advertise linux-drm-syncobj-v1 but fail to
+    # signal release timeline points for our imported staging buffers. In
+    # that case wl_buffer.release is intentionally undefined while the
+    # explicit-sync surface is alive, eventually exhausting presenter slots.
+    # The bounded CPU staging path waits Android's acquire fence before copying
+    # and uses ordinary Wayland buffer release for reuse.
+    presenter_trace_args.extend(presenter_sync_args())
     if args.diagnostic_composer_overlay:
         presenter_trace_args.append('--trace-buffer-identities')
     if args.trace_staging_stages:
@@ -3394,9 +3597,7 @@ def main():
             process = subprocess.Popen(
                 [str(PRESENTER), '--socket', str(socket_path), '--node', paths['AAAS_DRM_RENDER_NODE'],
                  *presenter_trace_args,
-                 '--width', presenter_size[0], '--height', presenter_size[1],
-                 '--display-width', display_size[0],
-                 '--display-height', display_size[1],
+                 *presenter_geometry_args(presenter_size, display_size),
                  '--input-socket', str(input_path),
                  '--input-session', f'0x{input_session:016x}',
                  '--input-display-id-file', str(display_path),
@@ -3852,13 +4053,14 @@ def main():
     try:
         transition('PREPARING')
         with (session / 'presenter.log').open('wb') as presenter_log, (session / 'android.log').open('wb') as android_log:
-            transition('STARTING_PRESENTER')
+            transition('PREPARING_HEADLESS_ANDROID' if args.headless_storage
+                       else 'STARTING_PRESENTER')
             if primary_diagnostic:
                 presenter = subprocess.Popen(
                     [str(PRESENTER), '--socket', str(ipc / 'wayland.sock'),
                      '--node', paths['AAAS_DRM_RENDER_NODE'],
                      *presenter_trace_args,
-                     '--width', presenter_size[0], '--height', presenter_size[1],
+                     *presenter_geometry_args(presenter_size, display_size),
                      '--input-socket', str(ipc / 'input.sock'),
                      '--input-session', f'0x{input_session:016x}',
                      '--exit-on-close'],
@@ -3871,8 +4073,12 @@ def main():
                         raise RuntimeError('presenter did not start')
                     time.sleep(.1)
             else:
-                print('AaaS: primary diagnostic presenter suppressed in app mode',
-                      flush=True)
+                if args.headless_storage:
+                    print('AaaS: host Wayland presenter disabled for headless storage',
+                          flush=True)
+                else:
+                    print('AaaS: primary diagnostic presenter suppressed in app mode',
+                          flush=True)
             if args.experimental_virtual_display:
                 virtual_log_path = session / 'virtual-presenter.log'
                 with virtual_log_path.open('wb') as virtual_log:
@@ -3880,9 +4086,7 @@ def main():
                         [str(PRESENTER), '--socket', str(ipc / 'wayland-vdisplay.sock'),
                          '--node', paths['AAAS_DRM_RENDER_NODE'],
                          *presenter_trace_args,
-                         '--width', presenter_size[0], '--height', presenter_size[1],
-                     '--display-width', display_size[0],
-                     '--display-height', display_size[1],
+                         *presenter_geometry_args(presenter_size, display_size),
                          '--input-socket', str(ipc / 'input-vdisplay.sock'),
                          '--input-session', f'0x{input_session:016x}',
                          '--input-display-id-file', str(ipc / 'vdisplay_id'),
@@ -3904,9 +4108,7 @@ def main():
                             [str(PRESENTER), '--socket',
                              str(ipc / 'wayland-vdisplay.sock-2'), '--node',
                              paths['AAAS_DRM_RENDER_NODE'], *presenter_trace_args,
-                             '--width', presenter_size[0], '--height', presenter_size[1],
-                             '--display-width', display_size[0],
-                             '--display-height', display_size[1],
+                             *presenter_geometry_args(presenter_size, display_size),
                              '--input-socket', str(ipc / 'input-vdisplay-2.sock'),
                              '--input-session', f'0x{input_session:016x}',
                              '--input-display-id-file', str(ipc / 'vdisplay2_id'),
@@ -4194,6 +4396,12 @@ def main():
                         exited = process.poll() is not None
                         if not exited and app_state != 'CLOSED':
                             continue
+                        if exited:
+                            print(f'AaaS: presenter output {index} exited with '
+                                  f'status {process.returncode}', flush=True)
+                        else:
+                            print(f'AaaS: Android app slot {index} reported CLOSED',
+                                  flush=True)
                         if window_close_requested[index] is None:
                             write_session_control(ipc / f'vdisplay_close_{index}', 'close')
                             window_close_requested[index] = time.monotonic()
@@ -4363,25 +4571,27 @@ def main():
                 cleanup_failed = True
                 print(f'AaaS: process cleanup failed: {error}',
                       file=sys.stderr, flush=True)
-        try:
-            aaas_clipboard.clear_session_payloads(ipc)
-            if not aaas_clipboard.cleanup_session_ipc(ipc):
+        if clipboard_ipc_dir is not None:
+            try:
+                aaas_clipboard.clear_session_payloads(ipc)
+                if not aaas_clipboard.cleanup_session_ipc(ipc):
+                    cleanup_failed = True
+                    print('AaaS: clipboard IPC cleanup left an unexpected object',
+                          file=sys.stderr, flush=True)
+            except OSError as error:
                 cleanup_failed = True
-                print('AaaS: clipboard IPC cleanup left an unexpected object',
+                print(f'AaaS: clipboard IPC cleanup failed: {error}',
                       file=sys.stderr, flush=True)
-        except OSError as error:
-            cleanup_failed = True
-            print(f'AaaS: clipboard IPC cleanup failed: {error}',
-                  file=sys.stderr, flush=True)
-        try:
-            if not aaas_notifications.clear_session_events(ipc):
+        if notification_ipc_dir is not None:
+            try:
+                if not aaas_notifications.clear_session_events(ipc):
+                    cleanup_failed = True
+                    print('AaaS: notification IPC cleanup left an unexpected object',
+                          file=sys.stderr, flush=True)
+            except OSError as error:
                 cleanup_failed = True
-                print('AaaS: notification IPC cleanup left an unexpected object',
+                print(f'AaaS: notification IPC cleanup failed: {error}',
                       file=sys.stderr, flush=True)
-        except OSError as error:
-            cleanup_failed = True
-            print(f'AaaS: notification IPC cleanup failed: {error}',
-                  file=sys.stderr, flush=True)
         try:
             write_crash_artifact_manifest(session, tombstone_dir, capture_status,
                                           graphics_provenance)
