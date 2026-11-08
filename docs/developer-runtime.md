@@ -119,3 +119,24 @@ health-policy records and experiment-specific diagnostics retain their
 historical device identities. They are not generic defaults. The supported live
 matrix remains Linux x86_64, Android 16 x86_64, KWin/Wayland, and the accepted
 Ranchu-compatible image build. A second physical host has not been validated.
+
+## Provisioning status check (2026-11-08)
+
+A clean XDG configuration and workspace on the host's persistent ext4 volume
+successfully enrolled and passed the workspace guard, then correctly returned
+`BLOCKED` because the Android rootfs was absent. No Android session was started
+and no existing userdata or prepared rootfs was adopted. The available
+`x86_64-36_r02.zip` archive matches its recorded size and Google-indexed SHA-1;
+its recorded SHA-256 is computed locally from that matching archive and is not
+an independently published Google digest. Archive identity still does not
+establish rootless runtime compatibility.
+
+The workspace enrollment defects found during this check are fixed: enrollment
+now checks the selected workspace's nearest existing parent for write access,
+and the ACL probe asks `getfacl` for numeric IDs. The complete runtime remains
+unprovisionable: the diagnostic rootfs has unproven binary/init transformations,
+the SELinux success shim is not suitable for untrusted applications, and the
+source-built replacements needed for a policy-preserving runtime have not been
+built against a matching Android image ABI. See
+[`android-runtime-integrity.md`](android-runtime-integrity.md) and
+[`android-source-lock.md`](android-source-lock.md).
