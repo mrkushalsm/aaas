@@ -33,6 +33,8 @@ public final class UserdataProbe {
     private static final String ISOLATION_TARGET_PACKAGE = "";
     private static final boolean TEST_NATIVE_EXEC = false;
     private static final String SYMLINK_PROBE_DIR = "";
+    private static final boolean TEST_MEDIASTORE_APP_CONTEXT = false;
+    private static final String HOST_FILE_PROBE_NAME = "";
 
     private UserdataProbe() {}
 
@@ -83,6 +85,12 @@ public final class UserdataProbe {
 
             verifyDatabase(context, packageInfo.versionCode);
             logStorageStats(context, packageInfo.packageName);
+            if (TEST_MEDIASTORE_APP_CONTEXT) {
+                probeMediaStoreAppContext(context);
+            }
+            if (!HOST_FILE_PROBE_NAME.isEmpty()) {
+                probeUnrequestedSharedFile(context);
+            }
             if (TEST_NATIVE_EXEC) {
                 probeNativeExecutable(context);
             }
@@ -342,6 +350,107 @@ public final class UserdataProbe {
 
     private static synchronized void record(String line) {
         Log.i(TAG, line);
+    }
+
+    /** Exercise one app-owned Downloads row without broad storage permissions or a picker. */
+    private static void probeMediaStoreAppContext(Context context) {
+        File savedUri = new File(context.getFilesDir(), "aaas-mediastore-uri.txt");
+        try {
+            Class<?> uriClass = Class.forName("android.net.Uri");
+            Object resolver = context.getClass().getMethod("getContentResolver").invoke(context);
+            Object uri;
+            if (savedUri.isFile()) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        new FileInputStream(savedUri), StandardCharsets.UTF_8))) {
+                    uri = uriClass.getMethod("parse", String.class).invoke(null,
+                            reader.readLine());
+                }
+                recordMediaStoreRead(context, resolver, uriClass, uri, "restart_or_host_edit");
+                return;
+            }
+
+            Class<?> valuesClass = Class.forName("android.content.ContentValues");
+            Object values = valuesClass.getConstructor().newInstance();
+            Method put = valuesClass.getMethod("put", String.class, String.class);
+            put.invoke(values, "_display_name", "aaas-app-context-roundtrip.txt");
+            put.invoke(values, "mime_type", "text/plain");
+            put.invoke(values, "relative_path", "Download/");
+            uri = uriClass.getMethod("parse", String.class).invoke(null,
+                    "content://media/external_primary/downloads");
+            Object item = resolver.getClass().getMethod("insert", uriClass, valuesClass)
+                    .invoke(resolver, uri, values);
+            if (item == null) throw new IllegalStateException("MediaStore insert returned null");
+            java.io.OutputStream output = (java.io.OutputStream) resolver.getClass()
+                    .getMethod("openOutputStream", uriClass).invoke(resolver, item);
+            byte[] content = "android-app-context-media-v1\n"
+                    .getBytes(StandardCharsets.UTF_8);
+            try (java.io.OutputStream stream = output) { stream.write(content); }
+            try (FileOutputStream stream = new FileOutputStream(savedUri)) {
+                stream.write(item.toString().getBytes(StandardCharsets.UTF_8));
+                stream.write('\n');
+            }
+            record("APP_MEDIASTORE_WRITE uid=" + Process.myUid() + " package="
+                    + context.getPackageName() + " bytes=" + content.length
+                    + " sha256=" + digestHex(content) + " uri=" + item);
+        } catch (Throwable error) {
+            Throwable cause = error instanceof InvocationTargetException
+                    ? ((InvocationTargetException) error).getCause() : error;
+            record("APP_MEDIASTORE_OPERATION_FAILED uid=" + Process.myUid()
+                    + " package=" + context.getPackageName() + " error="
+                    + cause.getClass().getSimpleName() + ":"
+                    + String.valueOf(cause.getMessage()).replace('\n', ' '));
+        }
+    }
+
+    private static void recordMediaStoreRead(Context context, Object resolver,
+            Class<?> uriClass, Object uri, String checkpoint) throws Exception {
+        java.io.InputStream input = (java.io.InputStream) resolver.getClass()
+                .getMethod("openInputStream", uriClass).invoke(resolver, uri);
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[4096];
+        int count;
+        long bytes = 0;
+        try (java.io.InputStream stream = input) {
+            while ((count = stream.read(buffer)) >= 0) {
+                if (count == 0) continue;
+                digest.update(buffer, 0, count);
+                bytes += count;
+            }
+        }
+        record("APP_MEDIASTORE_READ checkpoint=" + checkpoint + " uid="
+                + Process.myUid() + " package=" + context.getPackageName()
+                + " bytes=" + bytes + " sha256=" + hex(digest.digest())
+                + " uri=" + uri);
+    }
+
+    private static String digestHex(byte[] content) throws Exception {
+        return hex(MessageDigest.getInstance("SHA-256").digest(content));
+    }
+
+    /** A target-SDK 35 app without storage grants must not open arbitrary Downloads paths. */
+    private static void probeUnrequestedSharedFile(Context context) {
+        File candidate = new File("/storage/emulated/0/Download/" + HOST_FILE_PROBE_NAME);
+        try (FileInputStream input = new FileInputStream(candidate)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[4096];
+            int count;
+            long bytes = 0;
+            while ((count = input.read(buffer)) >= 0) {
+                if (count == 0) continue;
+                digest.update(buffer, 0, count);
+                bytes += count;
+            }
+            record("APP_UNREQUESTED_SHARED_FILE result=READ uid=" + Process.myUid()
+                    + " package=" + context.getPackageName() + " bytes=" + bytes
+                    + " sha256=" + hex(digest.digest()));
+        } catch (Throwable error) {
+            Throwable cause = error instanceof InvocationTargetException
+                    ? ((InvocationTargetException) error).getCause() : error;
+            record("APP_UNREQUESTED_SHARED_FILE result=DENIED uid=" + Process.myUid()
+                    + " package=" + context.getPackageName() + " error="
+                    + cause.getClass().getSimpleName() + ":"
+                    + String.valueOf(cause.getMessage()).replace('\n', ' '));
+        }
     }
 
     private static void logStorageStats(Context context, String packageName) {

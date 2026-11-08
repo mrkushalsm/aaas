@@ -12,6 +12,53 @@ from experiments.perf.input_latency_probe.build_probe import binary_manifest
 
 
 class StorageProbeBuilderTests(unittest.TestCase):
+    def test_headless_app_context_mode_is_permissionless_and_uses_media_store(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apktool, keystore, apksig, dx, output = [root / name for name in
+                ('apktool.jar', 'probe.keystore', 'apksig.jar', 'dx.jar', 'probe.apk')]
+            for path in (apktool, keystore, apksig, dx):
+                path.write_bytes(b'fixture')
+            compiled_sources = []
+
+            def run(command):
+                if command[1:4] == ['-jar', str(apktool), 'b']:
+                    work = Path(command[-1])
+                    dex = work / 'build/apk/classes.dex'
+                    dex.parent.mkdir(parents=True)
+                    dex.write_bytes(b'dex fixture')
+                elif command[0] == 'javac':
+                    compiled_sources.append(Path(command[-1]).read_text())
+                elif command[0] == 'java' and 'ApkSign' in command:
+                    shutil.copyfile(command[-2], command[-1])
+                elif command[0] == 'java' and 'com.android.dx.command.Main' in command:
+                    output_arg = next(arg for arg in command if arg.startswith('--output='))
+                    Path(output_arg.split('=', 1)[1]).write_bytes(b'dex fixture')
+                else:
+                    raise AssertionError(f'unexpected build command: {command}')
+
+            argv = ['build_probe.py', '--apktool', str(apktool), '--keystore', str(keystore),
+                    '--apksig', str(apksig), '--dx', str(dx), '--target-sdk', '35',
+                    '--userdata-diagnostics', '--operation', 'headless',
+                    '--host-file-probe-name', 'host-created.txt',
+                    '--output', str(output)]
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(build_probe, 'run', side_effect=run), \
+                    patch.object(build_probe, 'binary_manifest', return_value=b'manifest') as manifest, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(build_probe.main(), 0)
+            manifest.assert_called_once()
+            self.assertEqual(manifest.call_args.kwargs['requested_permissions'], ())
+            helper = next(source for source in compiled_sources
+                          if 'TEST_MEDIASTORE_APP_CONTEXT = true' in source)
+            self.assertIn('APP_MEDIASTORE_WRITE uid=', helper)
+            self.assertIn('APP_MEDIASTORE_READ checkpoint=', helper)
+            self.assertIn('HOST_FILE_PROBE_NAME = "host-created.txt"', helper)
+            self.assertIn('APP_UNREQUESTED_SHARED_FILE result=DENIED', helper)
+            activity = Path(build_probe.__file__).parent / 'smali-headless' / \
+                'org/aaas/latencyprobe/ProbeActivity.smali'
+            self.assertIn('UserdataProbe;->run', activity.read_text())
+
     def test_launcher_package_visibility_is_limited_to_launcher_intents(self):
         manifest = binary_manifest('org.aaas.catalogprobe', target_sdk=35,
                                    query_launcher_apps=True)

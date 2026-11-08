@@ -31,7 +31,9 @@ def main() -> int:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--package', default=PACKAGE,
                         help='application ID (defaults to the established storage probe)')
-    parser.add_argument('--operation', choices=('create', 'open'), default='create')
+    parser.add_argument('--operation', choices=('create', 'open', 'headless'), default='create')
+    parser.add_argument('--host-file-probe-name',
+                        help='for headless mode, test denied direct access to a Download file')
     parser.add_argument('--target-sdk', type=int, default=28,
                         help='Android target SDK (default: 28 for historical baseline)')
     parser.add_argument('--apksig', type=Path,
@@ -67,6 +69,13 @@ def main() -> int:
         parser.error('--version-code must be positive')
     if args.userdata_diagnostics and args.dx is None:
         parser.error('--dx is required with --userdata-diagnostics')
+    if args.operation == 'headless' and not args.userdata_diagnostics:
+        parser.error('--operation headless requires --userdata-diagnostics')
+    if args.host_file_probe_name is not None:
+        if (args.operation != 'headless' or not args.userdata_diagnostics
+                or not re.fullmatch(r'[A-Za-z0-9._ -]{1,120}', args.host_file_probe_name)
+                or args.host_file_probe_name in ('.', '..')):
+            parser.error('--host-file-probe-name requires headless diagnostics and a safe basename')
     if args.probe_native_exec and args.native_exec_library_apk is None:
         parser.error('--probe-native-exec requires --native-exec-library-apk')
     if args.symlink_probe_dir is not None and not args.userdata_diagnostics:
@@ -79,7 +88,9 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='aaas-storage-apk-') as temp:
         work = Path(temp)
-        smali_source = source / ('smali-open' if args.operation == 'open' else 'smali')
+        smali_source = source / ({'open': 'smali-open',
+                                  'headless': 'smali-headless'}.get(
+                                      args.operation, 'smali'))
         shutil.copytree(smali_source, work / 'smali')
         for smali_file in (work / 'smali').rglob('*.smali'):
             text = smali_file.read_text()
@@ -96,8 +107,9 @@ def main() -> int:
                     call = f'    invoke-static {{p0}}, L{args.package.replace(".", "/")}/UserdataProbe;->run(Landroid/content/Context;)V\n'
                     text = text.replace(call, call + '    return-void\n', 1)
             smali_file.write_text(text)
+        permissions = () if args.operation == 'headless' else PERMISSIONS
         manifest = binary_manifest(
-            args.package, target_sdk=args.target_sdk, requested_permissions=PERMISSIONS,
+            args.package, target_sdk=args.target_sdk, requested_permissions=permissions,
             version_code=args.version_code, version_name=args.version_name)
         (work / 'AndroidManifest.xml').write_bytes(manifest)
         (work / 'apktool.yml').write_text(
@@ -132,6 +144,14 @@ def main() -> int:
                 'private static final boolean TEST_NATIVE_EXEC = false;',
                 'private static final boolean TEST_NATIVE_EXEC = '
                 f'{str(args.probe_native_exec).lower()};', 1)
+            helper_text = helper_text.replace(
+                'private static final boolean TEST_MEDIASTORE_APP_CONTEXT = false;',
+                'private static final boolean TEST_MEDIASTORE_APP_CONTEXT = '
+                f'{str(args.operation == "headless").lower()};', 1)
+            helper_text = helper_text.replace(
+                'private static final String HOST_FILE_PROBE_NAME = "";',
+                'private static final String HOST_FILE_PROBE_NAME = '
+                f'"{args.host_file_probe_name or ""}";', 1)
             helper_text = helper_text.replace(
                 'private static final String SYMLINK_PROBE_DIR = "";',
                 'private static final String SYMLINK_PROBE_DIR = '
