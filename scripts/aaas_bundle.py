@@ -1,0 +1,665 @@
+#!/usr/bin/env python3
+"""Create and verify a restricted, relocatable local AaaS runtime bundle.
+
+Bundles preserve the historical diagnostic rootfs for controlled development
+only. Integrity is independent from runtime security approval.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import platform
+import shutil
+import sqlite3
+import subprocess
+import sys
+import stat
+import tempfile
+import uuid
+
+GIB = 1 << 30
+MIN_FREE_RESERVE = 20 * GIB
+
+SCHEMA = 1
+PROFILE = 'android16-ranchu-x86_64'
+SECURITY = {
+    'classification': 'DIAGNOSTIC_ONLY',
+    'runtime_security': 'NOT_APPROVED',
+    'general_runtime_start': 'BLOCKED',
+    'untrusted_apks': 'NOT_APPROVED',
+    'known_bypass_artifacts': [
+        'rootfs/system/lib64/libselinux_shim.so',
+        'rootfs/vendor/lib64/libselinux_shim.so',
+    ],
+    'limitations': [
+        'The source diagnostic rootfs includes known SELinux authorization-success shims.',
+        'The host does not provide verified Android SELinux policy enforcement.',
+        'APEX activation and the diagnostic image security model are not approved for untrusted APKs.',
+    ],
+}
+
+# Android mutable state, host-owned mount points, logs and probe data are never
+# carried from the diagnostic rootfs. The runtime creates fresh instances.
+EXCLUDED_TOP = {
+    'data', 'metadata', 'cache', 'storage', 'mnt', 'dev', 'proc', 'sys', 'tmp',
+    'lost+found', 'tombstone_export', 'aaas_diag', 'aaas_diag_output',
+    'aaas_diag_request', 'aaas_appdata_output', 'aaas_appdata_request',
+    'aaas_session_logcat', 'aaas_session_commands', 'aaas_session_status',
+    'continuous_logcat.log', 'data_composer.log', 'data_allocator.log',
+    'data_logcat.log', 'data_sf_strace.log', 'egl_test_result.log',
+    'egl_test_trace.log', 'keystore_ioctl_strace.log', 'm1e_arch_probe.log',
+    'aaas_native_exec.log', 'aaas_input_adapter.log',
+    'aaas_vdisplay_input_adapter.log', 'aaas_vdisplay2_input_adapter.log',
+    'aaas_ime_capture.png', 'aaas_ime_output', 'aaas_ime_request',
+    'aaas_restorecon_trace',
+}
+ROOTFS_TOP = {
+    'system', 'system_ext', 'product', 'vendor', 'vendor_dlkm', 'system_dlkm',
+    'odm', 'odm_dlkm', 'apex', 'bootstrap-apex', 'second_stage_resources',
+    'usr', 'init.environ.rc', 'fstab.default', 'fstab.ranchu', 'init', 'bin',
+    'etc', 'lib64', 'd', 'sdcard', 'adb_keys', 'bugreports',
+}
+RUNTIME_DIRS = ('scripts', 'manifests', 'patches', 'experiments/m1a',
+                'experiments/m1b/composer_aaas', 'experiments/m1c/input_adapter',
+                'experiments/m1e/display_broker', 'experiments/m3', 'experiments/m4')
+EXTRA_BINARIES = {
+    'experiments/m1a/build/wayland-host-presenter',
+    'experiments/m1c/input_adapter/build/aaas-input-adapter',
+    'experiments/m4/clipboard/build/aaas-wayland-clipboard',
+}
+WORKSPACE_FILES = (
+    'tmp/m1b84_composer_portrait_720x1280',
+    'tmp/android.hardware.graphics.composer3-service.aaas',
+    'tmp/android.hardware.graphics.allocator-service.aaas',
+    'tmp/m1e_composer_vdisplay_experimental', 'tmp/m1e_composer_two_output',
+    'tmp/m1e_aaas_display_broker.dex', 'tmp/m1e_services_alarm_fallback.jar',
+    'tmp/m1e_services_alarm_fallback.json', 'tmp/m1e_framework_transition_input.jar',
+    'tmp/m1e_framework_transition_input.json',
+    'tmp/m1e_swiftshader_fixed_notrace_v2.so',
+    'tmp/m1e_swiftshader_fixed_notrace_v2.so.manifest.json',
+    'tmp/m1b83_lmkd_vmstats_diagnostic', 'tmp/m1b85_lmkd_source_built',
+    'tmp/m1b8_service-ranging.rebuilt2.jar',
+    'tmp/m1b81_networkstats_uid_diagnostic.so',
+    'tmp/m1b81_meminfo_gpu_diagnostic.so',
+    'tmp/m1b8_services_battery_mobile_diagnostic.jar',
+    'tmp/m1b81_libkeystore_sid_uid1000_rebuild.so',
+    'tmp/m1b81_libhwsm_sid_probe_rebuilt.so', 'tmp/m1d_vdc_overlay/vdc',
+    'tmp/m4_storage_services_overlay.jar', 'tmp/m4_storage_services_overlay.json',
+    'tmp/apktool_3.0.3.jar', 'tmp/apksig-8.9.1.jar',
+    'tmp/clipboard-ime/AaasClipboard.apk',
+    'tmp/m4-notifications/AaasNotifications.apk',
+    'tmp/storage-scan-helper/AaaSStorageScan.apk',
+    'tmp/m4-audio/audio.primary.aaas.so',
+    'tmp/m4-audio/audio.primary.aaas.so.manifest.json',
+    'tmp/m4-audio/libaaas-audio-ashmem.so',
+    'tmp/m4-audio/libaaas-audio-factory-compat.so',
+    'tmp/m4-audio/init.ranchu.rc', 'tmp/m4-audio/mediaextractor.rc',
+    'tmp/m4-audio/mediaextractor.policy',
+    'tmp/m4-audio/pristine-system/audioserver',
+    'tmp/m4-audio/pristine-system/libaudiohal.so',
+    'tmp/m4-audio/pristine-system/manifest.json',
+    'tmp/partitions/system.raw.img',
+    'tmp/m3_native_bridge/AaasM3NativeBridge.apk',
+)
+WORKSPACE_TREES = ('tmp/m3_native_bridge/digitalis',)
+BUILD_TOOLS = ('sources/prebuilts-build-tools-qpr2/common/bin/dx',
+               'sources/prebuilts-build-tools-qpr2/linux-x86/bin/zipalign')
+
+
+class BundleError(RuntimeError):
+    pass
+
+
+def _sha(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _safe_relative(value: str) -> PurePosixPath:
+    path = PurePosixPath(value)
+    if path.is_absolute() or not path.parts or any(part in ('..', '.') for part in path.parts):
+        raise BundleError(f'unsafe bundle path: {value!r}')
+    return path
+
+
+def _copy_tree(source: Path, dest: Path, *, exclude_top=False):
+    source = source.resolve(strict=True)
+    if source.is_symlink() or not source.is_dir():
+        raise BundleError(f'expected a real directory: {source}')
+    for current, dirs, files in os.walk(source, topdown=True, followlinks=False):
+        current_path = Path(current)
+        rel = current_path.relative_to(source)
+        dirs[:] = [d for d in dirs if d != '__pycache__']
+        files = [f for f in files if not f.endswith('.pyc')]
+        if exclude_top and rel == Path('.'):
+            dirs[:] = sorted(d for d in dirs if d in ROOTFS_TOP and d not in EXCLUDED_TOP)
+            files = [f for f in files if f in ROOTFS_TOP and f not in EXCLUDED_TOP]
+        else:
+            dirs.sort()
+        out_dir = dest / rel
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copystat(current_path, out_dir, follow_symlinks=False)
+        for name in sorted(dirs + files):
+            src = current_path / name
+            target = out_dir / name
+            if src.is_symlink():
+                link = os.readlink(src)
+                target.symlink_to(link)
+                try:
+                    shutil.copystat(src, target, follow_symlinks=False)
+                except OSError:
+                    pass
+            elif src.is_dir():
+                target.mkdir(exist_ok=True)
+                shutil.copystat(src, target, follow_symlinks=False)
+            elif src.is_file():
+                shutil.copy2(src, target, follow_symlinks=False)
+            else:
+                # Socket/device/FIFO entries are session state, never bundle data.
+                continue
+
+
+def _copy_selected_runtime(repo: Path, workspace: Path, dest: Path):
+    for relative in RUNTIME_DIRS:
+        source = repo / relative
+        if source.is_dir():
+            _copy_tree(source, dest / relative)
+    for relative in EXTRA_BINARIES:
+        source = repo / relative
+        if source.is_file() and not source.is_symlink():
+            target = dest / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    # Keep the original configuration and profile records with the runtime.
+    for relative in ('manifests/android-profiles.json',):
+        source = repo / relative
+        if source.is_file():
+            target = dest / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    artifacts = dest.parent / 'workspace-artifacts'
+    artifacts.mkdir(parents=True, exist_ok=True)
+    for relative in WORKSPACE_FILES + BUILD_TOOLS:
+        source = workspace / relative
+        if not source.is_file() or source.is_symlink():
+            continue
+        target = artifacts / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    for relative in WORKSPACE_TREES:
+        source = workspace / relative
+        if source.is_dir() and not source.is_symlink():
+            _copy_tree(source, artifacts / relative)
+
+
+def _copy_rootfs_mapped(source: Path, destination: Path):
+    """Copy Android-owned mode-restricted files through the runner's ID map."""
+    destination.mkdir(parents=True, exist_ok=True)
+    command = ['unshare', '--user', '--map-root-user', '--map-auto',
+               sys.executable, str(Path(__file__).resolve()),
+               '--copy-rootfs', str(source), str(destination)]
+    try:
+        subprocess.run(command, check=True, timeout=600)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise BundleError(f'cannot copy protected Android rootfs in mapped user namespace: {error}') from error
+def _inventory(root: Path):
+    records = []
+    for current, dirs, files in os.walk(root, topdown=True, followlinks=False):
+        current_path = Path(current)
+        dirs.sort(); files.sort()
+        for name in list(dirs) + files:
+            path = current_path / name
+            rel = path.relative_to(root).as_posix()
+            mode = stat.S_IMODE(path.lstat().st_mode)
+            if path.is_symlink():
+                records.append({'path': rel, 'type': 'symlink', 'mode': mode,
+                                'target': os.readlink(path)})
+            elif path.is_file():
+                records.append({'path': rel, 'type': 'file', 'mode': mode,
+                                'size': path.stat().st_size, 'sha256': _sha(path)})
+            elif path.is_dir():
+                records.append({'path': rel, 'type': 'directory', 'mode': mode})
+    return records
+
+
+def _filesystem_probe(parent: Path):
+    parent.mkdir(parents=True, exist_ok=True)
+    if not os.access(parent, os.W_OK | os.X_OK):
+        raise BundleError(f'installation filesystem is not writable: {parent}')
+    with tempfile.TemporaryDirectory(prefix='.aaas-bundle-probe-', dir=parent) as td:
+        root = Path(td)
+        a = root / 'a'; b = root / 'b'; link = root / 'symlink'
+        a.write_bytes(b'probe'); a.chmod(0o700)
+        os.link(a, b)
+        link.symlink_to('a')
+        temp = root / 'atomic.tmp'; target = root / 'atomic'
+        temp.write_text('old'); os.replace(temp, target)
+        db = sqlite3.connect(root / 'probe.sqlite')
+        try:
+            db.execute('create table probe (id integer primary key)')
+            db.execute('insert into probe values (1)')
+        finally:
+            db.close()
+        if not (b.stat().st_ino == a.stat().st_ino and link.read_bytes() == b'probe'
+                and target.read_text() == 'old'):
+            raise BundleError(f'installation filesystem semantics failed: {parent}')
+        try:
+            os.setxattr(a, 'user.aaas_probe', b'ok')
+            xattrs = os.getxattr(a, 'user.aaas_probe') == b'ok'
+        except OSError:
+            xattrs = False
+        setfacl = shutil.which('setfacl')
+        getfacl = shutil.which('getfacl')
+        acl = False
+        if setfacl and getfacl:
+            grant = subprocess.run([setfacl, '-m', 'u:65534:r--', str(a)],
+                                   capture_output=True, check=False)
+            read = subprocess.run([getfacl, '-n', str(a)], capture_output=True,
+                                  text=True, check=False)
+            acl = grant.returncode == 0 and read.returncode == 0 and 'user:65534:r--' in read.stdout
+        if not (xattrs and acl):
+            raise BundleError(f'installation filesystem lacks required user xattr/ACL support: {parent}')
+    fs_type = subprocess.run(['findmnt', '-T', str(parent), '-n', '-o', 'FSTYPE'],
+                             capture_output=True, text=True, check=False).stdout.strip()
+    return {'path': str(parent), 'hard_links': True, 'symlinks': True,
+            'atomic_rename': True, 'sqlite': True, 'user_xattrs': xattrs,
+            'numeric_acl': acl,
+            'filesystem': fs_type or 'unknown'}
+
+
+def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
+                  preflight=None):
+    repo = repo.resolve(strict=True)
+    rootfs = rootfs.resolve(strict=True)
+    workspace = workspace.resolve(strict=True)
+    output = output.expanduser().absolute()
+    if not (rootfs == workspace / 'rootfs_m1b1'):
+        raise BundleError('local-development bundle source must be the selected rootfs_m1b1')
+    if output.exists() or output.is_symlink():
+        raise BundleError(f'refusing to replace existing bundle path: {output}')
+    if output == rootfs or rootfs in output.parents:
+        raise BundleError('bundle output cannot be inside the protected diagnostic rootfs')
+    if preflight:
+        preflight()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = output.with_name(f'.{output.name}.staging-{uuid.uuid4().hex}')
+    published = False
+    try:
+        (stage / 'rootfs').mkdir(parents=True)
+        _copy_rootfs_mapped(rootfs, stage / 'rootfs')
+        for relative in ('system/lib64/libselinux_shim.so',
+                         'vendor/lib64/libselinux_shim.so'):
+            if not (stage / 'rootfs' / relative).is_file():
+                raise BundleError(f'diagnostic security classification mismatch; expected bypass artifact absent: {relative}')
+        service_rc = stage / 'rootfs/system/etc/init/servicemanager.rc'
+        try:
+            init_text = service_rc.read_text(encoding='utf-8', errors='replace')
+        except OSError as error:
+            raise BundleError(f'cannot inspect diagnostic SELinux shim activation: {error}') from error
+        if '/system/lib64/libselinux_shim.so' not in init_text:
+            raise BundleError('diagnostic SELinux preload activation was not found; refusing this bundle profile')
+        # Preserve the selected Android root layout as symlinks/empty mountpoints.
+        # Top-level rootfs symlinks are included by _copy_tree; excluded mutable
+        # directories remain absent until installation creates fresh ones.
+        _copy_selected_runtime(repo, workspace, stage / 'runtime')
+        inventory = _inventory(stage)
+        try:
+            source_revision = subprocess.run(
+                ['git', '-C', str(repo), 'rev-parse', 'HEAD'], capture_output=True,
+                text=True, check=True, timeout=3).stdout.strip()
+            tracked_files = set(subprocess.run(
+                ['git', '-C', str(repo), 'ls-files'], capture_output=True,
+                text=True, check=True, timeout=5).stdout.splitlines())
+            source_tree_dirty = bool(subprocess.run(
+                ['git', '-C', str(repo), 'status', '--porcelain'], capture_output=True,
+                text=True, check=True, timeout=5).stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            source_revision = 'unavailable'
+            tracked_files = set()
+            source_tree_dirty = None
+        provenance_records = []
+        for entry in inventory:
+            path = entry['path']
+            if entry['type'] != 'file' or not (
+                    entry.get('mode', 0) & 0o111 or path.endswith(('.so', '.apk'))):
+                continue
+            if path.startswith('runtime/'):
+                source_relative = path.removeprefix('runtime/')
+                if source_relative in tracked_files:
+                    provenance = 'AaaS source checkout; revision recorded'
+                    source = f'AaaS repository revision {source_revision}'
+                else:
+                    provenance = 'UNVERIFIED_PROVENANCE'
+                    source = 'untracked local runtime artifact included in the working M4 closure'
+                role = 'host runtime code or executable'
+            elif path == 'workspace-artifacts/tmp/partitions/system.raw.img':
+                provenance = 'EXTRACTED_FROM_RECORDED_ANDROID_SDK_IMAGE'
+                source = 'Android SDK system partition, Android 16 BE2A.250530.026.D1'
+                role = 'audio compatibility overlay input'
+            elif path.startswith('workspace-artifacts/'):
+                provenance = 'UNVERIFIED_PROVENANCE'
+                source = 'retained historical M4 generated workspace artifact'
+                role = 'Android compatibility overlay, helper, or host integration artifact'
+            else:
+                provenance = 'UNVERIFIED_PROVENANCE'
+                source = 'historical modified M4 diagnostic rootfs based on Android 16 SDK image'
+                role = 'Android platform executable, library, or app'
+            provenance_records.append({
+                'path': path, 'sha256': entry.get('sha256'),
+                'architecture': ('Android x86_64 or ARM64 payload; per-file ABI is not resolved'
+                                 if path.endswith('.apk') else
+                                 'host x86_64' if path.startswith('runtime/experiments/')
+                                 else 'Android x86_64 unless otherwise indicated by artifact'),
+                'destination': path, 'role': role, 'provenance': provenance,
+                'source_identity': source, 'license_review': 'NOT_REVIEWED_FOR_DISTRIBUTION',
+            })
+        manifest = {
+            'schema': SCHEMA,
+            'bundle_id': uuid.uuid4().hex,
+            'profile': PROFILE,
+            'android': {'release': '16', 'api_level': 36, 'abi': 'x86_64',
+                        'build_id': 'BE2A.250530.026.D1',
+                        'source_kind': 'historical M4 diagnostic runtime rootfs',
+                        'source_rootfs': 'rootfs_m1b1 (local input; not source reproducible)'},
+            'host_architecture': platform.machine(),
+            'authenticity': 'NOT_ESTABLISHED; local unsigned development bundle',
+            'classification': 'LOCAL_DEVELOPMENT_DIAGNOSTIC',
+            'installation_integrity': 'PASS',
+            'security': SECURITY,
+            'artifact_count': len(inventory),
+            'artifacts': inventory,
+            'provenance': {
+                'rootfs': 'UNVERIFIED_PROVENANCE',
+                'source_repository_revision': source_revision,
+                'source_tree_dirty_at_capture': source_tree_dirty,
+                'executable_library_provenance': provenance_records,
+                'historical_modified_android_binaries': 'UNVERIFIED_PROVENANCE',
+                'SELinux shim presence': 'KNOWN_DIAGNOSTIC_LIMITATION',
+                'source_repository': 'AaaS source files copied from current checkout',
+                'limitations': [
+                    'This is a local relocation bundle, not a reproducible image build.',
+                    'Rootfs modifications and several binary inputs have no verified source revision.',
+                    'Host build caches and all persistent Android/user data are excluded.',
+                    'Required external/workspace generated runtime artifacts may remain unresolved.',
+                ],
+            },
+            'runtime_closure': {
+                'status': 'PARTIAL',
+                'packaged_workspace_artifacts': sum(
+                    entry['path'].startswith('workspace-artifacts/') for entry in inventory),
+                'unresolved': [
+                    'Storage-scan APK signing keystore is intentionally excluded; runtime helper rebuild requires a fresh signing flow.',
+                    'The current runner rebuilds helper APKs and audio overlays at startup; the bundle stages verified inputs but does not currently provide a clean unsigned/re-signing path.',
+                    'Host Wayland, PipeWire, Binder, graphics, namespace, and cgroup interfaces are discovered at install time.',
+                    'Private signing keys and Android userdata are deliberately excluded.',
+                ],
+            },
+            'metadata_capabilities': {
+                'file_modes': 'preserved', 'symlinks': 'preserved',
+                'xattrs': 'copystat best-effort; SELinux labels are not portable',
+                'ownership': 'installing user owns host files; Android UID mapping is namespace-local',
+                'hardlinks': 'not guaranteed',
+            },
+        }
+        manifest_path = stage / 'manifest.json'
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n',
+                                 encoding='utf-8')
+        manifest_path.chmod(0o644)
+        os.replace(stage, output)
+        published = True
+        result = inspect_bundle(output)
+        result['verification'] = verify_bundle(output)
+        result['integrity'] = 'PASS'
+        result['runtime_security'] = 'NOT_APPROVED'
+        return result
+    except Exception:
+        if stage.exists():
+            shutil.rmtree(stage)
+        if published and output.exists():
+            shutil.rmtree(output)
+        raise
+
+
+def inspect_bundle(bundle: Path):
+    bundle = bundle.expanduser().resolve(strict=True)
+    manifest_path = bundle / 'manifest.json'
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BundleError(f'invalid bundle manifest: {error}') from error
+    if manifest.get('schema') != SCHEMA or manifest.get('profile') != PROFILE:
+        raise BundleError('unsupported bundle schema or profile')
+    return manifest
+
+
+def verify_bundle(bundle: Path):
+    bundle = bundle.expanduser().resolve(strict=True)
+    manifest_path = bundle / 'manifest.json'
+    manifest = inspect_bundle(bundle)
+    if manifest.get('host_architecture') != platform.machine():
+        raise BundleError(f"host architecture mismatch: bundle={manifest.get('host_architecture')} host={platform.machine()}")
+    expected = {entry['path']: entry for entry in manifest.get('artifacts', [])}
+    if len(expected) != manifest.get('artifact_count'):
+        raise BundleError('manifest artifact count is inconsistent')
+    seen = set()
+    for relative, record in expected.items():
+        rel = _safe_relative(relative)
+        path = bundle / rel
+        parent = bundle
+        for component in rel.parts[:-1]:
+            parent = parent / component
+            if parent.is_symlink():
+                raise BundleError(f'artifact parent escapes through symlink: {relative}')
+        if not path.exists() and not path.is_symlink():
+            raise BundleError(f'missing bundle artifact: {relative}')
+        mode = stat.S_IMODE(path.lstat().st_mode)
+        if mode != record.get('mode'):
+            raise BundleError(f'mode mismatch: {relative}')
+        if record['type'] == 'symlink':
+            if not path.is_symlink() or os.readlink(path) != record.get('target'):
+                raise BundleError(f'symlink mismatch: {relative}')
+        elif record['type'] == 'file':
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != record.get('size'):
+                raise BundleError(f'file type/size mismatch: {relative}')
+            if _sha(path) != record.get('sha256'):
+                raise BundleError(f'hash mismatch: {relative}')
+        elif record['type'] == 'directory':
+            if path.is_symlink() or not path.is_dir():
+                raise BundleError(f'directory mismatch: {relative}')
+        else:
+            raise BundleError(f'unknown artifact type: {record["type"]}')
+        seen.add(relative)
+    actual = {p.relative_to(bundle).as_posix() for p in bundle.rglob('*')
+              if p != manifest_path}
+    if actual != seen:
+        extras = sorted(actual - seen)
+        raise BundleError(f'unmanifested bundle entries present: {extras[:5]}')
+    return {'bundle': str(bundle), 'bundle_id': manifest['bundle_id'],
+            'integrity': 'PASS', 'artifact_count': len(expected),
+            'installation_integrity': 'PASS', 'runtime_closure': manifest['runtime_closure'],
+            'runtime_security': 'NOT_APPROVED', 'general_runtime_start': 'BLOCKED'}
+
+
+def verify_installation(installation: Path):
+    installation = installation.expanduser().resolve(strict=True)
+    manifest_path = installation / 'bundle-manifest.json'
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BundleError(f'installation bundle manifest is invalid: {error}') from error
+    checked = 0
+    for record in manifest.get('artifacts', []):
+        rel = _safe_relative(record['path'])
+        path = installation / rel
+        parent = installation
+        for component in rel.parts[:-1]:
+            parent /= component
+            if parent.is_symlink():
+                raise BundleError(f'installation path escapes through symlink: {record["path"]}')
+        if not path.exists() and not path.is_symlink():
+            raise BundleError(f'installation artifact missing: {record["path"]}')
+        if stat.S_IMODE(path.lstat().st_mode) != record.get('mode'):
+            raise BundleError(f'installation artifact mode mismatch: {record["path"]}')
+        if record['type'] == 'symlink':
+            if not path.is_symlink() or os.readlink(path) != record.get('target'):
+                raise BundleError(f'installation symlink mismatch: {record["path"]}')
+        elif record['type'] == 'file':
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != record.get('size'):
+                raise BundleError(f'installation file size/type mismatch: {record["path"]}')
+            if _sha(path) != record.get('sha256'):
+                raise BundleError(f'installation hash mismatch: {record["path"]}')
+        elif record['type'] == 'directory':
+            if path.is_symlink() or not path.is_dir():
+                raise BundleError(f'installation directory mismatch: {record["path"]}')
+        else:
+            raise BundleError(f'installation manifest has unknown type: {record["type"]}')
+        checked += 1
+    return {'installation': str(installation), 'integrity': 'PASS',
+            'artifact_count': checked, 'bundle_id': manifest.get('bundle_id'),
+            'runtime_security': 'NOT_APPROVED', 'general_runtime_start': 'BLOCKED'}
+
+
+def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
+                   config_home: Path, data_home: Path):
+    verified = verify_bundle(bundle)
+    bundle = bundle.expanduser().resolve(strict=True)
+    workspace = workspace.expanduser().absolute()
+    install_root = install_root.expanduser().absolute()
+    config_home = config_home.expanduser().absolute()
+    data_home = data_home.expanduser().absolute()
+    for path in (workspace, install_root, config_home, data_home):
+        if not path.is_absolute():
+            raise BundleError(f'installation path must be absolute: {path}')
+    if install_root.exists() or install_root.is_symlink():
+        raise BundleError(f'refusing to replace existing installation: {install_root}')
+    if install_root == bundle or bundle in install_root.parents:
+        raise BundleError('installation destination must be separate from bundle')
+    if workspace.exists() and any(workspace.iterdir()):
+        raise BundleError('workspace must be empty; refusing to adopt or alter existing data')
+    cfg = config_home / 'aaas' / 'config.toml'
+    installed_data_manifest = data_home / 'aaas' / 'installation.json'
+    if cfg.exists() or cfg.is_symlink():
+        raise BundleError(f'refusing to overwrite existing config: {cfg}')
+    if installed_data_manifest.exists() or installed_data_manifest.is_symlink():
+        raise BundleError(f'refusing to overwrite existing installation manifest: {installed_data_manifest}')
+    install_root.parent.mkdir(parents=True, exist_ok=True)
+    install_probe = _filesystem_probe(install_root.parent)
+    workspace_probe = _filesystem_probe(workspace.parent)
+    manifest = inspect_bundle(bundle)
+    install_bytes = sum(entry.get('size', 0) for entry in manifest['artifacts']
+                        if entry['path'].startswith(('rootfs/', 'runtime/',
+                                                     'workspace-artifacts/')))
+    workspace_bytes = sum(entry.get('size', 0) for entry in manifest['artifacts']
+                          if entry['path'].startswith('workspace-artifacts/'))
+    same_device = os.stat(install_root.parent).st_dev == os.stat(workspace.parent).st_dev
+    install_required = install_bytes + MIN_FREE_RESERVE
+    workspace_required = workspace_bytes + (MIN_FREE_RESERVE if not same_device else 0)
+    if same_device:
+        install_required += workspace_bytes
+    if shutil.disk_usage(install_root.parent).free < install_required:
+        raise BundleError(f'installation destination lacks required data plus 20 GiB reserve: '
+                          f'need={install_required}')
+    if shutil.disk_usage(workspace.parent).free < workspace_required:
+        raise BundleError(f'workspace destination lacks required artifact data: '
+                          f'need={workspace_required}')
+    stage = install_root.with_name(f'.{install_root.name}.staging-{uuid.uuid4().hex}')
+    installed = config_written = data_written = workspace_created = False
+    cfg_temp = data_temp = None
+    try:
+        shutil.copytree(bundle / 'runtime', stage / 'runtime', symlinks=True,
+                        copy_function=shutil.copy2)
+        shutil.copytree(bundle / 'workspace-artifacts', stage / 'workspace-artifacts',
+                        symlinks=True, copy_function=shutil.copy2)
+        shutil.copytree(bundle / 'rootfs', stage / 'rootfs', symlinks=True,
+                        copy_function=shutil.copy2)
+        shutil.copy2(bundle / 'manifest.json', stage / 'bundle-manifest.json')
+        for name in ('data', 'metadata', 'cache', 'storage', 'mnt', 'dev', 'proc', 'sys', 'tmp'):
+            (stage / 'rootfs' / name).mkdir(exist_ok=True)
+        install_manifest = {
+            'schema': 1, 'bundle_id': verified['bundle_id'], 'profile': PROFILE,
+            'classification': 'LOCAL_DEVELOPMENT_DIAGNOSTIC',
+            'paths': {'workspace': str(workspace), 'rootfs': str(install_root / 'rootfs'),
+                      'runtime': str(install_root / 'runtime'),
+                      'workspace_artifacts': str(install_root / 'workspace-artifacts')},
+            'installation_integrity': 'PASS', 'runtime_security': 'NOT_APPROVED',
+            'general_runtime_start': 'BLOCKED',
+            'userdata': 'fresh path; not initialized or copied from source',
+            'runtime_closure': 'PARTIAL',
+        }
+        (stage / 'installation.json').write_text(
+            json.dumps(install_manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+        bindir = stage / 'bin'
+        bindir.mkdir()
+        launcher = bindir / 'aaas'
+        launcher.write_text(
+            '#!/bin/sh\nset -eu\nexec python3 "$(dirname "$0")/../runtime/scripts/aaas_cli.py" "$@"\n',
+            encoding='utf-8')
+        launcher.chmod(0o755)
+        install_integrity = verify_installation(stage)
+        install_manifest['installation_integrity'] = install_integrity['integrity']
+        (stage / 'installation.json').write_text(
+            json.dumps(install_manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+        stage.rename(install_root)
+        installed = True
+        # Keep configuration under the selected config root. No original path is
+        # embedded in the runtime tree; all locations are installation-specific.
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg_temp = cfg.with_name(cfg.name + f'.{os.getpid()}.tmp')
+        cfg_temp.write_text(
+            '[paths]\nworkspace = ' + json.dumps(str(workspace)) + '\nrootfs = ' +
+            json.dumps(str(install_root / 'rootfs')) + '\n\n[installation]\nprofile = ' +
+            json.dumps(PROFILE) + '\n', encoding='utf-8')
+        cfg_temp.chmod(0o600)
+        os.replace(cfg_temp, cfg)
+        config_written = True
+        installed_data_manifest.parent.mkdir(parents=True, exist_ok=True)
+        data_temp = installed_data_manifest.with_name(
+            installed_data_manifest.name + f'.{os.getpid()}.tmp')
+        install_manifest['paths']['workspace'] = str(workspace)
+        install_manifest['paths']['rootfs'] = str(install_root / 'rootfs')
+        install_manifest['paths']['runtime'] = str(install_root / 'runtime')
+        data_temp.write_text(json.dumps(install_manifest, indent=2, sort_keys=True) + '\n',
+                             encoding='utf-8')
+        os.replace(data_temp, installed_data_manifest)
+        data_written = True
+        workspace_created = not workspace.exists()
+        workspace.mkdir(parents=True, exist_ok=True)
+        for base in ('tmp', 'sources'):
+            staged_artifacts = install_root / 'workspace-artifacts' / base
+            if staged_artifacts.is_dir():
+                shutil.copytree(staged_artifacts, workspace / base, dirs_exist_ok=True,
+                                symlinks=True, copy_function=shutil.copy2)
+        data_home.mkdir(parents=True, exist_ok=True)
+        return {'installation': str(install_root), 'workspace': str(workspace),
+                'config': str(cfg), 'installation_integrity': 'PASS',
+                'filesystem': {'installation': install_probe,
+                               'workspace': workspace_probe},
+                'verified_artifacts': install_integrity['artifact_count'],
+                'runtime_security': 'NOT_APPROVED', 'general_runtime_start': 'BLOCKED',
+                'runtime_closure': 'PARTIAL', 'userdata': 'fresh path prepared; not initialized'}
+    except Exception:
+        if stage.exists():
+            shutil.rmtree(stage)
+        if cfg_temp and cfg_temp.exists():
+            cfg_temp.unlink()
+        if data_temp and data_temp.exists():
+            data_temp.unlink()
+        if config_written:
+            cfg.unlink(missing_ok=True)
+        if data_written:
+            installed_data_manifest.unlink(missing_ok=True)
+        if installed and install_root.exists():
+            shutil.rmtree(install_root)
+        if workspace_created and workspace.exists() and not any(workspace.iterdir()):
+            workspace.rmdir()
+        raise
+
+
+if __name__ == '__main__' and len(sys.argv) == 4 and sys.argv[1] == '--copy-rootfs':
+    _copy_tree(Path(sys.argv[2]), Path(sys.argv[3]), exclude_top=True)

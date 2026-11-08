@@ -120,6 +120,25 @@ historical device identities. They are not generic defaults. The supported live
 matrix remains Linux x86_64, Android 16 x86_64, KWin/Wayland, and the accepted
 Ranchu-compatible image build. A second physical host has not been validated.
 
+## Local M4 relocation bundle (2026-11-08)
+
+The `aaas bundle` commands now collect the existing M4 diagnostic rootfs,
+selected runtime code, and 145 retained generated workspace artifacts into a
+SHA-256 manifest-backed local directory bundle. A fresh user-local installation
+can be created with separate workspace, installation, XDG config, and XDG data
+paths. Installation integrity is reported separately from runtime closure and
+security status. See the [local bundle guide](developer-bundle.md).
+
+This advances artifact relocation, not independent runtime provisioning. The
+source rootfs remains `UNVERIFIED_PROVENANCE`; known SELinux-success shims are
+preserved and called out; the bundle is unsigned, not approved for untrusted
+APKs, and the normal runtime start gate remains blocked. The runtime currently
+rebuilds helper APKs and audio overlays and expects a signing keystore, which is
+not bundled. Host integration dependencies remain host-specific and are
+discovered at use time. A successful install or manifest check does not imply
+Android boot. The local development bundle must not be published or treated as
+a source-reproducible image.
+
 ## Provisioning status check (2026-11-08)
 
 A clean XDG configuration and workspace on the host's persistent ext4 volume

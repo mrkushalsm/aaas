@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import aaas_config
 import aaas_profiles
+import aaas_bundle
+import aaas_graphics
 
 
 class CliError(RuntimeError):
@@ -151,6 +153,13 @@ def _doctor(config):
         str(wayland_info) if wayland_info else 'wayland-info unavailable; protocol discovery unverified',
         mandatory=False)
     vulkaninfo = shutil.which('vulkaninfo')
+    try:
+        render_node = str(aaas_graphics.discover_render_node())
+        render_state = 'SUPPORTED'
+    except aaas_graphics.GraphicsDeviceError as error:
+        render_node = str(error)
+        render_state = 'MISSING_DEPENDENCY'
+    add('drm_render_node', render_state, render_node)
     add('graphics_api', 'UNVERIFIED_CONFIGURATION',
         f'vulkaninfo available at {vulkaninfo}; GPU API details require runtime query'
         if vulkaninfo else 'Vulkan/GLES driver discovery is not available from doctor',
@@ -279,6 +288,25 @@ def _parser():
         'boot', help='preflight a reconstructed candidate; never launches Android')
     boot.add_argument('--candidate', type=Path, required=True)
     json_flag(boot)
+    bundle = json_flag(commands.add_parser('bundle', help='create and install restricted local development bundles'))
+    bundle_commands = bundle.add_subparsers(dest='bundle_command', required=True)
+    create_bundle = bundle_commands.add_parser('create', help='copy the current diagnostic runtime into a local bundle')
+    create_bundle.add_argument('--profile', default=aaas_bundle.PROFILE)
+    create_bundle.add_argument('--local-development', action='store_true', required=True,
+                               help='acknowledge this bundle is diagnostic-only and security-unapproved')
+    create_bundle.add_argument('--output', type=Path)
+    inspect_bundle = bundle_commands.add_parser('inspect', help='show bundle profile and trust status')
+    inspect_bundle.add_argument('path', type=Path)
+    verify_bundle = bundle_commands.add_parser('verify', help='verify every bundle entry and SHA-256')
+    verify_bundle.add_argument('path', type=Path)
+    install_bundle = bundle_commands.add_parser('install', help='install a verified bundle into new isolated paths')
+    install_bundle.add_argument('path', type=Path)
+    install_bundle.add_argument('--workspace', type=Path, required=True)
+    install_bundle.add_argument('--installation', type=Path, required=True)
+    install_bundle.add_argument('--config-home', type=Path)
+    install_bundle.add_argument('--data-home', type=Path)
+    json_flag(create_bundle); json_flag(inspect_bundle); json_flag(verify_bundle)
+    json_flag(install_bundle)
     return parser
 
 
@@ -382,6 +410,61 @@ def main(argv=None):
             result = aaas_boot.inspect_candidate(args.candidate, config.workspace)
             _emit(result, json_output)
             return 0 if result['outcome'] == 'PREFLIGHT_ONLY' else 2
+        if args.command == 'bundle':
+            if args.bundle_command == 'create':
+                if args.profile != aaas_bundle.PROFILE:
+                    raise CliError(f'unsupported bundle profile: {args.profile}')
+                workspace_info = __import__('android_workspace').check(config.workspace)
+                output = (args.output.expanduser().absolute() if args.output else
+                          config.workspace / 'bundles' / f'{aaas_bundle.PROFILE}-local-dev')
+                try:
+                    output.resolve(strict=False).relative_to(config.workspace.resolve())
+                except ValueError as error:
+                    raise CliError('bundle output must remain inside the enrolled workspace') from error
+                if _status(config)['runtime']['state'] != 'STOPPED':
+                    raise CliError('bundle creation requires all AaaS sessions to be stopped')
+                result = aaas_bundle.create_bundle(
+                    repo=ROOT, rootfs=config.rootfs, output=output,
+                    workspace=config.workspace,
+                    preflight=lambda: __import__('android_workspace').check(config.workspace))
+                verification = result['verification']
+                summary = {'bundle': str(output), 'bundle_id': result['bundle_id'],
+                           'profile': result['profile'],
+                           'artifact_count': result['artifact_count'],
+                           'bundle_bytes': sum(item.get('size', 0)
+                                               for item in result['artifacts']),
+                           'installation_integrity': 'PASS',
+                           'runtime_closure': verification['runtime_closure'],
+                           'runtime_security': 'NOT_APPROVED',
+                           'general_runtime_start': 'BLOCKED',
+                           'workspace_health': workspace_info['health']}
+                _emit(summary, json_output)
+                return 0
+            if args.bundle_command == 'inspect':
+                result = aaas_bundle.inspect_bundle(args.path)
+                _emit({'bundle_id': result['bundle_id'], 'profile': result['profile'],
+                       'classification': result['classification'],
+                       'artifact_count': result['artifact_count'],
+                       'authenticity': result['authenticity'],
+                       'installation_integrity': result['installation_integrity'],
+                       'runtime_closure': result['runtime_closure'],
+                       'runtime_security': result['security']['runtime_security']}, json_output)
+                return 0
+            if args.bundle_command == 'verify':
+                if (args.path / 'bundle-manifest.json').is_file():
+                    result = aaas_bundle.verify_installation(args.path)
+                else:
+                    result = aaas_bundle.verify_bundle(args.path)
+                _emit(result, json_output)
+                return 0
+            xdg = aaas_config.xdg_paths()
+            result = aaas_bundle.install_bundle(
+                bundle=args.path, workspace=args.workspace,
+                install_root=args.installation,
+                config_home=args.config_home or xdg['config_home'],
+                data_home=args.data_home or xdg['data_home'])
+            _emit(result, json_output)
+            return 0
         if args.command == 'apps':
             if args.apps_command == 'list':
                 return _run_script('aaas_desktop.py', 'catalog', 'list', config=config)
