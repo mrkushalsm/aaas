@@ -915,7 +915,7 @@ while retaining the UUID/mount/health checks and the separate 20 GiB host-root
 reserve. The final check identified `/dev/sda3`, UUID
 `094120c3-e1f8-4a61-a95a-c347ecb711d1`, with 36,056,395,776 available bytes;
 the workspace used 82,114,392,064 allocated bytes. Host root retained
-23,000,895,488 available bytes. The incident history remains enrolled.
+23,000,379,392 available bytes. The incident history remains enrolled.
 
 The direct Linux shared directory passed small offline filesystem operations
 on the dedicated partition. Four headless sessions against the separate

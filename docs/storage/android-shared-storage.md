@@ -116,7 +116,7 @@ The former fixed 80 GiB workspace limit has been removed. Capacity admission
 uses unprivileged filesystem available blocks (`f_bavail`), with a configurable
 2 GiB default free-space reserve for this partition. The host root filesystem
 still has its separate 20 GiB reserve. At the final guard check, the dedicated
-filesystem had 36,056,395,776 bytes available; host root had 23,000,895,488
+filesystem had 36,056,395,776 bytes available; host root had 23,000,379,392
 bytes available. Workspace allocated bytes (82,114,392,064) and filesystem
 usage (85,787,475,968) are reported separately. UUID, mount identity, ext4
 health policy, and the retained `usb-workspace-io-2026-11-08` incident remain
