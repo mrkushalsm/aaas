@@ -190,3 +190,24 @@ Revocation-test setup session `m1b84_session_uahany_6` reached `RUNNING` and
 stopped normally, but the existing Android UI capture path could not capture
 virtual display 2 and its UIAutomator dump was killed. No permission change or
 revocation result is claimed; see the acceptance JSON for session evidence.
+
+### Permission and PipeWire outage follow-up (2026-11-08)
+
+The display-aware AaaS UI tap path successfully drove Android Settings on a
+virtual display. In `m1b84_session_kq01kbhy`, the capture probe's microphone
+permission was changed to “Don’t allow”; Android logged
+`RECORD_PERMISSION_DENIED` on later ordinary permission requests. A Settings
+tap later showed “Allow only while using” selected, but a subsequent app
+request still returned denied. Do not treat this as a successful regrant. The
+probe captures for three seconds, so active-recording revocation was not
+established. The runtime stopped normally and no raw audio was kept.
+
+A disposable private PipeWire/WirePlumber/pipewire-pulse instance was used to
+exercise the production bridge without stopping the desktop audio server.
+Terminating the private pipewire-pulse process closed an in-flight playback
+client, and fresh playback worked after restarting that service. Capture's
+synchronous Pulse read blocked while the service was absent and resumed after
+restart; a fresh capture then received PCM. This establishes restart-dependent
+transport recovery, not prompt capture failure. M4 remains **PARTIAL/OPEN**
+until microphone regrant, active-capture revocation, and the coherent combined
+M2/M3/M4 acceptance campaign pass.

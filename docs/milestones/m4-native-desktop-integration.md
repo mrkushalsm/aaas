@@ -751,3 +751,50 @@ audio stream. The virtual-display UI capture/control path must be fixed or a
 supported Android Settings interaction used before revocation acceptance can
 be completed. The session evidence hashes are retained in
 `audio_failure_followup_2026_11_08`.
+
+## Permission revocation and PipeWire service-loss follow-up (2026-11-08)
+
+Workspace preflight before live testing passed on ext4 UUID
+`094120c3-e1f8-4a61-a95a-c347ecb711d1`. The guard classified it
+`HEALTHY_FOR_CONTROLLED_TESTING` with 76,737,261,568 bytes used and
+41,433,526,272 bytes free, above the configured 20 GiB reserve. The guard
+continues to report the historical same-boot USB/UAS, block-I/O and JBD2/ext4
+shutdown incident from 2026-11-07 23:08:11 IST. No new matching kernel messages
+were found since 2026-11-08 03:45 IST. The passive SMART query remains
+permission-limited for the guard; the earlier user-provided report is historical.
+
+In `m1b84_session_kq01kbhy`, the ordinary nonprivileged
+`org.aaas.audiocaptureprobe` was inspected through Android Settings. The
+supported display-aware `aaasctl notifications ui tap --display-id` path worked
+even though virtual-display `screencap` and UIAutomator had failed in the prior
+setup. Settings changed Microphone from “Allow only while using” to “Don’t
+allow”. Android logcat recorded `RECORD_PERMISSION_DENIED` for subsequent
+ordinary permission requests (including PermissionController result `2`),
+confirming denied access after revocation. A screen tap later made the Settings
+radio visually show “Allow only while using”, but a subsequent app request still
+returned `RECORD_PERMISSION_DENIED`; effective regrant and successful capture
+after regrant are therefore **not accepted**. The probe's three-second capture
+window did not establish that revocation interrupted an active AudioRecord.
+The runtime reached `STOPPED`; no raw audio was retained. Logcat SHA-256 is
+`2a3b45d70074d63be99d0390b0ef510fd96882edc3dc201ac5114522d45098b1`.
+
+PipeWire failure was tested at the live host transport boundary using a
+private PipeWire/WirePlumber/pipewire-pulse instance inside `dbus-run-session`
+and a temporary runtime directory. The desktop audio service was not stopped.
+A private null sink supplied a monitor source. The production AaaS audio bridge
+opened playback and capture streams. Terminating the private `pipewire-pulse`
+process closed the in-flight playback client; restarting it allowed a fresh
+playback stream through the same bridge to transfer PCM. Capture's synchronous
+Pulse read stalled while the server was absent and resumed after restart. A
+fresh capture received 8,192 bytes; the bridge later summarized 34,560 frames
+at RMS 15.02. This verifies restart-dependent host transport recovery and
+reveals a capture stall during the outage. It does not prove prompt failure or
+the complete Android-in-session daemon restart behavior.
+
+The complete Python suite passed **390 tests**, with zero failures, errors, or
+skips. This continuation did not run the coherent final M2/M3/M4 cross-feature
+campaign. Canonical M4 remains **PARTIAL/OPEN** pending verified microphone
+regrant and active-capture revocation, an accepted capture outage policy, and
+the combined integration and cleanup run. Structured details are in
+`post_acceptance_verification_2026_11_08` in
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
