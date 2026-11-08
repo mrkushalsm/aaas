@@ -23,7 +23,11 @@ def main() -> int:
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--capture', action='store_true',
                         help='build a distinct package that requests RECORD_AUDIO on launch')
+    parser.add_argument('--capture-duration-seconds', type=int, default=3,
+                        help='bounded AudioRecord probe duration (1-60 seconds)')
     args = parser.parse_args()
+    if not 1 <= args.capture_duration_seconds <= 60:
+        parser.error('--capture-duration-seconds must be between 1 and 60')
     for name in ('apktool', 'framework-res', 'apksig', 'dx', 'zipalign', 'keystore'):
         value = getattr(args, name.replace('-', '_')).resolve(strict=True)
         setattr(args, name.replace('-', '_'), value)
@@ -58,12 +62,16 @@ def main() -> int:
         source = Path(__file__).resolve().parent / 'src-probe/org/aaas/audioprobe/MainActivity.java'
         source_text = source.read_text()
         package = 'org.aaas.audiocaptureprobe' if args.capture else 'org.aaas.audioprobe'
+        label = 'AaaS Audio Capture Probe' if args.capture else 'AaaS Audio Probe'
         default_record = 'true' if args.capture else 'false'
         source_copy = work / 'MainActivity.java'
         source_copy.write_text(source_text.replace('package org.aaas.audioprobe;',
                                                    f'package {package};')
                                .replace('getBooleanExtra("record", false)',
-                                        f'getBooleanExtra("record", {default_record})'))
+                                        f'getBooleanExtra("record", {default_record})')
+                               .replace('AaaS Audio Probe', label)
+                               .replace('rate * 3',
+                                        f'rate * {args.capture_duration_seconds}'))
         subprocess.run(['javac', '--release', '8', '-cp', str(stubclasses),
                         '-d', str(classes), str(source_copy)], check=True)
         dex = work / 'classes.dex'
@@ -73,7 +81,7 @@ def main() -> int:
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}" android:versionCode="1" android:versionName="1.0">
 <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35"/>
 <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-<application android:label="AaaS Audio Probe" android:allowBackup="false" android:hasCode="true"><activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>''')
+<application android:label="{label}" android:allowBackup="false" android:hasCode="true"><activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>''')
         (decoded / 'apktool.yml').write_text('''version: 3.0.3
 apkFileName: AaasAudioProbe.apk
 usesFramework:

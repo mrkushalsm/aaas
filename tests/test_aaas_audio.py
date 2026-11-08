@@ -217,6 +217,9 @@ class AudioBridgeTests(unittest.TestCase):
         self.assertIn('CHANNEL_OUT_MONO=4', builder)
         self.assertIn('public void pause(){}', builder)
         self.assertIn('public int setVolume(float v)', builder)
+        self.assertIn("parser.add_argument('--capture-duration-seconds'", builder)
+        self.assertIn("1 <= args.capture_duration_seconds <= 60", builder)
+        self.assertIn("'AaaS Audio Capture Probe' if args.capture", builder)
 
 
 if __name__ == '__main__':
