@@ -112,6 +112,7 @@ class WorkspaceGuardTest(unittest.TestCase):
 
     def test_prediction_stays_below_ceiling(self):
         with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard, 'filesystem_capability_probe', return_value={'acl': True}), \
              patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(f_bavail=200, f_frsize=guard.GIB)):
             with self.assertRaisesRegex(guard.WorkspaceError, 'budget exceeded'):
                 guard.check(self.workspace, 90 * guard.GIB)
@@ -121,6 +122,7 @@ class WorkspaceGuardTest(unittest.TestCase):
         (self.workspace / guard.MARKER).unlink()
         self.workspace.rmdir()
         with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard, 'filesystem_capability_probe', return_value={'acl': True}), \
              patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(f_bavail=200, f_frsize=guard.GIB)):
             first = guard.initialize(self.workspace, self.mount)
             marker = json.loads((self.workspace / guard.MARKER).read_text())
@@ -131,9 +133,21 @@ class WorkspaceGuardTest(unittest.TestCase):
 
     def test_initialize_refuses_existing_unmarked_data(self):
         (self.workspace / guard.MARKER).unlink()
+        (self.workspace / 'existing-data').write_text('keep')
         with patch.object(guard, 'mount_identity', return_value=self.identity):
             with self.assertRaisesRegex(guard.WorkspaceError, 'missing workspace marker'):
                 guard.initialize(self.workspace, self.mount)
+
+    def test_initialize_adopts_nonempty_directory_only_when_explicit(self):
+        (self.workspace / guard.MARKER).unlink()
+        payload = self.workspace / 'preserve.txt'
+        payload.write_text('keep')
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard, 'filesystem_capability_probe', return_value={'acl': True}), \
+             patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(f_bavail=200, f_frsize=guard.GIB)):
+            result = guard.initialize(self.workspace, self.mount, adopt=True)
+        self.assertEqual(payload.read_text(), 'keep')
+        self.assertEqual(result['workspace'], str(self.workspace))
 
     def test_device_matched_integrity_pause_blocks_before_accounting(self):
         self.marker.update(filesystem='ntfs3', mount_uuid='A2ACEDF2ACEDC0C1')

@@ -10,9 +10,10 @@ import socket
 import subprocess
 import sys
 
+import aaas_config
 import aaas_storage
 
-TMP = Path('/run/media/mrkus/Aaas/aaas-workspace/tmp')
+TMP = aaas_config.resolve_config().workspace / 'tmp'
 PACKAGE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 
 

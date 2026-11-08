@@ -26,6 +26,7 @@ import time
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import aaas_config
 import aaas_cgroup
 import aaas_bluetooth
 import aaas_resources
@@ -37,8 +38,16 @@ import android_workspace
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = Path('/run/media/mrkus/Aaas/aaas-workspace')
-WORKSPACE_UUID = '094120c3-e1f8-4a61-a95a-c347ecb711d1'
+CONFIG = aaas_config.resolve_config(repository=ROOT)
+WORKSPACE = CONFIG.workspace
+ROOTFS = CONFIG.rootfs
+DEFAULT_WORKSPACE = CONFIG.workspace
+
+def configured_rootfs():
+    # Keep legacy test and embedding callers that replace WORKSPACE coherent.
+    if WORKSPACE != DEFAULT_WORKSPACE and ROOTFS == DEFAULT_WORKSPACE / 'rootfs_m1b1':
+        return WORKSPACE / 'rootfs_m1b1'
+    return ROOTFS
 TMP = WORKSPACE / 'tmp'
 RUNNER = ROOT / 'scripts/aaas_session_runner_base.py'
 PRESENTER = ROOT / 'experiments/m1a/build/wayland-host-presenter'
@@ -66,7 +75,7 @@ STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
-RUNNER_SHA256 = '9cac808bb1ec6c3961dfed96213182ac6c3c9c4ae5bb11bce165105f7bb1c695'
+RUNNER_SHA256 = '28fcba63607ce6620a4b5690e173284d4e4ab7ebb9e521adfe61252a07c2b63c'
 SWIFTSHADER_RUNTIME_OVERLAY = TMP / 'm1e_swiftshader_fixed_notrace_v2.so'
 SWIFTSHADER_RUNTIME_SHA256 = 'e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee'
 SWIFTSHADER_RUNTIME_SOURCE_DIFF_SHA256 = '49c1ce42f0cb09dd69a81645c9a3bec91a390c958ac3d49ff2bd3edf4df86ece'
@@ -150,7 +159,7 @@ def validate_native_bridge_bundle(path):
 
 def prepare_native_bridge_overlay(bundle, entries, session, arm64_first=False,
                                   native_exec=False, native_exec_library_apk=None):
-    rootfs_system = WORKSPACE / 'rootfs_m1b1/system'
+    rootfs_system = configured_rootfs() / 'system'
     overlay_system = session / 'native_bridge_overlay/system'
     for subtree in ('bin', 'etc', 'lib64'):
         shutil.copytree(rootfs_system / subtree, overlay_system / subtree,
@@ -775,17 +784,11 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         # That adapter routes every module, including primary, through
         # hw_get_module_by_class and the session-selected legacy HAL.
         audio_hidl_factory = (
-            WORKSPACE / 'rootfs_m1b1/vendor/lib64/hw/'
+            configured_rootfs() / 'vendor/lib64/hw/'
             'android.hardware.audio.legacy@7.1-impl.ranchu.so'
         )
-        if not audio_hidl_factory.is_file():
-            raise ValueError('Android legacy HIDL audio factory is missing')
-        audio_service = WORKSPACE / 'rootfs_m1b1/vendor/bin/hw/android.hardware.audio.service'
-        audioserver = WORKSPACE / 'rootfs_m1b1/system/bin/audioserver'
-        if not audio_service.is_file():
-            raise ValueError('Android HIDL audio service executable is missing')
-        if not audioserver.is_file():
-            raise ValueError('Android audioserver executable is missing')
+        audio_service = configured_rootfs() / 'vendor/bin/hw/android.hardware.audio.service'
+        audioserver = configured_rootfs() / 'system/bin/audioserver'
         audio_hal_bind = (
             f'  --ro-bind {shlex.quote(str(audio_hal))} '
             '/vendor/lib64/hw/audio.primary.aaas.so \\\n'
@@ -839,7 +842,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '/vendor/bin/hw/android.hardware.audio.service \\\n'
             )
         if audiohal_overlay_path is not None:
-            image_audiohal = (WORKSPACE / 'rootfs_m1b1/system/lib64/libaudiohal.so').resolve()
+            image_audiohal = (configured_rootfs() / 'system/lib64/libaudiohal.so').resolve()
             if audiohal_overlay_path != image_audiohal:
                 audio_hal_bind += (
                     f'  --ro-bind {shlex.quote(str(audiohal_overlay_path))} '
@@ -2610,7 +2613,7 @@ def build_storage_services_overlay():
 
 
 def framework_transition_overlay_is_current():
-    source = WORKSPACE / 'rootfs_m1b1/system/framework/framework.jar'
+    source = configured_rootfs() / 'system/framework/framework.jar'
     try:
         receipt = json.loads(FRAMEWORK_TRANSITION_RECEIPT.read_text())
         return (
@@ -2637,7 +2640,7 @@ def build_framework_transition_overlay():
         raise RuntimeError(guard.stdout + guard.stderr)
     subprocess.run([
         sys.executable, str(FRAMEWORK_TRANSITION_BUILDER),
-        '--original', str(WORKSPACE / 'rootfs_m1b1/system/framework/framework.jar'),
+        '--original', str(configured_rootfs() / 'system/framework/framework.jar'),
         '--apktool', str(APKTOOL), '--output', str(FRAMEWORK_TRANSITION_OVERLAY),
         '--work-parent', str(TMP), '--receipt', str(FRAMEWORK_TRANSITION_RECEIPT),
     ], check=True)
@@ -2686,7 +2689,8 @@ def validate_swiftshader_runtime_overlay():
 def verify_requirements(use_source_lmkd=False, orientation='portrait',
                         diagnostic_vulkan_overlay=None,
                         diagnostic_framework_overlay=None,
-                        diagnostic_framework_sha256=None):
+                        diagnostic_framework_sha256=None,
+                        audio_enabled=False):
     check = subprocess.run(
         [sys.executable, str(ROOT / 'scripts/android_workspace.py'),
          '--workspace', str(WORKSPACE), 'check'],
@@ -2695,8 +2699,21 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     if check.returncode:
         raise RuntimeError(check.stdout + check.stderr)
     mount = json.loads(check.stdout)['mount']
-    if mount['filesystem'] != 'ext4' or mount.get('uuid') != WORKSPACE_UUID:
-        raise RuntimeError(f'unexpected workspace filesystem: {mount}')
+    if mount['filesystem'] not in ('ext4', 'xfs', 'btrfs', 'ntfs3'):
+        raise RuntimeError(f'unsupported enrolled workspace filesystem: {mount}')
+    if not configured_rootfs().is_dir():
+        raise RuntimeError(f'Android rootfs is missing: {configured_rootfs()}')
+    if audio_enabled:
+        audio_required = (
+            configured_rootfs() / 'vendor/lib64/hw/android.hardware.audio.legacy@7.1-impl.ranchu.so',
+            configured_rootfs() / 'vendor/bin/hw/android.hardware.audio.service',
+            configured_rootfs() / 'system/bin/audioserver',
+            configured_rootfs() / 'system/lib64/libaudiohal.so',
+        )
+        missing_audio = [str(path) for path in audio_required if not path.is_file()]
+        if missing_audio:
+            raise RuntimeError('Android 16 Ranchu audio profile is incomplete: '
+                               + ', '.join(missing_audio))
     if not PRESENTER.is_file():
         raise RuntimeError(f'build the presenter first: {PRESENTER}')
     if not INPUT_ADAPTER.is_file():
@@ -2972,7 +2989,8 @@ def main():
                                 orientation=args.orientation,
                                 diagnostic_vulkan_overlay=args.diagnostic_vulkan_overlay,
                                 diagnostic_framework_overlay=args.diagnostic_framework_overlay,
-                                diagnostic_framework_sha256=args.diagnostic_framework_sha256)
+                                diagnostic_framework_sha256=args.diagnostic_framework_sha256,
+                                audio_enabled=audio_enabled)
     if not args.experimental_virtual_display:
         paths['AAAS_SERVICES_JAR_OVERLAY'] = str(build_storage_services_overlay())
     if args.experimental_virtual_display:
@@ -3027,7 +3045,7 @@ def main():
             native_exec_library_apk=args.diagnostic_native_exec_libraries_apk)
     bluetooth_policy_dir = session / 'bluetooth-policy'
     bluetooth_policy_manifest = aaas_bluetooth.create_unavailable_policy(
-        WORKSPACE / 'rootfs_m1b1', bluetooth_policy_dir)
+        configured_rootfs(), bluetooth_policy_dir)
     (session / 'bluetooth-policy.json').write_text(
         json.dumps(bluetooth_policy_manifest, indent=2) + '\n')
     (session / 'bluetooth-policy.json').chmod(0o600)
@@ -3171,7 +3189,7 @@ def main():
     clipboard_builder = ROOT / 'experiments/m4/clipboard/build_clipboard_ime.py'
     subprocess.run([
         sys.executable, str(clipboard_builder), '--apktool', str(APKTOOL),
-        '--framework-res', str(WORKSPACE / 'rootfs_m1b1/system/framework/framework-res.apk'),
+        '--framework-res', str(configured_rootfs() / 'system/framework/framework-res.apk'),
         '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
         '--zipalign', str(ANDROID_ZIPALIGN),
         '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(CLIPBOARD_APK),
@@ -3179,7 +3197,7 @@ def main():
     notification_builder = ROOT / 'experiments/m4/notifications/build_listener.py'
     subprocess.run([
         sys.executable, str(notification_builder), '--apktool', str(APKTOOL),
-        '--framework-res', str(WORKSPACE / 'rootfs_m1b1/system/framework/framework-res.apk'),
+        '--framework-res', str(configured_rootfs() / 'system/framework/framework-res.apk'),
         '--apksig', str(APKSIG), '--dx', str(ANDROID_DX),
         '--zipalign', str(ANDROID_ZIPALIGN),
         '--keystore', str(STORAGE_SCAN_KEYSTORE), '--output', str(NOTIFICATION_APK),
@@ -3211,23 +3229,23 @@ def main():
         audio_hal_overlay = TMP / 'm4-audio/audio.primary.aaas.so'
         subprocess.run([
             sys.executable, str(ROOT / 'experiments/m4/audio/build_audio_hal.py'),
-            '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+            '--rootfs', str(configured_rootfs()),
             '--output', str(audio_hal_overlay),
         ], check=True)
         audio_ashmem_shim = TMP / 'm4-audio/libaaas-audio-ashmem.so'
         subprocess.run([
             sys.executable, str(ROOT / 'experiments/m4/audio/build_ashmem_compat.py'),
-            '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+            '--rootfs', str(configured_rootfs()),
             '--output', str(audio_ashmem_shim),
         ], check=True)
         audio_factory_compat = TMP / 'm4-audio/libaaas-audio-factory-compat.so'
         subprocess.run([
             sys.executable, str(ROOT / 'experiments/m4/audio/build_factory_compat.py'),
-            '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+            '--rootfs', str(configured_rootfs()),
             '--output', str(audio_factory_compat),
         ], check=True)
         audio_codec_rc = (
-            WORKSPACE / 'rootfs_m1b1/apex/com.android.media.swcodec/etc/mediaswcodec.rc')
+            configured_rootfs() / 'apex/com.android.media.swcodec/etc/mediaswcodec.rc')
         audio_vendor_init = (
             bluetooth_policy_dir / 'vendor/etc/init/hw/init.ranchu.rc')
         if not audio_codec_rc.is_file() or not audio_vendor_init.is_file():
@@ -3242,7 +3260,7 @@ def main():
             + audio_codec_rc.read_text().lstrip()
         )
         mediaextractor_rc = (
-            WORKSPACE / 'rootfs_m1b1/system/etc/init/mediaextractor.rc')
+            configured_rootfs() / 'system/etc/init/mediaextractor.rc')
         mediaextractor_text = mediaextractor_rc.read_text()
         service_decl = 'service mediaextractor /system/bin/mediaextractor\n'
         if mediaextractor_text.count(service_decl) != 1:
@@ -3261,13 +3279,13 @@ def main():
             audio_hal_probe = TMP / 'm4-audio/libaaas-audio-hal-probe.so'
             subprocess.run([
                 sys.executable, str(ROOT / 'experiments/m4/audio/build_hal_probe.py'),
-                '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+                '--rootfs', str(configured_rootfs()),
                 '--output', str(audio_hal_probe),
             ], check=True)
             audio_hal_factory_probe = TMP / 'm4-audio/libaaas-audio-factory-probe.so'
             subprocess.run([
                 sys.executable, str(ROOT / 'experiments/m4/audio/build_factory_probe.py'),
-                '--rootfs', str(WORKSPACE / 'rootfs_m1b1'),
+                '--rootfs', str(configured_rootfs()),
                 '--output', str(audio_hal_factory_probe),
             ], check=True)
     runner = make_session_runner(session, desktop_ime=not args.software_keyboard,
@@ -3305,6 +3323,10 @@ def main():
                                  audio_playback_volume_test=args.audio_playback_volume_test)
     env = os.environ.copy()
     env.update(paths)
+    env.update(AAAS_WORKSPACE=str(WORKSPACE), AAAS_ROOTFS=str(configured_rootfs()))
+    scripts_path = str(ROOT / 'scripts')
+    env['PYTHONPATH'] = scripts_path + (os.pathsep + env['PYTHONPATH']
+                                        if env.get('PYTHONPATH') else '')
     presenter_width, presenter_height = initial_window_size(
         args.orientation, args.window_size)
     presenter_size = (str(presenter_width), str(presenter_height))

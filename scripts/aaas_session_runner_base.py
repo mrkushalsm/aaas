@@ -12,8 +12,10 @@ from pathlib import Path
 
 
 def main():
-    rootfs = Path("/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1")
-    tmp_dir = Path("/run/media/mrkus/Aaas/aaas-workspace/tmp")
+    xdg_data = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share'))
+    workspace = Path(os.environ.get('AAAS_WORKSPACE', xdg_data / 'aaas/workspace'))
+    rootfs = Path(os.environ.get('AAAS_ROOTFS', workspace / 'rootfs_m1b1'))
+    tmp_dir = workspace / 'tmp'
     prefix = os.environ.get("AAAS_LOG_PREFIX", "")
     kmsg_log = tmp_dir / f"{prefix}kmsg_zygote_test.log"
     kmsg_log.write_text("")

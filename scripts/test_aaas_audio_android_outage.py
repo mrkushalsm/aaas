@@ -104,8 +104,10 @@ def run():
     preflight_data = json.loads(preflight.stdout)
     if preflight_data.get('health', {}).get('state') != 'HEALTHY_FOR_CONTROLLED_TESTING':
         raise SystemExit('workspace health guard did not authorize controlled testing')
-    if preflight_data.get('mount', {}).get('uuid') != '094120c3-e1f8-4a61-a95a-c347ecb711d1':
-        raise SystemExit('workspace UUID differs from enrolled ext4 UUID')
+    marker = json.loads((WORKSPACE / '.aaas-workspace.json').read_text(encoding='utf-8'))
+    if (preflight_data.get('mount', {}).get('uuid') != marker.get('mount_uuid')
+            or preflight_data.get('mount', {}).get('filesystem') != marker.get('filesystem')):
+        raise SystemExit('workspace backing identity differs from its enrolled marker')
     current = subprocess.run([os.sys.executable, str(ROOT / 'scripts/aaasctl.py'),
         'list'], capture_output=True, text=True, timeout=5, check=False)
     if current.returncode == 0:

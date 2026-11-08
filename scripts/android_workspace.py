@@ -12,8 +12,11 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
+import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -51,13 +54,13 @@ class WorkspaceError(RuntimeError):
 
 def mount_identity(target):
     result = subprocess.run(
-        ['findmnt', '-T', str(target), '-n', '-o', 'TARGET,SOURCE,FSTYPE,UUID,ID'],
+        ['findmnt', '-T', str(target), '-n', '-o', 'TARGET,SOURCE,FSTYPE,UUID,ID,OPTIONS'],
         capture_output=True, text=True, check=True, timeout=3,
     )
     fields = result.stdout.strip().split()
-    if len(fields) != 5:
+    if len(fields) != 6:
         raise WorkspaceError(f'cannot identify mount for {target}')
-    return dict(zip(('target', 'source', 'filesystem', 'uuid', 'mount_id'), fields))
+    return dict(zip(('target', 'source', 'filesystem', 'uuid', 'mount_id', 'options'), fields))
 
 
 def _read_health_policy(path=HEALTH_POLICY):
@@ -419,9 +422,39 @@ def assess_workspace_health(identity, policy_path=HEALTH_POLICY, now=None):
             return result
         return tracked
     filesystem = identity.get('filesystem')
+    if filesystem in ('ext4', 'xfs', 'btrfs'):
+        key = (identity.get('uuid'), identity.get('source'))
+        now_mono = time.monotonic() if now is None else now
+        cached = _HEALTH_CACHE.get(key)
+        if cached and now_mono - cached[0] < 30:
+            return cached[1]
+        try:
+            report = _journal_workspace_storage_events(identity)
+        except (OSError, subprocess.SubprocessError, WorkspaceError) as error:
+            result = {'state': 'HEALTH_UNKNOWN',
+                      'reason': f'current-boot storage journal unavailable: {error}'}
+        else:
+            events = report['events']
+            if events:
+                transport = any(item['kind'] in ('block_io', 'uas_transport',
+                                                  'usb_transport') for item in events)
+                result = {
+                    'state': 'DEVICE_FAILURE_SUSPECTED' if transport else 'INTEGRITY_WARNING',
+                    'reason': f'{len(events)} device-correlated storage error(s) this boot',
+                    'events': events,
+                }
+            else:
+                result = {
+                    'state': 'HEALTHY_FOR_CONTROLLED_TESTING',
+                    'reason': ('no recorded incident and no device-correlated storage errors '
+                               'observed in the current boot; hardware health is not certified'),
+                    'observation': 'current-boot journal only',
+                }
+        _HEALTH_CACHE[key] = (now_mono, result)
+        return result
     if filesystem != 'ntfs3':
         return {'state': 'HEALTH_UNKNOWN',
-                'reason': 'no filesystem-specific integrity attestation'}
+                'reason': 'filesystem has no supported health observation policy'}
     key = (identity.get('uuid'), identity.get('source'))
     now = time.monotonic() if now is None else now
     cached = _HEALTH_CACHE.get(key)
@@ -677,6 +710,11 @@ def validate_mounted_workspace(workspace, sentinels=()):
         raise WorkspaceError(f'external disk is not mounted at {target}')
     if actual['uuid'] != marker.get('mount_uuid') or actual['filesystem'] != marker.get('filesystem'):
         raise WorkspaceError('external disk identity changed')
+    options = set(actual.get('options', '').split(','))
+    if 'ro' in options:
+        raise WorkspaceError('workspace filesystem is mounted read-only')
+    if 'noexec' in options:
+        raise WorkspaceError('workspace filesystem is mounted noexec; Android binaries cannot run there')
     health = _require_workspace_health(actual)
     if not os.access(workspace, os.W_OK | os.X_OK):
         raise WorkspaceError('workspace is not writable')
@@ -722,34 +760,145 @@ def allocated_bytes(root):
     return total
 
 
-def initialize(workspace, mount_target):
-    workspace = Path(workspace).absolute()
-    target = Path(mount_target).absolute()
-    if workspace.parent != target or workspace.name in ('', '.', '..'):
-        raise WorkspaceError('workspace must be a new direct child of the mount')
+def _filesystem_mount_target(path):
+    result = subprocess.run(
+        ['findmnt', '-T', str(path), '-n', '-o', 'TARGET'],
+        capture_output=True, text=True, check=True, timeout=3,
+    )
+    target = Path(result.stdout.strip())
+    if not target.is_absolute():
+        raise WorkspaceError(f'cannot identify filesystem mount for {path}')
+    return target
+
+
+def filesystem_capability_probe(workspace, *, require_acl=True):
+    """Run bounded filesystem semantics probes in a private disposable dir."""
+    workspace = Path(workspace).resolve(strict=True)
+    if workspace.is_symlink() or not workspace.is_dir():
+        raise WorkspaceError('workspace must be a real directory for capability checks')
+    acl_tool = shutil.which('setfacl')
+    if require_acl and not acl_tool:
+        raise WorkspaceError('missing dependency setfacl; install the host ACL tools')
+    report = {'filesystem': mount_identity(_filesystem_mount_target(workspace))['filesystem'],
+              'ownership': False, 'mode': False, 'hard_links': False,
+              'symlinks': False, 'atomic_rename': False, 'xattrs': False,
+              'sqlite': False, 'acl': 'not_required'}
+    with tempfile.TemporaryDirectory(prefix='.aaas-fs-probe-', dir=workspace) as temporary:
+        root = Path(temporary)
+        source = root / 'source'
+        source.write_bytes(b'aaas filesystem probe')
+        report['ownership'] = source.stat().st_uid == os.getuid()
+        source.chmod(0o700)
+        report['mode'] = os.access(source, os.R_OK | os.W_OK | os.X_OK)
+        link = root / 'hardlink'
+        os.link(source, link)
+        report['hard_links'] = link.stat().st_ino == source.stat().st_ino
+        symbolic = root / 'symlink'
+        symbolic.symlink_to(source.name)
+        report['symlinks'] = symbolic.is_symlink() and symbolic.read_bytes() == source.read_bytes()
+        renamed = root / 'renamed'
+        os.replace(source, renamed)
+        report['atomic_rename'] = renamed.read_bytes() == b'aaas filesystem probe'
+        os.setxattr(renamed, 'user.aaas_probe', b'1')
+        report['xattrs'] = os.getxattr(renamed, 'user.aaas_probe') == b'1'
+        db = sqlite3.connect(root / 'probe.sqlite')
+        try:
+            db.execute('create table probe (value integer)')
+            db.execute('insert into probe values (1)')
+            db.commit()
+            report['sqlite'] = db.execute('select value from probe').fetchone() == (1,)
+        finally:
+            db.close()
+        if require_acl:
+            acl_path = root / 'acl-probe'
+            acl_path.write_text('acl probe')
+            # A named, unrelated UID exercises POSIX ACL support even when
+            # the probing user owns the file and would only update user::.
+            probe_uid = 65534 if os.getuid() != 65534 else 65533
+            subprocess.run([acl_tool, '-m', f'u:{probe_uid}:rw', str(acl_path)],
+                           capture_output=True, text=True, check=True, timeout=3)
+            getfacl = shutil.which('getfacl')
+            if not getfacl:
+                raise WorkspaceError('missing dependency getfacl; install the host ACL tools')
+            acl = subprocess.run([getfacl, '-cp', str(acl_path)], capture_output=True,
+                                 text=True, check=True, timeout=3).stdout
+            report['acl'] = any(
+                line.startswith(f'user:{probe_uid}:rw') for line in acl.splitlines())
+    failed = [key for key in ('ownership', 'mode', 'hard_links', 'symlinks',
+                              'atomic_rename', 'xattrs', 'sqlite', 'acl')
+              if report[key] is not True]
+    if failed:
+        raise WorkspaceError('workspace filesystem lacks required semantics: '
+                             + ', '.join(failed))
+    return report
+
+
+def initialize(workspace, mount_target=None, *, adopt=False,
+               budget_gib=100, reserve_gib=20, working_ceiling_gib=80):
+    workspace = Path(workspace).expanduser().absolute()
+    current = workspace
+    while current != current.parent:
+        if current.is_symlink():
+            raise WorkspaceError(f'workspace path contains a symlink: {current}')
+        current = current.parent
+    workspace = workspace.resolve(strict=False)
+    target = Path(mount_target).absolute() if mount_target else _filesystem_mount_target(workspace.parent)
+    if workspace == target or not workspace.is_relative_to(target):
+        raise WorkspaceError('workspace must be inside, but not equal to, its backing mount')
     identity = mount_identity(target)
-    if identity['target'] != str(target):
+    target = Path(identity['target'])
+    if workspace == target or not workspace.is_relative_to(target):
         raise WorkspaceError(f'external disk is not mounted at {target}')
     if identity['filesystem'] not in ('ext4', 'xfs', 'btrfs', 'ntfs3'):
         raise WorkspaceError(f'unsupported filesystem: {identity["filesystem"]}')
+    options = set(identity.get('options', '').split(','))
+    if 'ro' in options:
+        raise WorkspaceError('workspace filesystem is mounted read-only')
+    if 'noexec' in options:
+        raise WorkspaceError('workspace filesystem is mounted noexec; Android binaries cannot run there')
     _require_workspace_health(identity)
     if workspace.exists():
-        return check(workspace)
-    if not os.access(target, os.W_OK | os.X_OK):
-        raise WorkspaceError('mount is not writable')
-    workspace.mkdir(mode=0o700)
+        if workspace.is_symlink() or not workspace.is_dir():
+            raise WorkspaceError('workspace path is not a real directory')
+        if (workspace / MARKER).is_file():
+            return check(workspace)
+        if not adopt and next(workspace.iterdir(), None) is not None:
+            raise WorkspaceError('missing workspace marker; existing data is unmarked; '
+                                 'pass --adopt-existing only after reviewing its contents')
+    else:
+        if not os.access(target, os.W_OK | os.X_OK):
+            raise WorkspaceError('mount is not writable')
+        workspace.mkdir(mode=0o700, parents=True)
+    if budget_gib <= reserve_gib or working_ceiling_gib <= 0:
+        raise WorkspaceError('workspace budget and reserve values are inconsistent')
     marker = dict(schema=1, workspace_id=str(uuid.uuid4()),
                   mount_target=str(target), mount_uuid=identity['uuid'],
-                  filesystem=identity['filesystem'], budget_gib=100,
-                  reserve_gib=20, working_ceiling_gib=80)
-    (workspace / MARKER).write_text(json.dumps(marker, indent=2) + '\n')
+                  filesystem=identity['filesystem'], budget_gib=budget_gib,
+                  reserve_gib=reserve_gib, working_ceiling_gib=working_ceiling_gib)
+    # Probe required semantics before enrollment; use a private disposable
+    # directory and never rewrite permissions on user data.
+    capabilities = filesystem_capability_probe(workspace)
+    marker['filesystem_capabilities'] = capabilities
+    marker_tmp = workspace / f'.{MARKER}.{uuid.uuid4().hex}.tmp'
+    marker_tmp.write_text(json.dumps(marker, indent=2) + '\n', encoding='utf-8')
+    os.chmod(marker_tmp, 0o600)
+    os.replace(marker_tmp, workspace / MARKER)
     for name in LAYOUT:
-        (workspace / name).mkdir()
+        path = workspace / name
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise WorkspaceError(f'workspace layout entry is not a real directory: {path}')
+        path.mkdir(exist_ok=True)
     return check(workspace)
 
 
 def check(workspace, predicted=0):
-    workspace = Path(workspace).absolute()
+    workspace = Path(workspace).expanduser().absolute()
+    current = workspace
+    while current != current.parent:
+        if current.is_symlink():
+            raise WorkspaceError(f'workspace path contains a symlink: {current}')
+        current = current.parent
+    workspace = workspace.resolve(strict=False)
     marker_path = workspace / MARKER
     if not marker_path.is_file():
         raise WorkspaceError(f'missing workspace marker: {marker_path}')
@@ -764,6 +913,11 @@ def check(workspace, predicted=0):
         raise WorkspaceError(f'external disk is not mounted at {target}')
     if actual['uuid'] != marker['mount_uuid'] or actual['filesystem'] != marker['filesystem']:
         raise WorkspaceError('external disk identity changed')
+    options = set(actual.get('options', '').split(','))
+    if 'ro' in options:
+        raise WorkspaceError('workspace filesystem is mounted read-only')
+    if 'noexec' in options:
+        raise WorkspaceError('workspace filesystem is mounted noexec; Android binaries cannot run there')
     health = _require_workspace_health(actual)
     if not workspace.is_dir() or not os.access(workspace, os.W_OK | os.X_OK):
         raise WorkspaceError('workspace is not writable')

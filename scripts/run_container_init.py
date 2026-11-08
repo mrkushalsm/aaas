@@ -16,6 +16,8 @@ import tempfile
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import aaas_config
 
 class BinderctlNum(ctypes.Structure):
     _fields_ = [
@@ -47,7 +49,7 @@ def prepare_dummy_sysctls(tmp_dir: Path) -> dict:
 
 
 def run_init_container(rootfs: Path, target_cmd: list, timeout_sec: int = 5) -> tuple:
-    tmp_dir = Path("/run/media/mrkus/Aaas/aaas-workspace/tmp")
+    tmp_dir = Path(os.environ.get('AAAS_WORKSPACE', Path(rootfs).parent)) / 'tmp'
     tmp_dir.mkdir(parents=True, exist_ok=True)
     kmsg_log = tmp_dir / "kmsg_boot.log"
     kmsg_log.write_text("")
@@ -144,7 +146,7 @@ exec bwrap \\
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--rootfs', default='/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1')
+    ap.add_argument('--rootfs', default=str(aaas_config.resolve_config().rootfs))
     ap.add_argument('--timeout', type=int, default=4)
     ap.add_argument('cmd', nargs='*', default=['/system/bin/init', 'second_stage'])
     args = ap.parse_args()

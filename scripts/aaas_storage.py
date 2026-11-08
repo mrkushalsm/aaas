@@ -10,8 +10,9 @@ import subprocess
 import tempfile
 import time
 
+import aaas_config
 
-DEFAULT_WORKSPACE = Path('/run/media/mrkus/Aaas/aaas-workspace')
+DEFAULT_WORKSPACE = aaas_config.resolve_config().workspace
 STORAGE_RELATIVE_PATH = Path('shared-storage/android-user-0')
 ANDROID_MEDIA_RELATIVE_PATH = Path('shared-storage/android-media')
 ANDROID_MEDIA_RW_ID = 1023
