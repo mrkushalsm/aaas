@@ -115,6 +115,15 @@ class WorkspaceGuardTest(unittest.TestCase):
         marker_bytes = (self.workspace / guard.MARKER).stat().st_blocks * 512
         self.assertGreaterEqual(result, marker_bytes + 16384)
 
+    def test_candidate_usage_reuses_an_existing_subordinate_uid_namespace(self):
+        with patch.object(guard.os, 'geteuid', return_value=0), \
+                patch.object(guard.Path, 'read_text', return_value='0 1000 1\n1 100000 65536\n'), \
+                patch.object(guard.subprocess, 'run') as run:
+            run.return_value.stdout = '12345\t/path\n'
+            self.assertEqual(guard._allocated_bytes_rootless('/path'), 12345)
+            self.assertEqual(run.call_args.args[0][0], 'du')
+            self.assertEqual(run.call_args.args[0][-1], '/path')
+
     def test_stops_child_after_actual_growth(self):
         self.marker.update(budget_gib=4, reserve_gib=1, working_ceiling_gib=2)
         (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))

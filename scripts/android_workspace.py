@@ -768,6 +768,25 @@ def allocated_bytes(root):
 
 def _allocated_bytes_rootless(path):
     """Account Android-owned candidate trees through the runner's UID map."""
+    # If the caller already runs in the same broad subordinate-ID namespace
+    # used by the runner, a nested --map-auto namespace cannot be created on
+    # several kernels. Account directly in that namespace instead; this keeps
+    # the guard's full du accounting and does not bypass the workspace policy.
+    uid_map = Path('/proc/self/uid_map')
+    try:
+        mapped_root = (os.geteuid() == 0 and any(
+            int(parts[0]) == 1 and int(parts[2]) > 1
+            for line in uid_map.read_text().splitlines()
+            if len(parts := line.split()) == 3))
+    except (OSError, ValueError):
+        mapped_root = False
+    if mapped_root:
+        try:
+            result = subprocess.run(['du', '-s', '--block-size=1', '--', str(path)],
+                                    capture_output=True, text=True, check=True, timeout=60)
+            return int(result.stdout.split()[0])
+        except (OSError, subprocess.SubprocessError, IndexError, ValueError) as error:
+            raise WorkspaceError(f'cannot account rootfs-candidates in the active UID map: {error}') from error
     try:
         result = subprocess.run(
             ['unshare', '--user', '--map-root-user', '--map-auto', 'du', '-s',

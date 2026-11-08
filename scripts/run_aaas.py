@@ -36,6 +36,7 @@ import aaas_notifications
 import aaas_storage
 import aaas_userdata
 import android_workspace
+import aaas_graphics
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,7 +77,7 @@ STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
-RUNNER_SHA256 = '28fcba63607ce6620a4b5690e173284d4e4ab7ebb9e521adfe61252a07c2b63c'
+RUNNER_SHA256 = 'b8125e8ec91c4f0731d7911a60830140dd3fc017432dab8f45f7d8fd6fcd52f1'
 SWIFTSHADER_RUNTIME_OVERLAY = TMP / 'm1e_swiftshader_fixed_notrace_v2.so'
 SWIFTSHADER_RUNTIME_SHA256 = 'e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee'
 SWIFTSHADER_RUNTIME_SOURCE_DIFF_SHA256 = '49c1ce42f0cb09dd69a81645c9a3bec91a390c958ac3d49ff2bd3edf4df86ece'
@@ -2708,6 +2709,7 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
                                + ', '.join(missing_audio))
     if not PRESENTER.is_file():
         raise RuntimeError(f'build the presenter first: {PRESENTER}')
+    drm_render_node = aaas_graphics.discover_render_node()
     if not INPUT_ADAPTER.is_file():
         print(f'AaaS: input adapter not built; pointer input disabled ({INPUT_ADAPTER})',
               file=sys.stderr)
@@ -2764,6 +2766,7 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     if expected_composer_hash and sha256(composer) != expected_composer_hash:
         raise RuntimeError(f'Composer overlay checksum changed: {composer}')
     paths['AAAS_COMPOSER_OVERLAY'] = str(composer)
+    paths['AAAS_DRM_RENDER_NODE'] = str(drm_render_node)
     return paths
 
 
@@ -3389,7 +3392,8 @@ def main():
         socket_path.unlink(missing_ok=True)
         with log_path.open('ab') as presenter_log:
             process = subprocess.Popen(
-                [str(PRESENTER), '--socket', str(socket_path), *presenter_trace_args,
+                [str(PRESENTER), '--socket', str(socket_path), '--node', paths['AAAS_DRM_RENDER_NODE'],
+                 *presenter_trace_args,
                  '--width', presenter_size[0], '--height', presenter_size[1],
                  '--display-width', display_size[0],
                  '--display-height', display_size[1],
@@ -3852,6 +3856,7 @@ def main():
             if primary_diagnostic:
                 presenter = subprocess.Popen(
                     [str(PRESENTER), '--socket', str(ipc / 'wayland.sock'),
+                     '--node', paths['AAAS_DRM_RENDER_NODE'],
                      *presenter_trace_args,
                      '--width', presenter_size[0], '--height', presenter_size[1],
                      '--input-socket', str(ipc / 'input.sock'),
@@ -3873,6 +3878,7 @@ def main():
                 with virtual_log_path.open('wb') as virtual_log:
                     virtual_presenter = subprocess.Popen(
                         [str(PRESENTER), '--socket', str(ipc / 'wayland-vdisplay.sock'),
+                         '--node', paths['AAAS_DRM_RENDER_NODE'],
                          *presenter_trace_args,
                          '--width', presenter_size[0], '--height', presenter_size[1],
                      '--display-width', display_size[0],
@@ -3896,7 +3902,8 @@ def main():
                     with virtual2_log_path.open('wb') as virtual2_log:
                         virtual_presenter2 = subprocess.Popen(
                             [str(PRESENTER), '--socket',
-                             str(ipc / 'wayland-vdisplay.sock-2'), *presenter_trace_args,
+                             str(ipc / 'wayland-vdisplay.sock-2'), '--node',
+                             paths['AAAS_DRM_RENDER_NODE'], *presenter_trace_args,
                              '--width', presenter_size[0], '--height', presenter_size[1],
                              '--display-width', display_size[0],
                              '--display-height', display_size[1],
