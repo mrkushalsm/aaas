@@ -271,3 +271,38 @@ bytes accounted against the 85,899,345,920-byte workspace ceiling and
 42,350,333,952 bytes free. No matching new kernel storage errors were observed
 in the post-build journal window. The build output remains a bounded diagnostic
 cache in the workspace and is not a runtime artifact.
+
+## Fresh source-image rootfs assembly (2026-11-08)
+
+`scripts/assemble_android_rootfs.py` now assembles an independent candidate
+from the retained `x86_64-36_r02.zip`. It verifies the archive size, recorded
+SHA-1, and locally measured SHA-256; verifies each required logical partition
+against the source super-image extents; exports and hashes `system`,
+`system_ext`, `product`, `vendor`, and `system_dlkm`; materializes numeric
+ownership in a mapped user namespace; unpacks the SDK ramdisk; and writes a
+machine-readable inventory and manifest. It does not read `rootfs_m1b1` or
+include Android userdata.
+
+The first candidate has 4,347 inventory entries, 1,621,372,225 logical
+partition-file bytes, and 2,393,317,376 allocated bytes. The 16 original
+critical-file hashes match the clean SDK partitions. SELinux labels are kept
+in the retained source partition tarballs, but are not materialized as host
+SELinux xattrs. The rootfs candidate is `ASSEMBLED_INCOMPLETE`, not activated,
+and not provisionable.
+
+Historical work is summarized in
+[`android16-reconstruction-transformations.json`](../manifests/android16-reconstruction-transformations.json).
+M1D evidence establishes that the diagnostic `vdc` is a broken exit-0 stub;
+the correct runtime behavior uses the original verified `vdc` in a read-only
+session overlay. The diagnostic `apexd` wrapper fabricates status properties
+and is excluded. The remaining critical binary/init transformations are not
+reconstructed and must not be copied. Both SELinux success shims and the
+locally modified SwiftShader source are excluded. See the [assembly
+procedure](android-rootfs-reconstruction.md) and its structured
+[`result`](../results/m6/android16-rootfs-assembly-2026-11-08.json).
+
+Static profile inspection reports the candidate's Android 16 build identity
+as matching, its base assembly provenance as verified, and its SELinux
+enforcement as unverified. The candidate remains blocked from runtime use.
+No APEX activation, graphics, Native Bridge, audio, desktop integration, or
+live Android boot is claimed.

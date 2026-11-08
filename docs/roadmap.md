@@ -38,6 +38,8 @@ This is implementation work feeding into M6, not a new canonical product milesto
 
 The 2026-11-08 reconstruction continuation records the shared-kernel SELinux boundary and classifies the existing profile as `DIAGNOSTIC_LEGACY`. A bounded QPR2 Soong attempt reached bootstrap but stopped at missing registered HIDL/AIDL/XSD module types before compiling graphics artifacts. No new rootfs or Android session was produced; see [runtime integrity evidence](android-runtime-integrity.md) and the [rootless security decision](security/rootless-android-architecture.md).
 
+Later on 2026-11-08, the retained original Android 16 SDK r02 archive was assembled into a fresh, structurally verified `ASSEMBLED_INCOMPLETE` rootfs candidate. The builder and `aaas images build` command preserve source provenance and exclude the diagnostic SELinux shims; they do not activate or provision the candidate. No Android session was started. Portable provisioning remains `PARTIAL/OPEN`, and M4's historical `PASS/CLOSED` status is unchanged. See the [rootfs assembly record](android-rootfs-reconstruction.md) and [transformation map](../manifests/android16-reconstruction-transformations.json).
+
 ## Existing work mapped to Plan A
 
 | Existing work | Canonical destination |

@@ -154,3 +154,13 @@ promotion rules are recorded in the
 The installed Android 16 profile is explicitly `DIAGNOSTIC_LEGACY`; normal CLI
 verification also rejects `RECONSTRUCTED_EXPERIMENTAL` profiles even if their
 other metadata is set to passing values.
+
+## Independent Android 16 base assembly
+
+The CLI now exposes `aaas images build android16-ranchu-x86_64`. It constructs
+a fresh, versioned rootfs candidate from the verified SDK r02 archive using
+the portable workspace and profile configuration. The output is marked
+`ASSEMBLED_INCOMPLETE`, is not an installation, and cannot be started. This
+is a reproducible base extraction milestone, not a completed `aaas setup`
+provisioner: APEX, graphics, security, Native Bridge, audio, and session helper
+components remain unresolved. See the [rootfs reconstruction procedure](android-rootfs-reconstruction.md).
