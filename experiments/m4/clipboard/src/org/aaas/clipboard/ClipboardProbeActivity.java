@@ -78,6 +78,7 @@ public final class ClipboardProbeActivity extends Activity {
             return;
         }
         if (clip == null || clip.getDescription() == null ||
+                clip.getDescription().getLabel() == null ||
                 !ClipboardImeService.HOST_LABEL.contentEquals(
                         clip.getDescription().getLabel())) {
             Log.i(TAG, "clipboard probe found no host-labelled clip");

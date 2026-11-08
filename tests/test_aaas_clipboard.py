@@ -99,6 +99,7 @@ class ClipboardFrameTests(unittest.TestCase):
         self.assertIn('field.onTextContextMenuItem(android.R.id.paste)', activity)
         self.assertIn('field.onTextContextMenuItem(android.R.id.copy)', activity)
         self.assertIn('handler.postDelayed', activity)
+        self.assertIn('clip.getDescription().getLabel() == null', activity)
         builder = (Path(__file__).resolve().parents[1] /
                    'experiments/m4/clipboard/build_clipboard_ime.py').read_text()
         self.assertIn('import android.text.Editable', builder)
