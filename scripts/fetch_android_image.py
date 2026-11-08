@@ -133,9 +133,9 @@ def main():
     print(f'dest   : {dest}')
 
     free_after = (budget['free_bytes'] - size_bytes) // 1024 // 1024
-    print(f'budget : used={budget["used_bytes"] // 1024 // 1024} MiB'
-          f'  ceiling={budget["ceiling_bytes"] // 1024 // 1024} MiB'
-          f'  free_after_download≈{free_after} MiB')
+    print(f'workspace allocated={budget["used_bytes"] // 1024 // 1024} MiB'
+          f'  filesystem free_after_download≈{free_after} MiB'
+          f'  reserved={budget["reserve_bytes"] // 1024 // 1024} MiB')
 
     if args.dry_run:
         print('dry-run: no download performed')

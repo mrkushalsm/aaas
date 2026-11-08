@@ -26,6 +26,10 @@ except ImportError:
     import aaas_userdata
 
 GIB = 1 << 30
+DEFAULT_WORKSPACE_FREE_RESERVE_GIB = 2
+MIN_WORKSPACE_FREE_RESERVE_GIB = 1
+MAX_WORKSPACE_FREE_RESERVE_GIB = 32
+HOST_ROOT_FREE_RESERVE_BYTES = 20 * GIB
 MARKER = '.aaas-workspace.json'
 LAYOUT = ('images', 'sources', 'out', 'cache', 'logs', 'tmp', 'mnt')
 HEALTH_POLICY = Path(__file__).resolve().parents[1] / 'manifests' / 'workspace-health.json'
@@ -50,6 +54,63 @@ RECOVERY_OFFLINE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 
 class WorkspaceError(RuntimeError):
     pass
+
+
+def _free_reserve_gib(marker):
+    """Read the enrolled filesystem reserve, migrating legacy markers safely."""
+    value = marker.get('workspace_free_reserve_gib',
+                       DEFAULT_WORKSPACE_FREE_RESERVE_GIB)
+    if (isinstance(value, bool) or not isinstance(value, int)
+            or not MIN_WORKSPACE_FREE_RESERVE_GIB <= value <= MAX_WORKSPACE_FREE_RESERVE_GIB):
+        raise WorkspaceError(
+            f'workspace free-space reserve must be from '
+            f'{MIN_WORKSPACE_FREE_RESERVE_GIB} to {MAX_WORKSPACE_FREE_RESERVE_GIB} GiB')
+    return value
+
+
+def _capacity_snapshot(target, workspace_reserve_bytes, predicted=0):
+    """Check available blocks on both the workspace filesystem and host root."""
+    if predicted < 0:
+        raise WorkspaceError('predicted workspace growth must not be negative')
+    try:
+        workspace_stat = os.statvfs(target)
+        root_stat = os.statvfs('/')
+        same_filesystem = os.stat(target).st_dev == os.stat('/').st_dev
+    except OSError as error:
+        raise WorkspaceError(f'cannot inspect workspace filesystem capacity: {error}') from error
+    workspace_block = workspace_stat.f_frsize or workspace_stat.f_bsize
+    root_block = root_stat.f_frsize or root_stat.f_bsize
+    workspace_available = workspace_stat.f_bavail * workspace_block
+    root_available = root_stat.f_bavail * root_block
+    workspace_after = workspace_available - predicted
+    root_after = root_available - (predicted if same_filesystem else 0)
+    if workspace_after < workspace_reserve_bytes:
+        raise WorkspaceError(
+            'workspace filesystem free space below configured reserve: '
+            f'available={workspace_available} predicted={predicted} '
+            f'reserve={workspace_reserve_bytes}')
+    if root_after < HOST_ROOT_FREE_RESERVE_BYTES:
+        raise WorkspaceError(
+            'host root filesystem free space below reserve: '
+            f'available={root_available} predicted={predicted if same_filesystem else 0} '
+            f'reserve={HOST_ROOT_FREE_RESERVE_BYTES}')
+    total_blocks = getattr(workspace_stat, 'f_blocks', 0)
+    free_blocks = getattr(workspace_stat, 'f_bfree',
+                          max(0, total_blocks - workspace_stat.f_bavail))
+    total = total_blocks * workspace_block
+    fs_used = max(0, total_blocks - free_blocks) * workspace_block
+    return {
+        'filesystem_total_bytes': total,
+        'filesystem_used_bytes': fs_used,
+        'filesystem_available_bytes': workspace_available,
+        'workspace_free_reserve_bytes': workspace_reserve_bytes,
+        'workspace_available_after_prediction_bytes': workspace_after,
+        'host_root_available_bytes': root_available,
+        'host_root_reserve_bytes': HOST_ROOT_FREE_RESERVE_BYTES,
+        'host_root_available_after_prediction_bytes': root_after,
+        'predicted_bytes': predicted,
+        'capacity_policy': 'filesystem_available_blocks',
+    }
 
 
 def mount_identity(target):
@@ -718,16 +779,9 @@ def validate_mounted_workspace(workspace, sentinels=()):
     health = _require_workspace_health(actual)
     if not os.access(workspace, os.W_OK | os.X_OK):
         raise WorkspaceError('workspace is not writable')
-    try:
-        workspace_stat = workspace.stat()
-        stat = os.statvfs(target)
-    except OSError as error:
-        raise WorkspaceError(f'workspace filesystem is unavailable: {error}') from error
-    free = stat.f_bavail * stat.f_frsize
-    reserve = int(marker.get('reserve_gib', 20)) * GIB
-    if free < reserve:
-        raise WorkspaceError(
-            f'workspace free space below reserve: free={free} reserve={reserve}')
+    workspace_stat = workspace.stat()
+    reserve = _free_reserve_gib(marker) * GIB
+    capacity = _capacity_snapshot(target, reserve)
     for raw_path in sentinels:
         path = Path(raw_path)
         try:
@@ -736,8 +790,8 @@ def validate_mounted_workspace(workspace, sentinels=()):
             raise WorkspaceError(f'workspace backing unavailable at {path}: {error}') from error
         if path.is_symlink() or info.st_dev != workspace_stat.st_dev:
             raise WorkspaceError(f'workspace backing changed or escaped at {path}')
-    return {'mount': actual, 'free_bytes': free, 'workspace': str(workspace),
-            'health': health}
+    return {'mount': actual, 'free_bytes': capacity['filesystem_available_bytes'],
+            'workspace': str(workspace), 'capacity': capacity, 'health': health}
 
 
 def allocated_bytes(root):
@@ -875,7 +929,7 @@ def filesystem_capability_probe(workspace, *, require_acl=True):
 
 
 def initialize(workspace, mount_target=None, *, adopt=False,
-               budget_gib=100, reserve_gib=20, working_ceiling_gib=80):
+               free_reserve_gib=DEFAULT_WORKSPACE_FREE_RESERVE_GIB):
     workspace = Path(workspace).expanduser().absolute()
     current = workspace
     while current != current.parent:
@@ -892,12 +946,19 @@ def initialize(workspace, mount_target=None, *, adopt=False,
         raise WorkspaceError(f'external disk is not mounted at {target}')
     if identity['filesystem'] not in ('ext4', 'xfs', 'btrfs', 'ntfs3'):
         raise WorkspaceError(f'unsupported filesystem: {identity["filesystem"]}')
+    if (isinstance(free_reserve_gib, bool) or not isinstance(free_reserve_gib, int)
+            or not MIN_WORKSPACE_FREE_RESERVE_GIB <= free_reserve_gib
+            <= MAX_WORKSPACE_FREE_RESERVE_GIB):
+        raise WorkspaceError(
+            f'workspace free-space reserve must be from '
+            f'{MIN_WORKSPACE_FREE_RESERVE_GIB} to {MAX_WORKSPACE_FREE_RESERVE_GIB} GiB')
     options = set(identity.get('options', '').split(','))
     if 'ro' in options:
         raise WorkspaceError('workspace filesystem is mounted read-only')
     if 'noexec' in options:
         raise WorkspaceError('workspace filesystem is mounted noexec; Android binaries cannot run there')
     _require_workspace_health(identity)
+    _capacity_snapshot(target, free_reserve_gib * GIB)
     if workspace.exists():
         if workspace.is_symlink() or not workspace.is_dir():
             raise WorkspaceError('workspace path is not a real directory')
@@ -915,12 +976,10 @@ def initialize(workspace, mount_target=None, *, adopt=False,
             raise WorkspaceError(
                 f'workspace parent is not writable: {creation_parent}')
         workspace.mkdir(mode=0o700, parents=True)
-    if budget_gib <= reserve_gib or working_ceiling_gib <= 0:
-        raise WorkspaceError('workspace budget and reserve values are inconsistent')
     marker = dict(schema=1, workspace_id=str(uuid.uuid4()),
                   mount_target=str(target), mount_uuid=identity['uuid'],
-                  filesystem=identity['filesystem'], budget_gib=budget_gib,
-                  reserve_gib=reserve_gib, working_ceiling_gib=working_ceiling_gib)
+                  filesystem=identity['filesystem'], capacity_policy_version=2,
+                  workspace_free_reserve_gib=free_reserve_gib)
     # Probe required semantics before enrollment; use a private disposable
     # directory and never rewrite permissions on user data.
     capabilities = filesystem_capability_probe(workspace)
@@ -967,21 +1026,13 @@ def check(workspace, predicted=0):
     health = _require_workspace_health(actual)
     if not workspace.is_dir() or not os.access(workspace, os.W_OK | os.X_OK):
         raise WorkspaceError('workspace is not writable')
-    stat = os.statvfs(target)
-    free = stat.f_bavail * stat.f_frsize
+    reserve = _free_reserve_gib(marker) * GIB
+    capacity = _capacity_snapshot(target, reserve, predicted)
     used = allocated_bytes(workspace)
-    ceiling = min(marker['budget_gib'] - marker['reserve_gib'],
-                  marker['working_ceiling_gib']) * GIB
-    reserve = marker['reserve_gib'] * GIB
-    if predicted < 0 or used + predicted > ceiling or free - predicted < reserve:
-        raise WorkspaceError(
-            f'budget exceeded: used={used} predicted={predicted} '
-            f'ceiling={ceiling} free={free} reserve={reserve}'
-        )
     return dict(workspace=str(workspace), mount=actual, used_bytes=used,
-                free_bytes=free, predicted_bytes=predicted,
-                ceiling_bytes=ceiling, reserve_bytes=reserve,
-                health=health)
+                free_bytes=capacity['filesystem_available_bytes'],
+                predicted_bytes=predicted, ceiling_bytes=None,
+                reserve_bytes=reserve, capacity=capacity, health=health)
 
 
 def run_guarded(workspace, predicted, interval, command, log_path):
@@ -1023,6 +1074,9 @@ def main():
     parser.add_argument('--mount', help='mounted external volume for init')
     parser.add_argument('--device', help='block device for read-only health diagnostics')
     parser.add_argument('--predict-gib', type=float, default=0)
+    parser.add_argument('--free-reserve-gib', type=int,
+                        default=DEFAULT_WORKSPACE_FREE_RESERVE_GIB,
+                        help='free blocks to reserve on a newly enrolled workspace filesystem')
     parser.add_argument('--interval', type=float, default=2)
     parser.add_argument('--log', type=Path)
     parser.add_argument('action', choices=('init', 'check', 'health', 'run'))
@@ -1035,7 +1089,8 @@ def main():
         if args.action == 'init':
             if not args.mount:
                 parser.error('--mount is required for init')
-            print(json.dumps(initialize(args.workspace, args.mount), indent=2))
+            print(json.dumps(initialize(args.workspace, args.mount,
+                                        free_reserve_gib=args.free_reserve_gib), indent=2))
             return 0
         if args.action == 'check':
             print(json.dumps(check(args.workspace, predicted), indent=2))

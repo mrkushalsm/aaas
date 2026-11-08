@@ -309,3 +309,14 @@ image attestation. SELinux enforcement remains unverified, so the candidate is
 blocked from runtime use.
 No APEX activation, graphics, Native Bridge, audio, desktop integration, or
 live Android boot is claimed.
+
+## Workspace capacity policy update (2026-11-09)
+
+The historical 80 GiB workspace ceiling and 20 GiB workspace reserve described
+in earlier records are no longer active policy. The guard now admits work by
+actual unprivileged filesystem availability and retains a configurable 2 GiB
+default reserve on the enrolled workspace filesystem. The separate host-root
+free-space reserve remains 20 GiB. UUID, mount-target, mount-option, storage
+health, and device-incident checks are unchanged. Current policy and observed
+capacity are documented in
+[`workspace-capacity-policy.md`](storage/workspace-capacity-policy.md).

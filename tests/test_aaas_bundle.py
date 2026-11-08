@@ -19,11 +19,21 @@ def install_fixture(**kwargs):
             patch.object(android_workspace, '_require_workspace_health',
                          return_value={'state': 'HEALTHY_FOR_CONTROLLED_TESTING'}), \
             patch.object(android_workspace.os, 'statvfs',
-                         return_value=SimpleNamespace(f_bavail=1 << 30, f_frsize=4096)):
+                         return_value=SimpleNamespace(f_bavail=(64 << 30) // 4096,
+                                                      f_bfree=(64 << 30) // 4096,
+                                                      f_blocks=(80 << 30) // 4096,
+                                                      f_frsize=4096)):
         return aaas_bundle.install_bundle(**kwargs)
 
 
 class BundleTests(unittest.TestCase):
+    def test_bundle_capacity_uses_user_available_blocks_not_privileged_free_blocks(self):
+        stat = SimpleNamespace(f_bavail=7, f_bfree=99, f_blocks=100,
+                               f_frsize=4096, f_bsize=4096)
+        with patch.object(aaas_bundle.os, 'statvfs', return_value=stat):
+            self.assertEqual(aaas_bundle._filesystem_available_bytes(Path('/tmp')),
+                             7 * 4096)
+
     def fixture(self, root: Path):
         repo = root / 'repo'
         workspace = root / 'workspace'

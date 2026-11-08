@@ -20,6 +20,8 @@ import stat
 import tempfile
 import uuid
 
+import android_workspace
+
 GIB = 1 << 30
 MIN_FREE_RESERVE = 20 * GIB
 INSTALL_ROOTFS_MOUNTPOINTS = ('data', 'metadata', 'cache', 'storage', 'mnt', 'dev',
@@ -282,6 +284,12 @@ def _filesystem_probe(parent: Path):
             'atomic_rename': True, 'sqlite': True, 'user_xattrs': xattrs,
             'numeric_acl': acl,
             'filesystem': fs_type or 'unknown'}
+
+
+def _filesystem_available_bytes(path: Path) -> int:
+    """Return bytes available to an unprivileged caller, excluding ext4 reserve."""
+    value = os.statvfs(path)
+    return value.f_bavail * (value.f_frsize or value.f_bsize)
 
 
 def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
@@ -716,17 +724,31 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
                                                      'workspace-artifacts/')))
     workspace_bytes = sum(entry.get('size', 0) for entry in manifest['artifacts']
                           if entry['path'].startswith('workspace-artifacts/'))
-    same_device = os.stat(install_root.parent).st_dev == os.stat(workspace.parent).st_dev
-    install_required = install_bytes + MIN_FREE_RESERVE
-    workspace_required = workspace_bytes + (MIN_FREE_RESERVE if not same_device else 0)
-    if same_device:
-        install_required += workspace_bytes
-    if shutil.disk_usage(install_root.parent).free < install_required:
-        raise BundleError(f'installation destination lacks required data plus 20 GiB reserve: '
-                          f'need={install_required}')
-    if shutil.disk_usage(workspace.parent).free < workspace_required:
-        raise BundleError(f'workspace destination lacks required artifact data: '
-                          f'need={workspace_required}')
+    install_device = os.stat(install_root.parent).st_dev
+    workspace_device = os.stat(workspace.parent).st_dev
+    root_device = os.stat('/').st_dev
+    growth_by_device = {}
+    paths_by_device = {}
+    for path, device, growth in (
+            (install_root.parent, install_device, install_bytes),
+            (workspace.parent, workspace_device, workspace_bytes)):
+        growth_by_device[device] = growth_by_device.get(device, 0) + growth
+        paths_by_device.setdefault(device, path)
+    root_growth = growth_by_device.get(root_device, 0)
+    root_free = _filesystem_available_bytes(Path('/'))
+    if root_free - root_growth < MIN_FREE_RESERVE:
+        raise BundleError('host root filesystem would violate the 20 GiB free-space reserve: '
+                          f'free={root_free} predicted={root_growth} '
+                          f'reserve={MIN_FREE_RESERVE}')
+    workspace_reserve = android_workspace.DEFAULT_WORKSPACE_FREE_RESERVE_GIB * GIB
+    for device, growth in growth_by_device.items():
+        path = paths_by_device[device]
+        reserve = MIN_FREE_RESERVE if device == root_device else workspace_reserve
+        available = _filesystem_available_bytes(path)
+        if available - growth < reserve:
+            label = 'host root' if device == root_device else 'installation/workspace'
+            raise BundleError(f'{label} filesystem lacks data plus free-space reserve: '
+                              f'free={available} predicted={growth} reserve={reserve}')
     stage = install_root.with_name(f'.{install_root.name}.staging-{uuid.uuid4().hex}')
     installed = config_written = data_written = workspace_created = False
     cfg_temp = data_temp = None

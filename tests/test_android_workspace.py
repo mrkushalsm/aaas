@@ -20,8 +20,8 @@ class WorkspaceGuardTest(unittest.TestCase):
         self.workspace.mkdir(parents=True)
         self.marker = dict(schema=1, workspace_id='test-id',
                            mount_target=str(self.mount), mount_uuid='test-uuid',
-                           filesystem='ext4', budget_gib=100,
-                           reserve_gib=20, working_ceiling_gib=80)
+                           filesystem='ext4', capacity_policy_version=2,
+                           workspace_free_reserve_gib=2)
         (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
         self.identity = dict(target=str(self.mount), source='/dev/test',
                              filesystem='ext4', uuid='test-uuid')
@@ -56,11 +56,12 @@ class WorkspaceGuardTest(unittest.TestCase):
             with self.assertRaisesRegex(guard.WorkspaceError, 'not writable'):
                 guard.check(self.workspace)
 
-    def test_rejects_insufficient_free_space(self):
+    def test_rejects_workspace_filesystem_below_free_reserve(self):
         with patch.object(guard, 'mount_identity', return_value=self.identity), \
              patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(
-                 f_bavail=10, f_frsize=guard.GIB)):
-            with self.assertRaisesRegex(guard.WorkspaceError, 'budget exceeded'):
+                 f_bavail=1, f_frsize=guard.GIB)):
+            with self.assertRaisesRegex(guard.WorkspaceError,
+                                        'workspace filesystem free space below'):
                 guard.check(self.workspace)
 
     def test_runtime_mount_probe_accepts_expected_mount_and_sentinels(self):
@@ -124,27 +125,74 @@ class WorkspaceGuardTest(unittest.TestCase):
             self.assertEqual(run.call_args.args[0][0], 'du')
             self.assertEqual(run.call_args.args[0][-1], '/path')
 
-    def test_stops_child_after_actual_growth(self):
-        self.marker.update(budget_gib=4, reserve_gib=1, working_ceiling_gib=2)
-        (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
-        payload = self.workspace / 'growth.bin'
-        code = ("from pathlib import Path; import time; "
-                f"Path({str(payload)!r}).write_bytes(b'X' * (3 << 20)); "
-                "time.sleep(10)")
+    def test_sparse_workspace_file_above_legacy_ceiling_is_not_a_quota(self):
+        payload = self.workspace / 'sparse-over-80gib.img'
+        with payload.open('wb') as stream:
+            stream.truncate(90 * guard.GIB)
         with patch.object(guard, 'mount_identity', return_value=self.identity), \
-             patch.object(guard, 'GIB', 1 << 20):
-            with self.assertRaisesRegex(guard.WorkspaceError, 'budget exceeded'):
-                guard.run_guarded(self.workspace, 0, 0.05,
-                                  [sys.executable, '-c', code], None)
+             patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(
+                 f_bavail=200, f_frsize=guard.GIB)):
+            result = guard.check(self.workspace)
+        self.assertIsNone(result['ceiling_bytes'])
+        self.assertEqual(result['capacity']['capacity_policy'],
+                         'filesystem_available_blocks')
+        self.assertLessEqual(payload.stat().st_blocks * 512, guard.GIB)
         self.assertTrue(payload.exists())
 
-    def test_prediction_stays_below_ceiling(self):
+    def test_growth_prediction_uses_actual_filesystem_available_bytes(self):
         with patch.object(guard, 'mount_identity', return_value=self.identity), \
              patch.object(guard, 'filesystem_capability_probe', return_value={'acl': True}), \
              patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(f_bavail=200, f_frsize=guard.GIB)):
-            with self.assertRaisesRegex(guard.WorkspaceError, 'budget exceeded'):
-                guard.check(self.workspace, 90 * guard.GIB)
-            self.assertLess(guard.check(self.workspace)['used_bytes'], 80 * guard.GIB)
+            result = guard.check(self.workspace, 90 * guard.GIB)
+        self.assertEqual(result['predicted_bytes'], 90 * guard.GIB)
+        self.assertEqual(result['capacity']['workspace_available_after_prediction_bytes'],
+                         110 * guard.GIB)
+
+    def test_host_root_reserve_is_enforced_independently(self):
+        def statvfs(path):
+            available = 100 if Path(path) == self.mount else 19
+            return SimpleNamespace(f_bavail=available, f_frsize=guard.GIB)
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard.os, 'statvfs', side_effect=statvfs):
+            with self.assertRaisesRegex(guard.WorkspaceError,
+                                        'host root filesystem free space below reserve'):
+                guard.check(self.workspace)
+
+    def test_capacity_reports_filesystem_and_workspace_allocation_separately(self):
+        fs = SimpleNamespace(f_bavail=100, f_frsize=guard.GIB,
+                             f_blocks=200, f_bfree=110)
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard.os, 'statvfs', return_value=fs):
+            result = guard.check(self.workspace)
+        self.assertEqual(result['capacity']['filesystem_total_bytes'], 200 * guard.GIB)
+        self.assertEqual(result['capacity']['filesystem_used_bytes'], 90 * guard.GIB)
+        self.assertEqual(result['free_bytes'], 100 * guard.GIB)
+        self.assertLess(result['used_bytes'], result['capacity']['filesystem_used_bytes'])
+
+    def test_legacy_marker_ceiling_is_ignored_but_reserve_and_identity_remain(self):
+        self.marker.update(working_ceiling_gib=80, reserve_gib=20)
+        (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(
+                 f_bavail=100, f_frsize=guard.GIB)):
+            result = guard.check(self.workspace)
+        self.assertIsNone(result['ceiling_bytes'])
+        self.assertEqual(result['reserve_bytes'], 2 * guard.GIB)
+
+    def test_predicted_external_growth_does_not_consume_root_reserve(self):
+        fs = SimpleNamespace(f_bavail=100, f_frsize=guard.GIB,
+                             f_blocks=120, f_bfree=110)
+        with patch.object(guard.os, 'stat', side_effect=(
+                SimpleNamespace(st_dev=20), SimpleNamespace(st_dev=10))), \
+             patch.object(guard.os, 'statvfs', side_effect=(fs,
+                   SimpleNamespace(f_bavail=21, f_frsize=guard.GIB))), \
+             patch.object(guard, 'allocated_bytes', return_value=0):
+            result = guard._capacity_snapshot(self.mount, 2 * guard.GIB,
+                                              predicted=50 * guard.GIB)
+        self.assertEqual(result['workspace_available_after_prediction_bytes'],
+                         50 * guard.GIB)
+        self.assertEqual(result['host_root_available_after_prediction_bytes'],
+                         21 * guard.GIB)
 
     def test_initialize_new_workspace_and_repeat(self):
         (self.workspace / guard.MARKER).unlink()
@@ -155,9 +203,26 @@ class WorkspaceGuardTest(unittest.TestCase):
             first = guard.initialize(self.workspace, self.mount)
             marker = json.loads((self.workspace / guard.MARKER).read_text())
             self.assertEqual(first['workspace'], str(self.workspace))
+            self.assertEqual(marker['workspace_free_reserve_gib'], 2)
+            self.assertNotIn('working_ceiling_gib', marker)
             self.assertTrue(all((self.workspace / name).is_dir() for name in guard.LAYOUT))
             guard.initialize(self.workspace, self.mount)
             self.assertEqual(json.loads((self.workspace / guard.MARKER).read_text()), marker)
+
+    def test_new_workspace_free_reserve_is_configurable_and_bounded(self):
+        (self.workspace / guard.MARKER).unlink()
+        self.workspace.rmdir()
+        with patch.object(guard, 'mount_identity', return_value=self.identity), \
+             patch.object(guard, 'filesystem_capability_probe', return_value={'acl': True}), \
+             patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(
+                 f_bavail=200, f_frsize=guard.GIB)):
+            guard.initialize(self.workspace, self.mount, free_reserve_gib=3)
+            marker = json.loads((self.workspace / guard.MARKER).read_text())
+        self.assertEqual(marker['workspace_free_reserve_gib'], 3)
+        with patch.object(guard, 'mount_identity', return_value=self.identity):
+            with self.assertRaisesRegex(guard.WorkspaceError, 'reserve must be from'):
+                guard.initialize(self.mount / 'invalid', self.mount,
+                                 free_reserve_gib=0)
 
     def test_initialize_uses_writable_workspace_parent_not_mount_root(self):
         workspace = self.mount / 'home' / 'developer' / 'aaas-workspace'

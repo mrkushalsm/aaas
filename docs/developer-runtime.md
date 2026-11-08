@@ -72,10 +72,16 @@ The workspace marker enrolls the filesystem UUID, type, and mount target for
 that installation. A different UUID at the same path is rejected. Enrollment
 probes ownership, modes, hard links, symlinks, atomic rename, user xattrs, ACLs,
 and SQLite behavior in a disposable child directory. It checks `ro` and `noexec`
-mount flags, available capacity, free-space reserve, and the storage health
-policy. No permissions are rewritten. A clean current-boot journal observation
+mount flags, filesystem `f_bavail`, a 2 GiB default free-space reserve, the
+separate 20 GiB host-root reserve, and the storage health policy. The former
+fixed 80 GiB workspace ceiling is no longer enforced. No permissions are
+rewritten. A clean current-boot journal observation
 does not certify device hardware health, and existing incident records remain
 blocking until the policy is legitimately reconciled.
+
+See [workspace capacity policy](storage/workspace-capacity-policy.md) for the
+filesystem metrics, configurable reserve, current enrolled partition, and
+legacy marker behavior.
 
 ## Android profile and provisioning status
 
