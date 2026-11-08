@@ -1,0 +1,10 @@
+#!/bin/sh
+# Repository-local bootstrap; works through a user-local symlink as well.
+set -eu
+command -v readlink >/dev/null 2>&1 || {
+    echo 'aaas: readlink is required' >&2
+    exit 127
+}
+script_path=$(readlink -f -- "$0") || exit 127
+repo_root=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd -P)
+exec python3 "$repo_root/scripts/aaas_cli.py" "$@"

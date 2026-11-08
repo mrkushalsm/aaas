@@ -32,6 +32,10 @@ Measure and investigate buffer sharing, synchronization, copies, power, launch t
 
 Package AaaS for Linux desktops; provide installation, upgrade/removal, dependency validation, cross-desktop/compositor/GPU testing, compatibility matrix, release documentation and automated release validation; evaluate optional store/service compatibility. Weston and Sway work is partial where desktop input/resize/lifecycle gates remain open; Hyprland and Mutter are unverified. This roadmap update does not close M6.
 
+## Portable developer runtime foundation (scoped M4.5 tranche; PARTIAL/OPEN)
+
+This is implementation work feeding into M6, not a new canonical product milestone. The shared XDG configuration resolver, `aaas` bootstrap/CLI, host doctor, workspace capability enrollment, and Android profile inspection are in progress. The Android 16 SDK emulator package is not the accepted rootless runtime image, and the repository does not yet contain a complete pinned Android source graph plus reproducible assembly route for that image. Therefore a fresh checkout cannot yet provision a runnable AaaS installation. M4 remains `PASS/CLOSED` for its accepted installed configuration; the portable developer runtime remains `PARTIAL/OPEN`. See [portable developer runtime documentation](developer-runtime.md).
+
 ## Existing work mapped to Plan A
 
 | Existing work | Canonical destination |

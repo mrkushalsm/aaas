@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "id": "android16-ranchu-x86_64",
+      "status": "observed-m4-baseline-not-reprovisionable",
+      "android_release": "16",
+      "api_level": 36,
+      "abi": "x86_64",
+      "build_id": "BE2A.250530.026.D1",
+      "vendor_hardware": "ranchu",
+      "audio_interface": "HIDL 7.1 legacy factory",
+      "graphics_interface": "Ranchu gralloc with AaaS Composer3 integration",
+      "source_image": {
+        "package": "system-images;android-36;default;x86_64",
+        "revision": "r02",
+        "archive": "x86_64-36_r02.zip",
+        "url": "https://dl.google.com/android/repository/sys-img/android/x86_64-36_r02.zip",
+        "size_bytes": 844217077,
+        "sha1": "829c076e8ff448a336097ae25a355b495ba36e2c",
+        "sha256": null,
+        "identity_source": "Google SDK repository XML observation recorded 2026-10-25"
+      },
+      "provisioning": {
+        "automatically_installable": false,
+        "reason": "The SDK archive is an Android Emulator system image, while the accepted rootless AaaS runtime is based on a modified diagnostic rootfs. The repository does not contain a clean, complete, pinned Android source lock or a reproducible image assembly recipe for the accepted runtime."
+      },
+      "required_files": [
+        "system/build.prop",
+        "system/bin/surfaceflinger",
+        "system/bin/audioserver",
+        "system/lib64/libaudiohal.so",
+        "vendor/build.prop",
+        "vendor/bin/hw/android.hardware.audio.service",
+        "vendor/lib64/hw/android.hardware.audio.legacy@7.1-impl.ranchu.so",
+        "vendor/etc/vintf/manifest/android.hardware.audio@7.1-impl.ranchu.xml"
+      ]
+    }
+  ]
+}
