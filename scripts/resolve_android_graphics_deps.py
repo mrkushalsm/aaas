@@ -22,6 +22,17 @@ MAKE_ERROR = re.compile(r'error: ([^ :]+): No such file or directory')
 BASE = 'https://android.googlesource.com/platform/superproject'
 
 
+def project_layout(project_path):
+    """Copy source projects so Soong discovers their Android.bp files.
+
+    Large prebuilts are executable/data inputs rather than Soong source roots,
+    so they remain links to the verified checkout to avoid duplicate gigabyte
+    trees.
+    """
+    return 'symlink' if (project_path.startswith('prebuilts/') or
+                         project_path == 'toolchain/pgo-profiles') else 'copy'
+
+
 def missing_source(log, build_root):
     contents = Path(log).read_text()
     match = ERROR.search(contents)
@@ -95,7 +106,7 @@ def resolve_once(workspace, log, manifest, missing_override=None):
                             capture_output=True, text=True, check=True).stdout.strip()
     if actual != entry['revision']:
         raise ValueError(f'revision mismatch for {project_path}')
-    layout = 'copy' if project_path.startswith('external/') else 'symlink'
+    layout = project_layout(project_path)
     project = {'path': project_path, 'checkout': checkout_name,
                'revision': actual, 'layout': layout}
     snapshot['projects'].append(project)

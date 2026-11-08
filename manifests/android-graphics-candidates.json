@@ -26,7 +26,7 @@
         "path": "build/make",
         "checkout": "build-make-qpr2",
         "revision": "b815dded1eafbf06191a6ae306956bb6ed6fb415",
-        "layout": "symlink"
+        "layout": "copy"
       },
       {
         "path": "build/soong",
@@ -74,7 +74,7 @@
         "path": "build/release",
         "checkout": "build-release-qpr2",
         "revision": "0998133091794b56253fd6bd5c33ed0e0e5bd9de",
-        "layout": "symlink"
+        "layout": "copy"
       },
       {
         "path": "toolchain/pgo-profiles",
@@ -86,6 +86,18 @@
         "path": "external/go-cmp",
         "checkout": "external-go-cmp-qpr2",
         "revision": "163db04d0a17fd9b25316c6203d2d911a40461f6",
+        "layout": "copy"
+      },
+      {
+        "path": "kernel/configs",
+        "checkout": "kernel-configs-qpr2",
+        "revision": "82c305fe2a7af49cbe9928e9b2fe1416f7810a41",
+        "layout": "copy"
+      },
+      {
+        "path": "system/sepolicy",
+        "checkout": "system-sepolicy-qpr2",
+        "revision": "43e4494a5a78317819dcc2766a11927c12ef3dfd",
         "layout": "copy"
       }
     ]

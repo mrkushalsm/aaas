@@ -56,6 +56,37 @@ class GraphicsBuildProbeTest(unittest.TestCase):
             self.assertEqual((dest / 'Android.bp').read_text(), 'package {}\n')
             self.assertTrue((src / 'Android.bp').exists())
 
+    def test_repairs_only_dangling_generated_source_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            src = workspace / 'sources/build-make-qpr2'
+            src.mkdir(parents=True)
+            root = workspace / 'probes/graphics-qpr2'
+            dest = root / 'build/make'
+            dest.parent.mkdir(parents=True)
+            dest.symlink_to('/old/mount/aaas-workspace/sources/build-make-qpr2')
+            probe.prepare_layout(workspace, [{
+                'path': 'build/make', 'checkout': 'build-make-qpr2',
+                'revision': 'a' * 40, 'layout': 'copy'
+            }])
+            self.assertFalse(dest.is_symlink())
+            self.assertTrue(dest.is_dir())
+
+    def test_refuses_to_replace_live_conflicting_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            (workspace / 'sources/sample').mkdir(parents=True)
+            conflicting = workspace / 'other-source'
+            conflicting.mkdir()
+            dest = workspace / 'probes/graphics-qpr2/external/sample'
+            dest.parent.mkdir(parents=True)
+            dest.symlink_to(conflicting, target_is_directory=True)
+            project = dict(checkout='sample', path='external/sample',
+                           revision='a' * 40, layout='copy')
+            with self.assertRaisesRegex(probe.ws.WorkspaceError, 'conflicting'):
+                probe.prepare_layout(workspace, [project])
+            self.assertTrue(dest.is_symlink())
+
 
 if __name__ == '__main__':
     unittest.main()

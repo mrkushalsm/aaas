@@ -41,11 +41,25 @@ def prepare_layout(workspace, projects):
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists() or dest.is_symlink():
             if dest.is_symlink():
-                if dest.resolve() != src.resolve():
+                try:
+                    existing_target = dest.resolve(strict=True)
+                except FileNotFoundError:
+                    existing_target = None
+                if existing_target is None:
+                    # A prior probe may have recorded a source path from a
+                    # different mountpoint. Repair only a dangling generated
+                    # link, and only after the caller verified the pinned
+                    # source checkout. Never follow or remove its old target.
+                    dest.unlink()
+                    if project['layout'] == 'symlink':
+                        dest.symlink_to(src, target_is_directory=True)
+                        continue
+                if existing_target is not None and existing_target != src.resolve(strict=True):
                     raise ws.WorkspaceError(f'conflicting existing probe path: {dest}')
                 if project['layout'] == 'symlink':
                     continue
-                dest.unlink()
+                if dest.is_symlink():
+                    dest.unlink()
             if dest.is_dir() and not dest.is_symlink():
                 revision = subprocess.run(['git', '-C', str(dest), 'rev-parse', 'HEAD'],
                                           capture_output=True, text=True, check=False)

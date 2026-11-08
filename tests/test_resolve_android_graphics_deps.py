@@ -7,6 +7,12 @@ from scripts import resolve_android_graphics_deps as resolver
 
 
 class GraphicsSourceResolverTest(unittest.TestCase):
+    def test_soong_source_projects_are_copied_but_large_prebuilts_are_linked(self):
+        self.assertEqual(resolver.project_layout('build/make'), 'copy')
+        self.assertEqual(resolver.project_layout('kernel/configs'), 'copy')
+        self.assertEqual(resolver.project_layout('system/sepolicy'), 'copy')
+        self.assertEqual(resolver.project_layout('prebuilts/go/linux-x86'), 'symlink')
+
     def test_finds_missing_source_below_build_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'build'
@@ -61,6 +67,12 @@ class GraphicsSourceResolverTest(unittest.TestCase):
                                                  'external/starlark-go/starlark')
         response_body.close.assert_called_once_with()
         self.assertEqual(entry['path'], 'external/starlark-go')
+
+    def test_soong_source_projects_are_copied_but_large_prebuilts_are_linked(self):
+        self.assertEqual(resolver.project_layout('build/make'), 'copy')
+        self.assertEqual(resolver.project_layout('kernel/configs'), 'copy')
+        self.assertEqual(resolver.project_layout('system/sepolicy'), 'copy')
+        self.assertEqual(resolver.project_layout('prebuilts/go/linux-x86'), 'symlink')
 
 
 if __name__ == '__main__':
