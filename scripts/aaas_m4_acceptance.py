@@ -48,6 +48,16 @@ def run_workspace_guard(workspace):
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 
+def workspace_guard_passed(completed):
+    if completed.returncode:
+        return False
+    try:
+        report = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return False
+    return report.get('health', {}).get('state') == 'HEALTHY_FOR_CONTROLLED_TESTING'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--acceptance', type=Path, default=DEFAULT_ACCEPTANCE)
@@ -65,7 +75,7 @@ def main(argv=None):
             parser.error('--preflight requires --workspace')
         guard = run_workspace_guard(args.workspace)
         print(guard.stdout.rstrip())
-        if guard.returncode:
+        if not workspace_guard_passed(guard):
             print('M4 acceptance: BLOCKED by workspace guard')
             return 2
     classification, failures = summarize_campaign(document)

@@ -1,6 +1,7 @@
 import unittest
 
-from scripts.aaas_m4_acceptance import REQUIRED_GATES, summarize_campaign
+from scripts.aaas_m4_acceptance import (REQUIRED_GATES, summarize_campaign,
+                                        workspace_guard_passed)
 
 
 def passing_document():
@@ -35,6 +36,18 @@ class M4AcceptanceManifestTests(unittest.TestCase):
 
     def test_missing_campaign_cannot_pass(self):
         self.assertEqual('PARTIAL/OPEN', summarize_campaign({})[0])
+
+    def test_nonzero_workspace_guard_cannot_pass(self):
+        class Result:
+            returncode = 1
+            stdout = '{"health":{"state":"HEALTHY_FOR_CONTROLLED_TESTING"}}'
+        self.assertFalse(workspace_guard_passed(Result()))
+
+    def test_healthy_classification_required(self):
+        class Result:
+            returncode = 0
+            stdout = '{"health":{"state":"HEALTH_UNKNOWN"}}'
+        self.assertFalse(workspace_guard_passed(Result()))
 
 
 if __name__ == '__main__':
