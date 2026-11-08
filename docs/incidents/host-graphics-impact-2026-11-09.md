@@ -60,12 +60,24 @@ made during this investigation.
 
 ## Current M4 storage evidence and limits
 
+The latest stopped Android session shows user 0's `emulated;0` volume becoming
+`MOUNTED` through normal framework startup. The AaaS startup hook nevertheless
+issued a second `sm mount emulated;0` about six seconds later; `vold` rejected
+the duplicate request with `-16` because the volume was already mounted. The
+mount remained present, MediaStore reported `external_primary` mounted, and
+the shared Android media path was backed by the relocated workspace. The source
+runner now checks the volume state before requesting a mount and exits with a
+clear diagnostic if it remains unmounted. The focused runner tests and full
+Python suite pass after this source change. The already installed bundle still
+contains the pre-fix runner, and no live Android test has been run with the
+correction.
+
 Rootless temporary-directory tests for shared-storage layout, mapped UID/GID
 ACL repair, userdata initialization, workspace enrollment, and bundle
 installation passed. The complete Python suite passed 475 tests with one
-existing skip. These results do not constitute a live shared-storage test in
-the relocated Android runtime. The KWin crash blocks further live presenter
-acceptance until the proposed correction can be reviewed and safely tested.
+existing skip. These results do not constitute fresh end-to-end shared-storage
+acceptance. The KWin crash blocks further live presenter acceptance until the
+proposed correction can be reviewed and safely tested.
 
 The historical Android userdata, original `rootfs_m1b1`, and existing bundle
 were not modified by this investigation.
