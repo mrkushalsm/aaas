@@ -36,6 +36,8 @@ Package AaaS for Linux desktops; provide installation, upgrade/removal, dependen
 
 This is implementation work feeding into M6, not a new canonical product milestone. The shared XDG configuration resolver, `aaas` bootstrap/CLI, host doctor, workspace capability enrollment, and Android profile inspection are in progress. The Android 16 SDK emulator package is not the accepted rootless runtime image, and the repository does not yet contain a complete pinned Android source graph plus reproducible assembly route for that image. Therefore a fresh checkout cannot yet provision a runnable AaaS installation. M4 remains `PASS/CLOSED` for its accepted installed configuration; the portable developer runtime remains `PARTIAL/OPEN`. See [portable developer runtime documentation](developer-runtime.md).
 
+The 2026-11-08 reconstruction continuation records the shared-kernel SELinux boundary and classifies the existing profile as `DIAGNOSTIC_LEGACY`. A bounded QPR2 Soong attempt reached bootstrap but stopped at missing registered HIDL/AIDL/XSD module types before compiling graphics artifacts. No new rootfs or Android session was produced; see [runtime integrity evidence](android-runtime-integrity.md) and the [rootless security decision](security/rootless-android-architecture.md).
+
 ## Existing work mapped to Plan A
 
 | Existing work | Canonical destination |

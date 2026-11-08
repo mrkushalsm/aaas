@@ -3,10 +3,12 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import aaas_cli
 import aaas_config
+import android_workspace
 
 
 class AaasCliTests(unittest.TestCase):
@@ -53,6 +55,22 @@ class AaasCliTests(unittest.TestCase):
             result = aaas_cli._verify(self.config(temporary))
         self.assertFalse(result['ready'])
         self.assertEqual(result['checks']['image']['compatibility'], 'MISSING')
+
+    def test_experimental_profile_cannot_pass_production_verify(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            config.workspace.mkdir(parents=True)
+            config.rootfs.mkdir(parents=True)
+            verified_image = {
+                'compatibility': 'MATCH', 'provenance': 'VERIFIED',
+                'trust_classification': 'RECONSTRUCTED_EXPERIMENTAL',
+                'provisionable': True, 'security': {'enforcement': 'VERIFIED'},
+            }
+            with mock.patch.object(android_workspace, 'check', return_value={'state': 'PASS'}), \
+                    mock.patch.object(aaas_cli.aaas_profiles, 'inspect_rootfs',
+                                      return_value=verified_image):
+                result = aaas_cli._verify(config)
+        self.assertFalse(result['ready'])
 
 
 if __name__ == '__main__':

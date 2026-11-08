@@ -208,6 +208,8 @@ def _verify(config):
     result['ready'] = (result['checks']['workspace'].get('state') == 'PASS'
                        and result['checks']['image'].get('compatibility') == 'MATCH'
                        and result['checks']['image'].get('provenance') == 'VERIFIED'
+                       and result['checks']['image'].get('trust_classification') in
+                       ('SECURITY_VALIDATED', 'DISTRIBUTABLE')
                        and result['checks']['image'].get('provisionable') is True
                        and result['checks']['image'].get('security', {}).get(
                            'enforcement') == 'VERIFIED')

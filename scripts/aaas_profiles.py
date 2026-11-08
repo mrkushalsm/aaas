@@ -9,6 +9,10 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_MANIFEST = ROOT / 'manifests/android-profiles.json'
+TRUST_CLASSIFICATIONS = {
+    'DIAGNOSTIC_LEGACY', 'RECONSTRUCTED_EXPERIMENTAL',
+    'SECURITY_VALIDATED', 'DISTRIBUTABLE',
+}
 IMAGE_MANIFEST = ROOT / 'manifests/android-images.json'
 
 
@@ -20,7 +24,13 @@ def profiles():
     value = json.loads(PROFILE_MANIFEST.read_text(encoding='utf-8'))
     if value.get('schema') != 1 or not isinstance(value.get('profiles'), list):
         raise ProfileError('Android profile manifest has an unsupported schema')
-    return {item['id']: item for item in value['profiles']}
+    result = {item['id']: item for item in value['profiles']}
+    for profile in result.values():
+        classification = profile.get('trust_classification')
+        if classification not in TRUST_CLASSIFICATIONS:
+            raise ProfileError(
+                f"profile {profile.get('id', '<unknown>')} has invalid trust classification")
+    return result
 
 
 def _properties(path):
@@ -135,6 +145,7 @@ def inspect_rootfs(rootfs, profile_id='android16-ranchu-x86_64'):
         provisioning_blockers.append('SELinux enforcement has not been verified in a live runtime')
     return {
         'profile': profile_id,
+        'trust_classification': profile['trust_classification'],
         'rootfs': str(root),
         'compatibility': 'MATCH' if not missing and not mismatches else 'UNSUPPORTED',
         'provenance': 'UNVERIFIED',

@@ -11,6 +11,19 @@ import aaas_profiles
 
 
 class AndroidProfileTests(unittest.TestCase):
+    def test_profile_classification_is_explicit_and_validated(self):
+        profile = aaas_profiles.profiles()['android16-ranchu-x86_64']
+        self.assertEqual(profile['trust_classification'], 'DIAGNOSTIC_LEGACY')
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = Path(temporary) / 'profiles.json'
+            value = json.loads(aaas_profiles.PROFILE_MANIFEST.read_text())
+            value['profiles'][0]['trust_classification'] = 'TRUST_ME'
+            manifest.write_text(json.dumps(value))
+            with mock.patch.object(aaas_profiles, 'PROFILE_MANIFEST', manifest):
+                with self.assertRaisesRegex(aaas_profiles.ProfileError,
+                                            'invalid trust classification'):
+                    aaas_profiles.profiles()
+
     def rootfs(self, root):
         profile = aaas_profiles.profiles()['android16-ranchu-x86_64']
         for relative in profile['required_files']:
@@ -31,6 +44,7 @@ class AndroidProfileTests(unittest.TestCase):
             result = aaas_profiles.inspect_rootfs(root)
         self.assertEqual(result['compatibility'], 'MATCH')
         self.assertEqual(result['provenance'], 'UNVERIFIED')
+        self.assertEqual(result['trust_classification'], 'DIAGNOSTIC_LEGACY')
         self.assertEqual(result['security']['status'], 'UNVERIFIED')
         self.assertEqual(result['security']['enforcement'], 'UNVERIFIED')
         self.assertFalse(result['provisionable'])

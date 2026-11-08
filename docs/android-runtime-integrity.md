@@ -224,3 +224,41 @@ bytes. Workspace guard accounting after extraction was 74,472,550,400 bytes
 used against an 85,899,345,920-byte ceiling; filesystem availability was
 43,698,237,440 bytes against a 21,474,836,480-byte reserve. Health remains
 `HEALTHY_FOR_CONTROLLED_TESTING`; historical device incidents are retained.
+
+## Rootless security decision and QPR2 graphics probe (2026-11-08)
+
+The shared-kernel security decision is recorded in
+[`rootless-android-architecture.md`](security/rootless-android-architecture.md).
+The runtime keeps its rootless container design, but no experimental launch path
+is enabled: host namespaces and Android framework permissions do not establish
+SELinux equivalence, and the diagnostic rootfs has not been shown to work
+without its authorization shims. The current profile is explicitly
+`DIAGNOSTIC_LEGACY`; CLI readiness now additionally requires a
+`SECURITY_VALIDATED` or `DISTRIBUTABLE` classification. Neither label can be
+inferred from static files.
+
+The graphics source probe recovered from a prior mountpoint change by replacing
+only verified-generated dangling source links. The pinned QPR2 source snapshot
+was extended with `kernel/configs` revision
+`82c305fe2a7af49cbe9928e9b2fe1416f7810a41` and `system/sepolicy` revision
+`43e4494a5a78317819dcc2766a11927c12ef3dfd`, resolved from superproject
+`cc66c82349f536b77341e13862a548c01b048963`. Soong bootstrap then completed,
+but module discovery failed with unrecognized `hidl_interface`,
+`hidl_package_root`, `aidl_interface`, and `xsd_config` module types across the
+partial source snapshot. The required Soong plugin registration/source closure
+is not present in this probe. The build exited 1 before compiling minigbm; no
+allocator or mapper artifact was produced or installed. This QPR2 graph also
+does not match the SDK image's earlier build ABI and cannot be overlaid onto it
+without a matched build and compatibility evidence.
+
+Added tests preserve existing graphics resolver/probe assertions, cover repair
+of stale generated links, and require source projects to be copied for Soong
+module discovery while keeping large prebuilts linked. Profile tests now
+validate trust-classification values, and the production `verify` readiness
+predicate rejects experimental classifications. No Android session was
+started. Workspace health remains accepted by the existing guard; the current
+mount is ext4 UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, with 75,676,934,144
+bytes accounted against the 85,899,345,920-byte workspace ceiling and
+42,493,853,696 bytes free. No matching new kernel storage errors were observed
+in the 15-minute post-build journal window. The build output remains a bounded
+diagnostic cache in the workspace and is not a runtime artifact.

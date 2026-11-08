@@ -148,4 +148,9 @@ verified from static image contents. `aaas setup`, `verify`, and `start` must
 continue to fail closed for this profile until a policy-preserving runtime
 architecture and fresh live security tests exist. The accepted M4 results
 describe the controlled diagnostic configuration and do not certify it for
-untrusted applications or distribution.
+untrusted applications or distribution. The trust boundary and profile
+promotion rules are recorded in the
+[rootless Android security decision](security/rootless-android-architecture.md).
+The installed Android 16 profile is explicitly `DIAGNOSTIC_LEGACY`; normal CLI
+verification also rejects `RECONSTRUCTED_EXPERIMENTAL` profiles even if their
+other metadata is set to passing values.
