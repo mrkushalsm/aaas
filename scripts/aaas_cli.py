@@ -208,7 +208,9 @@ def _verify(config):
     result['ready'] = (result['checks']['workspace'].get('state') == 'PASS'
                        and result['checks']['image'].get('compatibility') == 'MATCH'
                        and result['checks']['image'].get('provenance') == 'VERIFIED'
-                       and result['checks']['image'].get('provisionable') is True)
+                       and result['checks']['image'].get('provisionable') is True
+                       and result['checks']['image'].get('security', {}).get(
+                           'enforcement') == 'VERIFIED')
     return result
 
 
@@ -348,7 +350,9 @@ def main(argv=None):
             if is_rootfs:
                 return 0 if (result['compatibility'] == 'MATCH'
                              and result['provenance'] == 'VERIFIED'
-                             and result['provisionable']) else 2
+                             and result['provisionable']
+                             and result.get('security', {}).get(
+                                 'enforcement') == 'VERIFIED') else 2
             return 0 if (result.get('declared_match')
                          and result.get('runtime_compatibility') == 'VERIFIED') else 2
         if args.command == 'apps':

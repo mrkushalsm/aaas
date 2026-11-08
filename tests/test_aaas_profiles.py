@@ -1,8 +1,10 @@
 from pathlib import Path
 import sys
 import tempfile
+import json
 import unittest
 import zipfile
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import aaas_profiles
@@ -29,7 +31,51 @@ class AndroidProfileTests(unittest.TestCase):
             result = aaas_profiles.inspect_rootfs(root)
         self.assertEqual(result['compatibility'], 'MATCH')
         self.assertEqual(result['provenance'], 'UNVERIFIED')
+        self.assertEqual(result['security']['status'], 'UNVERIFIED')
+        self.assertEqual(result['security']['enforcement'], 'UNVERIFIED')
         self.assertFalse(result['provisionable'])
+
+    def test_selinux_success_shim_makes_rootfs_explicitly_unsafe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'rootfs'
+            root.mkdir()
+            self.rootfs(root)
+            shim = root / 'vendor/lib64/libselinux_shim.so'
+            shim.parent.mkdir(parents=True, exist_ok=True)
+            shim.write_bytes(b'diagnostic shim marker')
+            init = root / 'vendor/etc/init/aaas.rc'
+            init.parent.mkdir(parents=True)
+            init.write_text('    setenv LD_PRELOAD /vendor/lib64/libselinux_shim.so\n')
+            result = aaas_profiles.inspect_rootfs(root)
+        self.assertEqual(result['security']['status'], 'BYPASS_DETECTED')
+        self.assertEqual(result['security']['enforcement'], 'UNVERIFIED')
+        self.assertFalse(result['provisionable'])
+        self.assertTrue(result['provisioning_blockers'])
+
+    def test_static_inspection_never_claims_selinux_enforcement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'rootfs'
+            root.mkdir()
+            self.rootfs(root)
+            manifest = Path(temporary) / 'profiles.json'
+            value = json.loads(aaas_profiles.PROFILE_MANIFEST.read_text())
+            value['profiles'][0]['provisioning']['automatically_installable'] = True
+            manifest.write_text(json.dumps(value))
+            with mock.patch.object(aaas_profiles, 'PROFILE_MANIFEST', manifest):
+                result = aaas_profiles.inspect_rootfs(root)
+        self.assertEqual(result['security']['enforcement'], 'UNVERIFIED')
+        self.assertFalse(result['provisionable'])
+
+    def test_diagnostic_audit_manifest_keeps_unknown_changes_unresolved(self):
+        manifest_path = (Path(__file__).resolve().parents[1] /
+                         'manifests/android16-diagnostic-rootfs-audit.json')
+        manifest = json.loads(manifest_path.read_text())
+        modified = [item for item in manifest['entries']
+                    if item['classification'] == 'UNRESOLVED' and
+                    item.get('original_sha256')]
+        self.assertEqual(len(modified), 16)
+        self.assertFalse(manifest['security_gate']['provisionable'])
+        self.assertFalse(manifest['security_gate']['selinux_enforcement_verified'])
 
     def test_rootfs_symlink_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

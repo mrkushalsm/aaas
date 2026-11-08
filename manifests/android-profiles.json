@@ -18,12 +18,12 @@
         "url": "https://dl.google.com/android/repository/sys-img/android/x86_64-36_r02.zip",
         "size_bytes": 844217077,
         "sha1": "829c076e8ff448a336097ae25a355b495ba36e2c",
-        "sha256": null,
-        "identity_source": "Google SDK repository XML observation recorded 2026-10-25"
+        "sha256": "e1b9d9fb665001ef27b16e57d8762a2d54aec6bff617e17506edb8676667b9da",
+        "identity_source": "Google SDK repository XML observation for package, revision, size, and SHA-1 (2026-10-25); SHA-256 measured locally from the retained archive, not published by Google"
       },
       "provisioning": {
         "automatically_installable": false,
-        "reason": "The SDK archive is an Android Emulator system image, while the accepted rootless AaaS runtime is based on a modified diagnostic rootfs. The repository does not contain a clean, complete, pinned Android source lock or a reproducible image assembly recipe for the accepted runtime."
+        "reason": "Not automatically installable: the verified SDK archive is an emulator image, not the accepted rootless runtime; no complete compatible source lock and assembly recipe exists; the diagnostic rootfs contains unproven binary/init changes and SELinux authorization-success shims; APEX activation is unverified."
       },
       "required_files": [
         "system/build.prop",
@@ -34,7 +34,25 @@
         "vendor/bin/hw/android.hardware.audio.service",
         "vendor/lib64/hw/android.hardware.audio.legacy@7.1-impl.ranchu.so",
         "vendor/etc/vintf/manifest/android.hardware.audio@7.1-impl.ranchu.xml"
-      ]
+      ],
+      "security": {
+        "required": "verified Android SELinux policy loaded and enforcing in a supported kernel/runtime architecture",
+        "forbidden_artifacts": [
+          "system/lib/libselinux_shim.so",
+          "system/lib64/libselinux_shim.so",
+          "system_ext/lib/libselinux_shim.so",
+          "system_ext/lib64/libselinux_shim.so",
+          "vendor/lib/libselinux_shim.so",
+          "vendor/lib64/libselinux_shim.so"
+        ],
+        "required_live_evidence": [
+          "kernel SELinux LSM available",
+          "policy load succeeds",
+          "getenforce reports Enforcing",
+          "positive and negative policy tests pass",
+          "no authorization-success shim or preload is active"
+        ]
+      }
     }
   ]
 }

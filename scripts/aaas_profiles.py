@@ -36,6 +36,53 @@ def _properties(path):
     return values
 
 
+def _selinux_security(root, profile):
+    """Report static SELinux bypass indicators without claiming enforcement.
+
+    SELinux is a kernel LSM property, so a filesystem image alone cannot prove
+    that policy is loaded or enforcing.  This check only finds known dangerous
+    compatibility artifacts and preload references; absence is not a pass.
+    """
+    security_profile = profile.get('security', {})
+    known_shims = security_profile.get('forbidden_artifacts', [])
+    bypasses = []
+    for relative in known_shims:
+        candidate = root / relative
+        if candidate.exists() or candidate.is_symlink():
+            bypasses.append({'path': relative, 'kind': 'known_selinux_compatibility_shim'})
+
+    preload_references = []
+    for relative in ('system/etc/init', 'system_ext/etc/init', 'vendor/etc/init'):
+        directory = root / relative
+        if not directory.is_dir() or directory.is_symlink():
+            continue
+        try:
+            init_files = directory.rglob('*.rc')
+            for path in init_files:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                try:
+                    content = path.read_text(encoding='utf-8', errors='replace')
+                except OSError:
+                    continue
+                if 'libselinux_shim.so' in content:
+                    preload_references.append(str(path.relative_to(root)))
+        except OSError:
+            continue
+    if preload_references:
+        bypasses.append({'paths': sorted(preload_references),
+                         'kind': 'init_preload_reference'})
+
+    return {
+        'status': 'BYPASS_DETECTED' if bypasses else 'UNVERIFIED',
+        'enforcement': 'UNVERIFIED',
+        'bypass_indicators': bypasses,
+        'limitation': ('A static rootfs inspection cannot establish kernel SELinux policy load or '
+                       'enforcement; that requires a live runtime check against a SELinux-capable '
+                       'and correctly integrated kernel.'),
+    }
+
+
 def inspect_rootfs(rootfs, profile_id='android16-ranchu-x86_64'):
     profile = profiles().get(profile_id)
     if profile is None:
@@ -78,12 +125,23 @@ def inspect_rootfs(rootfs, profile_id='android16-ranchu-x86_64'):
     }
     mismatches = {key: {'expected': expected[key], 'actual': actual[key]}
                   for key in expected if actual[key] != expected[key]}
+    security = _selinux_security(root, profile)
+    provisioning_blockers = []
+    if not profile['provisioning']['automatically_installable']:
+        provisioning_blockers.append(profile['provisioning']['reason'])
+    if security['status'] == 'BYPASS_DETECTED':
+        provisioning_blockers.append('known SELinux authorization-bypass artifact is present')
+    if security['enforcement'] != 'VERIFIED':
+        provisioning_blockers.append('SELinux enforcement has not been verified in a live runtime')
     return {
         'profile': profile_id,
         'rootfs': str(root),
         'compatibility': 'MATCH' if not missing and not mismatches else 'UNSUPPORTED',
         'provenance': 'UNVERIFIED',
-        'provisionable': profile['provisioning']['automatically_installable'],
+        'provisionable': (profile['provisioning']['automatically_installable']
+                          and not provisioning_blockers),
+        'security': security,
+        'provisioning_blockers': provisioning_blockers,
         'actual': actual,
         'missing_files': missing,
         'property_mismatches': mismatches,
