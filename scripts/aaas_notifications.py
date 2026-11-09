@@ -8,10 +8,12 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -223,6 +225,61 @@ class NotificationForwarder:
         self.order.clear()
 
 
+def activate_kwin_app_window(package: str) -> bool:
+    """Raise an existing catalog window on KDE; return false on other desktops."""
+    if not isinstance(package, str) or not PACKAGE_RE.fullmatch(package):
+        return False
+    qdbus = shutil.which('qdbus6') or shutil.which('qdbus')
+    if not qdbus:
+        return False
+    plugin = 'aaas-notification-' + uuid.uuid4().hex
+    desktop_id = 'aaas-catalog-' + package
+    script = (
+        'const targetDesktopId = ' + json.dumps(desktop_id) + ';\n'
+        'for (const window of workspace.windowList()) {\n'
+        '  if (window.desktopFileName === targetDesktopId) {\n'
+        '    workspace.activeWindow = window;\n'
+        '    console.info("AaaS notification activated " + targetDesktopId);\n'
+        '  }\n'
+        '}\n'
+    )
+    script_path = None
+    loaded = False
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', prefix='aaas-kwin-activate-',
+                suffix='.js', delete=False) as stream:
+            stream.write(script)
+            script_path = Path(stream.name)
+        load = subprocess.run(
+            [qdbus, 'org.kde.KWin', '/Scripting', 'loadScript',
+             str(script_path), plugin], capture_output=True, text=True,
+            timeout=3, check=False)
+        if load.returncode:
+            return False
+        loaded = True
+        start = subprocess.run(
+            [qdbus, 'org.kde.KWin', '/Scripting', 'start'],
+            capture_output=True, text=True, timeout=3, check=False)
+        return start.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+    finally:
+        if loaded:
+            try:
+                subprocess.run(
+                    [qdbus, 'org.kde.KWin', '/Scripting', 'unloadScript', plugin],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=3, check=False)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if script_path is not None:
+            try:
+                script_path.unlink()
+            except OSError:
+                pass
+
+
 def run_bridge(directory: Path, android_uid: int) -> int:
     # D-Bus calls run from the same session user as the AaaS launcher. Files are
     # read in a mapped namespace so the normal Android app UID remains private.
@@ -248,16 +305,34 @@ def run_bridge(directory: Path, android_uid: int) -> int:
             package = None
         if package is None:
             return
-        # Package names were validated when the Android event was decoded.
-        # Use the existing runtime control protocol, never a shell command.
         control = Path(__file__).with_name('aaasctl.py')
         try:
+            result = subprocess.run(
+                [sys.executable, str(control), 'list'],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, timeout=3, check=False)
+            windows = json.loads(result.stdout).get('windows', []) if result.returncode == 0 else []
+            already_running = any(
+                isinstance(window, dict) and window.get('package') == package and
+                window.get('state') == 'RUNNING' for window in windows)
+            if already_running:
+                if activate_kwin_app_window(package):
+                    print(f'notification activated existing window package={package}', flush=True)
+                else:
+                    print(f'notification target already running; window activation unavailable '
+                          f'package={package}', flush=True)
+                return
+            # Package names were validated when the Android event was decoded.
+            # Use the existing runtime control protocol, never a shell command.
             subprocess.Popen(
                 [sys.executable, str(control), 'launch', package],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
-            print(f'notification activation requested package={package}', flush=True)
+            print(f'notification launch requested package={package}', flush=True)
         except OSError as error:
+            print(f'notification activation failed package={package} '
+                  f'error={type(error).__name__}', flush=True)
+        except (ValueError, subprocess.SubprocessError) as error:
             print(f'notification activation failed package={package} '
                   f'error={type(error).__name__}', flush=True)
 

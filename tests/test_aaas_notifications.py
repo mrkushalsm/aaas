@@ -154,6 +154,32 @@ class NotificationMappingTests(unittest.TestCase):
         self.assertEqual(len(forwarder.active), 2)
 
 
+class KWinNotificationActivationTests(unittest.TestCase):
+    def test_existing_catalog_window_is_activated_and_script_unloaded(self):
+        calls = []
+        script_text = []
+
+        def run(command, **_kwargs):
+            calls.append(command)
+            if 'loadScript' in command:
+                script_text.append(Path(command[-2]).read_text())
+            return subprocess.CompletedProcess(command, 0, '24', '')
+
+        with mock.patch.object(notifications.shutil, 'which', return_value='qdbus6'), \
+                mock.patch.object(notifications.subprocess, 'run', side_effect=run):
+            self.assertTrue(notifications.activate_kwin_app_window('com.example.app'))
+        self.assertIn('workspace.activeWindow = window', script_text[0])
+        self.assertIn('aaas-catalog-com.example.app', script_text[0])
+        self.assertEqual(calls[0][3], 'loadScript')
+        self.assertEqual(calls[1][3], 'start')
+        self.assertEqual(calls[2][3], 'unloadScript')
+
+    def test_invalid_package_never_invokes_kwin(self):
+        with mock.patch.object(notifications.subprocess, 'run') as run:
+            self.assertFalse(notifications.activate_kwin_app_window('bad;package'))
+        run.assert_not_called()
+
+
 class NotificationHostFailureTests(unittest.TestCase):
     def test_missing_host_notification_service_fails_before_forwarding(self):
         class DBusException(Exception):
