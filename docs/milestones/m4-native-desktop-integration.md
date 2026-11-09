@@ -1039,3 +1039,25 @@ nodes are shared with active KDE. Isolated pixman/Weston SHM lifecycle tests
 passed, but do not cover that accelerated branch. Graphical presenter stability
 and canonical M4 remain **PARTIAL/OPEN**. See the
 [forensic comparison](../../results/m4/graphics-known-good-vs-incident-2026-11-09.json).
+
+### Isolated accelerated staging follow-up (2026-11-09)
+
+The production GBM staging-credit path was subsequently exercised in a bounded
+QEMU/KVM Debian guest with a virtio-GPU DRM device and Weston 10 GL using
+llvmpipe. This isolated guest had no physical GPU passthrough or access to the
+active KDE socket. A two-source-buffer producer completed a 160-frame healthy
+run, a 160-frame run after compositor release was deliberately paused and
+resumed, and a 64-frame run with an extra over-cap submission. Each normal
+frame received an actual Wayland buffer release. The extra submission was
+rejected while four staging BOs were active, before another allocation. The
+presenter reported zero outstanding source or compositor ownership at teardown.
+
+This closes the isolated GBM/DMA-BUF staging subgate, not overall presenter
+stability. The test used guest software rendering and did not exercise real
+DRM `sync_file` fences, Android Composer/SurfaceFlinger, independent Android
+application windows, or host Intel/KWin. The 12 historical KWin aborts
+coincided with AaaS presenter activity, but accessible core evidence still does
+not establish causality. Graphical stability and canonical M4 therefore
+remain **PARTIAL/OPEN**, and active-KWin presentation remains unapproved. See
+[`staging-backpressure acceptance`](../../results/m4/staging-backpressure-acceptance-2026-11-09.json)
+and the [incident record](../incidents/host-graphics-impact-2026-11-09.md).

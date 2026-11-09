@@ -284,3 +284,35 @@ The active KDE render nodes are shared host devices, so no post-fix GBM or
 DMA-BUF presentation run was made. The historical KWin/Mesa cause and
 accelerated-path correction remain unverified; active-KWin presentation is
 still not approved.
+
+### Staging-backpressure follow-up (2026-11-09)
+
+The historical coredump list contains 12 KWin `SIGABRT` entries from 00:39
+through 01:53 local time. Session logs show recent AaaS presenter commits at
+each corresponding crash time and a broken display connection as KWin exited.
+The first and last incidents are the detailed cases above; the other ten
+sessions show 32 or 33 commits, zero or one observed Wayland release, and
+varying counts of slot-cap rejections. This confirms AaaS presentation activity
+coincided with the repeated crashes. It still does not establish which client
+or resource caused Mesa to abort: the cores remain inaccessible and contain no
+recoverable assertion detail. The full per-PID/per-session table is in the
+[forensic comparison artifact](../../results/m4/graphics-known-good-vs-incident-2026-11-09.json).
+
+The staged-resource defect was then tested on a disposable QEMU/KVM guest with
+its own virtio-GPU DRM device and Debian Weston GL compositor. The guest had no
+physical GPU passthrough, virgl, host Wayland socket, or active KDE socket; its
+renderer was llvmpipe. The production presenter imported GBM-exported
+DMA-BUFs, received real guest Wayland release callbacks, recovered after a
+paused compositor, and rejected an over-cap probe before allocating a fifth
+staging buffer. The compliant two-source-buffer producer completed 160 frames
+in the healthy run and another 160 after delayed-release recovery. A 64-frame
+cap-probe run also completed and drained ownership. Peak active staging was
+four and all runs ended with zero outstanding buffer ownership.
+
+This verifies the staged-credit/GBM lifecycle on a virtual DRM device. It does
+not validate Intel hardware, the host Mesa build, explicit sync files, Android
+Composer/SurfaceFlinger, or the original KWin failure. Staging accumulation is
+a confirmed resource-retention defect and its bound is now exercised on the
+production code path; KWin crash causality and active-host-KWin safety remain
+unresolved. See
+[`staging-backpressure-acceptance-2026-11-09.json`](../../results/m4/staging-backpressure-acceptance-2026-11-09.json).
