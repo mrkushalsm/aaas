@@ -1183,3 +1183,28 @@ remained active. Fresh manual keyboard/pointer/resize interaction, human audio
 audibility, visual popup observation, and Android-to-host clipboard receiver
 readback remain unverified in this recheck. Structured measurements are in
 [`desktop-integrations-recheck-2026-11-09.json`](../../results/m4/desktop-integrations-recheck-2026-11-09.json).
+
+### Desktop bridge live recheck (2026-11-10)
+
+In the persistent runtime, Android-to-Linux clipboard was read by an active Qt
+Wayland receiver and matched the expected SHA-256; Linux-to-Android paste also
+matched exact text before and after one full service restart. Five distinct
+Android packages were concurrently running. Android AudioTrack passed pause,
+resume, mute and volume checks; a PipeWire speaker-monitor recording contained
+nonzero samples. The permission-granted microphone probe captured 1,440,000
+frames, and the host capture stream closed. A notification popup was observed
+with app label/title/body; Android cancellation reached Plasma as a close
+event. One real resize changed the Android virtual display from 720x1280 to
+892x666 after a 900x700 host-frame configure.
+
+This recheck does not close M4 desktop integrations: fresh keyboard/pointer
+consumption and focus isolation, plus a second resize and explicit restore,
+were not verified. During the session the dedicated USB workspace was
+disconnected; the kernel recorded ext4 journal/write errors and the workspace
+guard rejected 21 post-recovery device-correlated events. Although the UUID is
+mounted read-write again, the persistent service is currently stopped and
+guarded from startup until filesystem health is cleared. Android userdata was
+not reset or repaired. The notification bridge does not forward Android
+PendingIntent/action metadata, so notification activation is not currently
+supported. See
+[`desktop-integrations-recheck-2026-11-10.json`](../../results/m4/desktop-integrations-recheck-2026-11-10.json).
