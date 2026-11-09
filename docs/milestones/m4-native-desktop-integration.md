@@ -1061,3 +1061,64 @@ not establish causality. Graphical stability and canonical M4 therefore
 remain **PARTIAL/OPEN**, and active-KWin presentation remains unapproved. See
 [`staging-backpressure acceptance`](../../results/m4/staging-backpressure-acceptance-2026-11-09.json)
 and the [incident record](../incidents/host-graphics-impact-2026-11-09.md).
+
+## Live KDE developer release continuation (2026-11-09)
+
+The restricted portable installation was exercised on the active KDE session
+under the explicitly selected `DIAGNOSTIC_LEGACY` development policy. The CLI
+prints the missing Android SELinux enforcement warning and retains
+`runtime_security=NOT_APPROVED` and `production_launch=BLOCKED`.
+
+The first live presenter attempt used `/dev/dri/renderD128` (the NVIDIA device)
+while KWin's Wayland dma-buf main device was `/dev/dri/renderD129` (Intel), and
+forced implicit synchronization. KWin aborted in Mesa Gallium during that
+attempt. The causal link remains unknown. The host-compositor device discovery
+now follows Wayland's advertised main device, and the presenter no longer
+silently falls back to another render node. Subsequent bounded sessions used
+renderD129 and negotiated explicit synchronization. Settings and Contacts,
+then Settings and Apotris, appeared as independent KWin windows; no subsequent
+KWin abort was observed. KWin-specific root cause is therefore unresolved,
+not declared fixed.
+
+The installed PackageManager catalog returned 12 launchable applications. Its
+managed KDE app entries now use the installation's runtime script and include
+the diagnostic security warning. A cold launch through the Apotris app entry
+started the installed runtime. The trusted local Apotris APK was installed via
+the existing developer install command (`AAAS_USER_APK_INSTALL ... result=Success`),
+then the runtime was stopped and launched again from the installed app entry.
+Apotris and Settings both reached `RUNNING`; their independent presenter logs
+recorded actual Wayland releases and zero outstanding buffers. Automated
+pointer and keyboard input through the active KDE session reached Android's
+input adapter; Settings search displayed the entered query. Window-frame resize
+was exercised through KWin, while the Android virtual framebuffer remained at
+720x1280.
+
+The existing shared-storage acceptance remains `PASS/CLOSED` and is referenced
+by `results/m4/acceptance.json`; this continuation did not repeat the full SAF
+read/write/restart sequence. No physical manual input session, interactive APK
+file chooser, or app-private-data mutation test was performed here. The local
+APK command uses an explicitly supplied path. This is a usable local
+interactive development release, not a production-security approval, universal
+APK compatibility claim, or canonical M4 closure. See
+[`results/m4/integrated-desktop-live-2026-11-09.json`](../../results/m4/integrated-desktop-live-2026-11-09.json).
+
+### Running this local development install
+
+Use the installation's configured XDG roots (the shell below matches the
+validated installation):
+
+```sh
+export XDG_CONFIG_HOME="$HOME/.config/aaas-portable"
+export XDG_DATA_HOME="$HOME/.local/share/aaas-portable-data"
+export XDG_CACHE_HOME="$HOME/.cache/aaas-portable"
+export XDG_STATE_HOME="$HOME/.local/state/aaas-portable"
+./aaas dev verify
+./aaas dev start --app com.android.settings --app2 com.android.contacts
+```
+
+The KDE application catalog contains one entry per launchable Android app.
+To refresh it while AaaS is running, use
+`python3 scripts/aaas_desktop.py catalog refresh`. To install a trusted local
+APK, stop the runtime and run `./aaas dev install /absolute/path/to/app.apk`;
+then start AaaS again and refresh the catalog. The development profile prints
+its SELinux/security warning and does not claim production approval.

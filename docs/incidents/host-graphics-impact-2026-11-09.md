@@ -316,3 +316,25 @@ a confirmed resource-retention defect and its bound is now exercised on the
 production code path; KWin crash causality and active-host-KWin safety remain
 unresolved. See
 [`staging-backpressure-acceptance-2026-11-09.json`](../../results/m4/staging-backpressure-acceptance-2026-11-09.json).
+
+## Controlled live retest (2026-11-09)
+
+A controlled active-KWin test was authorized for the development runtime. The
+first attempt after that authorization reproduced a KWin SIGABRT in Mesa
+Gallium. The AaaS presenter had selected NVIDIA renderD128 while KWin advertised
+Intel renderD129 as its dma-buf main device, and AaaS had forced implicit sync.
+The presenter committed three early frames before release progress stalled;
+Intel logged execbuf ENOMEM before the KWin abort. This is a concrete
+configuration mismatch and a plausible resource/synchronization contributor,
+but the evidence does not prove it caused Mesa's abort.
+
+The runtime now selects the compositor-advertised main render node, fails
+closed if multiple devices exist and that identity is unknown, removes the
+hardcoded renderD128 fallback, and permits the Wayland explicit-sync
+negotiation instead of forcing implicit sync. On subsequent sessions using
+Intel renderD129, presenters negotiated explicit sync and logged thousands of
+commits with matching actual Wayland releases, bounded peak active staging
+slots, and zero outstanding ownership at shutdown. KWin remained alive during
+those retests. These results verify the corrected configuration on this host;
+they do not establish the root cause of the earlier crash or certify general
+KWin/Mesa safety.
