@@ -3661,6 +3661,7 @@ def main():
                      for index in range(1, 9)}
     slot_lifecycle_generation = {index: 0 for index in range(1, 9)}
     slot_presenters = {index: None for index in range(1, 9)}
+    window_hidden = {index: slot_packages[index] is None for index in range(1, 9)}
     storage_scan_uris = {}
     control_path = ipc / 'aaas-control.sock'
     control_server = None
@@ -3714,6 +3715,21 @@ def main():
                 return {'title': label, 'app_id': app_id}
             time.sleep(.025)
         raise RuntimeError(f'presenter did not apply app identity for {package}')
+
+    def hide_presenter_window(slot):
+        request_path = ipc / f'window_identity_{slot}_request'
+        ack_path = ipc / f'window_identity_{slot}_ack'
+        if request_path.is_symlink() or ack_path.is_symlink():
+            raise RuntimeError(f'Android window identity IPC is unsafe for slot {slot}')
+        request_id = os.urandom(12).hex()
+        ack_path.write_text('')
+        atomic_control_write(request_path, f'{request_id}\n\norg.aaas.android-app')
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if ack_path.read_text().strip() == request_id:
+                return
+            time.sleep(.025)
+        raise RuntimeError(f'presenter did not hide closed app window in slot {slot}')
 
     def start_dynamic_presenter(slot, package):
         socket_path = ipc / ('wayland-vdisplay.sock' if slot == 1
@@ -4138,6 +4154,7 @@ def main():
             if slot == 1: virtual_presenter = presenter_process
             if slot == 2: virtual_presenter2 = presenter_process
             slot_packages[slot] = package
+            window_hidden[slot] = False
             window_close_requested[slot] = None
             (ipc / f'vdisplay_close_{slot}').write_text('')
             (ipc / f'vdisplay_control_ack_{slot}').write_text('')
@@ -4559,6 +4576,9 @@ def main():
                         app_state = (ipc / f'app{index}_state').read_text().strip()
                         ack = (ipc / f'vdisplay_control_ack_{index}').read_text().strip()
                         if app_state == 'CLOSED' and ack.startswith('released'):
+                            if process.poll() is None and not window_hidden[index]:
+                                hide_presenter_window(index)
+                                window_hidden[index] = True
                             continue
                         exited = process.poll() is not None
                         if not exited and app_state != 'CLOSED':

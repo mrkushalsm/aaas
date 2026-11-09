@@ -1785,7 +1785,10 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('--defer-map', host)
         self.assertIn("['--defer-map'] if package == 'Android Application' else []", launcher)
         self.assertIn('window_identity_applied', gpu)
+        self.assertIn('window_hidden_after_app_close', gpu)
+        self.assertIn('wl_surface_attach(a->surface, NULL, 0, 0)', gpu)
         self.assertIn('request_window_identity(slot, package)', launcher)
+        self.assertIn('hide_presenter_window(index)', launcher)
         self.assertIn('aaas-catalog-{package}', launcher)
         self.assertNotIn("placeholder = f'available-slot-", launcher)
 

@@ -315,7 +315,10 @@ static void apply_window_identity_request(presenter_app *a) {
     size_t request_len = strlen(payload);
     size_t title_len = strlen(first);
     size_t app_id_len = strlen(second);
-    if (request_len < 16 || request_len > 32 || title_len == 0 || title_len > 256 ||
+    bool hide_window = title_len == 0 &&
+        strcmp(second, "org.aaas.android-app") == 0;
+    if (request_len < 16 || request_len > 32 ||
+        (!hide_window && title_len == 0) || title_len > 256 ||
         app_id_len == 0 || app_id_len > 256) return;
     for (size_t i = 0; i < request_len; ++i)
         if (!isxdigit((unsigned char)payload[i])) return;
@@ -326,11 +329,18 @@ static void apply_window_identity_request(presenter_app *a) {
         if (!(isalnum(c) || c == '.' || c == '-' || c == '_')) return;
     }
 
-    libdecor_frame_set_title(a->decor_frame, first);
-    libdecor_frame_set_app_id(a->decor_frame, second);
-    if (!a->frame_mapped) {
-        libdecor_frame_map(a->decor_frame);
-        a->frame_mapped = true;
+    if (hide_window) {
+        wl_surface_attach(a->surface, NULL, 0, 0);
+        wl_surface_commit(a->surface);
+        if (wl_display_flush(a->display) < 0) return;
+        a->frame_mapped = false;
+    } else {
+        libdecor_frame_set_title(a->decor_frame, first);
+        libdecor_frame_set_app_id(a->decor_frame, second);
+        if (!a->frame_mapped) {
+            libdecor_frame_map(a->decor_frame);
+            a->frame_mapped = true;
+        }
     }
     int ack_fd = open(a->identity_ack_path,
                       O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
@@ -341,9 +351,13 @@ static void apply_window_identity_request(presenter_app *a) {
     if (written == (ssize_t)ack_len && unlink(a->identity_request_path) == 0) {
         (void)write(ack_fd, "\n", 1);
         char extra[320];
-        snprintf(extra, sizeof(extra), "\"app_id\":\"%s\"", second);
-        log_presenter_event("window_identity_applied", a->gen, 0, extra);
-        fprintf(stderr, "[AaaS Presenter] window title: %s\n", first);
+        if (hide_window) {
+            log_presenter_event("window_hidden_after_app_close", a->gen, 0, NULL);
+        } else {
+            snprintf(extra, sizeof(extra), "\"app_id\":\"%s\"", second);
+            log_presenter_event("window_identity_applied", a->gen, 0, extra);
+            fprintf(stderr, "[AaaS Presenter] window title: %s\n", first);
+        }
     }
     close(ack_fd);
 }
