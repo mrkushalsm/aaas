@@ -1778,6 +1778,9 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('app12_launch_request', generated)
         self.assertIn('app12_stop_request', generated)
         self.assertNotIn('app13_launch_request', generated)
+        self.assertIn('/dev/aaas/app12_state 2>/dev/null)" != RUNNING', generated)
+        self.assertIn('case "$VDISPLAY12_INPUT_ADAPTER_PID" in', generated)
+        self.assertNotIn('AAAS_INPUT_ADAPTER_STARTED', generated)
 
     def test_display_broker_capacity_is_configured_independently_of_display_ids(self):
         broker = (SCRIPT.parents[1] /

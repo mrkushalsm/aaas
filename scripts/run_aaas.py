@@ -1818,7 +1818,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             "'enable_display_content_mode_management' >> /aaas_session_commands\n"
             '    echo "=== STEP 1: SETTING APEX & KEYSTORE PROPS ==="',
         )
-    if not headless_storage:
+    if not headless_storage and not experimental_virtual_display:
         source = replace_once(
             source,
             '    echo "=== TESTING PACKAGE MANAGER COMMAND IPC ==="',
@@ -2618,6 +2618,12 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                     '          fi\n'
                     '          ;;\n'
                     '        esac\n'
+                    '      fi\n'
+                    f'      if [ "$(/system/bin/toybox cat /dev/aaas/app{slot}_state '
+                    '2>/dev/null)" != RUNNING ]; then\n'
+                    f'        case "$' + adapter_pid_variable + '" in ""|*[!0-9]*) ;; *) '
+                    f'/system/bin/toybox kill "$' + adapter_pid_variable + '" 2>/dev/null || true; '
+                    f'{adapter_pid_variable}= ;; esac\n'
                     '      fi\n'
                 )
             readiness_and_watch += (
