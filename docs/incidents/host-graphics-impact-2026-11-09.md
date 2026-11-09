@@ -160,3 +160,43 @@ cap. This explains that burst result, but does not establish why the earlier
 KWin/Mesa crash occurred. The core stack points into KWin's Mesa Gallium frame
 completion path, without identifying a client or proving causation. KWin
 presentation remains an unresolved safety gate.
+
+## Software-isolated presenter follow-up (2026-11-09)
+
+The active KWin session was not used. Weston 15.0.2, pinned to
+`de09947fc128d4c7af3d8e292a1044a812aee954`, ran with the headless backend and
+pixman renderer. Weston and the presenter each ran in bubblewrap user, mount,
+PID, network, IPC, UTS, and cgroup namespaces with a private runtime directory
+and `/tmp`; `/dev/dri` was empty in both namespaces and the active KDE socket
+was not passed in. A synthetic producer exercised the presenter's real
+Wayland SHM buffer path with two memfd buffers and only reused a buffer after
+the transport returned it following compositor release.
+
+Two sequential 1,024-frame sessions and two sequential 256-frame sessions
+completed. Each session reported all submitted frames imported, zero
+rejections, actual Wayland release callbacks for all but the final attached
+buffer, one separately counted teardown invalidation, and zero ownership
+remaining after teardown. The producer observed a maximum of two buffers in
+flight. Headless presentation-feedback counts varied and were lower than
+submissions; no physical display or human-visible presentation was observed.
+Test records and artifact hashes are in
+[`graphics-software-isolated-2026-11-09.json`](../../results/m4/graphics-software-isolated-2026-11-09.json).
+
+An initial run completed frame accounting but crashed in cleanup because the
+new `wl_shm`-only mode unconditionally destroyed a NULL linux-dmabuf proxy.
+The core backtrace identified `zwp_linux_dmabuf_v1_destroy` called with NULL.
+Cleanup now checks the optional proxy; subsequent strict native builds and
+repeated runs exited cleanly. This is a confirmed test-mode teardown defect
+and correction, not an explanation of the earlier KWin crash.
+
+The acquire-fence fallback now polls while dispatching Wayland and input
+events, release timelines, close acknowledgments, and scheduled resize work;
+it also flushes queued Wayland requests and cancels on shutdown. It retains
+the two-second deadline and rejects timeout/error without fabricating
+completion. The software test path deliberately has no DRM device, so this
+follow-up did not validate an actual DRM `sync_file`, explicit sync, DMA-BUF,
+GBM, or Android Composer frame. No Android session, input, resize, concurrent
+multi-window, or compositor-disconnect workload was run. KWin/Mesa causation
+remains unproven; active KDE presentation remains unapproved. The host KWin
+process remained active after these tests, and no test presenter/compositor
+process remained.

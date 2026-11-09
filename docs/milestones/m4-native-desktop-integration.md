@@ -973,3 +973,42 @@ host graphics driver as KDE. No new presenter frames were sent in this
 follow-up. Historical isolated Weston and multi-window evidence is retained as
 historical evidence only. The KWin/Mesa incident is still correlated but
 unexplained, and active-KWin presentation is not approved by this result.
+
+### Software-isolated presenter protocol follow-up (2026-11-09)
+
+An opt-in `--software-shm-test` presenter backend and a bounded test harness
+were added. The harness runs Weston 15.0.2 with its pinned source revision and
+pixman headless renderer, and runs the presenter in separate bubblewrap user,
+mount, PID, network, IPC, UTS, and cgroup namespaces. Both namespaces mask
+`/dev/dri`; the active KDE runtime directory and socket are not mounted into
+either. The producer uses two memfd buffers and sends a buffer again only
+after receiving the presenter's acknowledgment of an actual Wayland
+`wl_buffer.release`.
+
+Two sustained sequential runs submitted 1,024 frames each. Each recorded
+1,023 compositor releases and one final attached buffer invalidated during
+teardown, zero rejected frames, producer peak in-flight count two, and zero
+remaining presenter ownership after teardown. Two subsequent 256-frame runs
+using the final lean producer binary had the same accounting. The headless
+compositor emitted presentation feedback for some frames; that is not physical
+scanout or human-visible output. A first test also exposed a NULL
+linux-dmabuf-proxy destruction crash specific to the new SHM mode; cleanup was
+guarded, rebuilt with `-Werror`, and rerun successfully.
+
+After clearing inherited desktop/session environment variables in both
+namespaces and sanitizing the producer environment, two more 128-frame
+sessions completed with 255 compositor releases, one final teardown
+invalidation, zero rejects, and zero remaining ownership between them.
+
+The test backend validates real Wayland SHM import/attachment, frame commit,
+release callback, bounded two-buffer producer reuse, and process teardown. It
+does not validate DMA-BUF, GBM, DRM sync files, explicit synchronization,
+Android Composer/SurfaceFlinger, input, resizing, simultaneous app windows, or
+physical display output. Acquire-fence waits now pump Wayland/input/release
+events and flush requests while bounded, but the real `sync_file` path was not
+run because the isolated test intentionally has no DRM device. The November 9
+KWin/Mesa crash remains unresolved and its cause unproven. Active KDE
+presentation is still not approved; M4 graphical stability and canonical M4
+remain `PARTIAL/OPEN`. See the
+[software-isolated result](../../results/m4/graphics-software-isolated-2026-11-09.json)
+and the [host graphics incident](../incidents/host-graphics-impact-2026-11-09.md).
