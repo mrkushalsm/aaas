@@ -21,6 +21,7 @@ typedef struct {
     bool source_held[AAAS_STAGING_MAX_IN_FLIGHT];
     unsigned source[AAAS_STAGING_MAX_IN_FLIGHT];
     unsigned allocations;
+    unsigned copy_complete_messages;
     unsigned rejected;
     uint32_t next_id;
 } model;
@@ -81,10 +82,33 @@ static uint32_t submit_frame(model *m, unsigned source, uint32_t generation) {
 static void release_frame(model *m, uint32_t token) {
     int entry = find_token(m, token);
     assert(entry >= 0 && m->submitted[entry]);
+    bool own_copy_was_deferred =
+        aaas_staging_deferred_copy_pending(&m->tracker, token);
+    if (own_copy_was_deferred) {
+        /* Its own compositor release makes this source immediately reusable. */
+        assert(m->source_held[entry]);
+        m->copy_complete_messages++;
+        assert(aaas_staging_mark_deferred_copy_complete_sent(
+                   &m->tracker, token, false) == AAAS_STAGING_OK);
+        m->source_busy[m->source[entry]] = false;
+    }
     assert(aaas_staging_release(&m->tracker, token, m->id[entry],
                                 m->generation[entry]) == AAAS_STAGING_OK);
     assert(close(m->resource_fd[entry]) == 0);
-    if (m->source_held[entry]) m->source_busy[m->source[entry]] = false;
+    if (!own_copy_was_deferred) {
+        /* A real release of any BO transfers its freed credit to the oldest
+         * deferred source, even when that source's own BO remains displayed. */
+        uint32_t deferred = aaas_staging_oldest_deferred_token(&m->tracker);
+        if (deferred) {
+            int deferred_entry = find_token(m, deferred);
+            assert(deferred_entry >= 0 && m->source_held[deferred_entry]);
+            m->copy_complete_messages++;
+            assert(aaas_staging_mark_deferred_copy_complete_sent(
+                       &m->tracker, deferred, true) == AAAS_STAGING_OK);
+            m->source_busy[m->source[deferred_entry]] = false;
+            m->source_held[deferred_entry] = false;
+        }
+    }
     m->token[entry] = 0;
     m->id[entry] = 0;
     m->generation[entry] = 0;
@@ -131,7 +155,11 @@ static void test_normal_two_source_progress(void) {
     assert(m.tracker.active_count == 4 && m.tracker.early_credit_count == 2);
     assert(aaas_staging_source_ownership_count(&m.tracker) == 2);
     assert(aaas_staging_compositor_ownership_count(&m.tracker) == 4);
+    assert(aaas_staging_deferred_copy_pending(&m.tracker, four));
+    assert(m.copy_complete_messages == 0);
     release_frame(&m, four); /* actual compositor release returns deferred source */
+    assert(m.copy_complete_messages == 1);
+    assert(!aaas_staging_deferred_copy_pending(&m.tracker, four));
     assert(!m.source_busy[1]);
     assert(aaas_staging_source_ownership_count(&m.tracker) == 1);
     uint32_t six = submit_frame(&m, 1, 1);
@@ -142,8 +170,34 @@ static void test_normal_two_source_progress(void) {
     release_frame(&m, three);
     assert(m.tracker.deferred_copy == 3);
     assert(m.tracker.deferred_settled_by_release == 3);
+    assert(m.copy_complete_messages == 3);
     assert(m.tracker.actual_releases == 6);
     assert(m.tracker.peak_active == 4);
+    assert_empty(&m);
+}
+
+static void test_deferred_completion_requires_release_and_is_once(void) {
+    model m; model_init(&m);
+    uint32_t one = submit_frame(&m, 0, 11);
+    uint32_t two = submit_frame(&m, 1, 11);
+    uint32_t deferred = submit_frame(&m, 0, 11);
+    int entry = find_token(&m, deferred);
+    assert(entry >= 0 && m.source_busy[0]);
+    assert(aaas_staging_deferred_copy_pending(&m.tracker, deferred));
+    assert(aaas_staging_release(&m.tracker, deferred, m.id[entry], 11) ==
+           AAAS_STAGING_INVALID);
+    assert(m.source_busy[0]);
+    assert(aaas_staging_mark_deferred_copy_complete_sent(
+               &m.tracker, deferred, false) == AAAS_STAGING_OK);
+    assert(!aaas_staging_deferred_copy_pending(&m.tracker, deferred));
+    assert(aaas_staging_mark_deferred_copy_complete_sent(
+               &m.tracker, deferred, false) == AAAS_STAGING_INVALID);
+    m.source_busy[0] = false;
+    assert(aaas_staging_source_ownership_count(&m.tracker) == 0);
+    release_frame(&m, deferred);
+    release_frame(&m, two);
+    release_frame(&m, one);
+    assert(m.tracker.deferred_settled_by_release == 1);
     assert_empty(&m);
 }
 
@@ -230,6 +284,7 @@ static void test_disconnect_resize_and_repeated_sessions(void) {
 
 int main(void) {
     test_normal_two_source_progress();
+    test_deferred_completion_requires_release_and_is_once();
     test_stalled_releases_and_preallocation_limit();
     test_duplicate_stale_and_generation_events();
     test_reject_timeout_and_abandon();

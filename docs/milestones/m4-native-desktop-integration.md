@@ -1228,3 +1228,31 @@ The controlled test followed a fresh offline `e2fsck -fn` exit 0, passive
 SMART evidence, and workspace/userdata manifest checks. The earlier device-
 offline event remains recorded; only guarded controlled testing was authorized
 by the refreshed workspace-health attestation.
+
+### Resized-window input stall follow-up (2026-11-10)
+
+After the resize reconnect, a live user test reported the Settings window
+freezing on search-bar interaction. Inspection found a second staging lifecycle
+gap: once the two early source-copy credits were consumed, a frame's
+`COPY_COMPLETE` could remain deferred even after a *different* staging buffer
+was released. The presenter now returns that oldest deferred source when any
+actual release frees an accounted early-copy credit; release of the deferred
+frame itself returns its own source without consuming an early credit. The
+production state tracker rejects premature release and duplicate settlement.
+
+The rebuilt presenter (SHA-256
+`2c268979ac6cbc47e34313c822b8905b3e4fd5d994c6f70d4cf5cf5e5d9f8da3`) ran on
+KWin at 592x866 Android framebuffer size. A pointer click opened Settings
+search, keyboard input entered `wifi`, Android rendered the matching results,
+and a subsequent pointer click opened the Internet settings page. During the
+live session, the presenter log recorded 1,173 frame commits, 1,172 actual
+Wayland releases, 18 deferred source copies, and 16 deferred completions
+settled after a release. The screen remained responsive and KWin remained
+running. A second live resize changed the Android framebuffer to 792x666, then
+restored it to 592x866; both dimensions were reported by the presenter after
+the corresponding Wayland configures. Native presenter tests and all 514
+Python tests passed, including the production staging-credit lifecycle
+regression. This verifies the tested Settings interaction and resize sequence;
+cross-window focus isolation and the separate notification activation contract
+remain outside this focused closure. See
+[`resize-input-recovery-2026-11-10.json`](../../results/m4/resize-input-recovery-2026-11-10.json).

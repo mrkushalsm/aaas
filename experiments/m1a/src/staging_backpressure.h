@@ -34,6 +34,7 @@ typedef struct {
     bool copy_complete_early_pending;
     bool copy_complete_sent;
     bool copy_complete_deferred;
+    bool early_credit_accounted;
     bool submitted;
 } aaas_staging_entry;
 
@@ -177,8 +178,52 @@ static inline aaas_staging_result aaas_staging_mark_copy_complete_sent(
     }
     entry->copy_complete_early_pending = false;
     entry->copy_complete_sent = true;
+    entry->early_credit_accounted = true;
     tracker->early_credit_count++;
     tracker->early_copy_sent++;
+    return AAAS_STAGING_OK;
+}
+
+/* A deferred source buffer may only be returned after the matching Wayland
+ * buffer.release. The caller must send COPY_COMPLETE before recording this
+ * transition, so the tracker mirrors protocol ownership rather than intent. */
+static inline bool aaas_staging_deferred_copy_pending(
+        const aaas_staging_tracker *tracker, uint32_t token) {
+    int index = aaas_staging_find_token(tracker, token);
+    return index >= 0 && tracker->entries[index].copy_complete_deferred;
+}
+
+static inline uint32_t aaas_staging_oldest_deferred_token(
+        const aaas_staging_tracker *tracker) {
+    if (!tracker) return 0;
+    uint32_t oldest = 0;
+    for (unsigned i = 0; i < AAAS_STAGING_MAX_IN_FLIGHT; i++) {
+        const aaas_staging_entry *entry = &tracker->entries[i];
+        if (entry->active && entry->copy_complete_deferred &&
+            (!oldest || entry->token < oldest))
+            oldest = entry->token;
+    }
+    return oldest;
+}
+
+static inline aaas_staging_result aaas_staging_mark_deferred_copy_complete_sent(
+        aaas_staging_tracker *tracker, uint32_t token,
+        bool consumes_freed_credit) {
+    int index = aaas_staging_find_token(tracker, token);
+    if (index < 0) return AAAS_STAGING_STALE;
+    aaas_staging_entry *entry = &tracker->entries[index];
+    if (!entry->copy_complete_deferred || entry->copy_complete_sent ||
+        !entry->submitted ||
+        (consumes_freed_credit && tracker->early_credit_count >=
+                                      AAAS_STAGING_EARLY_COPY_CREDITS)) {
+        tracker->stale_or_duplicate_events++;
+        return AAAS_STAGING_INVALID;
+    }
+    entry->copy_complete_deferred = false;
+    entry->copy_complete_sent = true;
+    entry->early_credit_accounted = consumes_freed_credit;
+    if (consumes_freed_credit) tracker->early_credit_count++;
+    tracker->deferred_settled_by_release++;
     return AAAS_STAGING_OK;
 }
 
@@ -210,9 +255,12 @@ static inline aaas_staging_result aaas_staging_release(
         tracker->stale_or_duplicate_events++;
         return AAAS_STAGING_INVALID;
     }
-    if (entry->copy_complete_sent) tracker->early_credit_count--;
-    if (entry->copy_complete_deferred)
-        tracker->deferred_settled_by_release++;
+    if (entry->copy_complete_deferred) {
+        /* A real release callback must return deferred source ownership first. */
+        tracker->stale_or_duplicate_events++;
+        return AAAS_STAGING_INVALID;
+    }
+    if (entry->early_credit_accounted) tracker->early_credit_count--;
     *entry = (aaas_staging_entry){0};
     tracker->active_count--;
     tracker->actual_releases++;
@@ -239,7 +287,7 @@ static inline aaas_staging_result aaas_staging_reject(
     if (index < 0) return AAAS_STAGING_STALE;
     aaas_staging_entry *entry = &tracker->entries[index];
     if (entry->submitted) return AAAS_STAGING_INVALID;
-    if (entry->copy_complete_sent) tracker->early_credit_count--;
+    if (entry->early_credit_accounted) tracker->early_credit_count--;
     if (entry->copy_complete_deferred) tracker->deferred_canceled++;
     *entry = (aaas_staging_entry){0};
     tracker->active_count--;
@@ -252,7 +300,7 @@ static inline aaas_staging_result aaas_staging_cancel(
     int index = aaas_staging_find_token(tracker, token);
     if (index < 0) return AAAS_STAGING_STALE;
     aaas_staging_entry *entry = &tracker->entries[index];
-    if (entry->copy_complete_sent) tracker->early_credit_count--;
+    if (entry->early_credit_accounted) tracker->early_credit_count--;
     if (entry->copy_complete_deferred) tracker->deferred_canceled++;
     *entry = (aaas_staging_entry){0};
     tracker->active_count--;

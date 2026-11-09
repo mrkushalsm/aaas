@@ -1783,12 +1783,78 @@ static void finalize_buffer_release(presenter_slot *s, bool release_point_signal
     presenter_app *a = s->app;
 
     if (s->staging_tracked) {
+        bool own_copy_was_deferred = aaas_staging_deferred_copy_pending(
+            &a->staging, s->staging_token);
+        if (own_copy_was_deferred) {
+            /* The source is now safe because this exact compositor buffer has
+             * been released. No early credit is consumed in this case. */
+            aaas_v2_msg copied_msg = {
+                .magic = AAAS_V2_MAGIC,
+                .version = AAAS_V2_VERSION,
+                .type = AAAS_V2_COPY_COMPLETE,
+                .generation = s->gen,
+                .id = s->id,
+            };
+            if (aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
+                a->closed = 1;
+                log_presenter_event("deferred_copy_complete_send_failed",
+                                    s->gen, s->id, NULL);
+            } else if (aaas_staging_mark_deferred_copy_complete_sent(
+                           &a->staging, s->staging_token, false) != AAAS_STAGING_OK) {
+                a->closed = 1;
+                log_presenter_event("deferred_copy_complete_state_error",
+                                    s->gen, s->id, NULL);
+            } else {
+                log_presenter_event("source_copy_complete_after_release",
+                                    s->gen, s->id, NULL);
+            }
+        }
         aaas_staging_result state = aaas_staging_release(
             &a->staging, s->staging_token, s->id, s->gen);
         if (state != AAAS_STAGING_OK) {
             a->closed = 1;
             log_presenter_event("staging_release_state_error", s->gen,
                                 s->id, NULL);
+        } else if (!own_copy_was_deferred) {
+            /* A release of any staging BO frees one source-copy credit. Give
+             * that credit to the oldest already-copied deferred source; tying
+             * completion only to that source's own BO can deadlock a static
+             * Android display before it can produce the replacement frame. */
+            uint32_t deferred_token = aaas_staging_oldest_deferred_token(
+                &a->staging);
+            if (deferred_token) {
+                int deferred_index = aaas_staging_find_token(
+                    &a->staging, deferred_token);
+                if (deferred_index < 0) {
+                    a->closed = 1;
+                    log_presenter_event("deferred_copy_lookup_failed",
+                                        s->gen, s->id, NULL);
+                } else {
+                    aaas_staging_entry *deferred =
+                        &a->staging.entries[deferred_index];
+                    aaas_v2_msg copied_msg = {
+                        .magic = AAAS_V2_MAGIC,
+                        .version = AAAS_V2_VERSION,
+                        .type = AAAS_V2_COPY_COMPLETE,
+                        .generation = deferred->generation,
+                        .id = deferred->id,
+                    };
+                    if (aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
+                        a->closed = 1;
+                        log_presenter_event("deferred_copy_complete_send_failed",
+                                            deferred->generation, deferred->id, NULL);
+                    } else if (aaas_staging_mark_deferred_copy_complete_sent(
+                                   &a->staging, deferred_token, true) !=
+                               AAAS_STAGING_OK) {
+                        a->closed = 1;
+                        log_presenter_event("deferred_copy_complete_state_error",
+                                            deferred->generation, deferred->id, NULL);
+                    } else {
+                        log_presenter_event("source_copy_complete_after_release",
+                                            deferred->generation, deferred->id, NULL);
+                    }
+                }
+            }
         }
         s->staging_tracked = false;
         s->staging_token = 0;
