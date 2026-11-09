@@ -1128,3 +1128,58 @@ its SELinux/security warning and does not claim production approval.
 The native presenter now receives the Android PackageManager label and the matching AaaS desktop application ID for each app window. Reused dynamic slots update their Wayland title and app ID when assigned, instead of keeping a slot placeholder. Unassigned Composer endpoints remain unmapped, so they do not appear as blank “available slot” windows. Since the app ID matches the generated desktop-entry basename, KDE can resolve the same PackageManager-rendered icon used by the launcher and desktop entry. APK installation refreshes the catalog; `./aaas apps list --refresh` requests an explicit refresh.
 
 Live installed-runtime verification opened Settings and Contacts as separate RUNNING windows with titles `Settings` and `Contacts`, catalog app IDs, and display IDs 2 and 3. A separate dynamic-slot session applied identities for Apotris, Calendar, Phone, and Files, including closing Phone and reusing its slot for Files. A fresh installed-runtime run kept unassigned slots 4–8 unmapped, then launched Phone and Files in slot 3 in turn while Settings and Contacts stayed active. Closing an Android app now withdraws its Wayland surface after display release while retaining the hidden presenter for reuse; a live close/relaunch/close test confirmed the window disappeared from the mapped-surface lifecycle and the slot reopened with the correct identity. Six corresponding desktop entries passed `desktop-file-validate` and their referenced PNG icons exist. The installed portable runtime and its source bundle passed integrity verification after incremental runtime refresh. The final installed presenter SHA-256 is `78d29450540f7a55e455a8571c0fa87f064fd9adbe15f24f24799db4235ccdc2`. KWin remained running. This confirms the app identity and icon mapping; titlebar icon pixels were not separately captured. See [`window-identity-icons-2026-11-09.json`](../../results/m4/window-identity-icons-2026-11-09.json).
+# Persistent desktop bridge recheck (2026-11-09)
+
+The persistent systemd runtime previously exported `AAAS_AUDIO` from user
+configuration but did not pass `--audio` to `run_aaas.py`. The runner uses the
+argument to build the Android audio overlay and start its host bridge, so the
+configuration value alone did not enable audio. Commit `9446065` makes the
+service command reflect the resolved audio feature and adds command-construction
+tests. The active development profile now has `[features] audio = true`; audio
+remains opt-in for other profiles.
+
+Live session `m1b84_session_ox9hok5n` exercised the existing bridge. Android's
+`org.aaas.audioprobe` submitted 192,000 stereo frames and a 44,100-frame mono
+stream. Its Android log records pause/resume and mute checks; PipeWire exposed
+an active `AaaS Android Audio` sink stream, and the host bridge received
+2,227,200 playback bytes. This verifies PCM transport to the host audio server,
+not that a person heard the sound. The already permission-granted
+`org.aaas.audiocaptureprobe` received 1,440,000 mono frames from the selected
+PipeWire source (RMS 265.76, dominant frequency 315 Hz). No raw recording was
+retained and no permission was granted or bypassed by this test.
+
+The authorized notification listener remained active. Launching
+`org.aaas.notificationprobe` generated a host notification through
+`org.freedesktop.Notifications`; the adapter logged host ID 10 and closed that
+ID when Android removed the notification. Popup visibility was not separately
+observed.
+
+The opt-in clipboard IME was selected temporarily and restored after testing.
+Linux-to-Android text arrived in Android's real `EditText` with matching SHA-256
+`30cc26a01f25d8f87943055eb2c8cc2e1e4cd656ac9fc08767f3bde053fb959f`. In the
+reverse direction Android copied the deterministic 67-byte fixture, and the
+bridge offered it to Wayland, but an unattended Qt receiver timed out before
+readback. Earlier interactive native-Wayland Qt acceptance remains valid and is
+recorded in `clipboard_live_acceptance_2026_11_06`; this recheck does not claim
+a fresh bidirectional pass. The host clipboard was restored after testing.
+
+The screenshot's Gallery “No external storage available” dialog was reproduced
+at the Android framework boundary while the global `emulated;0` volume was
+mounted and MediaProvider reported it mounted. On Gallery launch, `vold` logged
+`Failed to set project id` for
+`/data/media/0/Android/data/com.android.gallery3d/` (`EINVAL`), followed by
+`ContextImpl` failing to create Gallery's app-specific external `cache`
+directory. Gallery therefore cannot obtain its external cache directory; this
+is narrower than a missing emulated volume and is not explained by available
+space (Settings showed about 32.93 GB free). The observed `/dev/sda3` ext4 mount
+did not include `prjquota`. No filesystem options, userdata, or host graphics
+configuration were changed to work around it.
+
+The full Python suite passed 513 tests after stopping the live runtime for the
+single-instance-lock test; the first run while the service was active had only
+that expected lock conflict. The service was restarted afterward and reached
+RUNNING with zero app windows, zero app presenters, and no audio streams. KWin
+remained active. Fresh manual keyboard/pointer/resize interaction, human audio
+audibility, visual popup observation, and Android-to-host clipboard receiver
+readback remain unverified in this recheck. Structured measurements are in
+[`desktop-integrations-recheck-2026-11-09.json`](../../results/m4/desktop-integrations-recheck-2026-11-09.json).
