@@ -197,6 +197,26 @@ class DesktopLauncherTests(unittest.TestCase):
             self.assertEqual(desktop.read_text(), "user-owned")
             self.assertFalse(list(Path(directory).rglob("*.tmp")))
 
+    def test_catalog_adopts_legacy_aaas_entry_during_portable_upgrade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {"XDG_DATA_HOME": directory}
+            appdir = Path(directory) / "applications"
+            appdir.mkdir()
+            desktop = appdir / "aaas-catalog-com.example.reader.desktop"
+            desktop.write_text(
+                "[Desktop Entry]\nType=Application\nName=Old Reader\n"
+                "X-AaaS-Package=com.example.reader\n"
+                'Exec="/usr/bin/python3" "~/old/aaas_desktop.py" "launch" '
+                '"--package" "com.example.reader"\n', encoding="utf-8")
+            result = aaas_desktop.sync_package_catalog([{
+                "package": "com.example.reader", "activity": "com.example.Reader",
+                "label": "Reader", "version_code": 2, "version_name": "2",
+                "enabled": True, "icon_png": b"",
+            }], env=env)
+            self.assertEqual(result["count"], 1)
+            self.assertEqual(result["collisions"], [])
+            self.assertIn("Name=Reader", desktop.read_text(encoding="utf-8"))
+
     def test_truncated_catalog_does_not_remove_entries_for_omitted_packages(self):
         with tempfile.TemporaryDirectory() as directory:
             env = {"XDG_DATA_HOME": directory}
@@ -239,6 +259,8 @@ class DesktopLauncherTests(unittest.TestCase):
                         "applications": []}
             with patch.object(aaas_desktop, "_active_session", side_effect=(
                     (None, None), ({"state": "RUNNING"}, endpoint))), \
+                    patch.object(aaas_desktop, "_persistent_service_unit_path",
+                                 return_value=Path(directory) / "missing-service"), \
                     patch.object(aaas_desktop, "launch_application") as launch, \
                     patch.object(aaas_desktop, "request_package_catalog",
                                  return_value=snapshot), \
@@ -261,6 +283,8 @@ class DesktopLauncherTests(unittest.TestCase):
             installation_manifest.write_text(json.dumps({
                 "classification": "LOCAL_DEVELOPMENT_DIAGNOSTIC"}))
             with patch.object(aaas_desktop, "WORKSPACE_TMP", root), \
+                    patch.object(aaas_desktop, "_persistent_service_unit_path",
+                                 return_value=root / "missing-service"), \
                     patch.object(aaas_desktop, "cached_application",
                                  return_value={"package": "com.android.documentsui"}), \
                     patch.object(aaas_desktop.aaas_config, "resolve_config",

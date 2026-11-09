@@ -370,10 +370,20 @@ def _parser():
 
 
 def _runtime_unit_path(config=None):
-    if config is None:
-        config_home = aaas_config.xdg_paths()['config_home']
-    else:
-        config_home = config.config_file.parent.parent
+    # systemd's unit search path is fixed when the user manager starts. A
+    # profile-specific XDG_CONFIG_HOME on the CLI must not redirect the unit
+    # into a directory the manager does not search.
+    try:
+        clean_env = dict(os.environ)
+        clean_env.pop('XDG_CONFIG_HOME', None)
+        result = subprocess.run(['systemd-path', 'user-configuration'],
+                                env=clean_env, capture_output=True, text=True,
+                                timeout=3)
+        config_home = Path(result.stdout.strip()) if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        config_home = None
+    if not config_home or not config_home.is_absolute():
+        config_home = Path.home() / '.config'
     return config_home / 'systemd/user/aaas-runtime.service'
 
 
@@ -404,8 +414,13 @@ def _runtime_windows_are_idle(windows):
 def _install_runtime_service(config):
     unit = _runtime_unit_path(config)
     unit.parent.mkdir(parents=True, exist_ok=True)
+    if unit.exists() and not unit.is_symlink():
+        backup = unit.with_name('aaas-runtime.service.aaas-backup')
+        if not backup.exists():
+            shutil.copy2(unit, backup)
     script = ROOT / 'scripts/aaas_runtime_service.py'
     python = Path(sys.executable).resolve()
+    xdg = aaas_config.xdg_paths()
 
     def quote(value):
         return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'
@@ -419,6 +434,13 @@ def _install_runtime_service(config):
                f'Environment=AAAS_WORKSPACE={quote(config.workspace)}\n'
                f'Environment=AAAS_ROOTFS={quote(config.rootfs)}\n'
                f'Environment=AAAS_RUNTIME_ROOT={quote(ROOT)}\n'
+               f'Environment=XDG_CONFIG_HOME={quote(xdg["config_home"])}\n'
+               f'Environment=XDG_DATA_HOME={quote(xdg["data_home"])}\n'
+               f'Environment=XDG_CACHE_HOME={quote(xdg["cache_home"].parent)}\n'
+               f'Environment=XDG_STATE_HOME={quote(xdg["state_home"].parent)}\n'
+               f'Environment=AAAS_DESKTOP_DATA_HOME={quote(os.environ.get("AAAS_DESKTOP_DATA_HOME", str(xdg["data_home"]))) }\n'
+               f'Environment=AAAS_LAUNCHER_PATH={quote(str(ROOT.parent / "bin/aaas"))}\n'
+               'Environment=AAAS_AUDIO=' + ('1' if config.audio else '0') + '\n'
                'PassEnvironment=WAYLAND_DISPLAY DISPLAY XDG_RUNTIME_DIR '
                'DBUS_SESSION_BUS_ADDRESS XDG_CONFIG_HOME XDG_DATA_HOME '
                'XDG_CACHE_HOME XDG_STATE_HOME\n'
@@ -462,6 +484,14 @@ def _runtime_start(config):
     raise CliError('AaaS user service did not report readiness within 250 seconds')
 
 
+def _refresh_installed_catalog(config):
+    result = _run_script('aaas_desktop.py', 'catalog', 'refresh',
+                         config=config, check=False)
+    if result:
+        print('AaaS: Android is ready; application-menu refresh failed. '
+              'Retry with `aaas apps list --refresh`.', file=sys.stderr)
+
+
 def main(argv=None):
     parser = _parser()
     args = parser.parse_args(argv)
@@ -494,6 +524,7 @@ def main(argv=None):
                 return 0
             if args.runtime_command == 'start':
                 result = _runtime_start(config)
+                _refresh_installed_catalog(config)
                 _emit({'service': 'aaas-runtime.service', 'state': 'RUNNING',
                        'windows': result.get('windows', [])}, json_output)
                 return 0
@@ -765,7 +796,48 @@ def main(argv=None):
                 bundle=args.path, workspace=args.workspace,
                 install_root=args.installation,
                 config_home=args.config_home or xdg['config_home'],
-                data_home=args.data_home or xdg['data_home'])
+                data_home=args.data_home or xdg['data_home'],
+                desktop_home=args.data_home or xdg['data_home'])
+            # Provision the per-install helper key and user service as part of
+            # installation. This key is private mutable workspace data and is
+            # deliberately outside the signed/hashed immutable bundle.
+            install_cli = Path(result['installation']) / 'bin/aaas'
+            install_env = dict(os.environ)
+            install_env.update({
+                'XDG_CONFIG_HOME': str(args.config_home or xdg['config_home']),
+                'XDG_DATA_HOME': str(args.data_home or xdg['data_home']),
+                'XDG_CACHE_HOME': str(xdg['cache_home'].parent),
+                'XDG_STATE_HOME': str(xdg['state_home'].parent),
+                'AAAS_DESKTOP_DATA_HOME': str(args.data_home or xdg['data_home']),
+                'AAAS_LAUNCHER_PATH': str(install_cli),
+            })
+            for override in ('AAAS_WORKSPACE', 'AAAS_ROOTFS',
+                             'AAAS_RUNTIME_ROOT', 'AAAS_PROFILE'):
+                install_env.pop(override, None)
+            setup = subprocess.run([str(install_cli), 'dev', 'setup', '--json'],
+                                   env=install_env, capture_output=True, text=True,
+                                   timeout=60)
+            if setup.returncode:
+                raise CliError('installed development profile provisioning failed: ' +
+                               (setup.stderr or setup.stdout).strip())
+            # Do not replace another command. The versioned command remains
+            # directly available under the installation even when this alias
+            # is already owned by another package.
+            command_link = Path.home() / '.local/bin/aaas-portable'
+            command_link.parent.mkdir(parents=True, exist_ok=True)
+            if not command_link.exists() and not command_link.is_symlink():
+                command_link.symlink_to(install_cli)
+            service = subprocess.run([str(install_cli), 'runtime',
+                                      'install-service', '--json'],
+                                     env=install_env, capture_output=True, text=True,
+                                     timeout=60)
+            if service.returncode:
+                raise CliError('installed systemd user service setup failed: ' +
+                               (service.stderr or service.stdout).strip())
+            result['development_profile_provisioning'] = 'PASS'
+            result['user_service'] = json.loads(service.stdout)
+            result['command'] = str(command_link if command_link.is_symlink()
+                                    else install_cli)
             _emit(result, json_output)
             return 0
         if args.command == 'apps':
@@ -784,15 +856,16 @@ def main(argv=None):
                 return _run_script('aaas_desktop.py', 'launch', '--package', args.package,
                                    config=config)
             if args.apps_command == 'install':
-                apk = args.apk.expanduser().resolve(strict=True)
-                if not apk.is_file() or apk.is_symlink() or apk.suffix.lower() != '.apk':
+                apk = args.apk.expanduser().absolute()
+                if apk.is_symlink() or not apk.is_file() or apk.suffix.lower() != '.apk':
                     raise CliError('apps install requires a regular .apk file')
-                verification = _verify(config)
-                if not verification['ready']:
-                    _emit(verification, True)
-                    raise CliError('runtime artifacts are missing, unverified, or not reproducible')
-                install_status = _run_script('run_aaas.py', '--install-apk', apk,
-                                             '--app', 'com.android.settings', config=config)
+                print('WARNING: AaaS development runtime; Android SELinux enforcement is '
+                      'unavailable. Install only APKs you trust.', file=sys.stderr)
+                if (_runtime_unit_path(config).is_file() and
+                        _status(config)['runtime']['state'] == 'STOPPED'):
+                    _runtime_start(config)
+                install_status = _run_script('aaasctl.py', 'install-apk', apk,
+                                             config=config)
                 if install_status == 0:
                     catalog_status = _run_script('aaas_desktop.py', 'catalog', 'refresh',
                                                  config=config, check=False)

@@ -27,7 +27,8 @@ ANCHORS = ("com.android.settings", "com.android.contacts")
 
 def applications_dir(env=None):
     env = os.environ if env is None else env
-    data_home = Path(env.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    data_home = Path(env.get("AAAS_DESKTOP_DATA_HOME") or
+                     env.get("XDG_DATA_HOME") or Path.home() / ".local/share")
     if not data_home.is_absolute():
         raise ValueError("XDG_DATA_HOME must be an absolute path")
     return data_home / "applications"
@@ -200,19 +201,38 @@ def _catalog_entry_text(application, icon, env=None):
     comment = ("AaaS development runtime; Android SELinux enforcement unavailable. "
                "Trusted APKs only." if development_profile else
                f"Run {desktop_escape(name)} with AaaS")
+    launcher = env.get("AAAS_LAUNCHER_PATH")
+    command = ((launcher, "apps", "launch", package) if launcher else
+               (sys.executable, script, "launch", "--package", package))
     fields = [
         "[Desktop Entry]", "Type=Application", f"Name={desktop_escape(name)}",
         f"Comment={comment}", "Terminal=false",
         "Categories=Utility;", "StartupNotify=false",
         "X-AaaS-Package=" + package,
         "X-AaaS-VersionCode=" + str(application["version_code"]),
-        "Exec=" + " ".join(desktop_exec_quote(token) for token in
-                             (sys.executable, script, "launch", "--package", package)),
+        "Exec=" + " ".join(desktop_exec_quote(token) for token in command),
         "Icon=" + desktop_escape(icon_value),
     ]
     if development_profile:
         fields.append("X-AaaS-Security-Classification=LOCAL_DEVELOPMENT_DIAGNOSTIC")
     return "\n".join(fields) + "\n"
+
+
+def _is_legacy_aaas_catalog_entry(path, package):
+    """Recognize the earlier AaaS-generated launcher before portable upgrade.
+
+    Only the exact AaaS catalog filename plus its embedded package marker and
+    bridge entry point qualify. Unrelated desktop files remain protected.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+    return ("[Desktop Entry]" in text.splitlines()
+            and "Type=Application" in text.splitlines()
+            and f"X-AaaS-Package={package}" in text.splitlines()
+            and any(line.startswith("Exec=") and "aaas_desktop.py" in line
+                    for line in text.splitlines()))
 
 
 def sync_package_catalog(applications, *, env=None, truncated=False):
@@ -234,8 +254,9 @@ def sync_package_catalog(applications, *, env=None, truncated=False):
         desktop = app_dir / desktop_name
         was_owned = package in old_entries
         if desktop.exists() and not was_owned and not desktop.is_symlink():
-            collisions.append(package)
-            continue
+            if not _is_legacy_aaas_catalog_entry(desktop, package):
+                collisions.append(package)
+                continue
         if desktop.is_symlink():
             collisions.append(package)
             continue
@@ -320,13 +341,17 @@ def _active_session():
 def refresh_package_catalog(*, env=None):
     status, endpoint = _active_session()
     started_session = status is None or status.get("state") not in ("STARTING", "RUNNING")
+    persistent_service = _persistent_service_unit_path().is_file()
     session_dir = None
     if started_session:
         launch_application("com.android.settings")
         status, endpoint = _active_session()
         if status is None:
             raise RuntimeError("AaaS did not publish a control endpoint after startup")
-        session_dir = endpoint.parent.parent
+        # A service-owned runtime is persistent even if catalog refresh had to
+        # start it. Only a foreground temporary session is stopped here.
+        if not persistent_service:
+            session_dir = endpoint.parent.parent
     try:
         snapshot = request_package_catalog()
         synchronized = sync_package_catalog(
@@ -463,11 +488,33 @@ def _newest_session_after(started_at):
     return max(sessions, key=lambda item: item.stat().st_mtime, default=None)
 
 
+def _persistent_service_unit_path():
+    try:
+        manager = subprocess.run(['systemctl', '--user', 'show-environment'],
+                                 capture_output=True, text=True, timeout=3)
+        manager_config = next((line.split('=', 1)[1] for line in
+                               manager.stdout.splitlines()
+                               if line.startswith('XDG_CONFIG_HOME=')), None)
+        if manager.returncode == 0 and manager_config:
+            root = Path(manager_config)
+        else:
+            clean_env = dict(os.environ)
+            clean_env.pop('XDG_CONFIG_HOME', None)
+            result = subprocess.run(['systemd-path', 'user-configuration'],
+                                    env=clean_env, capture_output=True, text=True,
+                                    timeout=3)
+            root = Path(result.stdout.strip()) if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        root = None
+    if not root or not root.is_absolute():
+        root = aaas_config.xdg_paths()['config_home']
+    return root / 'systemd/user/aaas-runtime.service'
+
+
 def _persistent_service_active():
     """Distinguish a temporarily unpublished service socket from no runtime."""
     try:
-        unit = (aaas_config.xdg_paths()['config_home'] /
-                'systemd/user/aaas-runtime.service')
+        unit = _persistent_service_unit_path()
         if not unit.is_file():
             return False
         result = subprocess.run(['systemctl', '--user', 'is-active',
@@ -476,6 +523,43 @@ def _persistent_service_active():
         return result.returncode == 0 and result.stdout.strip() == 'active'
     except (OSError, subprocess.SubprocessError, ValueError):
         return False
+
+
+def _start_persistent_service():
+    """Start the installed service from a desktop click and await its socket."""
+    names = ('WAYLAND_DISPLAY', 'DISPLAY', 'XDG_RUNTIME_DIR',
+             'DBUS_SESSION_BUS_ADDRESS', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME',
+             'XDG_CACHE_HOME', 'XDG_STATE_HOME')
+    present = [name for name in names if os.environ.get(name)]
+    if present:
+        imported = subprocess.run(['systemctl', '--user', 'import-environment',
+                                   *present], capture_output=True, text=True,
+                                  timeout=10)
+        if imported.returncode:
+            raise RuntimeError('cannot import the active desktop session into systemd: ' +
+                               (imported.stderr or imported.stdout).strip())
+    started = subprocess.run(['systemctl', '--user', 'start', 'aaas-runtime.service'],
+                             capture_output=True, text=True, timeout=270)
+    if started.returncode:
+        raise RuntimeError('cannot start the AaaS user service: ' +
+                           (started.stderr or started.stdout).strip())
+    deadline = time.monotonic() + 250
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            _socket, status = _control_request({'op': 'list'}, timeout=5)
+            if status.get('state') == 'RUNNING':
+                return
+        except RuntimeError as error:
+            last_error = error
+        active = subprocess.run(['systemctl', '--user', 'is-active',
+                                 'aaas-runtime.service'], capture_output=True,
+                                text=True, timeout=3)
+        if active.returncode:
+            break
+        time.sleep(.25)
+    raise RuntimeError('AaaS service did not become ready after desktop launch: ' +
+                       str(last_error or 'systemd stopped the service'))
 
 
 def launch_application(package, native_bridge_bundle=None, timeout=240):
@@ -517,6 +601,15 @@ def launch_application(package, native_bridge_bundle=None, timeout=240):
             if not result.get("ok"):
                 raise RuntimeError(f"active AaaS session could not launch app: {result}")
             return {"mode": "reused", **result}
+        if status is None and _persistent_service_unit_path().is_file():
+            # Installed catalog entries go through the same persistent runtime
+            # as CLI launch. A stopped service is started once, then this app
+            # is allocated through its live control socket.
+            _start_persistent_service()
+            _, result = _control_request({"op": "launch", "package": package}, timeout=90)
+            if not result.get("ok"):
+                raise RuntimeError(f"persistent AaaS runtime could not launch app: {result}")
+            return {"mode": "service-started", **result}
         if status is not None and status.get("state") in ("STOPPING", "STOPPED", "FAILED"):
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:

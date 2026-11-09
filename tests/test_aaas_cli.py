@@ -51,7 +51,10 @@ class AaasCliTests(unittest.TestCase):
     def test_runtime_service_gracefully_stops_its_android_child(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = self.config(temporary)
-            with mock.patch.object(aaas_cli, '_runtime_systemctl'):
+            with mock.patch.object(aaas_cli, '_runtime_systemctl'), \
+                    mock.patch.object(aaas_cli, '_runtime_unit_path',
+                                      return_value=config.config_file.parent.parent /
+                                      'systemd/user/aaas-runtime.service'):
                 unit = aaas_cli._install_runtime_service(config)
             contents = unit.read_text()
         self.assertIn('KillMode=mixed', contents)
@@ -188,6 +191,26 @@ class AaasCliTests(unittest.TestCase):
             self.assertEqual(args.args[:3],
                              ('run_aaas.py', '--headless-storage', '--install-apk'))
             self.assertIn('AAAS_HEADLESS_STORAGE', args.kwargs['env_extra'])
+            self.assertEqual(run.call_args_list[1].args[:3],
+                             ('aaas_desktop.py', 'catalog', 'refresh'))
+
+    def test_apps_install_uses_the_running_package_manager(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            apk = Path(temporary) / 'trusted-test.apk'
+            apk.write_bytes(b'fixture')
+            unit = Path(temporary) / 'aaas-runtime.service'
+            unit.write_text('installed')
+            with mock.patch.object(aaas_cli.aaas_config, 'resolve_config',
+                                   return_value=config), \
+                    mock.patch.object(aaas_cli, '_verify', return_value={'ready': True}), \
+                    mock.patch.object(aaas_cli, '_runtime_unit_path', return_value=unit), \
+                    mock.patch.object(aaas_cli, '_status', return_value={
+                        'runtime': {'state': 'RUNNING'}}), \
+                    mock.patch.object(aaas_cli, '_run_script', return_value=0) as run:
+                self.assertEqual(aaas_cli.main(['apps', 'install', str(apk)]), 0)
+            self.assertEqual(run.call_args_list[0].args[:2],
+                             ('aaasctl.py', 'install-apk'))
             self.assertEqual(run.call_args_list[1].args[:3],
                              ('aaas_desktop.py', 'catalog', 'refresh'))
 

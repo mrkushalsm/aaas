@@ -19,6 +19,7 @@ import sys
 import stat
 import tempfile
 import uuid
+import shlex
 
 import android_workspace
 
@@ -74,7 +75,13 @@ EXTRA_BINARIES = {
     'experiments/m1c/input_adapter/build/aaas-input-adapter',
     'experiments/m4/clipboard/build/aaas-wayland-clipboard',
 }
-RUNTIME_FILES = ('experiments/perf/input_latency_probe/build_probe.py',)
+RUNTIME_FILES = (
+    'experiments/perf/input_latency_probe/build_probe.py',
+    # The enrolled external workspace policy hashes this recovery record. Keep
+    # the evidence beside the installed runtime so checkout-free verification
+    # can validate the same attestation without relaxing the health guard.
+    'docs/storage/ext4-controlled-recovery-followup-2026-11-10.md',
+)
 WORKSPACE_FILES = (
     'tmp/m1b84_composer_portrait_720x1280',
     'tmp/android.hardware.graphics.composer3-service.aaas',
@@ -693,13 +700,15 @@ def enroll_installer_workspace(installation: Path, workspace: Path):
 
 
 def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
-                   config_home: Path, data_home: Path):
+                   config_home: Path, data_home: Path, desktop_home: Path | None = None):
     verified = verify_bundle(bundle)
     bundle = bundle.expanduser().resolve(strict=True)
     workspace = workspace.expanduser().absolute()
     install_root = install_root.expanduser().absolute()
     config_home = config_home.expanduser().absolute()
     data_home = data_home.expanduser().absolute()
+    desktop_home = (Path(desktop_home).expanduser().absolute() if desktop_home else
+                    Path.home() / '.local/share')
     for path in (workspace, install_root, config_home, data_home):
         if not path.is_absolute():
             raise BundleError(f'installation path must be absolute: {path}')
@@ -734,20 +743,24 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
             (workspace.parent, workspace_device, workspace_bytes)):
         growth_by_device[device] = growth_by_device.get(device, 0) + growth
         paths_by_device.setdefault(device, path)
-    root_growth = growth_by_device.get(root_device, 0)
-    root_free = _filesystem_available_bytes(Path('/'))
-    if root_free - root_growth < MIN_FREE_RESERVE:
-        raise BundleError('host root filesystem would violate the 20 GiB free-space reserve: '
-                          f'free={root_free} predicted={root_growth} '
-                          f'reserve={MIN_FREE_RESERVE}')
     workspace_reserve = android_workspace.DEFAULT_WORKSPACE_FREE_RESERVE_GIB * GIB
     for device, growth in growth_by_device.items():
         path = paths_by_device[device]
-        reserve = MIN_FREE_RESERVE if device == root_device else workspace_reserve
+        # Apply the reserve to the filesystem receiving payload writes. A
+        # release installed on a separate workspace does not consume root.
+        if device == root_device:
+            reserve_gib = int(os.environ.get('AAAS_ROOT_FREE_RESERVE_GIB', '20'))
+        else:
+            reserve_gib = int(os.environ.get(
+                'AAAS_INSTALL_FREE_RESERVE_GIB',
+                str(android_workspace.DEFAULT_WORKSPACE_FREE_RESERVE_GIB)))
+        if not 0 <= reserve_gib <= 1024:
+            raise BundleError('configured filesystem free-space reserve must be 0..1024 GiB')
+        reserve = reserve_gib * GIB
         available = _filesystem_available_bytes(path)
         if available - growth < reserve:
             label = 'host root' if device == root_device else 'installation/workspace'
-            raise BundleError(f'{label} filesystem lacks data plus free-space reserve: '
+            raise BundleError(f'{label} target filesystem lacks payload plus configured reserve: '
                               f'free={available} predicted={growth} reserve={reserve}')
     stage = install_root.with_name(f'.{install_root.name}.staging-{uuid.uuid4().hex}')
     installed = config_written = data_written = workspace_created = False
@@ -780,7 +793,15 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
         bindir.mkdir()
         launcher = bindir / 'aaas'
         launcher.write_text(
-            '#!/bin/sh\nset -eu\nexec python3 "$(dirname "$0")/../runtime/scripts/aaas_cli.py" "$@"\n',
+            '#!/bin/sh\nset -eu\n'
+            'SELF=$(readlink -f -- "$0")\n'
+            'INSTALL_ROOT=$(dirname -- "$(dirname -- "$SELF")")\n'
+            'unset AAAS_WORKSPACE AAAS_ROOTFS AAAS_RUNTIME_ROOT AAAS_PROFILE\n'
+            f'export XDG_CONFIG_HOME={shlex.quote(str(config_home))}\n'
+            f'export XDG_DATA_HOME={shlex.quote(str(data_home))}\n'
+            f'export AAAS_DESKTOP_DATA_HOME={shlex.quote(str(desktop_home))}\n'
+            'export AAAS_LAUNCHER_PATH="$INSTALL_ROOT/bin/aaas"\n'
+            'exec python3 "$INSTALL_ROOT/runtime/scripts/aaas_cli.py" "$@"\n',
             encoding='utf-8')
         launcher.chmod(0o755)
         install_integrity = verify_installation(stage)

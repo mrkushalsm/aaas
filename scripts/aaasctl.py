@@ -23,7 +23,7 @@ def active_control_socket():
     for path in candidates:
         try:
             connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            connection.settimeout(90)
+            connection.settimeout(180)
             connection.connect(str(path))
             return connection
         except OSError:
@@ -42,6 +42,9 @@ def main(argv=None):
     launch.add_argument('package')
     close = subparsers.add_parser('close', help='close an app window by bounded slot')
     close.add_argument('slot', type=int)
+    install_apk = subparsers.add_parser(
+        'install-apk', help='install a local APK into the running Android runtime')
+    install_apk.add_argument('path', type=Path)
     stop_app = subparsers.add_parser('stop-app', help='stop Android app in a window slot')
     stop_app.add_argument('slot', type=int)
     storage = subparsers.add_parser('storage', help='inspect Android shared storage')
@@ -165,6 +168,16 @@ def main(argv=None):
         request['mode'] = args.mode
     if args.operation == 'launch':
         request['package'] = args.package
+    elif args.operation == 'install-apk':
+        try:
+            apk = args.path.expanduser().absolute()
+            if (apk.is_symlink() or not apk.is_file() or
+                    apk.suffix.lower() != '.apk'):
+                raise ValueError('expected a regular local .apk file')
+            request = {'op': 'install_apk', 'path': str(apk)}
+        except (OSError, ValueError) as error:
+            print(f'aaasctl: invalid APK: {error}', file=sys.stderr)
+            return 2
     elif args.operation in ('close', 'stop-app'):
         request['slot'] = args.slot
         if args.operation == 'stop-app':

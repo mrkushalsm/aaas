@@ -2517,6 +2517,24 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '      fi\n'
             )
         if experimental_virtual_display:
+            readiness_and_watch += (
+                '      if [ -s /dev/aaas/apk_install_request ]; then\n'
+                '        read INSTALL_ID INSTALL_PATH_B64 < /dev/aaas/apk_install_request\n'
+                '        : > /dev/aaas/apk_install_request\n'
+                '        case "$INSTALL_ID" in ""|*[!0-9a-f]*) INSTALL_ID=invalid ;; esac\n'
+                '        INSTALL_PATH=$(printf "%s" "$INSTALL_PATH_B64" | '
+                '/system/bin/toybox base64 -d 2>/dev/null)\n'
+                '        if [ "$INSTALL_ID" != invalid ] && [ "$INSTALL_PATH" = '
+                '"/storage/emulated/0/.aaas-install-$INSTALL_ID.apk" ]; then\n'
+                '          INSTALL_OUTPUT=$(/system/bin/pm install -r "$INSTALL_PATH" 2>&1)\n'
+                '          INSTALL_STATUS=$?\n'
+                '        else INSTALL_OUTPUT=invalid_path; INSTALL_STATUS=2; fi\n'
+                '        INSTALL_OUTPUT_B64=$(printf "%s" "$INSTALL_OUTPUT" | '
+                '/system/bin/toybox base64 | /system/bin/toybox tr -d "\\n")\n'
+                '        echo "$INSTALL_ID $INSTALL_STATUS $INSTALL_OUTPUT_B64" '
+                '> /dev/aaas/apk_install_ack\n'
+                '      fi\n'
+            )
             for slot in range(1, max_apps + 1):
                 suffix = '' if slot == 1 else str(slot)
                 app_variable = 'APP_PACKAGE' + suffix
@@ -3428,6 +3446,10 @@ def main():
                 path = ipc / name
                 path.write_text('')
                 path.chmod(0o600)
+        for name in ('apk_install_request', 'apk_install_ack'):
+            path = ipc / name
+            path.write_text('')
+            path.chmod(0o600)
     if storage_scan_apk is not None:
         for name in ('storage_scan_request', 'storage_scan_ack',
                      'storage_scan_query_request', 'storage_scan_query_ack',
@@ -3999,6 +4021,59 @@ def main():
                         'detail': ack[:160] or 'timeout'}
             return {'ok': True, 'slot': slot, 'package': package,
                     'state': 'STOPPING'}
+        if op == 'install_apk':
+            apk_value = request.get('path')
+            try:
+                apk = Path(apk_value)
+                if (not apk.is_absolute() or apk.is_symlink() or not apk.is_file() or
+                        apk.suffix.lower() != '.apk' or apk.stat().st_size > 512 * 1024 * 1024):
+                    return {'ok': False, 'error': 'invalid_apk_file'}
+                storage_root = Path(shared_storage_path).resolve(strict=True)
+                if not storage_root.is_dir() or storage_root.is_symlink():
+                    return {'ok': False, 'error': 'shared_storage_unavailable'}
+            except (OSError, TypeError, ValueError) as error:
+                return {'ok': False, 'error': 'invalid_apk_file',
+                        'detail': str(error)[:160]}
+            request_id = os.urandom(16).hex()
+            staged = storage_root / f'.aaas-install-{request_id}.apk'
+            request_path = ipc / 'apk_install_request'
+            ack_path = ipc / 'apk_install_ack'
+            try:
+                descriptor = os.open(staged, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+                with apk.open('rb') as source, os.fdopen(descriptor, 'wb') as target:
+                    shutil.copyfileobj(source, target, 1024 * 1024)
+                encoded = base64.b64encode(
+                    f'/storage/emulated/0/{staged.name}'.encode()).decode('ascii')
+                ack_path.write_text('')
+                atomic_control_write(request_path, f'{request_id} {encoded}')
+            except OSError as error:
+                staged.unlink(missing_ok=True)
+                return {'ok': False, 'error': 'apk_stage_failed',
+                        'detail': str(error)[:160]}
+            try:
+                deadline = time.monotonic() + 120
+                fields = []
+                while time.monotonic() < deadline:
+                    try:
+                        fields = ack_path.read_text().strip().split(maxsplit=2)
+                    except OSError:
+                        fields = []
+                    if len(fields) == 3 and fields[0] == request_id:
+                        break
+                    time.sleep(.1)
+                if len(fields) != 3 or fields[0] != request_id:
+                    return {'ok': False, 'error': 'apk_install_timeout'}
+                try:
+                    detail = base64.b64decode(fields[2], validate=True).decode(
+                        'utf-8', 'replace')
+                    status_code = int(fields[1])
+                except (ValueError, base64.binascii.Error):
+                    return {'ok': False, 'error': 'apk_install_response_invalid'}
+                return {'ok': status_code == 0 and 'Success' in detail,
+                        'action': 'package_manager_install',
+                        'detail': detail[:1000], 'package_manager_status': status_code}
+            finally:
+                staged.unlink(missing_ok=True)
         if op == 'package_catalog':
             if storage_scan_apk is None:
                 return {'ok': False, 'error': 'package_catalog_helper_unavailable'}
