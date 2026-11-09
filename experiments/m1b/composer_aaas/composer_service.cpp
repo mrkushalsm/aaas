@@ -12,16 +12,17 @@
 #include <sys/stat.h>
 #include <linux/dma-buf.h>
 #include <poll.h>
+#include <dirent.h>
 
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <string>
+#include <map>
 #include <thread>
 #include <vector>
 #include <set>
 #include <mutex>
-#include <unordered_map>
 
 #include <android/binder_ibinder.h>
 #include <android/binder_manager.h>
@@ -55,8 +56,11 @@
 #ifndef AAAS_DISPLAY_HEIGHT
 #define AAAS_DISPLAY_HEIGHT 720
 #endif
-#ifndef AAAS_VIRTUAL_DISPLAY_CAPACITY
-#define AAAS_VIRTUAL_DISPLAY_CAPACITY 1
+#ifndef AAAS_VIRTUAL_DISPLAY_MAX_COUNT
+#define AAAS_VIRTUAL_DISPLAY_MAX_COUNT 64
+#endif
+#ifndef AAAS_VIRTUAL_DISPLAY_ENDPOINT_DIR
+#define AAAS_VIRTUAL_DISPLAY_ENDPOINT_DIR "/dev/aaas/virtual-endpoints"
 #endif
 
 extern "C" {
@@ -195,7 +199,7 @@ struct VirtualDisplayState {
     std::unordered_map<int64_t, VirtualLayerState> layers;
     int current_output_slot = -1;
     int current_client_slot = -1;
-    int transport_slot = -1;
+    std::string transport_path;
     uint32_t ownership_diagnostics = 0;
     uint32_t empty_frame_diagnostics = 0;
 };
@@ -206,22 +210,8 @@ public:
         : mNextLayerId(1), mCurrentClientTargetSlot(-1),
           mNeedsValidation(true), mVsyncEnabled(false), mRunning(true) {
 #ifdef AAAS_ENABLE_VIRTUAL_DISPLAY
-        for (int i = 0; i < AAAS_VIRTUAL_DISPLAY_CAPACITY; ++i) {
-            auto transport = std::make_unique<AaasTransport>();
-            std::string socket_path = AAAS_VIRTUAL_DISPLAY_SOCKET;
-            if (i > 0) socket_path += "-" + std::to_string(i + 1);
-            transport->initialize(socket_path);
-            // Advertise only endpoints already listening. A display never
-            // shares another display's transport object or slot namespace.
-            for (int wait = 0; wait < 100 && !transport->isConnected(); ++wait) usleep(10000);
-            const bool ready = transport->isConnected();
-            kmsg_log("[AaasComposerClient] virtual transport slot=%d socket=%s ready=%d\n",
-                     i, socket_path.c_str(), ready ? 1 : 0);
-            mVirtualTransportPaths.push_back(socket_path);
-            mVirtualTransportReady.push_back(ready);
-            mVirtualTransportUsed.push_back(false);
-            mVirtualTransports.push_back(std::move(transport));
-        }
+        kmsg_log("[AaasComposerClient] virtual transports are registered on demand from %s\n",
+                 AAAS_VIRTUAL_DISPLAY_ENDPOINT_DIR);
 #endif
         kmsg_log("[AaasComposerClient] Instance created (M1B.7)\n");
     }
@@ -237,7 +227,7 @@ public:
             entry.second->destroyed = true;
             closeVirtualDisplayState(*entry.second);
         }
-        for (auto& transport : mVirtualTransports) transport->shutdown();
+        for (auto& entry : mVirtualTransports) entry.second->shutdown();
     }
 
     ::ndk::ScopedAStatus registerCallback(const std::shared_ptr<IComposerCallback>& in_callback) override {
@@ -707,9 +697,6 @@ public:
     }
 
     ::ndk::ScopedAStatus createVirtualDisplay(int32_t in_width, int32_t in_height, PixelFormat in_formatHint, int32_t in_outputBufferSlotCount, VirtualDisplay* _aidl_return) override {
-        if (availableVirtualDisplayCount() == 0) {
-            return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_UNSUPPORTED);
-        }
         if (in_width <= 0 || in_height <= 0 || in_width > 4096 || in_height > 4096 ||
             // Android 16 SurfaceFlinger currently requests one HAL output
             // buffer slot for each virtual display (AidlComposer.cpp).
@@ -720,9 +707,9 @@ public:
             return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_UNSUPPORTED);
         }
         std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
-        const int transport_slot = reserveVirtualTransport(
-                mVirtualTransportReady, mVirtualTransportUsed);
-        if (transport_slot < 0) {
+        refreshVirtualTransports();
+        auto transport = findAvailableVirtualTransport();
+        if (transport == mVirtualTransports.end()) {
             return ::ndk::ScopedAStatus::fromServiceSpecificError(IComposerClient::EX_NO_RESOURCES);
         }
         const int64_t id = mNextVirtualDisplayId++;
@@ -730,10 +717,10 @@ public:
         state->width = in_width;
         state->height = in_height;
         state->format = in_formatHint;
-        state->transport_slot = transport_slot;
+        state->transport_path = transport->first;
         state->output_slots.resize(static_cast<size_t>(in_outputBufferSlotCount));
         mVirtualDisplays.emplace(id, std::move(state));
-        mVirtualTransportUsed[transport_slot] = true;
+        mVirtualTransportUsed[transport->first] = true;
         _aidl_return->display = id;
         _aidl_return->format = in_formatHint;
         kmsg_log("[AaasComposerClient] createVirtualDisplay id=%lld size=%dx%d slots=%d format=%d\n",
@@ -753,32 +740,24 @@ public:
             state = it->second;
             mVirtualDisplays.erase(it);
         }
-        int transport_slot = -1;
+        std::string transport_path;
         {
             std::lock_guard<std::mutex> state_lock(state->lock);
             state->destroyed = true;
-            transport_slot = state->transport_slot;
+            transport_path = state->transport_path;
             closeVirtualDisplayState(*state);
         }
-        if (transport_slot >= 0 &&
-            static_cast<size_t>(transport_slot) < mVirtualTransportUsed.size()) {
+        if (!transport_path.empty()) {
             std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
-            // Presenter processes keep their socket listener alive when an app
-            // closes. Recycle the Composer transport connection synchronously
-            // so a later virtual display can reuse this endpoint safely.
-            const size_t index = static_cast<size_t>(transport_slot);
-            mVirtualTransportReady[index] = false;
-            mVirtualTransportUsed[index] = true;
-            mVirtualTransports[index]->shutdown();
-            const bool reconnected = mVirtualTransports[index]->initialize(
-                    mVirtualTransportPaths[index]);
-            for (int wait = 0; reconnected && wait < 200 &&
-                    !mVirtualTransports[index]->isConnected(); ++wait) usleep(10000);
-            mVirtualTransportReady[index] = reconnected &&
-                    mVirtualTransports[index]->isConnected();
-            mVirtualTransportUsed[index] = false;
-            kmsg_log("[AaasComposerClient] recycled virtual transport slot=%d ready=%d\n",
-                     transport_slot, mVirtualTransportReady[index] ? 1 : 0);
+            auto it = mVirtualTransports.find(transport_path);
+            if (it != mVirtualTransports.end()) {
+                it->second->shutdown();
+                mVirtualTransports.erase(it);
+            }
+            mVirtualTransportUsed.erase(transport_path);
+            mConsumedVirtualEndpoints.erase(transport_path);
+            kmsg_log("[AaasComposerClient] destroyed on-demand transport %s\n",
+                     transport_path.c_str());
         }
         kmsg_log("[AaasComposerClient] destroyVirtualDisplay id=%lld\n", (long long)in_display);
         return ::ndk::ScopedAStatus::ok();
@@ -790,8 +769,13 @@ public:
     }
 
     ::ndk::ScopedAStatus getMaxVirtualDisplayCount(int32_t* _aidl_return) override {
-        *_aidl_return = availableVirtualDisplayCount();
-        kmsg_log("[AaasComposerClient] getMaxVirtualDisplayCount -> %d independent transports ready\n",
+        std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
+        refreshVirtualTransports();
+        // SurfaceFlinger snapshots this capability during startup. Report the
+        // supported bound, while createVirtualDisplay still requires a live,
+        // explicitly registered transport for each on-demand display.
+        *_aidl_return = AAAS_VIRTUAL_DISPLAY_MAX_COUNT;
+        kmsg_log("[AaasComposerClient] getMaxVirtualDisplayCount -> %d dynamic endpoints\n",
                  *_aidl_return);
         return ::ndk::ScopedAStatus::ok();
     }
@@ -803,10 +787,52 @@ private:
         return it == mVirtualDisplays.end() ? nullptr : it->second;
     }
 
-    int32_t availableVirtualDisplayCount() const {
-        int32_t count = 0;
-        for (bool ready : mVirtualTransportReady) if (ready) ++count;
-        return count;
+    using VirtualTransportMap = std::map<std::string,
+            std::unique_ptr<AaasTransport>>;
+
+    VirtualTransportMap::iterator findAvailableVirtualTransport() {
+        for (auto it = mVirtualTransports.begin(); it != mVirtualTransports.end(); ++it) {
+            auto used = mVirtualTransportUsed.find(it->first);
+            if (it->second->isConnected() &&
+                (used == mVirtualTransportUsed.end() || !used->second)) return it;
+        }
+        return mVirtualTransports.end();
+    }
+
+    void refreshVirtualTransports() {
+        DIR* directory = opendir(AAAS_VIRTUAL_DISPLAY_ENDPOINT_DIR);
+        if (!directory) return;
+        struct dirent* entry;
+        while ((entry = readdir(directory)) != nullptr) {
+            if (entry->d_name[0] == '.') continue;
+            const std::string registration = std::string(AAAS_VIRTUAL_DISPLAY_ENDPOINT_DIR)
+                    + "/" + entry->d_name;
+            char path[512] = {};
+            int fd = open(registration.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+            if (fd < 0) continue;
+            ssize_t size = read(fd, path, sizeof(path) - 1);
+            close(fd);
+            if (size <= 0 || size >= static_cast<ssize_t>(sizeof(path) - 1)) continue;
+            while (size > 0 && (path[size - 1] == '\n' || path[size - 1] == '\r')) path[--size] = 0;
+            const std::string socket_path(path);
+            if (socket_path.empty() || socket_path[0] != '/' ||
+                mVirtualTransports.find(socket_path) != mVirtualTransports.end() ||
+                mConsumedVirtualEndpoints.count(socket_path)) continue;
+            auto transport = std::make_unique<AaasTransport>();
+            const bool initialized = transport->initialize(socket_path);
+            for (int wait = 0; initialized && wait < 100 &&
+                    !transport->isConnected(); ++wait) usleep(10000);
+            if (!initialized || !transport->isConnected()) {
+                transport->shutdown();
+                continue;
+            }
+            mVirtualTransports.emplace(socket_path, std::move(transport));
+            mConsumedVirtualEndpoints.insert(socket_path);
+            unlink(registration.c_str());
+            kmsg_log("[AaasComposerClient] registered on-demand transport %s\n",
+                     socket_path.c_str());
+        }
+        closedir(directory);
     }
 
     static void closeVirtualSlot(VirtualBufferSlot& slot) {
@@ -1362,9 +1388,9 @@ private:
                            ? 0x34325241 : 0x34324241;
         frame.modifier = 0;
         frame.is_linear = true;
-        if (state.transport_slot < 0 ||
-            static_cast<size_t>(state.transport_slot) >= mVirtualTransports.size()) return false;
-        AaasTransport& transport = *mVirtualTransports[state.transport_slot];
+        auto transport_it = mVirtualTransports.find(state.transport_path);
+        if (transport_it == mVirtualTransports.end()) return false;
+        AaasTransport& transport = *transport_it->second;
         if (transport.submitFrame(frame) != 0 ||
             !transport.waitForSlotRelease(frame.slot, 250) ||
             !transport.isConnected()) {
@@ -1559,10 +1585,9 @@ private:
     std::mutex mVirtualDisplayLock;
     std::unordered_map<int64_t, std::shared_ptr<VirtualDisplayState>> mVirtualDisplays;
     int64_t mNextVirtualDisplayId = 100;
-    std::vector<std::unique_ptr<AaasTransport>> mVirtualTransports;
-    std::vector<std::string> mVirtualTransportPaths;
-    std::vector<bool> mVirtualTransportReady;
-    std::vector<bool> mVirtualTransportUsed;
+    VirtualTransportMap mVirtualTransports;
+    std::map<std::string, bool> mVirtualTransportUsed;
+    std::set<std::string> mConsumedVirtualEndpoints;
     int mCurrentClientTargetSlot;
     bool mNeedsValidation;
 

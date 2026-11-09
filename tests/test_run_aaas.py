@@ -727,7 +727,7 @@ class ForegroundRunnerTests(unittest.TestCase):
                 SESSION.make_session_runner(session, app_package='com.android.music',
                     audio_media_file='../secret.wav')
 
-    def test_multi_app_mode_builds_capacity_eight_composer(self):
+    def test_multi_app_mode_builds_on_demand_composer(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'composer-two-output'
             libcxx = Path(directory) / 'libc++'
@@ -745,8 +745,9 @@ class ForegroundRunnerTests(unittest.TestCase):
                 self.assertEqual(SESSION.build_multi_output_composer(), output)
 
                 command = run.call_args.args[0]
-            self.assertIn('AAAS_VIRTUAL_DISPLAY_CAPACITY=8', command)
+            self.assertNotIn('AAAS_VIRTUAL_DISPLAY_CAPACITY=8', command)
             self.assertIn('AAAS_ENABLE_VIRTUAL_DISPLAY=1', command)
+            self.assertIn('AAAS_VIRTUAL_DISPLAY_MAX_COUNT=64', command)
             self.assertIn(f'BIN={output}', command)
 
     def test_app_mode_hides_primary_diagnostic_unless_explicitly_requested(self):
@@ -1736,14 +1737,24 @@ class ForegroundRunnerTests(unittest.TestCase):
         control = (SCRIPT.parent / 'aaasctl.py').read_text()
         self.assertIn("control_server.bind(str(control_path))", launcher)
         self.assertIn("'capacity_exhausted'", launcher)
-        self.assertIn('range(1, 9)', launcher)
-        self.assertIn('slot_presenters = {index: None for index in range(1, 9)}', launcher)
+        self.assertIn('range(1, args.max_apps + 1)', launcher)
+        self.assertIn('slot_presenters = {index: None for index in range(1, args.max_apps + 1)}', launcher)
         self.assertIn('configuredDisplayCount',
                       (SCRIPT.parents[1] /
                        'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text())
         self.assertIn("'--app-extra'", launcher)
         for command in ('list', 'launch', 'close', 'stop-app', 'stop'):
             self.assertIn(f"add_parser('{command}'", control)
+
+    def test_virtual_display_runner_generates_requested_dynamic_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True,
+                app_package='com.android.settings', max_apps=12
+            ).read_text()
+        self.assertIn('app12_launch_request', generated)
+        self.assertIn('app12_stop_request', generated)
+        self.assertNotIn('app13_launch_request', generated)
 
     def test_dynamic_presenter_clears_previous_resize_before_reopen(self):
         launcher = SCRIPT.read_text()
@@ -1788,7 +1799,8 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('window_hidden_after_app_close', gpu)
         self.assertIn('wl_surface_attach(a->surface, NULL, 0, 0)', gpu)
         self.assertIn('request_window_identity(slot, package)', launcher)
-        self.assertIn('hide_presenter_window(index)', launcher)
+        self.assertIn('terminate_process_group(process)', launcher)
+        self.assertIn('registration.unlink(missing_ok=True)', launcher)
         self.assertIn('aaas-catalog-{package}', launcher)
         self.assertNotIn("placeholder = f'available-slot-", launcher)
 

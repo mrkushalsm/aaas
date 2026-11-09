@@ -10,7 +10,7 @@ BIN ?= $(OUT_DIR)/android.hardware.graphics.composer3-service.aaas
 AAAS_DISPLAY_WIDTH ?= 1280
 AAAS_DISPLAY_HEIGHT ?= 720
 AAAS_ENABLE_VIRTUAL_DISPLAY ?= 0
-AAAS_VIRTUAL_DISPLAY_CAPACITY ?= 1
+AAAS_VIRTUAL_DISPLAY_MAX_COUNT ?= 64
 
 SRCS := composer_service.cpp aaas_transport.cpp ../../m1a/src/wire_v2.c
 HEADERS := aaas_transport.h linear_copy.h mixed_compose.h virtual_transport_pool.h
@@ -26,8 +26,8 @@ CXXFLAGS := -target $(TARGET) -std=c++17 -nostdlib -nostdinc++ -fno-rtti \
 
 ifeq ($(AAAS_ENABLE_VIRTUAL_DISPLAY),1)
 CXXFLAGS += -DAAAS_ENABLE_VIRTUAL_DISPLAY=1 \
-  -DAAAS_VIRTUAL_DISPLAY_CAPACITY=$(AAAS_VIRTUAL_DISPLAY_CAPACITY) \
-  -DAAAS_VIRTUAL_DISPLAY_SOCKET=\"/dev/aaas/wayland-vdisplay.sock\"
+  -DAAAS_VIRTUAL_DISPLAY_MAX_COUNT=$(AAAS_VIRTUAL_DISPLAY_MAX_COUNT) \
+  -DAAAS_VIRTUAL_DISPLAY_ENDPOINT_DIR=\"/dev/aaas/virtual-endpoints\"
 endif
 
 ifeq ($(AAAS_ENABLE_MIXED_COMPOSITION_TEST),1)
@@ -65,11 +65,13 @@ test: $(BUILD_DIR)/test-linear-copy $(BUILD_DIR)/test-virtual-transport-pool $(B
 	$(BUILD_DIR)/test-virtual-transport-pool
 	$(BUILD_DIR)/test-mixed-compose
 
-$(BIN): $(SRCS) $(HEADERS)
+$(BIN): FORCE $(SRCS) $(HEADERS) Makefile
 	@mkdir -p $(OUT_DIR)
 	$(CXX) $(CXXFLAGS) $(SRCS) $(LDFLAGS) -o $@
+
+FORCE:
 
 clean:
 	rm -f $(BIN)
 
-.PHONY: all clean test
+.PHONY: all clean test FORCE
