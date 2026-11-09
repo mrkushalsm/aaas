@@ -61,6 +61,16 @@ def _request(path: Path, op: str, slot: int | None = None):
     return json.loads(bytes(response).split(b'\n', 1)[0])
 
 
+def _runner_command(runner: Path, config):
+    """Build the persistent runner command from resolved user features."""
+    command = [sys.executable, str(runner), '--experimental-virtual-display',
+               '--app', 'com.android.settings', '--max-apps', '16',
+               '--idle-timeout-seconds', '3600']
+    if config.audio:
+        command.append('--audio')
+    return command
+
+
 def run():
     config = aaas_config.resolve_config(repository=ROOT)
     runtime = Path(os.environ.get('AAAS_RUNTIME_ROOT', ROOT)).resolve(strict=True)
@@ -79,9 +89,7 @@ def run():
         'PYTHONPATH': str(runtime / 'scripts') + os.pathsep +
                       environment.get('PYTHONPATH', ''),
     })
-    command = [sys.executable, str(runner), '--experimental-virtual-display',
-               '--app', 'com.android.settings', '--max-apps', '16',
-               '--idle-timeout-seconds', '3600']
+    command = _runner_command(runner, config)
     process = subprocess.Popen(command, env=environment, start_new_session=True)
     stopping = False
 
