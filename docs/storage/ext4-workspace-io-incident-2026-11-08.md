@@ -87,6 +87,16 @@ guard. KWin remained alive. The clean e2fsck result predates this recurrence
 and does not supersede it. Do not use the workspace until a new offline check
 and transport/device recovery assessment are completed.
 
+The user subsequently unmounted the filesystem and supplied a fresh `e2fsck
+-fn` run with exit code 0, plus passive SMART output showing the same UDMA CRC
+count (727), zero media-error counters, zero current SATA PHY ICRC/R_ERR, and
+one COMRESET. After UUID, workspace marker, userdata manifest, same-filesystem,
+and capacity checks passed, the recovery attestation was refreshed for guarded
+controlled testing. The prior device-offline event remains in history and the
+runtime monitor continues to quarantine on any new correlated storage error.
+Details are in
+[`ext4-controlled-recovery-followup-2026-11-10.md`](ext4-controlled-recovery-followup-2026-11-10.md).
+
 ## Post-check recovery transition
 
 On 2026-11-08 the user ran `e2fsck -fn` while the filesystem was unmounted;

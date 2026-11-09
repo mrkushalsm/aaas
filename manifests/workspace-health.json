@@ -64,21 +64,21 @@
           "filesystem": "ext4",
           "result": "clean",
           "volume_uuid": "094120c3-e1f8-4a61-a95a-c347ecb711d1",
-          "recorded_at": "2026-11-10T01:05:16+05:30",
-          "evidence_path": "docs/storage/ext4-controlled-recovery-2026-11-10.md",
-          "evidence_sha256": "43c1f6dc679d670b86e0df5c7dc202925d92e7a2e540b3ed62108f70ede50925"
+          "recorded_at": "2026-11-10T01:33:57+05:30",
+          "evidence_path": "docs/storage/ext4-controlled-recovery-followup-2026-11-10.md",
+          "evidence_sha256": "9f7405eb6b07f72192662a6cd68cd2aaea6e8261f60d29bdaaa4e843d7d7e5d9"
         },
         "device_health": {
           "status": "media_passed_transport_history",
           "serial": "2421E8B20AE0",
           "udev_id": "CT500BX500SSD1_2421E8B20AE0",
-          "checked_at": "2026-11-10T01:05:16+05:30",
-          "limitations": "SMART overall PASSED and media-error counters zero; cumulative UDMA CRC count increased from 717 to 727 and one COMRESET is reported; transport reliability unresolved",
-          "evidence_path": "docs/storage/ext4-controlled-recovery-2026-11-10.md",
-          "evidence_sha256": "43c1f6dc679d670b86e0df5c7dc202925d92e7a2e540b3ed62108f70ede50925"
+          "checked_at": "2026-11-10T01:33:57+05:30",
+          "limitations": "SMART PASS; media counters zero; UDMA CRC remains 727; current SATA PHY ICRC/R_ERR zero and one COMRESET; prior device-offline event remains unresolved",
+          "evidence_path": "docs/storage/ext4-controlled-recovery-followup-2026-11-10.md",
+          "evidence_sha256": "9f7405eb6b07f72192662a6cd68cd2aaea6e8261f60d29bdaaa4e843d7d7e5d9"
         },
         "post_check": {
-          "checked_at": "2026-11-10T01:07:42+05:30",
+          "checked_at": "2026-11-10T01:33:57+05:30",
           "boot_id": "019bfef2-ef76-45a4-971b-9612ccf7a155",
           "uuid": "094120c3-e1f8-4a61-a95a-c347ecb711d1",
           "source": "/dev/sda3",
@@ -89,8 +89,8 @@
           "metadata_probes": "pass",
           "workspace_manifest": "pass",
           "userdata_manifest": "pass",
-          "evidence_path": "docs/storage/ext4-controlled-recovery-2026-11-10.md",
-          "evidence_sha256": "43c1f6dc679d670b86e0df5c7dc202925d92e7a2e540b3ed62108f70ede50925"
+          "evidence_path": "docs/storage/ext4-controlled-recovery-followup-2026-11-10.md",
+          "evidence_sha256": "9f7405eb6b07f72192662a6cd68cd2aaea6e8261f60d29bdaaa4e843d7d7e5d9"
         }
       },
       "filesystem": "ext4"
