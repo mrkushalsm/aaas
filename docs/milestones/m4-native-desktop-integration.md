@@ -1259,3 +1259,25 @@ switching focus back to Settings. This closes the fresh input/focus and second
 resize/restore checks described in the earlier recheck; it does not add
 notification activation support. See
 [`resize-input-recovery-2026-11-10.json`](../../results/m4/resize-input-recovery-2026-11-10.json).
+
+### Plasma notification activation follow-up (2026-11-10)
+
+The host notification bridge now adds an `Open application` action for each
+forwarded Android notification and maps Plasma's `ActionInvoked(default)` back
+to the originating package. The action uses the existing `aaasctl launch`
+control path. Runtime testing found and fixed two dbus-python integration
+issues: this version requires GLib main-loop dispatch, and message filters take
+`(connection, message)` and must return a handler-result constant. After a
+service restart, the notification bridge remained alive; the Android probe
+notification reached Plasma, and invoking Plasma's
+`org.kde.NotificationManager.InvokeAction` emitted the action signal and was
+logged as a launch request for `org.aaas.notificationprobe`.
+
+This verifies Plasma-to-AaaS action dispatch, but not a physical mouse click
+on a visible popup: the popup was not visible in this retest. The probe app was
+already running, so the app manager rejects a duplicate launch and does not
+raise/focus the existing Wayland window. Android PendingIntent/deep-link
+metadata is also not forwarded. Thus opening a stopped associated app is the
+supported action; existing-window activation and arbitrary Android actions
+remain open. Evidence:
+[`notification-activation-2026-11-10.json`](../../results/m4/notification-activation-2026-11-10.json).
