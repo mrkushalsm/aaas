@@ -41,9 +41,9 @@ def main(argv=None):
     launch = subparsers.add_parser('launch', help='launch an installed Android package')
     launch.add_argument('package')
     close = subparsers.add_parser('close', help='close an app window by bounded slot')
-    close.add_argument('slot', type=int, choices=(1, 2))
+    close.add_argument('slot', type=int, choices=range(1, 9))
     stop_app = subparsers.add_parser('stop-app', help='stop Android app in a window slot')
-    stop_app.add_argument('slot', type=int, choices=(1, 2))
+    stop_app.add_argument('slot', type=int, choices=range(1, 9))
     storage = subparsers.add_parser('storage', help='inspect Android shared storage')
     storage_sub = storage.add_subparsers(dest='storage_operation', required=True)
     storage_sub.add_parser(

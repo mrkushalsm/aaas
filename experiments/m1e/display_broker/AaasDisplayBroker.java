@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/** Narrow system-UID broker for up to two trusted, own-content AaaS displays. */
+/** Narrow system-UID broker for up to eight trusted, own-content AaaS displays. */
 public final class AaasDisplayBroker {
     private static FileOutputStream diagnosticLog;
 
@@ -517,12 +517,17 @@ public final class AaasDisplayBroker {
         log("released displayId=" + handle.displayId + " reason=host_request");
     }
 
-    private static boolean secondDisplayEnabled(String path) {
-        if (path.isEmpty()) return false;
+    private static int configuredDisplayCount(String path) {
+        if (path.isEmpty()) return 2;
         try (FileInputStream input = new FileInputStream(path)) {
-            return input.read() == 'e';
+            byte[] bytes = new byte[16];
+            int count = input.read(bytes);
+            String config = new String(bytes, 0, Math.max(0, count), "US-ASCII").trim();
+            int requested = Integer.parseInt(config.startsWith("enabled:")
+                    ? config.substring(8) : config);
+            return Math.max(1, Math.min(8, requested));
         } catch (Exception error) {
-            return false;
+            return 2;
         }
     }
 
@@ -535,7 +540,7 @@ public final class AaasDisplayBroker {
         String idPath = args.length > 3 ? args[3] : "/dev/aaas/vdisplay_id";
         String shutdownPath = args.length > 5 ? args[5] : "/dev/aaas/display_broker_shutdown";
         String secondIdPath = args.length > 6 ? args[6] : "";
-        boolean createSecondDisplay = secondDisplayEnabled(secondIdPath);
+        int displayCount = configuredDisplayCount(secondIdPath);
         if (width < 1 || height < 1 || width > 4096 || height > 4096 || density < 1 || density > 1000) {
             throw new IllegalArgumentException("display size/density out of range");
         }
@@ -559,27 +564,22 @@ public final class AaasDisplayBroker {
         DisplayHandle first = createDisplay(context, displayManager, handler, looperClass,
                 0, width, height, density, idPath);
         displays.add(first);
-        if (createSecondDisplay) {
-            try {
-                DisplayHandle second = createDisplay(context, displayManager, handler, looperClass,
-                        1, width, height, density, secondIdPath);
-                displays.add(second);
-            } catch (Exception error) {
-                try { releaseDisplay(first); } catch (Exception releaseError) {
-                    log("rollback_failed displayId=" + first.displayId + " error="
-                            + releaseError.getClass().getSimpleName());
-                }
-                throw error;
+        String displayConfig = readControl(secondIdPath);
+        boolean createSecond = displayConfig.startsWith("enabled:") ||
+                "enabled".equals(displayConfig);
+        for (int index = 1; index < displayCount; ++index) {
+            if (index == 1 && createSecond) {
+                displays.add(createDisplay(context, displayManager, handler, looperClass,
+                        index, width, height, density, secondIdPath));
+                continue;
             }
-        } else {
-            // Reserve the second bounded slot in the broker's control table.
-            // It has no Android display until a host launch transaction asks
-            // for one, but can be created after another app closes.
             DisplayHandle vacant = new DisplayHandle();
-            vacant.index = 1;
-            vacant.idPath = secondIdPath;
+            vacant.index = index;
+            vacant.idPath = index == 1 ? secondIdPath
+                    : "/dev/aaas/vdisplay" + (index + 1) + "_id";
             vacant.released = true;
             displays.add(vacant);
+            writeControl("/dev/aaas/vdisplay_control_ack_" + (index + 1), "released 0");
         }
         log("stage=displays_ready count=" + displays.size());
 

@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shlex
 import tempfile
@@ -726,20 +727,25 @@ class ForegroundRunnerTests(unittest.TestCase):
                 SESSION.make_session_runner(session, app_package='com.android.music',
                     audio_media_file='../secret.wav')
 
-    def test_two_app_mode_builds_capacity_two_composer(self):
+    def test_multi_app_mode_builds_capacity_eight_composer(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'composer-two-output'
+            libcxx = Path(directory) / 'libc++'
+            headers = libcxx / 'usr/include/c++/v1'
+            headers.mkdir(parents=True)
+            (headers / 'vector').write_text('fixture')
 
             def create_output(command, check):
                 self.assertTrue(check)
                 output.write_bytes(b'test composer')
 
-            with patch.object(SESSION, 'COMPOSER_MULTI_OUTPUT', output), \
+            with patch.dict(os.environ, {'AAAS_TOOLCHAIN_LIBCXX': str(libcxx)}), \
+                    patch.object(SESSION, 'COMPOSER_MULTI_OUTPUT', output), \
                     patch.object(SESSION.subprocess, 'run', side_effect=create_output) as run:
                 self.assertEqual(SESSION.build_multi_output_composer(), output)
 
-            command = run.call_args.args[0]
-            self.assertIn('AAAS_VIRTUAL_DISPLAY_CAPACITY=2', command)
+                command = run.call_args.args[0]
+            self.assertIn('AAAS_VIRTUAL_DISPLAY_CAPACITY=8', command)
             self.assertIn('AAAS_ENABLE_VIRTUAL_DISPLAY=1', command)
             self.assertIn(f'BIN={output}', command)
 
@@ -1649,7 +1655,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertLess(broker.index('call(handle.virtualDisplay, "release"'),
                         broker.index('output.write((success ? "released'))
         self.assertIn('new FileOutputStream(handle.idPath, false)', broker)
-        self.assertIn('createSecondDisplay', broker)
+        self.assertIn('createSecond', broker)
         self.assertIn('vdisplay2_id', service)
         self.assertIn('oneshot', service)
 
@@ -1730,7 +1736,12 @@ class ForegroundRunnerTests(unittest.TestCase):
         control = (SCRIPT.parent / 'aaasctl.py').read_text()
         self.assertIn("control_server.bind(str(control_path))", launcher)
         self.assertIn("'capacity_exhausted'", launcher)
-        self.assertIn("'capacity_requires_two_output_session'", launcher)
+        self.assertIn('range(1, 9)', launcher)
+        self.assertIn('slot_presenters = {index: None for index in range(1, 9)}', launcher)
+        self.assertIn('configuredDisplayCount',
+                      (SCRIPT.parents[1] /
+                       'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text())
+        self.assertIn("'--app-extra'", launcher)
         for command in ('list', 'launch', 'close', 'stop-app', 'stop'):
             self.assertIn(f"add_parser('{command}'", control)
 

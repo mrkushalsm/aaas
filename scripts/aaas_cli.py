@@ -337,7 +337,8 @@ def _parser():
         json_flag(dev_commands.add_parser(name))
     dev_start = json_flag(dev_commands.add_parser('start'))
     dev_start.add_argument('--audio', action='store_true')
-    dev_start.add_argument('--app', default='com.android.settings')
+    dev_start.add_argument('--app', action='append', default=[],
+                           help='Android package to launch; may be repeated')
     dev_start.add_argument('--app2',
                            help='launch a second Android app in an independent window')
     dev_start.add_argument('--idle-timeout-seconds', type=int,
@@ -474,11 +475,18 @@ def main(argv=None):
             print('Legacy compatibility shim: enabled', flush=True)
             print('Runtime security approval: not granted', flush=True)
             print('Only trusted development workloads are supported', flush=True)
+            selected_apps = args.app or ['com.android.settings']
             command = ['--startup-timeout', '120', '--idle-timeout-seconds',
                        str(args.idle_timeout_seconds or config.idle_timeout_seconds),
                        '--experimental-virtual-display',
-                       '--app', args.app]
+                       '--app', selected_apps[0]]
+            if len(selected_apps) > 1:
+                command.extend(('--app2', selected_apps[1]))
+            for package in selected_apps[2:]:
+                command.extend(('--app-extra', package))
             if args.app2:
+                if len(selected_apps) > 1:
+                    raise CliError('use repeated --app or --app2, not both')
                 command.extend(('--app2', args.app2))
             if config.resource_limit:
                 command.extend(('--memory-policy', config.resource_limit))

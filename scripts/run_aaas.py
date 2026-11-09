@@ -378,6 +378,15 @@ def read_presenter_slot_state(ipc, slot):
         return 'NOT_PRESENT'
 
 
+def read_presenter_display_id(ipc, slot):
+    path = Path(ipc) / ('vdisplay_id' if slot == 1 else f'vdisplay{slot}_id')
+    try:
+        value = path.read_text().strip()
+        return int(value) if value.isdecimal() else None
+    except (OSError, ValueError):
+        return None
+
+
 def classify_session_failure(commands_log):
     """Classify only an emitted framework-death record, never script text."""
     try:
@@ -2487,14 +2496,16 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '        fi\n'
                 '      fi\n'
             )
-        if app_package2 is not None:
-            for slot in (1, 2):
-                suffix = '' if slot == 1 else '2'
+        if experimental_virtual_display:
+            for slot in range(1, 9):
+                suffix = '' if slot == 1 else str(slot)
                 app_variable = 'APP_PACKAGE' + suffix
                 display_variable = 'VD_ID' + suffix
-                adapter_pid_variable = 'VDISPLAY' + ('2' if slot == 2 else '') + '_INPUT_ADAPTER_PID'
-                socket_name = 'input-vdisplay' + ('-2' if slot == 2 else '') + '.sock'
-                log_name = 'aaas_vdisplay' + ('2' if slot == 2 else '') + '_input_adapter.log'
+                adapter_pid_variable = 'VDISPLAY' + ('' if slot == 1 else str(slot)) + '_INPUT_ADAPTER_PID'
+                socket_name = 'input-vdisplay' + ('-' + str(slot) if slot > 1 else '') + '.sock'
+                log_name = ('aaas_vdisplay_input_adapter.log' if slot == 1 else
+                            'aaas_vdisplay2_input_adapter.log' if slot == 2 else
+                            'aaas_session_commands')
                 focus_name = f'vdisplay_focus_{slot}'
                 focus_ack_name = f'vdisplay_focus_ack_{slot}'
                 readiness_and_watch += (
@@ -2530,6 +2541,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                     '-n "$APP_COMPONENT" >> /aaas_session_commands 2>&1; then\n'
                     f'            echo "started $REQ_ID $REQ_PACKAGE $REQ_DISPLAY" '
                     f'> /dev/aaas/app{slot}_launch_ack\n'
+                    f'            echo RUNNING > /dev/aaas/app{slot}_state\n'
                     '          else\n'
                     f'            echo "failed $REQ_ID launch" > /dev/aaas/app{slot}_launch_ack\n'
                     '          fi\n'
@@ -2562,6 +2574,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                     '            fi\n'
                     f'            echo "$STOP_PACKAGE" > /dev/aaas/app{slot}_forced_closed\n'
                     f'            echo "stopped $STOP_ID $STOP_PACKAGE" > /dev/aaas/app{slot}_stop_ack\n'
+                    f'            echo CLOSED > /dev/aaas/app{slot}_state\n'
                     '          else\n'
                     f'            echo "failed $STOP_ID force_stop" > /dev/aaas/app{slot}_stop_ack\n'
                     '          fi\n'
@@ -2735,6 +2748,19 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             '    exit 1\n'
             '    if [ "{settings_sigquit}"'
         )
+    if experimental_virtual_display:
+        readiness_and_watch = readiness_and_watch.replace(
+            '&& aaas_app_task_alive; do',
+            '&& [ "$(/system/bin/toybox cat /aaas_session_status)" = "RUNNING" ]; do')
+        extra_idle_guard = ''.join(
+            f' && [ "$(/system/bin/toybox cat /dev/aaas/app{i}_state 2>/dev/null)" != RUNNING ]'
+            for i in range(3, 9))
+        readiness_and_watch = readiness_and_watch.replace(
+            '! aaas_app_task_alive; then echo STOPPING',
+            '! aaas_app_task_alive' + extra_idle_guard + '; then echo STOPPING')
+        readiness_and_watch = readiness_and_watch.replace(
+            '! aaas_app_task_alive && ! aaas_app2_task_alive; then',
+            '! aaas_app_task_alive && ! aaas_app2_task_alive' + extra_idle_guard + '; then')
     source = replace_once(
         source,
         '    /system/bin/toybox sleep 3\n    if [ "{settings_sigquit}"',
@@ -2974,12 +3000,28 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
 
 
 def build_multi_output_composer():
-    """Build the two-endpoint Composer required by the two-app session."""
+    """Build Composer with a bounded pool of independent app outputs."""
+    receipt = COMPOSER_MULTI_OUTPUT.with_suffix('.json')
+    if COMPOSER_MULTI_OUTPUT.is_file() and receipt.is_file():
+        try:
+            recorded = json.loads(receipt.read_text())
+            if (recorded.get('capacity') == 8 and
+                    recorded.get('sha256') == sha256(COMPOSER_MULTI_OUTPUT)):
+                return COMPOSER_MULTI_OUTPUT
+        except (OSError, ValueError):
+            pass
+    libcxx = Path(os.environ.get('AAAS_TOOLCHAIN_LIBCXX',
+                                 str(WORKSPACE / 'toolchain/libc++')))
+    if not (libcxx / 'usr/include/c++/v1/vector').is_file():
+        raise RuntimeError('Android libc++ headers are unavailable; set AAAS_TOOLCHAIN_LIBCXX')
     command = [
         'make', '-C', str(ROOT / 'experiments/m1b/composer_aaas'),
+        f'WORKSPACE_ROOT={WORKSPACE}', f'ROOTFS={configured_rootfs()}',
+        f'TOOLCHAIN_LIBCXX={libcxx}', f'OUT_DIR={TMP}',
+        f'BUILD_DIR={TMP / "composer_build"}',
         f'BIN={COMPOSER_MULTI_OUTPUT}',
         'AAAS_ENABLE_VIRTUAL_DISPLAY=1',
-        'AAAS_VIRTUAL_DISPLAY_CAPACITY=2',
+        'AAAS_VIRTUAL_DISPLAY_CAPACITY=8',
         'AAAS_DISPLAY_WIDTH=720',
         'AAAS_DISPLAY_HEIGHT=1280',
         'all',
@@ -2987,6 +3029,11 @@ def build_multi_output_composer():
     subprocess.run(command, check=True)
     if not COMPOSER_MULTI_OUTPUT.is_file():
         raise RuntimeError(f'two-output Composer build missing: {COMPOSER_MULTI_OUTPUT}')
+    receipt.write_text(json.dumps({'capacity': 8, 'sha256': sha256(COMPOSER_MULTI_OUTPUT),
+                                   'source': 'experiments/m1b/composer_aaas',
+                                   'build_flags': ['AAAS_ENABLE_VIRTUAL_DISPLAY=1',
+                                                   'AAAS_VIRTUAL_DISPLAY_CAPACITY=8']},
+                                  sort_keys=True, indent=2) + '\n')
     return COMPOSER_MULTI_OUTPUT
 
 
@@ -3021,6 +3068,8 @@ def main():
     parser.add_argument('--app2',
                         help='optional second installed app for the experimental '
                              'two-display prototype')
+    parser.add_argument('--app-extra', action='append', default=[],
+                        help='additional installed package to launch after startup (repeatable)')
     parser.add_argument('--idle-timeout-seconds', type=int, default=60,
                         help='stop an idle two-output runtime after this many seconds '
                              '(1..3600; default: 60)')
@@ -3191,6 +3240,12 @@ def main():
                 raise ValueError('--app2 requires --experimental-virtual-display')
     except ValueError as error:
         parser.error(str(error))
+    selected_packages = [package for package in (args.app, args.app2, *args.app_extra)
+                         if package]
+    if len(set(selected_packages)) != len(selected_packages):
+        parser.error('each application package may be selected only once')
+    if args.app_extra and not args.experimental_virtual_display:
+        parser.error('--app-extra requires --experimental-virtual-display')
     if not args.diagnostic_framework_overlay and not framework_transition_overlay_is_current():
         if not APKTOOL.is_file():
             raise RuntimeError(f'missing pinned apktool for Android transition input overlay: {APKTOOL}')
@@ -3225,8 +3280,7 @@ def main():
                 raise RuntimeError(f'diagnostic Composer checksum changed: {diagnostic_composer}')
             paths['AAAS_COMPOSER_OVERLAY'] = str(diagnostic_composer)
         else:
-            paths['AAAS_COMPOSER_OVERLAY'] = str(
-                build_multi_output_composer() if args.app2 else COMPOSER_VDISPLAY)
+            paths['AAAS_COMPOSER_OVERLAY'] = str(build_multi_output_composer())
         paths['AAAS_SERVICES_JAR_OVERLAY'] = str(VDISPLAY_SERVICES_OVERLAY)
     graphics_provenance = collect_graphics_provenance(paths)
     primary_diagnostic = show_primary_diagnostic(args)
@@ -3298,11 +3352,15 @@ def main():
     if args.experimental_virtual_display:
         (ipc / 'vdisplay_id').write_text('')
         (ipc / 'vdisplay_id').chmod(0o666)
-        (ipc / 'vdisplay2_id').write_text('enabled\n' if args.app2 else '')
+        (ipc / 'vdisplay2_id').write_text('enabled:8\n' if args.app2 else '8\n')
         (ipc / 'vdisplay2_id').chmod(0o666)
+        for index in range(3, 9):
+            path = ipc / f'vdisplay{index}_id'
+            path.write_text('')
+            path.chmod(0o666)
         (ipc / 'display_broker_shutdown').write_text('')
         (ipc / 'display_broker_shutdown').chmod(0o666)
-        for index in (1, 2):
+        for index in range(1, 9):
             for name in (f'vdisplay_resize_{index}', f'vdisplay_close_{index}',
                          f'vdisplay_control_ack_{index}', f'app{index}_state',
                          f'vdisplay_focus_{index}', f'vdisplay_focus_ack_{index}',
@@ -3593,9 +3651,11 @@ def main():
     state = 'CREATED'
     input_ready_reported = False
     running_session = False
-    window_close_requested = {1: None, 2: None}
-    slot_packages = {1: args.app, 2: args.app2}
-    slot_lifecycle_generation = {1: 0, 2: 0}
+    window_close_requested = {index: None for index in range(1, 9)}
+    slot_packages = {index: (args.app if index == 1 else args.app2 if index == 2 else None)
+                     for index in range(1, 9)}
+    slot_lifecycle_generation = {index: 0 for index in range(1, 9)}
+    slot_presenters = {index: None for index in range(1, 9)}
     storage_scan_uris = {}
     control_path = ipc / 'aaas-control.sock'
     control_server = None
@@ -3609,13 +3669,13 @@ def main():
 
     def start_dynamic_presenter(slot, package):
         socket_path = ipc / ('wayland-vdisplay.sock' if slot == 1
-                             else 'wayland-vdisplay.sock-2')
+                             else f'wayland-vdisplay.sock-{slot}')
         input_path = ipc / ('input-vdisplay.sock' if slot == 1
-                            else 'input-vdisplay-2.sock')
-        display_path = ipc / f'vdisplay{2 if slot == 2 else ""}_id'
+                            else f'input-vdisplay-{slot}.sock')
+        display_path = ipc / ('vdisplay_id' if slot == 1 else f'vdisplay{slot}_id')
         resize_path = ipc / f'vdisplay_resize_{slot}'
         log_path = session / ('virtual-presenter.log' if slot == 1
-                              else 'virtual-presenter2.log')
+                              else f'virtual-presenter{slot}.log')
         # A released slot may retain the last xdg_toplevel configure. A new
         # Android display starts at presenter_size, so never replay the old
         # lifecycle's request into its new VirtualDisplay.
@@ -3631,7 +3691,7 @@ def main():
                  '--input-display-id-file', str(display_path),
                  '--resize-request', str(resize_path),
                  '--title', f'AaaS: {package}', '--app-id',
-                 'org.aaas.' + package.replace('.', '-'), '--exit-on-close'],
+                 'org.aaas.' + package.replace('.', '-')],
                 stdout=presenter_log, stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
@@ -3655,12 +3715,12 @@ def main():
             return {'ok': True, 'state': state,
                     'windows': [
                         {'slot': slot, 'package': slot_packages[slot],
+                         'display_id': read_presenter_display_id(ipc, slot),
                          'state': read_presenter_slot_state(ipc, slot),
                          'presenter_pid': (proc.pid if proc is not None and
                                            proc.poll() is None else None)}
-                        for slot, proc in ((1, virtual_presenter),
-                                           (2, virtual_presenter2))
-                        if slot_packages[slot] is not None or proc is not None]}
+                         for slot, proc in slot_presenters.items()
+                        if slot_packages[slot] is not None]}
         if op == 'stop':
             stop = True
             return {'ok': True, 'state': 'STOPPING'}
@@ -3767,19 +3827,18 @@ def main():
             return {'ok': False, 'error': 'clipboard_ime_control_timeout'}
         if op == 'close':
             slot = request.get('slot')
-            if slot not in (1, 2):
+            if slot not in slot_presenters:
                 return {'ok': False, 'error': 'invalid_slot'}
-            process = virtual_presenter if slot == 1 else virtual_presenter2
+            process = slot_presenters.get(slot)
             if process is None:
                 return {'ok': False, 'error': 'window_not_running'}
-            terminate_process_group(process)
-            return {'ok': True, 'slot': slot, 'state': 'CLOSING'}
+            return manager_request({'op': 'stop_app', 'slot': slot})
         if op == 'stop_app':
             slot = request.get('slot')
-            if slot not in (1, 2) or slot_packages[slot] is None:
+            if slot not in slot_packages or slot_packages[slot] is None:
                 return {'ok': False, 'error': 'invalid_slot'}
             package = slot_packages[slot]
-            process = virtual_presenter if slot == 1 else virtual_presenter2
+            process = slot_presenters.get(slot)
             if process is None or process.poll() is not None:
                 return {'ok': False, 'error': 'window_not_running'}
             request_id = os.urandom(8).hex()
@@ -3946,15 +4005,14 @@ def main():
             package = validate_app_package(request.get('package'))
         except ValueError:
             return {'ok': False, 'error': 'invalid_package'}
-        if args.app2 is None:
-            return {'ok': False, 'error': 'capacity_requires_two_output_session'}
-        if any(slot_packages[slot] == package and
-               ((virtual_presenter if slot == 1 else virtual_presenter2) is not None)
-               for slot in (1, 2)):
+        if any(slot_packages[slot] == package and slot_presenters[slot] is not None and
+               read_presenter_slot_state(ipc, slot) != 'CLOSED'
+               for slot in slot_packages):
             return {'ok': False, 'error': 'package_already_running'}
-        candidates = [slot for slot, proc in ((1, virtual_presenter),
-                                               (2, virtual_presenter2))
-                      if proc is None and
+        candidates = [slot for slot, process in slot_presenters.items()
+                      if process is not None and process.poll() is None and
+                      (slot_packages[slot] is None or
+                       read_presenter_slot_state(ipc, slot) == 'CLOSED') and
                       (ipc / f'vdisplay_control_ack_{slot}').read_text().strip().startswith('released')]
         if not candidates:
             return {'ok': False, 'error': 'capacity_exhausted'}
@@ -3962,12 +4020,15 @@ def main():
         slot_lifecycle_generation[slot] += 1
         generation = slot_lifecycle_generation[slot]
         request_id = f'{os.urandom(8).hex()}'
-        presenter_process = None
+        presenter_process = slot_presenters.get(slot)
+        presenter_started_here = False
         display_created = False
         try:
             (ipc / f'vdisplay_focus_{slot}').write_text('')
             (ipc / f'vdisplay_focus_ack_{slot}').write_text('')
-            presenter_process = start_dynamic_presenter(slot, package)
+            if presenter_process is None:
+                presenter_process = start_dynamic_presenter(slot, package)
+                presenter_started_here = True
             create_path = ipc / f'vdisplay_create_{slot}'
             create_ack = ipc / f'vdisplay_create_ack_{slot}'
             (ipc / f'vdisplay_close_{slot}').write_text('')
@@ -3989,7 +4050,7 @@ def main():
                 raise RuntimeError(f'Android display creation failed: {response or "timeout"}')
             display_id = int(response.split()[2])
             display_created = True
-            display_id_path = ipc / f'vdisplay{2 if slot == 2 else ""}_id'
+            display_id_path = ipc / ('vdisplay_id' if slot == 1 else f'vdisplay{slot}_id')
             if display_id_path.read_text().strip() != str(display_id):
                 raise RuntimeError('broker display ID publication mismatch')
             launch_path = ipc / f'app{slot}_launch_request'
@@ -4019,10 +4080,9 @@ def main():
                 time.sleep(.1)
             else:
                 raise RuntimeError('Android task did not reach RUNNING')
-            if slot == 1:
-                virtual_presenter = presenter_process
-            else:
-                virtual_presenter2 = presenter_process
+            slot_presenters[slot] = presenter_process
+            if slot == 1: virtual_presenter = presenter_process
+            if slot == 2: virtual_presenter2 = presenter_process
             slot_packages[slot] = package
             window_close_requested[slot] = None
             (ipc / f'vdisplay_close_{slot}').write_text('')
@@ -4030,7 +4090,7 @@ def main():
             return {'ok': True, 'slot': slot, 'package': package,
                     'display_id': display_id, 'state': 'RUNNING'}
         except Exception as error:
-            if presenter_process is not None:
+            if presenter_started_here and presenter_process is not None:
                 terminate_process_group(presenter_process)
             if display_created:
                 write_session_control(ipc / f'vdisplay_close_{slot}', 'close')
@@ -4120,7 +4180,7 @@ def main():
                          '--input-display-id-file', str(ipc / 'vdisplay_id'),
                          '--resize-request', str(ipc / 'vdisplay_resize_1'),
                          '--title', f'AaaS: {args.app}', '--app-id',
-                         'org.aaas.' + args.app.replace('.', '-'), '--exit-on-close'],
+                         'org.aaas.' + args.app.replace('.', '-')],
                         stdout=virtual_log, stderr=subprocess.STDOUT,
                         start_new_session=True,
                     )
@@ -4142,8 +4202,7 @@ def main():
                              '--input-display-id-file', str(ipc / 'vdisplay2_id'),
                             '--resize-request', str(ipc / 'vdisplay_resize_2'),
                              '--title', f'AaaS: {args.app2}', '--app-id',
-                             'org.aaas.' + args.app2.replace('.', '-'),
-                             '--exit-on-close'],
+                             'org.aaas.' + args.app2.replace('.', '-')],
                             stdout=virtual2_log, stderr=subprocess.STDOUT,
                             start_new_session=True,
                         )
@@ -4152,6 +4211,18 @@ def main():
                         if virtual_presenter2.poll() is not None or time.monotonic() >= deadline:
                             raise RuntimeError('second virtual display presenter did not start')
                         time.sleep(.1)
+                slot_presenters[1] = virtual_presenter
+                if virtual_presenter2 is not None:
+                    slot_presenters[2] = virtual_presenter2
+                # Composer binds its virtual-output transports once when the
+                # Android service starts. Keep every bounded endpoint present
+                # before Android/Composer boot; displays remain unallocated in
+                # the broker until a package is actually launched.
+                for available_slot in range(2, 9):
+                    if slot_presenters[available_slot] is None:
+                        placeholder = f'available-slot-{available_slot}'
+                        slot_presenters[available_slot] = start_dynamic_presenter(
+                            available_slot, placeholder)
             # Recheck the complete budget and mount identity immediately before
             # Android can write persistent userdata.
             android_workspace.check(WORKSPACE)
@@ -4239,6 +4310,12 @@ def main():
                     if args.experimental_virtual_display:
                         print(f'AaaS app control socket: {control_path} '
                               '(scripts/aaasctl.py list|launch|close|stop)', flush=True)
+                        for extra_package in args.app_extra:
+                            result = manager_request({'op': 'launch', 'package': extra_package})
+                            if not result.get('ok'):
+                                raise RuntimeError(f'launch {extra_package} failed: '
+                                                   f'{result.get("error")} '
+                                                   f'{result.get("detail", "")}')
                     if args.test_tombstone_capture:
                         (ipc / 'tombstone_capture_test').write_text('segv-child\n')
                         test_deadline = time.monotonic() + 20
@@ -4414,12 +4491,12 @@ def main():
                     print('AaaS: presenter exited; stopping Android', flush=True)
                     break
                 if args.experimental_virtual_display:
-                    app1_state = (ipc / 'app1_state').read_text().strip()
-                    app2_state = (ipc / 'app2_state').read_text().strip() if args.app2 else ''
-                    for index, process, app_state in (
-                            (1, virtual_presenter, app1_state),
-                            (2, virtual_presenter2, app2_state)):
-                        if process is None or (index == 2 and not args.app2):
+                    for index, process in list(slot_presenters.items()):
+                        if process is None:
+                            continue
+                        app_state = (ipc / f'app{index}_state').read_text().strip()
+                        ack = (ipc / f'vdisplay_control_ack_{index}').read_text().strip()
+                        if app_state == 'CLOSED' and ack.startswith('released'):
                             continue
                         exited = process.poll() is not None
                         if not exited and app_state != 'CLOSED':
@@ -4436,19 +4513,16 @@ def main():
                             print(f'AaaS: closing Android output {index} independently',
                                   flush=True)
                         if not exited:
-                            terminate_process_group(process)
-                            if index == 1:
-                                virtual_presenter = None
-                            else:
-                                virtual_presenter2 = None
+                            pass
                         ack = (ipc / f'vdisplay_control_ack_{index}').read_text().strip()
                         if ack.startswith('failed'):
                             raise RuntimeError(f'Android display {index} release failed: {ack}')
                         if ack.startswith('released'):
-                            if index == 1 and virtual_presenter is process:
-                                virtual_presenter = None
-                            elif index == 2 and virtual_presenter2 is process:
-                                virtual_presenter2 = None
+                            if slot_presenters.get(index) is process and exited:
+                                slot_presenters[index] = None
+                                (ipc / f'app{index}_state').write_text('CLOSED\n')
+                                if index == 1: virtual_presenter = None
+                                if index == 2: virtual_presenter2 = None
                         if (not ack.startswith('released') and
                                 time.monotonic() - window_close_requested[index] > 8):
                             raise RuntimeError(f'Android display {index} release timed out')
@@ -4591,8 +4665,15 @@ def main():
                 print('AaaS: virtual display shutdown handshake timed out',
                       file=sys.stderr, flush=True)
                 cleanup_failed = True
-        for process in (notification_process, clipboard_process, audio_process, android, virtual_presenter2,
-                        virtual_presenter, presenter):
+        cleanup_processes = [notification_process, clipboard_process, audio_process, android,
+                             *slot_presenters.values(), virtual_presenter2,
+                             virtual_presenter, presenter]
+        seen_processes = set()
+        for process in cleanup_processes:
+            if process is not None and id(process) in seen_processes:
+                continue
+            if process is not None:
+                seen_processes.add(id(process))
             try:
                 terminate_process_group(process)
             except Exception as error:

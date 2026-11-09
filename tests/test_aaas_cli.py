@@ -110,7 +110,7 @@ class AaasCliTests(unittest.TestCase):
         self.assertNotIn('AAAS_PRESENTER_IMPLICIT_SYNC',
                          run.call_args.kwargs['env_extra'])
 
-    def test_developer_start_supports_two_independent_app_outputs(self):
+    def test_developer_start_supports_repeated_independent_app_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = self.config(temporary)
             report = {'development_launch': 'PERMITTED', 'checks': {
@@ -123,7 +123,9 @@ class AaasCliTests(unittest.TestCase):
                     mock.patch.object(aaas_cli, '_run_script', return_value=0) as run:
                 self.assertEqual(aaas_cli.main([
                     'dev', 'start', '--app', 'com.android.settings',
-                    '--app2', 'com.android.contacts',
+                    '--app', 'com.android.contacts',
+                    '--app', 'com.apotris.android',
+                    '--app', 'com.android.calendar',
                     '--idle-timeout-seconds', '600']), 0)
             args = run.call_args.args
             self.assertEqual(args[0], 'run_aaas.py')
@@ -132,6 +134,11 @@ class AaasCliTests(unittest.TestCase):
                              ('--app', 'com.android.settings'))
             self.assertEqual(args[args.index('--app2'):args.index('--app2') + 2],
                              ('--app2', 'com.android.contacts'))
+            self.assertEqual(args.count('--app-extra'), 2)
+            self.assertIn(('--app-extra', 'com.apotris.android'),
+                          tuple(zip(args, args[1:])))
+            self.assertIn(('--app-extra', 'com.android.calendar'),
+                          tuple(zip(args, args[1:])))
             self.assertEqual(args[args.index('--idle-timeout-seconds'):
                                   args.index('--idle-timeout-seconds') + 2],
                              ('--idle-timeout-seconds', '600'))

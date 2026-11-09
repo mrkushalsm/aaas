@@ -217,6 +217,7 @@ public:
             const bool ready = transport->isConnected();
             kmsg_log("[AaasComposerClient] virtual transport slot=%d socket=%s ready=%d\n",
                      i, socket_path.c_str(), ready ? 1 : 0);
+            mVirtualTransportPaths.push_back(socket_path);
             mVirtualTransportReady.push_back(ready);
             mVirtualTransportUsed.push_back(false);
             mVirtualTransports.push_back(std::move(transport));
@@ -762,7 +763,22 @@ public:
         if (transport_slot >= 0 &&
             static_cast<size_t>(transport_slot) < mVirtualTransportUsed.size()) {
             std::lock_guard<std::mutex> lock(mVirtualDisplayLock);
-            releaseVirtualTransport(mVirtualTransportUsed, transport_slot);
+            // Presenter processes keep their socket listener alive when an app
+            // closes. Recycle the Composer transport connection synchronously
+            // so a later virtual display can reuse this endpoint safely.
+            const size_t index = static_cast<size_t>(transport_slot);
+            mVirtualTransportReady[index] = false;
+            mVirtualTransportUsed[index] = true;
+            mVirtualTransports[index]->shutdown();
+            const bool reconnected = mVirtualTransports[index]->initialize(
+                    mVirtualTransportPaths[index]);
+            for (int wait = 0; reconnected && wait < 200 &&
+                    !mVirtualTransports[index]->isConnected(); ++wait) usleep(10000);
+            mVirtualTransportReady[index] = reconnected &&
+                    mVirtualTransports[index]->isConnected();
+            mVirtualTransportUsed[index] = false;
+            kmsg_log("[AaasComposerClient] recycled virtual transport slot=%d ready=%d\n",
+                     transport_slot, mVirtualTransportReady[index] ? 1 : 0);
         }
         kmsg_log("[AaasComposerClient] destroyVirtualDisplay id=%lld\n", (long long)in_display);
         return ::ndk::ScopedAStatus::ok();
@@ -1544,6 +1560,7 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<VirtualDisplayState>> mVirtualDisplays;
     int64_t mNextVirtualDisplayId = 100;
     std::vector<std::unique_ptr<AaasTransport>> mVirtualTransports;
+    std::vector<std::string> mVirtualTransportPaths;
     std::vector<bool> mVirtualTransportReady;
     std::vector<bool> mVirtualTransportUsed;
     int mCurrentClientTargetSlot;
