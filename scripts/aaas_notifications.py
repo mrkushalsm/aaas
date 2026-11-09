@@ -317,7 +317,7 @@ def run_bridge(directory: Path, android_uid: int) -> int:
         # supported dbus-python versions. Iterate non-blockingly so filesystem
         # events and SIGTERM remain responsive as well.
         context = GLib.MainContext.default()
-        while context.pending():
+        if context.pending():
             context.iteration(False)
         time.sleep(.05)
     forwarder.close_all()
