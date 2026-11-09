@@ -772,7 +772,7 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         audio_codec_init=None, audio_mediaextractor_init=None,
                         audio_mediaextractor_seccomp=None,
                         audio_media_file=None, audio_playback_volume_test=False,
-                        headless_storage=False, max_apps=64):
+                        headless_storage=False, max_apps=16):
     if sha256(RUNNER) != RUNNER_SHA256:
         raise RuntimeError('inherited runtime runner changed; review the session transformation')
     if headless_storage and (experimental_virtual_display or app_package2 is not None
@@ -3086,8 +3086,8 @@ def main():
                              'two-display prototype')
     parser.add_argument('--app-extra', action='append', default=[],
                         help='additional installed package to launch after startup (repeatable)')
-    parser.add_argument('--max-apps', type=int, default=64,
-                        help='per-runtime safety bound for active Android windows (default: 64)')
+    parser.add_argument('--max-apps', type=int, default=16,
+                        help='per-runtime safety bound for active Android windows (default: 16)')
     parser.add_argument('--idle-timeout-seconds', type=int, default=60,
                         help='stop an idle two-output runtime after this many seconds '
                              '(1..3600; default: 60)')
@@ -3280,8 +3280,15 @@ def main():
     if not args.experimental_virtual_display:
         paths['AAAS_SERVICES_JAR_OVERLAY'] = str(build_storage_services_overlay())
     if args.experimental_virtual_display:
-        if not COMPOSER_VDISPLAY.is_file() or not VDISPLAY_BROKER_DEX.is_file():
-            raise RuntimeError('build the M1E virtual-display Composer and broker first')
+        if not COMPOSER_VDISPLAY.is_file():
+            raise RuntimeError('build the M1E virtual-display Composer first')
+        subprocess.run([
+            'make', '-C', str(ROOT / 'experiments/m1e/display_broker'),
+            f'WORKSPACE={WORKSPACE}', f'BUILD_DIR={TMP / "m1e_display_broker_build"}',
+            f'OUT={VDISPLAY_BROKER_DEX}',
+        ], check=True)
+        if not VDISPLAY_BROKER_DEX.is_file():
+            raise RuntimeError('M1E virtual-display broker build produced no DEX')
         if not APKTOOL.is_file():
             raise RuntimeError(f'missing pinned apktool for M1E framework overlay: {APKTOOL}')
         if not vdisplay_services_overlay_is_current():
@@ -3651,8 +3658,14 @@ def main():
                AAAS_INPUT_ADAPTER=str(INPUT_ADAPTER) if INPUT_ADAPTER.is_file() else '',
                AAAS_INPUT_ADAPTER_LOG=str(input_adapter_log))
     if args.experimental_virtual_display:
+        broker_rc = session / 'aaas-display-broker.rc'
+        broker_rc_template = VDISPLAY_BROKER_RC.read_text()
+        if broker_rc_template.count('AAAS_DISPLAY_COUNT') != 1:
+            raise RuntimeError('display broker service template has invalid capacity marker')
+        broker_rc.write_text(broker_rc_template.replace(
+            'AAAS_DISPLAY_COUNT', str(args.max_apps)))
         env.update(AAAS_VDISPLAY_DEX=str(VDISPLAY_BROKER_DEX),
-                   AAAS_VDISPLAY_RC=str(VDISPLAY_BROKER_RC),
+                   AAAS_VDISPLAY_RC=str(broker_rc),
                    AAAS_VDISPLAY_INPUT_ADAPTER_LOG=str(vdisplay_input_adapter_log))
         if args.app2:
             env['AAAS_VDISPLAY2_INPUT_ADAPTER_LOG'] = str(vdisplay2_input_adapter_log)
@@ -4135,7 +4148,6 @@ def main():
             if presenter_process is None:
                 presenter_process = start_dynamic_presenter(slot, package)
                 presenter_started_here = True
-            window_identity = request_window_identity(slot, package)
             create_path = ipc / f'vdisplay_create_{slot}'
             create_ack = ipc / f'vdisplay_create_ack_{slot}'
             (ipc / f'vdisplay_close_{slot}').write_text('')
@@ -4187,6 +4199,12 @@ def main():
                 time.sleep(.1)
             else:
                 raise RuntimeError('Android task did not reach RUNNING')
+            # A newly started presenter has no Android frame until this
+            # display's activity launches. Its initial title/app-id are
+            # already supplied on argv; wait for the frame before requesting
+            # the runtime identity update (otherwise the five-second request
+            # can never be observed by a presenter with no decor frame).
+            window_identity = request_window_identity(slot, package)
             slot_presenters[slot] = presenter_process
             if slot == 1: virtual_presenter = presenter_process
             if slot == 2: virtual_presenter2 = presenter_process

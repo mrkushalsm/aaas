@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/** Narrow system-UID broker for up to eight trusted, own-content AaaS displays. */
+/** Narrow system-UID broker for trusted, own-content AaaS displays. */
 public final class AaasDisplayBroker {
     private static FileOutputStream diagnosticLog;
 
@@ -517,16 +517,12 @@ public final class AaasDisplayBroker {
         log("released displayId=" + handle.displayId + " reason=host_request");
     }
 
-    private static int configuredDisplayCount(String path) {
-        if (path.isEmpty()) return 2;
-        try (FileInputStream input = new FileInputStream(path)) {
-            byte[] bytes = new byte[16];
-            int count = input.read(bytes);
-            String config = new String(bytes, 0, Math.max(0, count), "US-ASCII").trim();
-            int requested = Integer.parseInt(config.startsWith("enabled:")
-                    ? config.substring(8) : config);
-            return Math.max(1, Math.min(8, requested));
-        } catch (Exception error) {
+    private static int configuredDisplayCount(String configured) {
+        if (configured.isEmpty()) return 2;
+        try {
+            int requested = Integer.parseInt(configured.trim());
+            return Math.max(1, Math.min(256, requested));
+        } catch (NumberFormatException error) {
             return 2;
         }
     }
@@ -540,7 +536,8 @@ public final class AaasDisplayBroker {
         String idPath = args.length > 3 ? args[3] : "/dev/aaas/vdisplay_id";
         String shutdownPath = args.length > 5 ? args[5] : "/dev/aaas/display_broker_shutdown";
         String secondIdPath = args.length > 6 ? args[6] : "";
-        int displayCount = configuredDisplayCount(secondIdPath);
+        String displayCountConfig = args.length > 7 ? args[7] : "";
+        int displayCount = configuredDisplayCount(displayCountConfig);
         if (width < 1 || height < 1 || width > 4096 || height > 4096 || density < 1 || density > 1000) {
             throw new IllegalArgumentException("display size/density out of range");
         }

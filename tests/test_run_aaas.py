@@ -1756,6 +1756,17 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('app12_stop_request', generated)
         self.assertNotIn('app13_launch_request', generated)
 
+    def test_display_broker_capacity_is_configured_independently_of_display_ids(self):
+        broker = (SCRIPT.parents[1] /
+                  'experiments/m1e/display_broker/AaasDisplayBroker.java').read_text()
+        service = (SCRIPT.parents[1] /
+                   'experiments/m1e/display_broker/aaas-display-broker.rc').read_text()
+        launcher = SCRIPT.read_text()
+        self.assertIn('configuredDisplayCount(displayCountConfig)', broker)
+        self.assertIn('AAAS_DISPLAY_COUNT', service)
+        self.assertIn("broker_rc_template.replace(\n            'AAAS_DISPLAY_COUNT', str(args.max_apps)", launcher)
+        self.assertIn('Math.min(256, requested)', broker)
+
     def test_dynamic_presenter_clears_previous_resize_before_reopen(self):
         launcher = SCRIPT.read_text()
         start = launcher.index('    def start_dynamic_presenter(')

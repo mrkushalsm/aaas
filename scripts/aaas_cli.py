@@ -345,6 +345,8 @@ def _parser():
                            help='launch a second Android app in an independent window')
     dev_start.add_argument('--idle-timeout-seconds', type=int,
                            help='override the configured idle shutdown for this session')
+    dev_start.add_argument('--max-apps', type=int, default=16,
+                           help='maximum simultaneous Android windows (default: 16)')
     dev_install = json_flag(dev_commands.add_parser(
         'install', help='install a local APK in the restricted headless development runtime'))
     dev_install.add_argument('apk', type=Path)
@@ -488,6 +490,7 @@ def main(argv=None):
             selected_apps = args.app or ['com.android.settings']
             command = ['--startup-timeout', '120', '--idle-timeout-seconds',
                        str(args.idle_timeout_seconds or config.idle_timeout_seconds),
+                       '--max-apps', str(args.max_apps),
                        '--experimental-virtual-display',
                        '--app', selected_apps[0]]
             if len(selected_apps) > 1:

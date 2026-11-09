@@ -1,4 +1,4 @@
-service aaas-display-broker /system/bin/app_process64 /system/bin --nice-name=aaas-display-broker com.aaas.display.AaasDisplayBroker 720 1280 240 /dev/aaas/vdisplay_id /dev/aaas/display_broker.log /dev/aaas/display_broker_shutdown /dev/aaas/vdisplay2_id
+service aaas-display-broker /system/bin/app_process64 /system/bin --nice-name=aaas-display-broker com.aaas.display.AaasDisplayBroker 720 1280 240 /dev/aaas/vdisplay_id /dev/aaas/display_broker.log /dev/aaas/display_broker_shutdown /dev/aaas/vdisplay2_id AAAS_DISPLAY_COUNT
     class late_start
     user system
     group system graphics
