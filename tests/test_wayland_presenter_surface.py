@@ -44,6 +44,23 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         self.assertIn("syncobj_timeline_wait", timeline)
         self.assertIn("finalize_buffer_release(s, true)", timeline)
 
+    def test_implicit_sync_fallback_waits_for_producer_acquire_fence(self):
+        wait_start = self.source.index(
+            "if (acquire_fence_fd >= 0 &&\n        (!a->syncobj_surface || !a->acquire_timeline))")
+        import_start = self.source.index(
+            "// Import DMA-BUF into Wayland wl_buffer", wait_start)
+        fallback = self.source[wait_start:import_start]
+        self.assertIn("sync_file_wait(acquire_fence_fd, 2000)", fallback)
+        self.assertIn('"implicit_acquire_wait_failed"', fallback)
+        self.assertIn('"implicit_acquire_wait_complete"', fallback)
+        self.assertIn('"implicit_acquire_timeout"', fallback)
+        self.assertIn("m.flags &= ~AAAS_V2_FLAG_EXPLICIT_SYNC", fallback)
+        self.assertLess(fallback.index("sync_file_wait("),
+                        fallback.index("implicit_acquire_wait_complete"))
+        params_start = self.source.index(
+            "zwp_linux_dmabuf_v1_create_params", import_start)
+        self.assertLess(import_start, params_start)
+
     def test_teardown_distinguishes_release_from_invalidated_ownership(self):
         drain_start = self.source.index("static void drain_wayland_buffers(")
         drain_end = self.source.index("static void pres_sync_output(", drain_start)

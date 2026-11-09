@@ -2446,6 +2446,35 @@ static void handle_incoming_buffer(presenter_app *a) {
         }
     }
 
+    /* If the compositor does not support the DRM syncobj protocol, an
+     * acquire sync_file cannot be forwarded to it.  Waiting for the actual
+     * producer fence before attaching the DMA-BUF is the safe implicit-sync
+     * fallback.  Closing the fence here without waiting would permit the
+     * compositor to read a buffer while its producer is still writing it. */
+    if (acquire_fence_fd >= 0 &&
+        (!a->syncobj_surface || !a->acquire_timeline)) {
+        int wait_result = sync_file_wait(acquire_fence_fd, 2000);
+        if (wait_result != 1) {
+            int wait_errno = wait_result == 0 ? ETIMEDOUT : errno;
+            char extra[64];
+            snprintf(extra, sizeof(extra), "\"wait_errno\":%d", wait_errno);
+            log_presenter_event("implicit_acquire_wait_failed",
+                                m.generation, m.id, extra);
+            if (owned_dma_fd) close(dma_fd);
+            if (stage_bo) gbm_bo_destroy(stage_bo);
+            reject_unimported_buffer(a, &m, fds, nfds,
+                                     "implicit_acquire_timeout");
+            return;
+        }
+
+        close(acquire_fence_fd);
+        acquire_fence_fd = -1;
+        if (nfds > 1) fds[1] = -1;
+        m.flags &= ~AAAS_V2_FLAG_EXPLICIT_SYNC;
+        log_presenter_event("implicit_acquire_wait_complete",
+                            m.generation, m.id, NULL);
+    }
+
     // Import DMA-BUF into Wayland wl_buffer
     struct zwp_linux_buffer_params_v1 *params =
         zwp_linux_dmabuf_v1_create_params(a->dmabuf);
