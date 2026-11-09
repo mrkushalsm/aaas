@@ -1277,7 +1277,6 @@ This verifies Plasma-to-AaaS action dispatch, but not a physical mouse click
 on a visible popup: the popup was not visible in this retest. The probe app was
 already running, so the app manager rejects a duplicate launch and does not
 raise/focus the existing Wayland window. Android PendingIntent/deep-link
-metadata is also not forwarded. Thus opening a stopped associated app is the
-supported action; existing-window activation and arbitrary Android actions
-remain open. Evidence:
+metadata is also not forwarded. The stopped-app launch outcome was not tested;
+existing-window activation and arbitrary Android actions remain open. Evidence:
 [`notification-activation-2026-11-10.json`](../../results/m4/notification-activation-2026-11-10.json).
