@@ -107,6 +107,34 @@ class AaasCliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(run.call_args.kwargs['env_extra']['AAAS_RUNTIME_ROOT'],
                          str(payload))
+        self.assertNotIn('AAAS_PRESENTER_IMPLICIT_SYNC',
+                         run.call_args.kwargs['env_extra'])
+
+    def test_developer_start_supports_two_independent_app_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            report = {'development_launch': 'PERMITTED', 'checks': {
+                'host': {'ip': '/usr/bin/ip'}}}
+            with mock.patch.object(aaas_cli.aaas_config, 'resolve_config',
+                                   return_value=config), \
+                    mock.patch.object(aaas_cli.aaas_dev, 'verify', return_value=report), \
+                    mock.patch.object(aaas_cli.aaas_dev, 'runtime_root',
+                                      return_value=Path(temporary) / 'runtime'), \
+                    mock.patch.object(aaas_cli, '_run_script', return_value=0) as run:
+                self.assertEqual(aaas_cli.main([
+                    'dev', 'start', '--app', 'com.android.settings',
+                    '--app2', 'com.android.contacts',
+                    '--idle-timeout-seconds', '600']), 0)
+            args = run.call_args.args
+            self.assertEqual(args[0], 'run_aaas.py')
+            self.assertIn('--experimental-virtual-display', args)
+            self.assertEqual(args[args.index('--app'):args.index('--app') + 2],
+                             ('--app', 'com.android.settings'))
+            self.assertEqual(args[args.index('--app2'):args.index('--app2') + 2],
+                             ('--app2', 'com.android.contacts'))
+            self.assertEqual(args[args.index('--idle-timeout-seconds'):
+                                  args.index('--idle-timeout-seconds') + 2],
+                             ('--idle-timeout-seconds', '600'))
 
     def test_developer_install_uses_headless_diagnostic_profile(self):
         with tempfile.TemporaryDirectory() as temporary:

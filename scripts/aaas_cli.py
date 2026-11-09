@@ -337,6 +337,11 @@ def _parser():
         json_flag(dev_commands.add_parser(name))
     dev_start = json_flag(dev_commands.add_parser('start'))
     dev_start.add_argument('--audio', action='store_true')
+    dev_start.add_argument('--app', default='com.android.settings')
+    dev_start.add_argument('--app2',
+                           help='launch a second Android app in an independent window')
+    dev_start.add_argument('--idle-timeout-seconds', type=int,
+                           help='override the configured idle shutdown for this session')
     dev_install = json_flag(dev_commands.add_parser(
         'install', help='install a local APK in the restricted headless development runtime'))
     dev_install.add_argument('apk', type=Path)
@@ -374,6 +379,9 @@ def main(argv=None):
         config = aaas_config.resolve_config(repository=ROOT, cli=cli)
         json_output = getattr(args, 'json', False) or getattr(args, 'json_local', False)
         if args.command == 'dev':
+            if (args.dev_command == 'start' and args.idle_timeout_seconds is not None
+                    and not 1 <= args.idle_timeout_seconds <= 3600):
+                raise CliError('--idle-timeout-seconds must be from 1 to 3600')
             if args.dev_command == 'storage':
                 if args.storage_command == 'verify':
                     result = aaas_dev.verify_storage(config)
@@ -467,8 +475,11 @@ def main(argv=None):
             print('Runtime security approval: not granted', flush=True)
             print('Only trusted development workloads are supported', flush=True)
             command = ['--startup-timeout', '120', '--idle-timeout-seconds',
-                       config.idle_timeout_seconds, '--experimental-virtual-display',
-                       '--app', 'com.android.settings']
+                       str(args.idle_timeout_seconds or config.idle_timeout_seconds),
+                       '--experimental-virtual-display',
+                       '--app', args.app]
+            if args.app2:
+                command.extend(('--app2', args.app2))
             if config.resource_limit:
                 command.extend(('--memory-policy', config.resource_limit))
             if args.audio:
@@ -476,7 +487,6 @@ def main(argv=None):
             return _run_script('run_aaas.py', *command, config=config,
                                env_extra={'AAAS_DEV_COMPAT': '1',
                                           'AAAS_IP': result['checks']['host']['ip'],
-                                          'AAAS_PRESENTER_IMPLICIT_SYNC': '1',
                                           'AAAS_RUNTIME_ROOT': str(
                                               aaas_dev.runtime_root(config))})
         if args.command == 'doctor':

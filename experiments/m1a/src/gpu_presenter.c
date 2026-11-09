@@ -3197,11 +3197,18 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         const char *node = config->drm_node ? config->drm_node : "/dev/dri/renderD129";
         app.drm_fd = open(node, O_RDWR | O_CLOEXEC);
         if (app.drm_fd < 0) {
-            node = "/dev/dri/renderD128";
-            app.drm_fd = open(node, O_RDWR | O_CLOEXEC);
+            fprintf(stderr, "Unable to open selected DRM render node %s: %s\n",
+                    node, strerror(errno));
+            wl_display_disconnect(app.display);
+            return 2;
         }
-        if (app.drm_fd >= 0) {
-            app.gbm = gbm_create_device(app.drm_fd);
+        app.gbm = gbm_create_device(app.drm_fd);
+        if (!app.gbm) {
+            fprintf(stderr, "Unable to create GBM device for %s: %s\n",
+                    node, strerror(errno));
+            close(app.drm_fd);
+            wl_display_disconnect(app.display);
+            return 2;
         }
     }
 
