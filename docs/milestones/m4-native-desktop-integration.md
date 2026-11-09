@@ -1023,6 +1023,12 @@ The same-source comparison did not find a change in `gpu_presenter.c`,
 repository head before the incidents. The actual loaded presenter binary hashes
 were not retained, so this is not proof of identical executables.
 
+Runtime provenance shows different Composer overlays: the accepted M4 control
+used `668bfd81…`, while the 00:39 and 01:53 incident runs used `cd55e741…` and
+`456d2201…`. SwiftShader and framework overlay hashes matched the accepted
+control; the services overlay varied. The Composer binary hashes alone do not
+identify source changes or explain the stalled Wayland releases.
+
 The presenter now limits early source-copy credits to two active staged slots,
 holds subsequent source ownership until actual Wayland release, and caps active
 staged imports at four. This is a confirmed staging/backpressure hardening fix;

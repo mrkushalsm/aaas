@@ -221,6 +221,15 @@ recorded Mesa package version was already installed before the accepted M2
 session. The M4 Composer overlay hash was
 `668bfd8198d5457d50a17b53c0ee37d5693b7ea34133e90441c2903c61a55f3d`.
 
+The recorded Composer binaries differ across these executions: the 00:39
+portrait session used hash `cd55e7418a469e84c839bfec287b1bce238a43daa28f50900acf3174c17e3a46`,
+and the 01:53 experimental virtual-display session used
+`456d2201cb28ccccc8f2b35879ea3ebe8ebf740bf116aac34019c7cf34554894`. Both
+crash sessions used the same SwiftShader and framework overlay hashes as the
+successful M4 control, while the Composer variants differed; the service
+overlay also differed between the two crashes. The source/build receipts do
+not establish a Composer code regression from these hashes alone.
+
 In the 00:39 incident session `m1b84_session_plvyq3rz`, 32 frames were copied
 to presenter staging BOs and committed, but no actual `wl_buffer.release` was
 logged. In the 01:53 session `m1b84_session_5pll6kjw`, 32 were copied and
