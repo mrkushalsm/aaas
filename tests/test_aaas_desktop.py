@@ -3,6 +3,7 @@ import base64
 import json
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -28,6 +29,35 @@ class DesktopLauncherTests(unittest.TestCase):
         self.assertEqual(aaas_desktop.desktop_exec_quote("reader%copy"),
                          '"reader%%copy"')
         self.assertIn('"--package" "com.example.reader"', exec_line)
+
+    def test_catalog_launcher_prefers_verified_installed_runtime_script(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_home = root / "data"
+            runtime = root / "installation" / "runtime"
+            scripts = runtime / "scripts"
+            scripts.mkdir(parents=True)
+            installed_script = scripts / "aaas_desktop.py"
+            installed_script.write_text("# installed runtime\n")
+            catalog_root = data_home / "aaas"
+            catalog_root.mkdir(parents=True)
+            (catalog_root / "installation.json").write_text(json.dumps({
+                "classification": "LOCAL_DEVELOPMENT_DIAGNOSTIC",
+                "paths": {"runtime": str(runtime)}}))
+            entry = aaas_desktop.render_launcher(
+                "com.example.reader", "Reader", env={"XDG_DATA_HOME": str(data_home)})
+            self.assertIn(str(installed_script), entry)
+            self.assertNotIn(str(aaas_desktop.ROOT), entry)
+            aaas_desktop.sync_package_catalog([{
+                "package": "com.example.reader", "activity": "com.example.Reader",
+                "label": "Reader", "version_code": 1, "version_name": "1",
+                "enabled": True, "icon_png": b"",
+            }], env={"XDG_DATA_HOME": str(data_home)})
+            desktop = data_home / "applications/aaas-catalog-com.example.reader.desktop"
+            self.assertIn(str(installed_script), desktop.read_text())
+            self.assertIn("Android SELinux enforcement unavailable", desktop.read_text())
+            self.assertIn("X-AaaS-Security-Classification=LOCAL_DEVELOPMENT_DIAGNOSTIC",
+                          desktop.read_text())
 
     def test_installs_atomically_in_user_applications_directory(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -210,7 +240,13 @@ class DesktopLauncherTests(unittest.TestCase):
             session = root / "session"
             session.mkdir()
             (session / "status").write_text("RUNNING")
+            installation_manifest = root / "installation.json"
+            installation_manifest.write_text(json.dumps({
+                "classification": "LOCAL_DEVELOPMENT_DIAGNOSTIC"}))
             with patch.object(aaas_desktop, "WORKSPACE_TMP", root), \
+                    patch.object(aaas_desktop.aaas_config, "resolve_config",
+                                 return_value=SimpleNamespace(
+                                     installation_manifest=installation_manifest)), \
                     patch.object(aaas_desktop, "_newest_session_after", return_value=session), \
                     patch.object(aaas_desktop.subprocess, "Popen") as popen, \
                     patch.object(aaas_desktop, "_control_request", side_effect=(
@@ -230,6 +266,9 @@ class DesktopLauncherTests(unittest.TestCase):
                 result = aaas_desktop.launch_application("com.android.documentsui")
             self.assertEqual(result["mode"], "cold-start")
             self.assertTrue(result["bootstrap_window_closed"])
+            command = popen.call_args.args[0]
+            self.assertIn(str(aaas_desktop.ROOT / "scripts/aaas_cli.py"), command)
+            self.assertEqual(command[2:4], ["dev", "start"])
             self.assertEqual(request.call_args_list[2].args[0], {
                 "op": "stop_app", "slot": 2})
 

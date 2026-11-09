@@ -174,17 +174,35 @@ def _read_owned_manifest(path):
     return value
 
 
-def _catalog_entry_text(application, icon):
+def _catalog_entry_text(application, icon, env=None):
     package = validate_package(application["package"])
     name = application["label"]
     if not name or any((ord(char) < 32 and char != "\t") or ord(char) == 127
                        for char in name):
         raise ValueError("application name must be non-empty and single-line")
     script = str((ROOT / "scripts/aaas_desktop.py").resolve())
+    env = os.environ if env is None else env
+    _catalog_root, _catalog_path, _manifest_path = catalog_paths(env)
+    development_profile = False
+    try:
+        installation = json.loads(
+            (_catalog_root / "installation.json").read_text(encoding="utf-8"))
+        development_profile = (
+            installation.get("classification") == "LOCAL_DEVELOPMENT_DIAGNOSTIC")
+        runtime = installation.get("paths", {}).get("runtime")
+        if isinstance(runtime, str) and Path(runtime).is_absolute():
+            candidate = Path(runtime) / "scripts/aaas_desktop.py"
+            if candidate.is_file() and not candidate.is_symlink():
+                script = str(candidate.resolve())
+    except (OSError, ValueError, AttributeError):
+        pass
     icon_value = str(icon) if icon else "application-x-executable"
+    comment = ("AaaS development runtime; Android SELinux enforcement unavailable. "
+               "Trusted APKs only." if development_profile else
+               f"Run {desktop_escape(name)} with AaaS")
     fields = [
         "[Desktop Entry]", "Type=Application", f"Name={desktop_escape(name)}",
-        f"Comment=Run {desktop_escape(name)} with AaaS", "Terminal=false",
+        f"Comment={comment}", "Terminal=false",
         "Categories=Utility;", "StartupNotify=false",
         "X-AaaS-Package=" + package,
         "X-AaaS-VersionCode=" + str(application["version_code"]),
@@ -192,6 +210,8 @@ def _catalog_entry_text(application, icon):
                              (sys.executable, script, "launch", "--package", package)),
         "Icon=" + desktop_escape(icon_value),
     ]
+    if development_profile:
+        fields.append("X-AaaS-Security-Classification=LOCAL_DEVELOPMENT_DIAGNOSTIC")
     return "\n".join(fields) + "\n"
 
 
@@ -231,7 +251,7 @@ def sync_package_catalog(applications, *, env=None, truncated=False):
                 icon_path = None
         if icon_path is not None:
             _atomic_write(icon_path, icon_data)
-        contents = _catalog_entry_text(app, icon_path)
+        contents = _catalog_entry_text(app, icon_path, env=env)
         _atomic_write(desktop, contents.encode("utf-8"), 0o644)
         current[package] = {"desktop": desktop_name, "icon": icon_name}
         normalized.append({key: value for key, value in app.items() if key != "icon_png"}
@@ -337,12 +357,25 @@ def validate_package(package):
     return package
 
 
-def render_launcher(package, name, icon=None):
+def render_launcher(package, name, icon=None, env=None):
     validate_package(package)
     if not name or any((ord(char) < 32 and char != "\t") or ord(char) == 127
                        for char in name):
         raise ValueError("application name must be non-empty and single-line")
-    script = str((ROOT / "scripts/aaas_desktop.py").resolve())
+    env = os.environ if env is None else env
+    runtime_script = None
+    _catalog_root, _catalog_path, _manifest_path = catalog_paths(env)
+    installation_path = _catalog_root / "installation.json"
+    try:
+        installation = json.loads(installation_path.read_text(encoding="utf-8"))
+        runtime = installation.get("paths", {}).get("runtime")
+        if isinstance(runtime, str) and Path(runtime).is_absolute():
+            candidate = Path(runtime) / "scripts/aaas_desktop.py"
+            if candidate.is_file() and not candidate.is_symlink():
+                runtime_script = candidate.resolve()
+    except (OSError, ValueError, AttributeError):
+        runtime_script = None
+    script = str(runtime_script or (ROOT / "scripts/aaas_desktop.py").resolve())
     fields = [
         "[Desktop Entry]",
         "Type=Application",
@@ -365,7 +398,7 @@ def render_launcher(package, name, icon=None):
 def install_launcher(package, name=None, icon=None, env=None):
     path = launcher_path(package, env)
     path.parent.mkdir(parents=True, exist_ok=True)
-    contents = render_launcher(package, name or package, icon)
+    contents = render_launcher(package, name or package, icon, env=env)
     temporary = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
     temporary.write_text(contents, encoding="utf-8")
     temporary.chmod(0o644)
@@ -449,8 +482,20 @@ def launch_application(package, native_bridge_bundle=None, timeout=240):
                 time.sleep(.25)
 
         anchor = _choose_anchor(package)
-        command = [sys.executable, str(RUNNER), "--experimental-virtual-display",
-                   "--app", package, "--app2", anchor]
+        config = aaas_config.resolve_config(repository=ROOT)
+        try:
+            installation = json.loads(
+                config.installation_manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            installation = {}
+        if installation.get("classification") == "LOCAL_DEVELOPMENT_DIAGNOSTIC":
+            # An installed per-app launcher must select the explicitly opted-in
+            # diagnostic profile through the same CLI gate as a manual start.
+            command = [sys.executable, str(ROOT / "scripts/aaas_cli.py"),
+                       "dev", "start", "--app", package, "--app2", anchor]
+        else:
+            command = [sys.executable, str(RUNNER), "--experimental-virtual-display",
+                       "--app", package, "--app2", anchor]
         if native_bridge_bundle:
             command.extend(["--diagnostic-native-bridge-overlay", native_bridge_bundle])
         log_path = WORKSPACE_TMP / "aaas-desktop-launch.log"
