@@ -227,6 +227,9 @@ def run_bridge(directory: Path, android_uid: int) -> int:
     # D-Bus calls run from the same session user as the AaaS launcher. Files are
     # read in a mapped namespace so the normal Android app UID remains private.
     import dbus
+    from dbus.mainloop.glib import DBusGMainLoop
+    from gi.repository import GLib
+    DBusGMainLoop(set_as_default=True)
     bus = dbus.SessionBus()
     proxy = bus.get_object('org.freedesktop.Notifications', '/org/freedesktop/Notifications')
     iface = dbus.Interface(proxy, 'org.freedesktop.Notifications')
@@ -309,7 +312,14 @@ def run_bridge(directory: Path, android_uid: int) -> int:
                         path.unlink()
                 except OSError:
                     pass
-        bus.read_write_dispatch(.05)
+        # dbus-python dispatches incoming signals through its registered main
+        # loop; SessionBus itself does not expose read_write_dispatch on all
+        # supported dbus-python versions. Iterate non-blockingly so filesystem
+        # events and SIGTERM remain responsive as well.
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
+        time.sleep(.05)
     forwarder.close_all()
     return 0
 

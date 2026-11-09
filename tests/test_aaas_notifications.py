@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import types
 import tempfile
 import unittest
 from unittest import mock
@@ -173,8 +174,14 @@ class NotificationHostFailureTests(unittest.TestCase):
             'SessionBus': staticmethod(Bus),
             'Interface': staticmethod(lambda _proxy, _name: Interface()),
         })
+        fake_mainloop = types.ModuleType('dbus.mainloop')
+        fake_glib_mainloop = types.ModuleType('dbus.mainloop.glib')
+        fake_glib_mainloop.DBusGMainLoop = lambda **_kwargs: None
         with tempfile.TemporaryDirectory() as temporary:
-            with mock.patch.dict(sys.modules, {'dbus': fake_dbus}):
+            with mock.patch.dict(sys.modules, {
+                    'dbus': fake_dbus,
+                    'dbus.mainloop': fake_mainloop,
+                    'dbus.mainloop.glib': fake_glib_mainloop}):
                 with self.assertRaises(DBusException):
                     notifications.run_bridge(Path(temporary), 10160)
         self.assertEqual(calls, ['probe'])
