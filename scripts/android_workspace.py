@@ -68,7 +68,15 @@ def _free_reserve_gib(marker):
     return value
 
 
-def _capacity_snapshot(target, workspace_reserve_bytes, predicted=0):
+def _host_root_reserve_gib(marker):
+    value = marker.get('host_root_free_reserve_gib', HOST_ROOT_FREE_RESERVE_BYTES // GIB)
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 256:
+        raise WorkspaceError('host root free-space reserve must be from 0 to 256 GiB')
+    return value
+
+
+def _capacity_snapshot(target, workspace_reserve_bytes, predicted=0,
+                       root_reserve_bytes=HOST_ROOT_FREE_RESERVE_BYTES):
     """Check available blocks on both the workspace filesystem and host root."""
     if predicted < 0:
         raise WorkspaceError('predicted workspace growth must not be negative')
@@ -89,11 +97,12 @@ def _capacity_snapshot(target, workspace_reserve_bytes, predicted=0):
             'workspace filesystem free space below configured reserve: '
             f'available={workspace_available} predicted={predicted} '
             f'reserve={workspace_reserve_bytes}')
-    if root_after < HOST_ROOT_FREE_RESERVE_BYTES:
+    root_reserve_applies = same_filesystem
+    if root_reserve_applies and root_after < root_reserve_bytes:
         raise WorkspaceError(
             'host root filesystem free space below reserve: '
             f'available={root_available} predicted={predicted if same_filesystem else 0} '
-            f'reserve={HOST_ROOT_FREE_RESERVE_BYTES}')
+            f'reserve={root_reserve_bytes}')
     total_blocks = getattr(workspace_stat, 'f_blocks', 0)
     free_blocks = getattr(workspace_stat, 'f_bfree',
                           max(0, total_blocks - workspace_stat.f_bavail))
@@ -106,8 +115,9 @@ def _capacity_snapshot(target, workspace_reserve_bytes, predicted=0):
         'workspace_free_reserve_bytes': workspace_reserve_bytes,
         'workspace_available_after_prediction_bytes': workspace_after,
         'host_root_available_bytes': root_available,
-        'host_root_reserve_bytes': HOST_ROOT_FREE_RESERVE_BYTES,
+        'host_root_reserve_bytes': root_reserve_bytes,
         'host_root_available_after_prediction_bytes': root_after,
+        'host_root_reserve_applies': root_reserve_applies,
         'predicted_bytes': predicted,
         'capacity_policy': 'filesystem_available_blocks',
     }
@@ -781,7 +791,8 @@ def validate_mounted_workspace(workspace, sentinels=()):
         raise WorkspaceError('workspace is not writable')
     workspace_stat = workspace.stat()
     reserve = _free_reserve_gib(marker) * GIB
-    capacity = _capacity_snapshot(target, reserve)
+    capacity = _capacity_snapshot(
+        target, reserve, root_reserve_bytes=_host_root_reserve_gib(marker) * GIB)
     for raw_path in sentinels:
         path = Path(raw_path)
         try:
@@ -929,7 +940,8 @@ def filesystem_capability_probe(workspace, *, require_acl=True):
 
 
 def initialize(workspace, mount_target=None, *, adopt=False,
-               free_reserve_gib=DEFAULT_WORKSPACE_FREE_RESERVE_GIB):
+               free_reserve_gib=DEFAULT_WORKSPACE_FREE_RESERVE_GIB,
+               host_root_reserve_gib=HOST_ROOT_FREE_RESERVE_BYTES // GIB):
     workspace = Path(workspace).expanduser().absolute()
     current = workspace
     while current != current.parent:
@@ -952,13 +964,18 @@ def initialize(workspace, mount_target=None, *, adopt=False,
         raise WorkspaceError(
             f'workspace free-space reserve must be from '
             f'{MIN_WORKSPACE_FREE_RESERVE_GIB} to {MAX_WORKSPACE_FREE_RESERVE_GIB} GiB')
+    if (isinstance(host_root_reserve_gib, bool)
+            or not isinstance(host_root_reserve_gib, int)
+            or not 0 <= host_root_reserve_gib <= 256):
+        raise WorkspaceError('host root free-space reserve must be from 0 to 256 GiB')
     options = set(identity.get('options', '').split(','))
     if 'ro' in options:
         raise WorkspaceError('workspace filesystem is mounted read-only')
     if 'noexec' in options:
         raise WorkspaceError('workspace filesystem is mounted noexec; Android binaries cannot run there')
     _require_workspace_health(identity)
-    _capacity_snapshot(target, free_reserve_gib * GIB)
+    _capacity_snapshot(target, free_reserve_gib * GIB,
+                       root_reserve_bytes=host_root_reserve_gib * GIB)
     if workspace.exists():
         if workspace.is_symlink() or not workspace.is_dir():
             raise WorkspaceError('workspace path is not a real directory')
@@ -979,7 +996,8 @@ def initialize(workspace, mount_target=None, *, adopt=False,
     marker = dict(schema=1, workspace_id=str(uuid.uuid4()),
                   mount_target=str(target), mount_uuid=identity['uuid'],
                   filesystem=identity['filesystem'], capacity_policy_version=2,
-                  workspace_free_reserve_gib=free_reserve_gib)
+                  workspace_free_reserve_gib=free_reserve_gib,
+                  host_root_free_reserve_gib=host_root_reserve_gib)
     # Probe required semantics before enrollment; use a private disposable
     # directory and never rewrite permissions on user data.
     capabilities = filesystem_capability_probe(workspace)
@@ -1027,7 +1045,9 @@ def check(workspace, predicted=0):
     if not workspace.is_dir() or not os.access(workspace, os.W_OK | os.X_OK):
         raise WorkspaceError('workspace is not writable')
     reserve = _free_reserve_gib(marker) * GIB
-    capacity = _capacity_snapshot(target, reserve, predicted)
+    capacity = _capacity_snapshot(
+        target, reserve, predicted,
+        root_reserve_bytes=_host_root_reserve_gib(marker) * GIB)
     used = allocated_bytes(workspace)
     return dict(workspace=str(workspace), mount=actual, used_bytes=used,
                 free_bytes=capacity['filesystem_available_bytes'],

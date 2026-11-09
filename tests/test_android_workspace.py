@@ -152,11 +152,34 @@ class WorkspaceGuardTest(unittest.TestCase):
         def statvfs(path):
             available = 100 if Path(path) == self.mount else 19
             return SimpleNamespace(f_bavail=available, f_frsize=guard.GIB)
-        with patch.object(guard, 'mount_identity', return_value=self.identity), \
-             patch.object(guard.os, 'statvfs', side_effect=statvfs):
+        with patch.object(guard.os, 'statvfs', side_effect=statvfs), \
+             patch.object(guard.os, 'stat', side_effect=(
+                 SimpleNamespace(st_dev=10), SimpleNamespace(st_dev=10))):
             with self.assertRaisesRegex(guard.WorkspaceError,
                                         'host root filesystem free space below reserve'):
-                guard.check(self.workspace)
+                guard._capacity_snapshot(self.mount, 2 * guard.GIB)
+
+    def test_external_workspace_is_not_blocked_by_unrelated_root_reserve(self):
+        fs = SimpleNamespace(f_bavail=100, f_frsize=guard.GIB,
+                             f_blocks=120, f_bfree=110)
+        with patch.object(guard.os, 'stat', side_effect=(
+                SimpleNamespace(st_dev=20), SimpleNamespace(st_dev=10))), \
+             patch.object(guard.os, 'statvfs', side_effect=(fs,
+                   SimpleNamespace(f_bavail=19, f_frsize=guard.GIB))):
+            result = guard._capacity_snapshot(self.mount, 2 * guard.GIB)
+        self.assertFalse(result['host_root_reserve_applies'])
+        self.assertEqual(result['host_root_available_bytes'], 19 * guard.GIB)
+
+    def test_host_root_reserve_is_configurable_for_root_backed_writes(self):
+        fs = SimpleNamespace(f_bavail=100, f_frsize=guard.GIB,
+                             f_blocks=120, f_bfree=110)
+        with patch.object(guard.os, 'stat', side_effect=(
+                SimpleNamespace(st_dev=10), SimpleNamespace(st_dev=10))), \
+             patch.object(guard.os, 'statvfs', return_value=fs):
+            result = guard._capacity_snapshot(
+                self.mount, 2 * guard.GIB, root_reserve_bytes=16 * guard.GIB)
+        self.assertTrue(result['host_root_reserve_applies'])
+        self.assertEqual(result['host_root_reserve_bytes'], 16 * guard.GIB)
 
     def test_capacity_reports_filesystem_and_workspace_allocation_separately(self):
         fs = SimpleNamespace(f_bavail=100, f_frsize=guard.GIB,
@@ -200,10 +223,12 @@ class WorkspaceGuardTest(unittest.TestCase):
         with patch.object(guard, 'mount_identity', return_value=self.identity), \
              patch.object(guard, 'filesystem_capability_probe', return_value={'acl': True}), \
              patch.object(guard.os, 'statvfs', return_value=SimpleNamespace(f_bavail=200, f_frsize=guard.GIB)):
-            first = guard.initialize(self.workspace, self.mount)
+            first = guard.initialize(self.workspace, self.mount,
+                                     host_root_reserve_gib=12)
             marker = json.loads((self.workspace / guard.MARKER).read_text())
             self.assertEqual(first['workspace'], str(self.workspace))
             self.assertEqual(marker['workspace_free_reserve_gib'], 2)
+            self.assertEqual(marker['host_root_free_reserve_gib'], 12)
             self.assertNotIn('working_ceiling_gib', marker)
             self.assertTrue(all((self.workspace / name).is_dir() for name in guard.LAYOUT))
             guard.initialize(self.workspace, self.mount)
