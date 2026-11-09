@@ -276,7 +276,7 @@ def run_bridge(directory: Path, android_uid: int) -> int:
             arguments = message.get_args_list()
             if len(arguments) == 2:
                 notification_action(*arguments)
-        return message
+        return dbus.lowlevel.HANDLER_RESULT_NOT_YET_HANDLED
 
     bus.add_message_filter(dispatch_notification_signal)
     stopping = False
