@@ -337,6 +337,9 @@ def _parser():
         json_flag(dev_commands.add_parser(name))
     dev_start = json_flag(dev_commands.add_parser('start'))
     dev_start.add_argument('--audio', action='store_true')
+    dev_install = json_flag(dev_commands.add_parser(
+        'install', help='install a local APK in the restricted headless development runtime'))
+    dev_install.add_argument('apk', type=Path)
     dev_storage = dev_commands.add_parser(
         'storage', help='run shared-storage verification without host display presentation')
     dev_storage_commands = dev_storage.add_subparsers(dest='storage_command', required=True)
@@ -411,10 +414,39 @@ def main(argv=None):
                                'selinux_enforcement': 'UNAVAILABLE'})
                 _emit(result, json_output)
                 return 0
+            if args.dev_command == 'install':
+                apk_arg = args.apk.expanduser()
+                if apk_arg.is_symlink():
+                    raise CliError('developer APK install refuses a symbolic link')
+                apk = apk_arg.resolve(strict=True)
+                if not apk.is_file() or apk.suffix.lower() != '.apk':
+                    raise CliError('developer install requires a readable regular .apk file')
+                if not os.access(apk, os.R_OK):
+                    raise CliError('developer APK is not readable')
+                if _status(config)['runtime']['state'] != 'STOPPED':
+                    raise CliError('developer APK installation requires a stopped AaaS session')
+                result = aaas_dev.verify_storage(config)
+                if result['headless_storage_launch'] != 'PERMITTED':
+                    _emit(result, True)
+                    raise CliError('headless developer runtime prerequisites are incomplete')
+                print('Installing local APK in the restricted headless development profile',
+                      flush=True)
+                print('Android SELinux enforcement: unavailable; security approval not granted',
+                      flush=True)
+                print('Only trusted development APKs are supported', flush=True)
+                return _run_script(
+                    'run_aaas.py', '--headless-storage', '--install-apk', apk,
+                    '--startup-timeout', '180', '--idle-timeout-seconds',
+                    config.idle_timeout_seconds, '--app', 'com.android.settings',
+                    config=config,
+                    env_extra={'AAAS_DEV_COMPAT': '1', 'AAAS_HEADLESS_STORAGE': '1',
+                               'AAAS_RUNTIME_ROOT': str(aaas_dev.runtime_root(config))})
             if args.dev_command == 'logs':
                 if not 1 <= args.lines <= 10000:
                     raise CliError('--lines must be between 1 and 10000')
-                sessions = sorted((config.workspace / 'tmp').glob('m1b84_session_*'),
+                sessions = sorted((p for p in (config.workspace / 'tmp').glob(
+                                      'm1b84_session_*') if p.is_dir() and
+                                   (p / 'android.log').is_file()),
                                   key=lambda p: p.stat().st_mtime, reverse=True)
                 if not sessions:
                     raise CliError('no AaaS developer session logs found')
@@ -607,7 +639,9 @@ def main(argv=None):
         if args.command == 'logs':
             if not 1 <= args.lines <= 10000:
                 raise CliError('--lines must be between 1 and 10000')
-            sessions = sorted((config.workspace / 'tmp').glob('m1b84_session_*'),
+            sessions = sorted((p for p in (config.workspace / 'tmp').glob(
+                                  'm1b84_session_*') if p.is_dir() and
+                               (p / 'android.log').is_file()),
                               key=lambda p: p.stat().st_mtime, reverse=True)
             if not sessions:
                 raise CliError('no AaaS session logs found')

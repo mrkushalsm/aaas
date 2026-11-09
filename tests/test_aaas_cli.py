@@ -108,6 +108,42 @@ class AaasCliTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs['env_extra']['AAAS_RUNTIME_ROOT'],
                          str(payload))
 
+    def test_developer_install_uses_headless_diagnostic_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            apk = Path(temporary) / 'trusted-test.apk'
+            apk.write_bytes(b'fixture')
+            report = {'headless_storage_launch': 'PERMITTED'}
+            with mock.patch.object(aaas_cli.aaas_config, 'resolve_config',
+                                   return_value=config), \
+                    mock.patch.object(aaas_cli.aaas_dev, 'verify_storage',
+                                      return_value=report), \
+                    mock.patch.object(aaas_cli.aaas_dev, 'runtime_root',
+                                      return_value=Path(temporary) / 'runtime'), \
+                    mock.patch.object(aaas_cli, '_status', return_value={
+                        'runtime': {'state': 'STOPPED'}}), \
+                    mock.patch.object(aaas_cli, '_run_script', return_value=0) as run:
+                self.assertEqual(aaas_cli.main(['dev', 'install', str(apk)]), 0)
+            args = run.call_args
+            self.assertEqual(args.args[:3],
+                             ('run_aaas.py', '--headless-storage', '--install-apk'))
+            self.assertIn('AAAS_HEADLESS_STORAGE', args.kwargs['env_extra'])
+
+    def test_logs_ignore_matching_files_and_choose_latest_session_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            root = config.workspace / 'tmp'
+            root.mkdir(parents=True)
+            (root / 'm1b84_session_stale.log').write_text('not a session')
+            session = root / 'm1b84_session_live'
+            session.mkdir()
+            (session / 'android.log').write_text('boot evidence\n')
+            with mock.patch.object(aaas_cli.aaas_config, 'resolve_config',
+                                   return_value=config), \
+                    mock.patch('builtins.print') as output:
+                self.assertEqual(aaas_cli.main(['dev', 'logs', '--lines', '10']), 0)
+            self.assertIn('boot evidence\n', output.call_args.args[0])
+
 
 if __name__ == '__main__':
     unittest.main()

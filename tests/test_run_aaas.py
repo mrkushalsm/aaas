@@ -30,6 +30,18 @@ class AudioSeccompPolicyTests(unittest.TestCase):
         self.assertNotIn('read: 1', policy)
 
 
+class HeadlessControlStateTests(unittest.TestCase):
+    def test_missing_presenter_state_is_valid_for_headless_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            self.assertEqual(SESSION.read_presenter_slot_state(temporary, 1),
+                             'NOT_PRESENT')
+
+    def test_presenter_state_is_returned_when_available(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            (Path(temporary) / 'app2_state').write_text('READY\n')
+            self.assertEqual(SESSION.read_presenter_slot_state(temporary, 2), 'READY')
+
+
 class DiagnosticOverlayManifestTests(unittest.TestCase):
     def _overlay_with_manifest(self, directory):
         import hashlib

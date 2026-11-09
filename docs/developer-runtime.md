@@ -18,6 +18,21 @@ The CLI includes `doctor`, `setup`, `status`, `start`, `stop`, `restart`,
 diagnostic and inspection output. `doctor`, `status`, `verify`, `images list`,
 and `version` are read-only and do not download files.
 
+## Restricted local diagnostic installation
+
+The historical M4 installation can be operated only through the explicit
+`dev` commands. For example, `aaas dev verify` checks the installed local
+bundle, and `aaas dev storage start` runs Android headlessly with host display
+presentation disabled. `aaas dev install /path/to/file.apk` installs a local
+APK through Android Package Manager in that headless profile; it requires a
+stopped session and does not weaken the production `apps install` gate. The
+command remains attached to the Android session after installation; press
+Ctrl+C to stop it cleanly and inspect `aaas dev logs` for the installer result.
+The profile has no Android SELinux enforcement and is not security-approved; use
+only trusted development APKs. This workflow verifies package installation,
+not app-window rendering or arbitrary APK compatibility. Graphical launch stays
+subject to the separate presenter safety gate documented in the M4 incident.
+
 `setup` enrolls a workspace only after a health check and disposable filesystem
 capability probes. It will not rewrite an existing configuration or adopt a
 nonempty unmarked directory without `--adopt-existing`. It then verifies the

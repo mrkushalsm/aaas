@@ -370,6 +370,14 @@ def finalize_status_sentinel(path, failed):
     return value
 
 
+def read_presenter_slot_state(ipc, slot):
+    """Read optional UI state; headless Android sessions have no presenter files."""
+    try:
+        return (Path(ipc) / f'app{slot}_state').read_text().strip()
+    except FileNotFoundError:
+        return 'NOT_PRESENT'
+
+
 def classify_session_failure(commands_log):
     """Classify only an emitted framework-death record, never script text."""
     try:
@@ -3647,7 +3655,7 @@ def main():
             return {'ok': True, 'state': state,
                     'windows': [
                         {'slot': slot, 'package': slot_packages[slot],
-                         'state': (ipc / f'app{slot}_state').read_text().strip(),
+                         'state': read_presenter_slot_state(ipc, slot),
                          'presenter_pid': (proc.pid if proc is not None and
                                            proc.poll() is None else None)}
                         for slot, proc in ((1, virtual_presenter),
