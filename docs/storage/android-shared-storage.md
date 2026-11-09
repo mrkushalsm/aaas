@@ -1,21 +1,21 @@
 # Android shared storage on Linux
 
-**M4 shared-storage core: PASS; integration: PASS/CLOSED (2026-11-06).** The
-persistent Linux directory, Android emulated-storage FUSE, ordinary application
-SAF/MediaStore access, persistent userdata, package/permission lifecycle, and
-tested isolation boundaries have passed acceptance. NTFS3 project quotas,
-SELinux labels, and stock userdata fscrypt/FBE are explicitly unsupported in
-this rootless development profile. BFE archive operations remain a separate
-application-specific compatibility limitation. Canonical M4 remains
-`PARTIAL/OPEN` for audio/microphone, clipboard, notifications, and launcher
-catalog work.
+**Current M4 shared-storage subgate: PASS/CLOSED (2026-11-09).** This includes
+the relocated-installation host-created-file SAF flow, URI grant persistence
+across runtime and app-process restarts, explicit grant revocation, MediaStore,
+and the dedicated-partition filesystem interface. The 2026-11-06 result remains
+historical evidence for its then-tested installation. Canonical M4 remains
+`PARTIAL/OPEN` for other integrations and broader graphics gates. NTFS3 project
+quotas, SELinux labels, and stock userdata fscrypt/FBE are unsupported in this
+rootless diagnostic profile. BFE archive operations remain a separate
+application-specific compatibility limitation.
 
 ## Current topology
 
-The persistent backing directory is:
+The current primary persistent backing directory is:
 
 ```text
-/run/media/mrkus/Homework/aaas-workspace/shared-storage/android-media/0
+/run/media/mrkus/Aaas/aaas-workspace/shared-storage/android-media/0
 ```
 
 `aaasctl storage path` prints the configured user-0 directory. `aaasctl storage
@@ -34,7 +34,9 @@ provide the parent mount topology vold expects. The live runtime reported
 `emulated;0` mounted, `/dev/fuse` mounted at `/storage/emulated`, and
 `/storage/emulated/0` backed by the host directory.
 
-The host workspace is on NTFS3. The backing and Android public folders retain
+The earlier 2026-11-06 test workspace was on NTFS3. The current enrolled
+primary workspace is ext4 on `/dev/sda3`, UUID
+`094120c3-e1f8-4a61-a95a-c347ecb711d1`. The backing and Android public folders retain
 the mapped Android `media_rw` identity (host UID 101022 in this user namespace)
 and have a named ACL for the host UID. AaaS repairs only those ACL entries; it
 does not recursively `chown` or `chmod` user data. `Android/data` and
@@ -903,3 +905,36 @@ interval; SMART remains inaccessible. The health policy remains
 `DEVICE_FAILURE_SUSPECTED`. No userdata or shared-media inspection was possible
 without mounting the volume. Details are in the dated post-CHKDSK assessment
 and `post_chkdsk_assessment_2026_11_07` in the acceptance JSON.
+
+### Final SAF and partition closure follow-up (2026-11-09)
+
+The relocated install's ordinary target-SDK 35 probe ran as Android UID 10153
+with no requested storage permissions. On isolated Weston display 2, Android
+`ACTION_OPEN_DOCUMENT` launched DocumentsUI, actual Android input selected the
+host-created `Download/000-host-read.txt`, and DocumentsUI returned
+`content://com.android.externalstorage.documents/document/primary%3ADownload%2F000-host-read.txt`.
+The app read the exact v2 bytes. After the host changed the file to v3, the
+persisted URI returned the v3 content after Android stop/start and again after
+an app force-stop/relaunch. `READ_MEDIA_IMAGES` remained denied. The test then
+released the persisted grant; a subsequent open failed with
+`SecurityException`. The probe app was uninstalled through PackageManager.
+`cmd appops get --user 0 org.aaas.storagetest` reported the storage-related
+AppOps (`READ_MEDIA_IMAGES` and `READ_MEDIA_VISUAL_USER_SELECTED`) as `ignore`;
+no broad storage AppOp was enabled.
+
+This picker test used the separate headless Weston/llvmpipe compositor, not the
+active KDE socket. A bounded Android presentation run received compositor
+presentation feedback for 12 frames and selected the file. There was no human
+visual inspection or physical display output. The KWin/Mesa incident remains
+unresolved and does not establish active-host-compositor safety. That broader
+graphics gate and canonical M4 remain open. Machine-readable session IDs,
+hashes, buffer accounting, and capacity measurements are in
+[`saf-shared-storage-2026-11-09.json`](../../results/m4/saf-shared-storage-2026-11-09.json).
+
+The primary AaaS workspace's Android `/data` and shared-media backing both
+reside on the enrolled dedicated ext4 partition. The relocated installation
+used for portability testing intentionally has separate `/home`-backed
+userdata and shared media; it was not migrated. No user data was copied or
+deleted. The 80 GiB ceiling remains removed, with filesystem `f_bavail`, the
+2 GiB partition reserve, the 20 GiB host-root reserve, UUID enrollment, and
+health checks retained.

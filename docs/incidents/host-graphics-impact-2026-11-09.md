@@ -107,3 +107,23 @@ headless session shell rather than an Android app permission context. The
 KWin/Mesa crash remains correlated but causation is not established; this
 follow-up does not resolve or attribute that crash and does not close graphical
 acceptance.
+
+## Later isolated-compositor storage run (2026-11-09)
+
+The presenter was subsequently exercised only against a disposable Weston 15
+headless compositor running llvmpipe in isolated user, mount, PID, and network
+namespaces. The active KDE Wayland socket was not passed to the runner. An
+Android `ACTION_OPEN_DOCUMENT` selection returned the expected host file URI
+and the app read its content. One bounded presenter session reported 12 frame
+presentations, 11 compositor buffer releases, one buffer invalidated during
+teardown, and zero outstanding buffers. Another picker session sent real input
+events to Android display 2 and returned the same URI. Test session IDs and
+hashes are recorded in `results/m4/saf-shared-storage-2026-11-09.json`.
+
+This is bounded isolated-test evidence for the storage picker flow only. The
+compositor had no physical output, and no human visual inspection was made.
+Separate synthetic burst testing did not model the Composer producer's
+two-frame backpressure contract and is not evidence of a fix for the earlier
+32-slot exhaustion. The KWin/Mesa crash's cause remains undetermined; no claim
+is made that the presenter is safe against the active host compositor. No
+system graphics setting or active desktop process was changed.

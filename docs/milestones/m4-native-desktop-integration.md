@@ -1,6 +1,6 @@
 # M4 — Native desktop integration
 
-**Current status: PARTIAL/OPEN.** The earlier M4 closure campaign and its evidence remain preserved in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). The resumed relocated-installation acceptance now has headless shared-storage and MediaStore restart evidence in [`results/m4/headless-shared-storage-2026-11-09.json`](../../results/m4/headless-shared-storage-2026-11-09.json). Interactive SAF and graphical application acceptance remain incomplete; the latter is paused under the unresolved KWin/Mesa safety concern in [`docs/incidents/host-graphics-impact-2026-11-09.md`](../incidents/host-graphics-impact-2026-11-09.md). M5 performance and M6 compositor portability remain separate.
+**Current canonical M4 status: PARTIAL/OPEN.** Historical M4 acceptance remains preserved in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). The shared-storage subgate is now `PASS/CLOSED`, including live relocated-installation SAF grant, restart, force-stop/relaunch, revocation, MediaStore, and capacity evidence. Broader presenter/KWin safety, fresh full M2 graphics regressions, and other canonical M4 gates remain independently open. See [`saf-shared-storage-2026-11-09.json`](../../results/m4/saf-shared-storage-2026-11-09.json) and the unresolved [KWin/Mesa incident](../incidents/host-graphics-impact-2026-11-09.md).
 
 ## Baseline and scope
 
@@ -934,3 +934,24 @@ AaaS defect. M4 is therefore **PARTIAL/OPEN** for the current relocated
 installation. See the detailed
 [storage record](../../results/m4/shared-storage-partition-2026-11-09.json)
 and [host graphics incident](../incidents/host-graphics-impact-2026-11-09.md).
+
+### Shared-storage SAF closure (2026-11-09)
+
+The shared-storage subgate is `PASS/CLOSED`; canonical M4 remains
+`PARTIAL/OPEN`. An ordinary target-SDK 35 app with no requested storage
+permissions used DocumentsUI on the isolated Weston compositor to select a
+separate host-created file. Android returned the external-storage document URI
+to app UID 10153, and ContentResolver read the file. The grant survived a full
+Android restart and an app force-stop/relaunch. Host modification was observed
+through the same URI. Explicit revocation caused later ContentResolver opens to
+fail with `SecurityException`; `READ_MEDIA_IMAGES` remained denied. Package
+uninstall and session shutdown completed cleanly. `cmd appops get --user 0
+org.aaas.storagetest` reported the storage-related AppOps as `ignore`.
+
+The isolated headless Weston compositor provided bounded presentation feedback
+and accepted display-2 input. No physical display output or human visual
+inspection is claimed. The active KDE compositor was never used. The KWin/Mesa
+incident remains unresolved, so this storage test does not approve general
+presenter use on the active host compositor or replace a fresh complete M2
+multi-window regression. Detailed logs and hashes are in the
+[SAF acceptance record](../../results/m4/saf-shared-storage-2026-11-09.json).
