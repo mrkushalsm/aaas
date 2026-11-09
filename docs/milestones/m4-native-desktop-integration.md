@@ -1208,3 +1208,23 @@ not reset or repaired. The notification bridge does not forward Android
 PendingIntent/action metadata, so notification activation is not currently
 supported. See
 [`desktop-integrations-recheck-2026-11-10.json`](../../results/m4/desktop-integrations-recheck-2026-11-10.json).
+
+### Resize reconnect regression follow-up (2026-11-10)
+
+A live Settings resize exposed a presenter reconnect defect. The Android broker
+had resized display 3 to 592x866, but a producer reconnect recreated the
+Wayland toplevel at the default 420x740 and submitted mismatched frames. The
+presenter now resumes the saved generation and framebuffer dimensions from the
+resize request file, and uses those dimensions when recreating the toplevel.
+The active KWin test resized the frame to 600x900 (592x866 client/display),
+observed the producer disconnect/reconnect, then confirmed resumed generation
+3 frames matched 592x866, 29 frames committed, 25 presented, 28 release events,
+and zero stale-format rejections in the captured interval. Settings remained
+visible and KWin stayed alive. The rebuilt presenter hash and structured
+evidence are in
+[`resize-reconnect-acceptance-2026-11-10.json`](../../results/m4/resize-reconnect-acceptance-2026-11-10.json).
+
+The controlled test followed a fresh offline `e2fsck -fn` exit 0, passive
+SMART evidence, and workspace/userdata manifest checks. The earlier device-
+offline event remains recorded; only guarded controlled testing was authorized
+by the refreshed workspace-health attestation.
