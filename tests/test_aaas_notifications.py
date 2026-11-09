@@ -110,6 +110,18 @@ class NotificationMappingTests(unittest.TestCase):
         self.assertEqual(forwarder.dispatch(self.event('org.a', 'key', 'removed')), 41)
         self.assertEqual(closed, [41])
         self.assertFalse(forwarder.active)
+        self.assertIsNone(forwarder.activation_package(41, 'default'))
+
+    def test_default_action_resolves_only_active_notification_package(self):
+        forwarder = notifications.NotificationForwarder(
+            lambda *_: 52, lambda _id: None)
+        event = self.event('org.example.reader', 'notice-key')
+        forwarder.dispatch(event)
+        self.assertEqual(forwarder.activation_package(52, 'default'),
+                         'org.example.reader')
+        self.assertIsNone(forwarder.activation_package(52, 'other-action'))
+        forwarder.dispatch(self.event('org.example.reader', 'notice-key', 'removed'))
+        self.assertIsNone(forwarder.activation_package(52, 'default'))
 
     def test_same_android_id_from_distinct_packages_is_independent(self):
         calls = []

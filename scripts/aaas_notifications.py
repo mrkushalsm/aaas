@@ -171,6 +171,7 @@ class NotificationForwarder:
         self.close = close
         self.max_active = max_active
         self.active: dict[str, tuple[int, str]] = {}
+        self.by_id: dict[int, str] = {}
         self.order: list[str] = []
 
     @staticmethod
@@ -184,6 +185,7 @@ class NotificationForwarder:
         if event['type'] == 'removed':
             if current:
                 self.close(current[0])
+                self.by_id.pop(current[0], None)
                 del self.active[identity]
                 self.order.remove(identity)
                 return current[0]
@@ -193,13 +195,23 @@ class NotificationForwarder:
         notification_id = int(self.notify(app, existing, event['title'], event['body']))
         if current:
             self.order.remove(identity)
+            if current[0] != notification_id:
+                self.by_id.pop(current[0], None)
         self.active[identity] = (notification_id, event['package'])
+        self.by_id[notification_id] = event['package']
         self.order.append(identity)
         while len(self.order) > self.max_active:
             oldest = self.order.pop(0)
             old_id, _ = self.active.pop(oldest)
+            self.by_id.pop(old_id, None)
             self.close(old_id)
         return notification_id
+
+    def activation_package(self, notification_id: int, action_key: str) -> str | None:
+        """Resolve only Plasma's default activation for an active Android notice."""
+        if action_key != 'default':
+            return None
+        return self.by_id.get(int(notification_id))
 
     def close_all(self) -> None:
         for notification_id, _ in tuple(self.active.values()):
@@ -222,8 +234,35 @@ def run_bridge(directory: Path, android_uid: int) -> int:
     iface.GetServerInformation()
     forwarder = NotificationForwarder(
         lambda app, replaces, title, body: int(iface.Notify(
-            app, dbus.UInt32(replaces), '', title, html.escape(body), [], {}, 5000)),
+            app, dbus.UInt32(replaces), '', title, html.escape(body),
+            ['default', 'Open application'], {}, 5000)),
         lambda notification_id: iface.CloseNotification(dbus.UInt32(notification_id)))
+
+    def notification_action(notification_id, action_key):
+        try:
+            package = forwarder.activation_package(int(notification_id), str(action_key))
+        except (TypeError, ValueError):
+            package = None
+        if package is None:
+            return
+        # Package names were validated when the Android event was decoded.
+        # Use the existing runtime control protocol, never a shell command.
+        control = Path(__file__).with_name('aaasctl.py')
+        try:
+            subprocess.Popen(
+                [sys.executable, str(control), 'launch', package],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+            print(f'notification activation requested package={package}', flush=True)
+        except OSError as error:
+            print(f'notification activation failed package={package} '
+                  f'error={type(error).__name__}', flush=True)
+
+    bus.add_signal_receiver(
+        notification_action, signal_name='ActionInvoked',
+        dbus_interface='org.freedesktop.Notifications',
+        path='/org/freedesktop/Notifications',
+        bus_name='org.freedesktop.Notifications')
     stopping = False
 
     def stop(_signum, _frame):
@@ -257,7 +296,7 @@ def run_bridge(directory: Path, android_uid: int) -> int:
                         path.unlink()
                 except OSError:
                     pass
-        time.sleep(.05)
+        bus.read_write_dispatch(.05)
     forwarder.close_all()
     return 0
 
