@@ -200,3 +200,78 @@ multi-window, or compositor-disconnect workload was run. KWin/Mesa causation
 remains unproven; active KDE presentation remains unapproved. The host KWin
 process remained active after these tests, and no test presenter/compositor
 process remained.
+
+## Forensic comparison and staged-buffer bound (2026-11-09)
+
+The accepted M2 source head was `11f91ec514249f3c22fea318eb7e4edb23316466`.
+The last repository head before the crash sessions was
+`35c5cbe947651a1174e8578d3261010d90f42726`; this is only an upper bound because
+the historical session manifests did not record the exact presenter executable
+hash or checked-out source revision. At those two source heads,
+`gpu_presenter.c`, `wire_v2.c`, and `sync_util.c` are byte-identical. The only
+change in `wayland_host_presenter.c` is its default socket path. This makes a
+tracked presenter source regression less likely, but does not prove which
+executable was loaded during either session.
+
+The successful M2 session `m1b84_session_7n1k5nlw` recorded 238 commits and 238
+actual Wayland releases, with zero outstanding ownership. The later successful
+M4 Settings/Contacts session `m1b84_session_we0dsscc` recorded 92 commits and
+92 releases, also with zero outstanding ownership. Both ran on KWin 6.7.5; the
+recorded Mesa package version was already installed before the accepted M2
+session. The M4 Composer overlay hash was
+`668bfd8198d5457d50a17b53c0ee37d5693b7ea34133e90441c2903c61a55f3d`.
+
+In the 00:39 incident session `m1b84_session_plvyq3rz`, 32 frames were copied
+to presenter staging BOs and committed, but no actual `wl_buffer.release` was
+logged. In the 01:53 session `m1b84_session_5pll6kjw`, 32 were copied and
+committed, with one release. Both used 720×1280 frames with 2944-byte stride.
+The first advertised explicit-sync capability and used Wayland syncobj on its
+frame commits; the second did not advertise explicit sync and used the
+implicit Wayland path. The commit trace's `explicit_sync` field describes
+presenter/Wayland syncobj use; it does not prove an incoming Composer acquire
+sync-file was present. The incident logs do not record incoming acquire-FD
+presence. The later acquire-fence fallback correction therefore is not
+established as a cause of either crash.
+
+For both sessions the Intel `execbuf ENOMEM` journal warning followed the final
+commit/slot-cap interval. KWin's SIGABRT followed that warning by about 14.7
+seconds. The presenter's broken pipe followed KWin's abort. Presenter event
+times are monotonic and align with the same-boot monotonic journal. This is a
+strong temporal association, not proof that AaaS caused Mesa's abort. Coredump
+metadata has the same main-thread path through `libgallium`, KWin
+`GLVertexBuffer::endOfFrame`, `ItemRendererOpenGL::endFrame`, and
+`WorkspaceScene::paint`; the core bytes and abort detail were not available.
+The crash therefore remains unattributed.
+
+The 32 entries did not imply 32 distinct Composer source buffers. The
+transport's `COPY_COMPLETE` returns a source allocation after the CPU staging
+copy, while the presenter retains a separate staging BO and Wayland buffer
+until actual compositor release. Consequently the Composer's two source
+buffers did not bound presenter-owned staging allocations. The previous 32
+slot cap prevented indefinite allocation but admitted 32 live staging buffers
+before rejecting subsequent frames.
+
+For 720×1280 frames at stride 2944, those 32 buffers represent about 115 MiB
+of row payload (`32 × 2944 × 1280`) before GBM allocation overhead. The Intel
+`execbuf ENOMEM` warning shortly after the last commit makes retained staging
+memory a possible contributor. Actual BO residency, concurrent GPU clients,
+and the Mesa assertion are unavailable, so memory pressure is not established
+as the root cause.
+
+The presenter now limits early source-copy credits to two active staged slots,
+defers later `COPY_COMPLETE` until the corresponding actual Wayland release
+returns source ownership, and caps active staged imports at four. Over-limit
+frames are rejected without allocating a stage BO. This corrects the
+demonstrated staged-resource/backpressure defect and bounds the local staged
+resource set; it is classified `CONFIRMED_DEFECT_NOT_PROVEN_CAUSAL`, not as a
+KWin crash fix. The native presenter rebuilt with `-Werror`; the policy test
+passed. Two isolated pixman/Weston SHM runs each completed 1,024 submissions,
+observed 1,023 releases plus one teardown invalidation, zero rejects, and zero
+outstanding buffers. SHM does not execute the GBM staging-credit branch.
+
+The machine-readable comparison and exact artifact references are in
+[`graphics-known-good-vs-incident-2026-11-09.json`](../../results/m4/graphics-known-good-vs-incident-2026-11-09.json).
+The active KDE render nodes are shared host devices, so no post-fix GBM or
+DMA-BUF presentation run was made. The historical KWin/Mesa cause and
+accelerated-path correction remain unverified; active-KWin presentation is
+still not approved.

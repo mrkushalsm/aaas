@@ -1012,3 +1012,24 @@ presentation is still not approved; M4 graphical stability and canonical M4
 remain `PARTIAL/OPEN`. See the
 [software-isolated result](../../results/m4/graphics-software-isolated-2026-11-09.json)
 and the [host graphics incident](../incidents/host-graphics-impact-2026-11-09.md).
+
+### Known-good versus KWin incident comparison (2026-11-09)
+
+The M2 accepted trace and a later M4 Settings/Contacts trace both show balanced
+actual Wayland releases (238/238 and 92/92). The two incident traces show 32
+CPU-staged commits with zero and one release respectively before KWin's abort.
+The same-source comparison did not find a change in `gpu_presenter.c`,
+`wire_v2.c`, or `sync_util.c` between the accepted M2 source head and the last
+repository head before the incidents. The actual loaded presenter binary hashes
+were not retained, so this is not proof of identical executables.
+
+The presenter now limits early source-copy credits to two active staged slots,
+holds subsequent source ownership until actual Wayland release, and caps active
+staged imports at four. This is a confirmed staging/backpressure hardening fix;
+it is not proven to resolve the KWin/Mesa crash. The crash stack identifies
+KWin's Mesa Gallium frame completion, but no core data identifies the faulty
+resource or client. No post-fix GBM/DMA-BUF run was made because all render
+nodes are shared with active KDE. Isolated pixman/Weston SHM lifecycle tests
+passed, but do not cover that accelerated branch. Graphical presenter stability
+and canonical M4 remain **PARTIAL/OPEN**. See the
+[forensic comparison](../../results/m4/graphics-known-good-vs-incident-2026-11-09.json).
