@@ -258,11 +258,24 @@ def run_bridge(directory: Path, android_uid: int) -> int:
             print(f'notification activation failed package={package} '
                   f'error={type(error).__name__}', flush=True)
 
-    bus.add_signal_receiver(
-        notification_action, signal_name='ActionInvoked',
-        dbus_interface='org.freedesktop.Notifications',
-        path='/org/freedesktop/Notifications',
-        bus_name='org.freedesktop.Notifications')
+    notification_owner = str(bus.get_name_owner('org.freedesktop.Notifications'))
+    bus.add_match_string(
+        "type='signal',sender='" + notification_owner + "',"
+        "interface='org.freedesktop.Notifications',member='ActionInvoked',"
+        "path='/org/freedesktop/Notifications'")
+
+    def dispatch_notification_signal(message):
+        if (message.get_type() == dbus.lowlevel.MESSAGE_TYPE_SIGNAL and
+                message.get_sender() == notification_owner and
+                message.get_interface() == 'org.freedesktop.Notifications' and
+                message.get_member() == 'ActionInvoked' and
+                message.get_path() == '/org/freedesktop/Notifications'):
+            arguments = message.get_args_list()
+            if len(arguments) == 2:
+                notification_action(*arguments)
+        return message
+
+    bus.add_message_filter(dispatch_notification_signal)
     stopping = False
 
     def stop(_signum, _frame):
