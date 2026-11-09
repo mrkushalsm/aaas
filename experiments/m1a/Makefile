@@ -100,6 +100,9 @@ $(BUILD)/test-window-state: tests/test_window_state.c src/window_state.h | $(BUI
 $(BUILD)/test-resize-scheduler: tests/test_resize_scheduler.c src/resize_scheduler.h | $(BUILD)
 	$(CC) $(CFLAGS) -Isrc $< -o $@
 
+$(BUILD)/test-staging-backpressure: tests/test_staging_backpressure.c src/staging_backpressure.h | $(BUILD)
+	$(CC) $(CFLAGS) -Isrc $< -o $@
+
 # Test-only producer for the presenter's explicit wl_shm software backend.
 $(BUILD)/software-shm-producer: tests/software_shm_producer.c src/wire_v2.c src/sync_util.c src/wire_v2.h | $(BUILD)
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags libdrm) tests/software_shm_producer.c src/wire_v2.c src/sync_util.c -o $@ $(shell pkg-config --libs libdrm)
@@ -107,7 +110,7 @@ $(BUILD)/software-shm-producer: tests/software_shm_producer.c src/wire_v2.c src/
 $(BUILD)/test-input-state: tests/test_input_state.c src/input_state.c src/input_v1.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
 
-test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map $(BUILD)/test-keyboard-teardown $(BUILD)/test-window-state $(BUILD)/test-resize-scheduler
+test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/test-stress $(BUILD)/test-input-map $(BUILD)/test-input-v1 $(BUILD)/test-input-state $(BUILD)/test-keyboard-map $(BUILD)/test-keyboard-teardown $(BUILD)/test-window-state $(BUILD)/test-resize-scheduler $(BUILD)/test-staging-backpressure
 	$(BUILD)/test-wire
 	$(BUILD)/test-wire-v2
 	$(BUILD)/test-sync-util
@@ -120,6 +123,7 @@ test: $(BUILD)/test-wire $(BUILD)/test-wire-v2 $(BUILD)/test-sync-util $(BUILD)/
 	$(BUILD)/test-keyboard-teardown --dispatch-control
 	$(BUILD)/test-window-state
 	$(BUILD)/test-resize-scheduler
+	$(BUILD)/test-staging-backpressure
 
 clean:
 	rm -rf $(BUILD)

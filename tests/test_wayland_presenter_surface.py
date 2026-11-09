@@ -61,6 +61,23 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
             "params = zwp_linux_dmabuf_v1_create_params", import_start)
         self.assertLess(import_start, params_start)
 
+    def test_staged_buffers_bound_early_copy_credit_and_imports(self):
+        policy = (ROOT / "experiments/m1a/src/staging_backpressure.h").read_text()
+        self.assertIn("#define AAAS_STAGING_EARLY_COPY_CREDITS 2u", policy)
+        self.assertIn("#define AAAS_STAGING_MAX_IN_FLIGHT 4u", policy)
+        self.assertIn("active_slots < AAAS_STAGING_EARLY_COPY_CREDITS", policy)
+        self.assertIn("active_slots < AAAS_STAGING_MAX_IN_FLIGHT", policy)
+
+        start = self.source.index("static void handle_incoming_buffer(")
+        end = self.source.index("static void ", start + len("static void handle_incoming_buffer("))
+        handler = self.source[start:end]
+        self.assertIn("active_slot_count(a)", handler)
+        self.assertIn('"staged_backpressure_limit"', handler)
+        self.assertIn("aaas_staging_can_complete_source_copy(active_before_import)", handler)
+        self.assertIn('"source_copy_complete_deferred_until_release"', handler)
+        self.assertLess(handler.index("duplicate_inflight_buffer"),
+                        handler.index("staged_backpressure_limit"))
+
     def test_acquire_fence_wait_pumps_wayland_and_input_events(self):
         start = self.source.index("static int wait_for_acquire_fence(")
         end = self.source.index("static void check_release_timelines(", start)

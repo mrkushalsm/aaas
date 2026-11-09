@@ -6,6 +6,7 @@
 #include "wire_v2.h"
 #include "sync_util.h"
 #include "window_state.h"
+#include "staging_backpressure.h"
 
 #include "xdg-shell-client-protocol.h"
 #include "linux-dmabuf-client-protocol.h"
@@ -1788,6 +1789,14 @@ static void keyboard_repeat_tick(presenter_app *a);
 static void flush_scheduled_android_resize(presenter_app *a);
 static void check_release_timelines(presenter_app *a);
 
+static unsigned active_slot_count(const presenter_app *a) {
+    unsigned active = 0;
+    for (int i = 0; i < MAX_SLOTS; i++) {
+        if (a->slots[i].active) active++;
+    }
+    return active;
+}
+
 /* Wait for an acquire sync_file without starving the Wayland or input event
  * loops. The wait remains bounded; the producer FD is retained by the caller
  * until this function reports success or the frame is rejected. */
@@ -2277,6 +2286,17 @@ static void handle_incoming_buffer(presenter_app *a) {
             s = &a->slots[i];
         }
     }
+    /* A CPU-staged frame has two separate ownership lifetimes: COPY_COMPLETE
+     * returns the Composer's source buffer, while wl_buffer.release returns
+     * the presenter-owned staging buffer. Limit the early source credits and
+     * independently bound staged buffers if the producer violates backpressure. */
+    const unsigned active_before_import = active_slot_count(a);
+    if (a->copy_complete_enabled &&
+        !aaas_staging_can_import(active_before_import)) {
+        reject_unimported_buffer(a, &m, fds, nfds,
+                                 "staged_backpressure_limit");
+        return;
+    }
     if (!s) {
         reject_unimported_buffer(a, &m, fds, nfds,
                                  "slot_registry_exhausted");
@@ -2542,7 +2562,8 @@ static void handle_incoming_buffer(presenter_app *a) {
                 log_staging_perf(a, &m, &perf);
             }
 
-            if (a->copy_complete_enabled) {
+            if (a->copy_complete_enabled &&
+                aaas_staging_can_complete_source_copy(active_before_import)) {
                 aaas_v2_msg copied_msg = {
                     .magic = AAAS_V2_MAGIC,
                     .version = AAAS_V2_VERSION,
@@ -2561,6 +2582,12 @@ static void handle_incoming_buffer(presenter_app *a) {
                     return;
                 }
                 log_presenter_event("source_copy_complete", m.generation, m.id, NULL);
+            } else if (a->copy_complete_enabled) {
+                char pending_json[64];
+                snprintf(pending_json, sizeof(pending_json),
+                         "\"active_slots\":%u", active_before_import);
+                log_presenter_event("source_copy_complete_deferred_until_release",
+                                    m.generation, m.id, pending_json);
             }
         } else {
             if (a->trace_staging_stages) {
