@@ -63,20 +63,54 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
 
     def test_staged_buffers_bound_early_copy_credit_and_imports(self):
         policy = (ROOT / "experiments/m1a/src/staging_backpressure.h").read_text()
+        native_test = (ROOT / "experiments/m1a/tests/test_staging_backpressure.c").read_text()
         self.assertIn("#define AAAS_STAGING_EARLY_COPY_CREDITS 2u", policy)
         self.assertIn("#define AAAS_STAGING_MAX_IN_FLIGHT 4u", policy)
-        self.assertIn("active_slots < AAAS_STAGING_EARLY_COPY_CREDITS", policy)
-        self.assertIn("active_slots < AAAS_STAGING_MAX_IN_FLIGHT", policy)
+        self.assertIn("aaas_staging_reserve(", policy)
+        self.assertIn("aaas_staging_copy_decide(", policy)
+        self.assertIn("aaas_staging_release(", policy)
+        self.assertIn("aaas_staging_cancel(", policy)
 
         start = self.source.index("static void handle_incoming_buffer(")
         end = self.source.index("static void ", start + len("static void handle_incoming_buffer("))
         handler = self.source[start:end]
-        self.assertIn("active_slot_count(a)", handler)
+        self.assertIn("aaas_staging_reserve(", handler)
+        self.assertIn("aaas_staging_mark_allocated(", handler)
+        self.assertIn("aaas_staging_copy_decide(", handler)
+        self.assertIn("aaas_staging_mark_submitted(", handler)
         self.assertIn('"staged_backpressure_limit"', handler)
-        self.assertIn("aaas_staging_can_complete_source_copy(active_before_import)", handler)
         self.assertIn('"source_copy_complete_deferred_until_release"', handler)
+        self.assertLess(handler.index("aaas_staging_reserve("),
+                        handler.index("gbm_bo_create("))
         self.assertLess(handler.index("duplicate_inflight_buffer"),
                         handler.index("staged_backpressure_limit"))
+        self.assertIn("actual_releases", self.source)
+        self.assertIn("aaas_staging_release(", self.source)
+        self.assertIn("aaas_staging_cancel(", self.source)
+        self.assertIn("release_frame(&m, four)", native_test)
+        self.assertIn("test_stalled_releases_and_preallocation_limit", native_test)
+        self.assertIn("cancel_all(&m)", native_test)
+
+    def test_composer_frames_wait_for_the_initial_xdg_configure(self):
+        self.assertIn("bool producer_hello_received;", self.source)
+        hello = self.source.index("if (m.type == AAAS_V2_HELLO)")
+        hello_end = self.source.index("if (m.type != AAAS_V2_BUFFER)", hello)
+        self.assertIn("a->producer_hello_received = true;", self.source[hello:hello_end])
+        poll_start = self.source.index("struct pollfd p[4] = {")
+        poll_end = self.source.index("};", poll_start)
+        poll_fds = self.source[poll_start:poll_end]
+        self.assertIn("(!app.producer_hello_received || app.configured)", poll_fds)
+        self.assertNotIn("if (!a->configured && a->w && a->h)", self.source)
+
+    def test_gbm_staging_integration_producer_models_source_and_release_ownership(self):
+        producer = (ROOT / "experiments/m1a/tests/gbm_staging_producer.c").read_text()
+        makefile = (ROOT / "experiments/m1a/Makefile").read_text()
+        self.assertIn("AAAS_V2_FLAG_COPY_COMPLETE", producer)
+        self.assertIn("SOURCE_COUNT 2u", producer)
+        self.assertIn("source_busy_count(sources) == SOURCE_COUNT", producer)
+        self.assertIn("--probe-cap", producer)
+        self.assertIn("actual_wayland_releases", producer)
+        self.assertIn("gbm-staging-producer", makefile)
 
     def test_acquire_fence_wait_pumps_wayland_and_input_events(self):
         start = self.source.index("static int wait_for_acquire_fence(")

@@ -62,11 +62,11 @@ $(BUILD)/aaas-m1a: src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/
 	$(CC) $(CFLAGS) $(CPPFLAGS) src/main.c src/wire.c $(BUILD)/xdg-shell-protocol.c $(BUILD)/linux-dmabuf-protocol.c $(BUILD)/presentation-time-protocol.c -o $@ $(LDLIBS)
 
 # New M1A.1 GPU Explicit Sync (v2)
-$(BUILD)/aaas-m1a1: src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/window_state.h src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
+$(BUILD)/aaas-m1a1: src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/staging_backpressure.h src/window_state.h src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(shell pkg-config --cflags $(PRESENTER_PKGS)) src/main_v2.c src/gpu_producer.c src/gpu_presenter.c src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(shell pkg-config --libs $(PRESENTER_PKGS)) -lm
 
 # Standalone Host Wayland Presenter for Android Container
-$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/window_state.h src/keyboard_map.c src/keyboard_map.h src/input_v1.h src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
+$(BUILD)/wayland-host-presenter: src/wayland_host_presenter.c src/gpu_presenter.c src/staging_backpressure.h src/window_state.h src/keyboard_map.c src/keyboard_map.h src/input_v1.h src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) $(PROTOCOLS_HDR) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(shell pkg-config --cflags $(PRESENTER_PKGS)) src/wayland_host_presenter.c src/gpu_presenter.c src/keyboard_map.c src/wire_v2.c src/sync_util.c src/input_v1.c src/input_map.c $(PROTOCOLS_SRC) -o $@ $(shell pkg-config --libs $(PRESENTER_PKGS)) -lm
 
 # Tests
@@ -106,6 +106,10 @@ $(BUILD)/test-staging-backpressure: tests/test_staging_backpressure.c src/stagin
 # Test-only producer for the presenter's explicit wl_shm software backend.
 $(BUILD)/software-shm-producer: tests/software_shm_producer.c src/wire_v2.c src/sync_util.c src/wire_v2.h | $(BUILD)
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags libdrm) tests/software_shm_producer.c src/wire_v2.c src/sync_util.c -o $@ $(shell pkg-config --libs libdrm)
+
+# Opt-in integration producer for a real GBM-backed presenter in a disposable VM.
+$(BUILD)/gbm-staging-producer: tests/gbm_staging_producer.c src/wire_v2.c src/sync_util.c src/wire_v2.h | $(BUILD)
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags libdrm) tests/gbm_staging_producer.c src/wire_v2.c src/sync_util.c -o $@ $(shell pkg-config --libs libdrm)
 
 $(BUILD)/test-input-state: tests/test_input_state.c src/input_state.c src/input_v1.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@

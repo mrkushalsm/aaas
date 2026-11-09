@@ -76,6 +76,8 @@ typedef struct {
 
     /* Staging BO for linear memfd fallback */
     struct gbm_bo *staging_bo;
+    uint32_t staging_token;
+    bool staging_tracked;
 } presenter_slot;
 
 typedef struct {
@@ -135,6 +137,7 @@ struct presenter_app {
     bool resize_waiting_frame;
     const char *resize_request_path;
     int configured;
+    bool producer_hello_received;
     int closed;
     int android_close_requested;
     int copy_complete_enabled;
@@ -183,6 +186,7 @@ struct presenter_app {
 
     /* Buffer slots */
     presenter_slot slots[MAX_SLOTS];
+    aaas_staging_tracker staging;
 
     /* Accounting */
     uint64_t imported;
@@ -1700,6 +1704,18 @@ static struct libdecor_interface decor_iface = {
 static void finalize_buffer_release(presenter_slot *s, bool release_point_signaled) {
     presenter_app *a = s->app;
 
+    if (s->staging_tracked) {
+        aaas_staging_result state = aaas_staging_release(
+            &a->staging, s->staging_token, s->id, s->gen);
+        if (state != AAAS_STAGING_OK) {
+            a->closed = 1;
+            log_presenter_event("staging_release_state_error", s->gen,
+                                s->id, NULL);
+        }
+        s->staging_tracked = false;
+        s->staging_token = 0;
+    }
+
     int release_fence_fd = -1;
     uint32_t flags = 0;
 
@@ -1788,14 +1804,6 @@ static void input_keyboard_flush(presenter_app *a);
 static void keyboard_repeat_tick(presenter_app *a);
 static void flush_scheduled_android_resize(presenter_app *a);
 static void check_release_timelines(presenter_app *a);
-
-static unsigned active_slot_count(const presenter_app *a) {
-    unsigned active = 0;
-    for (int i = 0; i < MAX_SLOTS; i++) {
-        if (a->slots[i].active) active++;
-    }
-    return active;
-}
 
 /* Wait for an acquire sync_file without starving the Wayland or input event
  * loops. The wait remains bounded; the producer FD is retained by the caller
@@ -1986,6 +1994,15 @@ static void drain_wayland_buffers(presenter_app *a) {
             gbm_bo_destroy(s->staging_bo);
             s->staging_bo = NULL;
         }
+        if (s->staging_tracked) {
+            aaas_staging_result state = aaas_staging_cancel(
+                &a->staging, s->staging_token);
+            if (state != AAAS_STAGING_OK)
+                log_presenter_event("staging_cancel_state_error", s->gen,
+                                    s->id, NULL);
+            s->staging_tracked = false;
+            s->staging_token = 0;
+        }
         s->active = 0;
         s->explicit_sync_used = false;
         a->teardown_invalidated++;
@@ -2170,6 +2187,23 @@ static void reject_unimported_buffer(presenter_app *a, const aaas_v2_msg *m,
     log_presenter_event(event, m->generation, m->id, extra);
 }
 
+static void reject_unimported_staged_buffer(presenter_app *a,
+                                             const aaas_v2_msg *m,
+                                             int *fds, unsigned nfds,
+                                             const char *event,
+                                             uint32_t staging_token) {
+    if (staging_token) {
+        aaas_staging_result result =
+            aaas_staging_reject(&a->staging, staging_token);
+        if (result != AAAS_STAGING_OK) {
+            log_presenter_event("staging_reject_state_error", m->generation,
+                                m->id, NULL);
+            a->closed = 1;
+        }
+    }
+    reject_unimported_buffer(a, m, fds, nfds, event);
+}
+
 static void handle_incoming_buffer(presenter_app *a) {
     aaas_v2_msg m;
     int fds[AAAS_V2_MAX_FDS];
@@ -2182,6 +2216,7 @@ static void handle_incoming_buffer(presenter_app *a) {
     }
 
     if (m.type == AAAS_V2_HELLO) {
+        a->producer_hello_received = true;
         a->copy_complete_enabled =
             (m.flags & AAAS_V2_FLAG_COPY_COMPLETE) != 0 && a->gbm != NULL;
         aaas_v2_msg resp = {
@@ -2219,9 +2254,6 @@ static void handle_incoming_buffer(presenter_app *a) {
            (m.format == DRM_FORMAT_ARGB8888 && a->shm_argb8888))
         : (m.format == DRM_FORMAT_XRGB8888 || m.format == DRM_FORMAT_ARGB8888 ||
            m.format == DRM_FORMAT_RGBA8888 || m.format == DRM_FORMAT_ABGR8888);
-    if (!a->configured && a->w && a->h) {
-        a->configured = 1;
-    }
     if (a->gen == 0 && m.generation > 0) {
         a->gen = m.generation;
     }
@@ -2286,17 +2318,6 @@ static void handle_incoming_buffer(presenter_app *a) {
             s = &a->slots[i];
         }
     }
-    /* A CPU-staged frame has two separate ownership lifetimes: COPY_COMPLETE
-     * returns the Composer's source buffer, while wl_buffer.release returns
-     * the presenter-owned staging buffer. Limit the early source credits and
-     * independently bound staged buffers if the producer violates backpressure. */
-    const unsigned active_before_import = active_slot_count(a);
-    if (a->copy_complete_enabled &&
-        !aaas_staging_can_import(active_before_import)) {
-        reject_unimported_buffer(a, &m, fds, nfds,
-                                 "staged_backpressure_limit");
-        return;
-    }
     if (!s) {
         reject_unimported_buffer(a, &m, fds, nfds,
                                  "slot_registry_exhausted");
@@ -2306,6 +2327,13 @@ static void handle_incoming_buffer(presenter_app *a) {
     int dma_fd = fds[0];
     bool owned_dma_fd = false;
     int acquire_fence_fd = (m.flags & AAAS_V2_FLAG_EXPLICIT_SYNC && nfds > 1) ? fds[1] : -1;
+    char link[128], path[64];
+    snprintf(path, sizeof(path), "/proc/self/fd/%d", dma_fd);
+    ssize_t llen = readlink(path, link, sizeof(link) - 1);
+    bool is_memfd = (llen > 0 && strncmp(link, "/memfd:", 7) == 0);
+    const bool staging_candidate = a->gbm &&
+        (is_memfd || a->copy_complete_enabled);
+    uint32_t staging_token = 0;
     if (a->trace_buffer_identities) {
         struct stat received_stat = {0};
         const bool received_stat_ok = fstat(dma_fd, &received_stat) == 0;
@@ -2328,13 +2356,20 @@ static void handle_incoming_buffer(presenter_app *a) {
         return;
     }
 
-    struct gbm_bo *stage_bo = NULL;
-    char link[128], path[64];
-    snprintf(path, sizeof(path), "/proc/self/fd/%d", dma_fd);
-    ssize_t llen = readlink(path, link, sizeof(link) - 1);
-    bool is_memfd = (llen > 0 && strncmp(link, "/memfd:", 7) == 0);
+    if (staging_candidate) {
+        aaas_staging_result reserve = aaas_staging_reserve(
+            &a->staging, m.id, m.generation, &staging_token);
+        if (reserve != AAAS_STAGING_OK) {
+            reject_unimported_buffer(a, &m, fds, nfds,
+                reserve == AAAS_STAGING_LIMIT ? "staged_backpressure_limit"
+                                               : "staged_reservation_rejected");
+            return;
+        }
+    }
 
-    if ((is_memfd || a->copy_complete_enabled) && a->gbm) {
+    struct gbm_bo *stage_bo = NULL;
+
+    if (staging_candidate) {
         staging_perf_record perf;
         memset(&perf, 0xff, sizeof(perf));
         if (a->trace_staging_stages)
@@ -2359,8 +2394,9 @@ static void handle_incoming_buffer(presenter_app *a) {
             }
             if (wait_result != 1) {
                 if (a->trace_staging_stages) log_staging_perf(a, &m, &perf);
-                reject_unimported_buffer(a, &m, fds, nfds,
-                                         "acquire_fence_timeout");
+                reject_unimported_staged_buffer(a, &m, fds, nfds,
+                                                "acquire_fence_timeout",
+                                                staging_token);
                 return;
             }
         } else if (a->trace_staging_stages) {
@@ -2391,6 +2427,14 @@ static void handle_incoming_buffer(presenter_app *a) {
             stage_bo = gbm_bo_create(a->gbm, m.width, m.height, m.format,
                                      GBM_BO_USE_LINEAR);
             int stage_errno = stage_bo ? 0 : errno;
+            if (staging_token) {
+                if (stage_bo)
+                    (void)aaas_staging_mark_allocated(&a->staging,
+                                                       staging_token);
+                else
+                    (void)aaas_staging_mark_allocation_failed(&a->staging,
+                                                               staging_token);
+            }
             if (a->trace_staging_stages) {
                 perf.gbm_allocate_ns = elapsed_ns(stage_start, monotonic_ns());
                 perf.gbm_allocate_errno = stage_errno;
@@ -2562,32 +2606,58 @@ static void handle_incoming_buffer(presenter_app *a) {
                 log_staging_perf(a, &m, &perf);
             }
 
-            if (a->copy_complete_enabled &&
-                aaas_staging_can_complete_source_copy(active_before_import)) {
-                aaas_v2_msg copied_msg = {
-                    .magic = AAAS_V2_MAGIC,
-                    .version = AAAS_V2_VERSION,
-                    .type = AAAS_V2_COPY_COMPLETE,
-                    .generation = m.generation,
-                    .id = m.id,
-                };
-                if (aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
+            if (a->copy_complete_enabled) {
+                aaas_staging_copy_decision decision =
+                    aaas_staging_copy_decide(&a->staging, staging_token);
+                if (decision == AAAS_STAGING_COPY_EARLY) {
+                    aaas_v2_msg copied_msg = {
+                        .magic = AAAS_V2_MAGIC,
+                        .version = AAAS_V2_VERSION,
+                        .type = AAAS_V2_COPY_COMPLETE,
+                        .generation = m.generation,
+                        .id = m.id,
+                    };
+                    if (aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
+                        (void)aaas_staging_reject(&a->staging, staging_token);
+                        close(dma_fd);
+                        gbm_bo_destroy(stage_bo);
+                        for (unsigned i = 0; i < nfds; i++) close(fds[i]);
+                        a->closed = 1;
+                        a->rejected++;
+                        log_presenter_event("copy_complete_send_failed",
+                                            m.generation, m.id, NULL);
+                        return;
+                    }
+                    if (aaas_staging_mark_copy_complete_sent(
+                            &a->staging, staging_token) != AAAS_STAGING_OK) {
+                        (void)aaas_staging_reject(&a->staging, staging_token);
+                        close(dma_fd);
+                        gbm_bo_destroy(stage_bo);
+                        for (unsigned i = 0; i < nfds; i++) close(fds[i]);
+                        a->closed = 1;
+                        log_presenter_event("copy_complete_state_error",
+                                            m.generation, m.id, NULL);
+                        return;
+                    }
+                    log_presenter_event("source_copy_complete", m.generation,
+                                        m.id, NULL);
+                } else if (decision == AAAS_STAGING_COPY_DEFER) {
+                    char pending_json[64];
+                    snprintf(pending_json, sizeof(pending_json),
+                             "\"active_slots\":%u", a->staging.active_count);
+                    log_presenter_event(
+                        "source_copy_complete_deferred_until_release",
+                        m.generation, m.id, pending_json);
+                } else {
+                    (void)aaas_staging_reject(&a->staging, staging_token);
                     close(dma_fd);
                     gbm_bo_destroy(stage_bo);
                     for (unsigned i = 0; i < nfds; i++) close(fds[i]);
                     a->closed = 1;
-                    a->rejected++;
-                    log_presenter_event("copy_complete_send_failed", m.generation,
-                                        m.id, NULL);
+                    log_presenter_event("staging_copy_state_error",
+                                        m.generation, m.id, NULL);
                     return;
                 }
-                log_presenter_event("source_copy_complete", m.generation, m.id, NULL);
-            } else if (a->copy_complete_enabled) {
-                char pending_json[64];
-                snprintf(pending_json, sizeof(pending_json),
-                         "\"active_slots\":%u", active_before_import);
-                log_presenter_event("source_copy_complete_deferred_until_release",
-                                    m.generation, m.id, pending_json);
             }
         } else {
             if (a->trace_staging_stages) {
@@ -2610,6 +2680,10 @@ static void handle_incoming_buffer(presenter_app *a) {
             if (stage_bo) {
                 gbm_bo_destroy(stage_bo);
                 stage_bo = NULL;
+            }
+            if (staging_token) {
+                (void)aaas_staging_abandon(&a->staging, staging_token);
+                staging_token = 0;
             }
             char copy_json[96];
             snprintf(copy_json, sizeof(copy_json), "\"errno\":%d", errno);
@@ -2634,8 +2708,9 @@ static void handle_incoming_buffer(presenter_app *a) {
                                 m.generation, m.id, extra);
             if (owned_dma_fd) close(dma_fd);
             if (stage_bo) gbm_bo_destroy(stage_bo);
-            reject_unimported_buffer(a, &m, fds, nfds,
-                                     "implicit_acquire_timeout");
+            reject_unimported_staged_buffer(a, &m, fds, nfds,
+                                            "implicit_acquire_timeout",
+                                            staging_token);
             return;
         }
 
@@ -2666,8 +2741,9 @@ static void handle_incoming_buffer(presenter_app *a) {
             if (owned_dma_fd) close(dma_fd);
             if (stage_bo) gbm_bo_destroy(stage_bo);
             if (params) zwp_linux_buffer_params_v1_destroy(params);
-            reject_unimported_buffer(a, &m, fds, nfds,
-                                     "capture_acquire_timeout");
+            reject_unimported_staged_buffer(a, &m, fds, nfds,
+                                            "capture_acquire_timeout",
+                                            staging_token);
             return;
         }
         size_t map_sz = (size_t)m.stride[0] * m.height;
@@ -2706,8 +2782,9 @@ static void handle_incoming_buffer(presenter_app *a) {
             if (owned_dma_fd) close(dma_fd);
             if (stage_bo) gbm_bo_destroy(stage_bo);
             if (params) zwp_linux_buffer_params_v1_destroy(params);
-            reject_unimported_buffer(a, &m, fds, nfds,
-                                     "alpha_trace_acquire_timeout");
+            reject_unimported_staged_buffer(a, &m, fds, nfds,
+                                            "alpha_trace_acquire_timeout",
+                                            staging_token);
             return;
         }
         size_t map_sz = (size_t)m.stride[0] * m.height;
@@ -2776,8 +2853,9 @@ static void handle_incoming_buffer(presenter_app *a) {
          * received source descriptors and is used for the release ack. */
         if (owned_dma_fd) close(dma_fd);
         if (stage_bo) gbm_bo_destroy(stage_bo);
-        reject_unimported_buffer(a, &m, fds, nfds,
-            a->software_shm_test ? "software_shm_import_failed" : "dmabuf_import_failed");
+        reject_unimported_staged_buffer(a, &m, fds, nfds,
+            a->software_shm_test ? "software_shm_import_failed" : "dmabuf_import_failed",
+            staging_token);
         return;
     }
 
@@ -2813,6 +2891,8 @@ static void handle_incoming_buffer(presenter_app *a) {
     s->active = 1;
     s->explicit_sync_used = false;
     s->staging_bo = stage_bo;
+    s->staging_token = staging_token;
+    s->staging_tracked = staging_token != 0;
     wl_buffer_add_listener(wl_buf, &buffer_listener, s);
     a->imported++;
 
@@ -2898,6 +2978,13 @@ static void handle_incoming_buffer(presenter_app *a) {
 
     wl_surface_commit(a->surface);
     a->submitted++;
+    if (s->staging_tracked &&
+        aaas_staging_mark_submitted(&a->staging, s->staging_token) !=
+            AAAS_STAGING_OK) {
+        a->closed = 1;
+        log_presenter_event("staging_submit_state_error", m.generation,
+                            m.id, NULL);
+    }
     if (feedback_context) feedback_context->commit_ns = monotonic_ns();
 
     char extra[128];
@@ -3179,7 +3266,13 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
 
         struct pollfd p[4] = {
             { .fd = libdecor_get_fd(app.decor_context), .events = POLLIN },
-            { .fd = app.sock, .events = POLLIN },
+            /* Composer sends HELLO before it receives the initial RESIZE.
+             * That response can arrive before libdecor's initial configure.
+             * Keep the Wayland event loop live but leave subsequent frames
+             * queued until xdg_surface has a valid configure/ack cycle. */
+            { .fd = app.sock,
+              .events = (!app.producer_hello_received || app.configured)
+                            ? POLLIN : 0 },
         };
         nfds_t nfds = 2;
         int input_listen_idx = -1;
@@ -3291,6 +3384,33 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
              usage.ru_utime.tv_sec * 1000000L + usage.ru_utime.tv_usec,
              usage.ru_stime.tv_sec * 1000000L + usage.ru_stime.tv_usec);
     log_presenter_event("summary", app.gen, 0, summary_extra);
+    char staging_extra[512];
+    snprintf(staging_extra, sizeof(staging_extra),
+             "\"reserved\":%llu,\"allocated\":%llu,\"allocation_failed\":%llu,"
+             "\"early_copy_sent\":%llu,\"deferred_copy\":%llu,"
+             "\"deferred_settled_by_release\":%llu,\"deferred_canceled\":%llu,"
+             "\"actual_releases\":%llu,\"rejected_before_submit\":%llu,"
+             "\"teardown_canceled\":%llu,\"stale_or_duplicate\":%llu,"
+             "\"active\":%u,\"outstanding_source_ownership\":%u,"
+             "\"outstanding_compositor_ownership\":%u,"
+             "\"early_credits\":%u,\"peak_active\":%u",
+             (unsigned long long)app.staging.reserved,
+             (unsigned long long)app.staging.allocation_succeeded,
+             (unsigned long long)app.staging.allocation_failed,
+             (unsigned long long)app.staging.early_copy_sent,
+             (unsigned long long)app.staging.deferred_copy,
+             (unsigned long long)app.staging.deferred_settled_by_release,
+             (unsigned long long)app.staging.deferred_canceled,
+             (unsigned long long)app.staging.actual_releases,
+             (unsigned long long)app.staging.rejected_before_submit,
+             (unsigned long long)app.staging.teardown_canceled,
+             (unsigned long long)app.staging.stale_or_duplicate_events,
+             app.staging.active_count,
+             aaas_staging_source_ownership_count(&app.staging),
+             aaas_staging_compositor_ownership_count(&app.staging),
+             app.staging.early_credit_count,
+             app.staging.peak_active);
+    log_presenter_event("staging_summary", app.gen, 0, staging_extra);
 
     while (app.pending_feedback) {
         presentation_feedback_context *context = app.pending_feedback;
