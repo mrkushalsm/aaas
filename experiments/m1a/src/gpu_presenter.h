@@ -14,6 +14,7 @@ typedef struct {
     uint32_t initial_height;
     uint32_t initial_display_width;
     uint32_t initial_display_height;
+    uint32_t initial_generation;
     const char *drm_node;
     bool software_shm_test;
     bool force_implicit_sync;

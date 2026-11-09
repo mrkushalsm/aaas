@@ -3203,6 +3203,7 @@ static void input_teardown(presenter_app *a) {
 int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     presenter_app app = {
         .sock = config->sock,
+        .gen = config->initial_generation,
         .running = config->running,
         .software_shm_test = config->software_shm_test,
         .trace_buffer_identities = config->trace_buffer_identities,

@@ -1,4 +1,5 @@
 #include "gpu_presenter.h"
+#include "resize_generation.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -233,6 +234,7 @@ int main(int argc, char **argv) {
 
         aaas_presenter_config cfg = {
             .sock = client_sock,
+            .initial_generation = aaas_read_resize_generation_seed(resize_request_path),
             .title = title,
             .app_id = app_id,
             .defer_map = defer_map,
@@ -259,6 +261,12 @@ int main(int argc, char **argv) {
             .identity_request_path = identity_request_path,
             .identity_ack_path = identity_ack_path,
         };
+
+        if (cfg.initial_generation > 0) {
+            printf("[AaaS Presenter] Resuming resize generation after %u\n",
+                   cfg.initial_generation);
+            fflush(stdout);
+        }
 
         int ret = aaas_run_gpu_presenter(&cfg);
         printf("[AaaS Presenter] Presenter run finished with code %d\n", ret);

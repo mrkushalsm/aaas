@@ -215,6 +215,18 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         self.assertIn('last_source_frame_w', self.source)
         self.assertIn('last_source_frame_config_gen', self.source)
 
+    def test_presenter_reconnect_resumes_broker_resize_generation(self):
+        host = (ROOT / "experiments/m1a/src/wayland_host_presenter.c").read_text()
+        gpu = (ROOT / "experiments/m1a/src/gpu_presenter.h").read_text()
+        self.assertIn("aaas_read_resize_generation_seed(resize_request_path)", host)
+        helper = (ROOT / "experiments/m1a/src/resize_generation.h").read_text()
+        native_test = (ROOT / "experiments/m1a/tests/test_resize_generation.c").read_text()
+        self.assertIn("O_NOFOLLOW", helper)
+        self.assertIn("aaas_read_resize_generation_seed(path) == 2", native_test)
+        self.assertIn("symlink(path, link_path)", native_test)
+        self.assertIn("uint32_t initial_generation;", gpu)
+        self.assertIn(".gen = config->initial_generation", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
