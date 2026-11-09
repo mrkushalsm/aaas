@@ -296,8 +296,17 @@ def _parser():
     app_list.add_argument('--refresh', action='store_true',
                           help='query Android and update desktop entries and icons')
     launch = app_commands.add_parser('launch'); launch.add_argument('package')
+    app_commands.add_parser('running', help='show currently running Android app windows')
+    close_app = app_commands.add_parser('close', help='close one running app window by slot')
+    close_app.add_argument('slot', type=int)
     install = app_commands.add_parser('install'); install.add_argument('apk', type=Path)
     uninstall = app_commands.add_parser('uninstall'); uninstall.add_argument('package')
+    runtime = json_flag(commands.add_parser('runtime', help='manage the persistent user runtime'))
+    runtime_commands = runtime.add_subparsers(dest='runtime_command', required=True)
+    runtime_commands.add_parser('install-service', help='install the systemd user service')
+    runtime_commands.add_parser('start', help='start Android as a persistent user service')
+    runtime_commands.add_parser('status', help='show persistent runtime readiness')
+    runtime_commands.add_parser('stop', help='stop the persistent user service')
     images = json_flag(commands.add_parser('images', help='inspect supported Android profiles and images'))
     image_commands = images.add_subparsers(dest='images_command', required=True)
     image_commands.add_parser('list')
@@ -360,6 +369,98 @@ def _parser():
     return parser
 
 
+def _runtime_unit_path(config=None):
+    if config is None:
+        config_home = aaas_config.xdg_paths()['config_home']
+    else:
+        config_home = config.config_file.parent.parent
+    return config_home / 'systemd/user/aaas-runtime.service'
+
+
+def _runtime_systemctl(*args, check=True):
+    result = subprocess.run(['systemctl', '--user', *args], text=True,
+                            capture_output=True, timeout=30)
+    if check and result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        raise CliError(f"systemctl --user {' '.join(args)} failed: {detail}")
+    return result
+
+
+def _runtime_import_desktop_environment():
+    names = ('WAYLAND_DISPLAY', 'DISPLAY', 'XDG_RUNTIME_DIR',
+             'DBUS_SESSION_BUS_ADDRESS', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME',
+             'XDG_CACHE_HOME', 'XDG_STATE_HOME')
+    present = [name for name in names if os.environ.get(name)]
+    if present:
+        _runtime_systemctl('import-environment', *present)
+
+
+def _runtime_windows_are_idle(windows):
+    return all(item.get('state') == 'CLOSED' and
+               item.get('presenter_pid') is None and
+               item.get('display_id') is None for item in windows)
+
+
+def _install_runtime_service(config):
+    unit = _runtime_unit_path(config)
+    unit.parent.mkdir(parents=True, exist_ok=True)
+    script = ROOT / 'scripts/aaas_runtime_service.py'
+    python = Path(sys.executable).resolve()
+
+    def quote(value):
+        return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'
+
+    content = ('[Unit]\nDescription=AaaS persistent Android runtime\n'
+               'After=graphical-session.target\nPartOf=graphical-session.target\n\n'
+               '[Service]\nType=simple\n'
+               f'ExecStart={quote(python)} {quote(script)} run\n'
+               'Environment=AAAS_DEV_COMPAT=1\n'
+               f'Environment=AAAS_WORKSPACE={quote(config.workspace)}\n'
+               f'Environment=AAAS_ROOTFS={quote(config.rootfs)}\n'
+               f'Environment=AAAS_RUNTIME_ROOT={quote(ROOT)}\n'
+               'PassEnvironment=WAYLAND_DISPLAY DISPLAY XDG_RUNTIME_DIR '
+               'DBUS_SESSION_BUS_ADDRESS XDG_CONFIG_HOME XDG_DATA_HOME '
+               'XDG_CACHE_HOME XDG_STATE_HOME\n'
+               'Restart=on-failure\nRestartSec=3s\nTimeoutStartSec=250s\n'
+               'TimeoutStopSec=45s\nKillMode=mixed\n\n'
+               '[Install]\nWantedBy=default.target\n')
+    temporary = unit.with_suffix('.service.tmp')
+    temporary.write_text(content, encoding='utf-8')
+    temporary.chmod(0o600)
+    os.replace(temporary, unit)
+    _runtime_systemctl('daemon-reload')
+    return unit
+
+
+def _runtime_start(config):
+    if not _runtime_unit_path(config).is_file():
+        _install_runtime_service(config)
+    _runtime_import_desktop_environment()
+    _runtime_systemctl('start', 'aaas-runtime.service')
+    deadline = time.monotonic() + 250
+    while time.monotonic() < deadline:
+        if _status(config)['runtime']['state'] == 'RUNNING':
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / 'scripts/aaasctl.py'), 'list'],
+                    env={**os.environ, 'AAAS_WORKSPACE': str(config.workspace)},
+                    capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    parsed = json.loads(result.stdout)
+                    windows = parsed.get('windows', [])
+                    if (parsed.get('state') == 'RUNNING' and
+                            _runtime_windows_are_idle(windows)):
+                        return parsed
+            except (OSError, subprocess.SubprocessError, ValueError):
+                pass
+        active = _runtime_systemctl('is-active', 'aaas-runtime.service', check=False)
+        if active.returncode:
+            raise CliError('AaaS service stopped before Android became ready; inspect '
+                           '`journalctl --user -u aaas-runtime.service`')
+        time.sleep(.5)
+    raise CliError('AaaS user service did not report readiness within 250 seconds')
+
+
 def main(argv=None):
     parser = _parser()
     args = parser.parse_args(argv)
@@ -383,6 +484,30 @@ def main(argv=None):
             cli['workspace'] = str(args.workspace.expanduser().absolute())
         config = aaas_config.resolve_config(repository=ROOT, cli=cli)
         json_output = getattr(args, 'json', False) or getattr(args, 'json_local', False)
+        if args.command == 'runtime':
+            if args.runtime_command == 'install-service':
+                path = _install_runtime_service(config)
+                _emit({'unit': str(path), 'installed': True,
+                       'security_warning': 'Android SELinux enforcement unavailable; '
+                                           'local trusted development only'}, json_output)
+                return 0
+            if args.runtime_command == 'start':
+                result = _runtime_start(config)
+                _emit({'service': 'aaas-runtime.service', 'state': 'RUNNING',
+                       'windows': result.get('windows', [])}, json_output)
+                return 0
+            if args.runtime_command == 'status':
+                service = _runtime_systemctl('show', 'aaas-runtime.service',
+                                             '--property=ActiveState,SubState,MainPID',
+                                             check=False)
+                _emit({'service': service.stdout.strip() if service.returncode == 0 else 'not-installed',
+                       **_status(config)}, json_output)
+                return 0
+            if _runtime_unit_path(config).is_file():
+                _runtime_systemctl('stop', 'aaas-runtime.service', check=False)
+            else:
+                _run_script('aaasctl.py', 'stop', config=config, check=False)
+            return 0
         if args.command == 'dev':
             if (args.dev_command == 'start' and args.idle_timeout_seconds is not None
                     and not 1 <= args.idle_timeout_seconds <= 3600):
@@ -647,7 +772,14 @@ def main(argv=None):
                 if args.refresh:
                     return _run_script('aaas_desktop.py', 'catalog', 'refresh', config=config)
                 return _run_script('aaas_desktop.py', 'catalog', 'list', config=config)
+            if args.apps_command == 'running':
+                return _run_script('aaasctl.py', 'list', config=config)
+            if args.apps_command == 'close':
+                return _run_script('aaasctl.py', 'close', args.slot, config=config)
             if args.apps_command == 'launch':
+                if (_runtime_unit_path(config).is_file() and
+                        _status(config)['runtime']['state'] == 'STOPPED'):
+                    _runtime_start(config)
                 return _run_script('aaas_desktop.py', 'launch', '--package', args.package,
                                    config=config)
             if args.apps_command == 'install':

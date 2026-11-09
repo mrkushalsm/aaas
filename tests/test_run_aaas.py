@@ -1695,7 +1695,26 @@ class ForegroundRunnerTests(unittest.TestCase):
                       generated)
         self.assertIn('echo CLOSED > /dev/aaas/app1_state', generated)
         self.assertIn('echo CLOSED > /dev/aaas/app2_state', generated)
-        self.assertIn('! aaas_app_task_alive && ! aaas_app2_task_alive', generated)
+        self.assertNotIn('! aaas_app_task_alive && ! aaas_app2_task_alive; then', generated,
+                         'closing both app windows must leave the runtime idle')
+
+    def test_dynamic_virtual_display_runtime_survives_zero_app_windows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = SESSION.make_session_runner(
+                Path(directory), experimental_virtual_display=True,
+                app_package='com.android.settings', idle_timeout_seconds=3600).read_text()
+        loop = next(line for line in generated.splitlines()
+                    if line.startswith('    while [') and 'sys.boot_completed' in line)
+        self.assertIn('cat /aaas_session_status)', loop)
+        self.assertNotIn('&& aaas_app_task_alive', loop)
+        self.assertIn('AAAS_IDLE_TIMEOUT_SECONDS=3600', generated)
+        self.assertIn('AAAS_IDLE_TIMEOUT_REACHED', generated)
+        self.assertNotIn('! aaas_app_task_alive; then echo STOPPING', generated,
+                         'persistent dynamic mode must not stop when its last app closes')
+        app2_function = generated.index('aaas_app2_task_alive()')
+        app2_use = generated.index('if aaas_app2_task_alive;', app2_function)
+        self.assertLess(app2_function, app2_use)
+        self.assertIn('app2_forced_closed', generated[app2_function:app2_use])
 
     def test_idle_timeout_is_bounded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1736,6 +1755,10 @@ class ForegroundRunnerTests(unittest.TestCase):
         launcher = SCRIPT.read_text()
         control = (SCRIPT.parent / 'aaasctl.py').read_text()
         self.assertIn("control_server.bind(str(control_path))", launcher)
+        marker_clear = launcher.index("forced_closed_path.write_text('')")
+        launch_request = launcher.index("atomic_control_write(launch_path,", marker_clear)
+        self.assertLess(marker_clear, launch_request,
+                        'slot reuse must clear the previous app close marker before launch')
         self.assertIn("'capacity_exhausted'", launcher)
         self.assertIn('range(1, args.max_apps + 1)', launcher)
         self.assertIn('slot_presenters = {index: None for index in range(1, args.max_apps + 1)}', launcher)

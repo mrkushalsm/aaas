@@ -12,6 +12,23 @@ import aaas_desktop
 
 
 class DesktopLauncherTests(unittest.TestCase):
+    def test_detects_only_an_installed_active_persistent_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_home = Path(directory)
+            unit = config_home / 'systemd/user/aaas-runtime.service'
+            unit.parent.mkdir(parents=True)
+            unit.write_text('[Service]\n')
+            with patch.object(aaas_desktop.aaas_config, 'xdg_paths',
+                              return_value={'config_home': config_home}), \
+                    patch.object(aaas_desktop.subprocess, 'run', return_value=
+                                 SimpleNamespace(returncode=0, stdout='active\n')):
+                self.assertTrue(aaas_desktop._persistent_service_active())
+            with patch.object(aaas_desktop.aaas_config, 'xdg_paths',
+                              return_value={'config_home': config_home}), \
+                    patch.object(aaas_desktop.subprocess, 'run', return_value=
+                                 SimpleNamespace(returncode=3, stdout='inactive\n')):
+                self.assertFalse(aaas_desktop._persistent_service_active())
+
     def test_package_identity_is_validated(self):
         with self.assertRaises(ValueError):
             aaas_desktop.render_launcher("com.example;touch /tmp/pwn", "App")

@@ -2398,6 +2398,26 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         readiness_and_watch = readiness_and_watch.replace(
             '&& aaas_app_task_alive',
             '&& [ "$(/system/bin/toybox cat /aaas_session_status)" != "STOPPING" ]', 1)
+    elif experimental_virtual_display:
+        # Dynamic launches use slot 2 even when no second app was supplied at
+        # startup. Define the matching liveness predicate for that case too;
+        # without it the shell's watcher reports every dynamically launched
+        # second-window task as closed and immediately tears its display down.
+        app2_watch = (
+            '    aaas_app2_task_alive() {{\n'
+            '      [ -n "$APP_PACKAGE2" ] || return 1\n'
+            '      [ "$(/system/bin/toybox cat /dev/aaas/app2_forced_closed 2>/dev/null)" '
+            '!= "$APP_PACKAGE2" ] || return 1\n'
+            '      case "$(/system/bin/toybox cat /dev/aaas/vdisplay_control_ack_2 '
+            '2>/dev/null)" in released*) return 1 ;; esac\n'
+            '      [ -n "$VD_ID2" ] && return 0\n'
+            '      /system/bin/dumpsys activity activities | '
+            '/system/bin/toybox grep -F "u0 $APP_PACKAGE2/" >/dev/null 2>&1\n'
+            '    }}\n')
+        readiness_and_watch = readiness_and_watch.replace(
+            '    while [ "$(/system/bin/getprop sys.boot_completed)" = "1" ]',
+            app2_watch +
+            '    while [ "$(/system/bin/getprop sys.boot_completed)" = "1" ]', 1)
     if experimental_virtual_display:
         readiness_and_watch += (
             ' && [ "$(/system/bin/toybox cat /aaas_session_status)" != "STOPPING" ]; do\n'
@@ -2611,22 +2631,23 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         else:
             readiness_and_watch += '      /system/bin/toybox sleep 2\n'
         readiness_and_watch += '    done\n'
-        if app_package2 is not None:
-            readiness_and_watch += (
-                '    if [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
-                '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
-                '[ "$(/system/bin/toybox cat /aaas_session_status)" != "FAILED" ] && '
-                '! aaas_app_task_alive && ! aaas_app2_task_alive; then\n'
-                '      echo STOPPING > /aaas_session_status\n'
-                '    fi\n'
-            )
-        else:
-            readiness_and_watch += (
-                '    if [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
-                '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
-                '[ "$(/system/bin/toybox cat /aaas_session_status)" != "FAILED" ] && '
-                '! aaas_app_task_alive; then echo STOPPING > /aaas_session_status; fi\n'
-            )
+        if not experimental_virtual_display:
+            if app_package2 is not None:
+                readiness_and_watch += (
+                    '    if [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
+                    '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
+                    '[ "$(/system/bin/toybox cat /aaas_session_status)" != "FAILED" ] && '
+                    '! aaas_app_task_alive && ! aaas_app2_task_alive; then\n'
+                    '      echo STOPPING > /aaas_session_status\n'
+                    '    fi\n'
+                )
+            else:
+                readiness_and_watch += (
+                    '    if [ "$(/system/bin/getprop sys.boot_completed)" = "1" ] && '
+                    '[ -n "$(/system/bin/toybox pidof system_server)" ] && '
+                    '[ "$(/system/bin/toybox cat /aaas_session_status)" != "FAILED" ] && '
+                    '! aaas_app_task_alive; then echo STOPPING > /aaas_session_status; fi\n'
+                )
         readiness_and_watch += (
             '    if [ "$(/system/bin/toybox cat /aaas_session_status)" = "STOPPING" ]; then\n'
             '      echo AAAS_DISPLAY_BROKER_STOP_REQUESTED >> /aaas_session_commands\n'
@@ -2750,8 +2771,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         )
     if experimental_virtual_display:
         readiness_and_watch = readiness_and_watch.replace(
-            '&& aaas_app_task_alive; do',
-            '&& [ "$(/system/bin/toybox cat /aaas_session_status)" = "RUNNING" ]; do')
+            '&& aaas_app_task_alive',
+            '&& [ "$(/system/bin/toybox cat /aaas_session_status)" = "RUNNING" ]')
         extra_idle_guard = ''.join(
             f' && [ "$(/system/bin/toybox cat /dev/aaas/app{i}_state 2>/dev/null)" != RUNNING ]'
             for i in range(3, max_apps + 1))
@@ -4174,6 +4195,15 @@ def main():
                 raise RuntimeError('broker display ID publication mismatch')
             launch_path = ipc / f'app{slot}_launch_request'
             launch_ack = ipc / f'app{slot}_launch_ack'
+            # The Android watcher records the last force-stopped package per
+            # slot so its task liveness check can distinguish a user close.
+            # Clear that generation-local marker before reusing a display;
+            # otherwise relaunching the same package is immediately treated
+            # as already closed by the prior lifecycle.
+            forced_closed_path = ipc / f'app{slot}_forced_closed'
+            if forced_closed_path.is_symlink():
+                raise RuntimeError('refusing a symlinked app-close marker')
+            forced_closed_path.write_text('')
             launch_ack.write_text('')
             atomic_control_write(launch_path,
                                  f'{request_id} {package} {display_id}')

@@ -463,6 +463,21 @@ def _newest_session_after(started_at):
     return max(sessions, key=lambda item: item.stat().st_mtime, default=None)
 
 
+def _persistent_service_active():
+    """Distinguish a temporarily unpublished service socket from no runtime."""
+    try:
+        unit = (aaas_config.xdg_paths()['config_home'] /
+                'systemd/user/aaas-runtime.service')
+        if not unit.is_file():
+            return False
+        result = subprocess.run(['systemctl', '--user', 'is-active',
+                                 'aaas-runtime.service'], capture_output=True,
+                                text=True, timeout=3)
+        return result.returncode == 0 and result.stdout.strip() == 'active'
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
 def launch_application(package, native_bridge_bundle=None, timeout=240):
     validate_package(package)
     catalog_app = cached_application(package)
@@ -480,6 +495,23 @@ def launch_application(package, native_bridge_bundle=None, timeout=240):
             _, status = _control_request({"op": "list"})
         except RuntimeError:
             status = None
+        if status is None and _persistent_service_active():
+            # systemd can report the service active while Android is still
+            # booting and before its session control socket is published. Do
+            # not race that startup by attempting a second foreground runtime.
+            ready_deadline = time.monotonic() + 240
+            last_error = None
+            while time.monotonic() < ready_deadline:
+                try:
+                    _, status = _control_request({"op": "list"}, timeout=5)
+                    if status.get("state") in ("STARTING", "RUNNING"):
+                        break
+                except RuntimeError as error:
+                    last_error = error
+                time.sleep(.25)
+            else:
+                raise RuntimeError('AaaS user service is active but its app-control '
+                                   f'interface did not become ready: {last_error}')
         if status is not None and status.get("state") in ("STARTING", "RUNNING"):
             _, result = _control_request({"op": "launch", "package": package}, timeout=90)
             if not result.get("ok"):

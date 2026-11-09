@@ -36,6 +36,27 @@ class AaasCliTests(unittest.TestCase):
         self.assertEqual(build.image, Path('/tmp/image.zip'))
         self.assertEqual(parser.parse_args(['verify', '--json']).command, 'verify')
 
+    def test_runtime_readiness_requires_zero_live_window_resources(self):
+        self.assertTrue(aaas_cli._runtime_windows_are_idle([]))
+        self.assertTrue(aaas_cli._runtime_windows_are_idle([
+            {'state': 'CLOSED', 'presenter_pid': None, 'display_id': None},
+        ]))
+        self.assertFalse(aaas_cli._runtime_windows_are_idle([
+            {'state': 'CLOSED', 'presenter_pid': 123, 'display_id': 7},
+        ]))
+        self.assertFalse(aaas_cli._runtime_windows_are_idle([
+            {'state': 'RUNNING', 'presenter_pid': 123, 'display_id': 7},
+        ]))
+
+    def test_runtime_service_gracefully_stops_its_android_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            with mock.patch.object(aaas_cli, '_runtime_systemctl'):
+                unit = aaas_cli._install_runtime_service(config)
+            contents = unit.read_text()
+        self.assertIn('KillMode=mixed', contents)
+        self.assertNotIn('KillMode=control-group', contents)
+
     def test_images_build_dispatches_to_source_assembler(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = self.config(temporary)
