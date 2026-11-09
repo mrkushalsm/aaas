@@ -232,9 +232,11 @@ int main(int argc, char **argv) {
         printf("[AaaS Presenter] Android container connected! (client_fd=%d)\n", client_sock);
         fflush(stdout);
 
+        aaas_resize_resume_state resume =
+            aaas_read_resize_resume_state(resize_request_path);
         aaas_presenter_config cfg = {
             .sock = client_sock,
-            .initial_generation = aaas_read_resize_generation_seed(resize_request_path),
+            .initial_generation = resume.generation,
             .title = title,
             .app_id = app_id,
             .defer_map = defer_map,
@@ -263,8 +265,12 @@ int main(int argc, char **argv) {
         };
 
         if (cfg.initial_generation > 0) {
-            printf("[AaaS Presenter] Resuming resize generation after %u\n",
-                   cfg.initial_generation);
+            cfg.initial_display_width = resume.width;
+            cfg.initial_display_height = resume.height;
+            cfg.initial_width = resume.width;
+            cfg.initial_height = resume.height;
+            printf("[AaaS Presenter] Resuming resize state after %u at %ux%u\n",
+                   cfg.initial_generation, resume.width, resume.height);
             fflush(stdout);
         }
 

@@ -17,19 +17,24 @@ int main(void) {
     assert(fd >= 0);
     close(fd);
 
-    assert(aaas_read_resize_generation_seed(NULL) == 0);
-    assert(aaas_read_resize_generation_seed(path) == 0);
+    aaas_resize_resume_state state = aaas_read_resize_resume_state(NULL);
+    assert(state.generation == 0 && state.width == 0 && state.height == 0);
+    state = aaas_read_resize_resume_state(path);
+    assert(state.generation == 0 && state.width == 0 && state.height == 0);
     write_value(path, "2 493 783\n");
-    assert(aaas_read_resize_generation_seed(path) == 2);
+    state = aaas_read_resize_resume_state(path);
+    assert(state.generation == 2 && state.width == 493 && state.height == 783);
     write_value(path, "4294967295 720 1280\n");
-    assert(aaas_read_resize_generation_seed(path) == 0);
+    assert(aaas_read_resize_resume_state(path).generation == 0);
+    write_value(path, "2 4294967296 1280\n");
+    assert(aaas_read_resize_resume_state(path).generation == 0);
     write_value(path, "not-a-generation\n");
-    assert(aaas_read_resize_generation_seed(path) == 0);
+    assert(aaas_read_resize_resume_state(path).generation == 0);
 
     char link_path[128];
     snprintf(link_path, sizeof(link_path), "%s-link", path);
     assert(symlink(path, link_path) == 0);
-    assert(aaas_read_resize_generation_seed(link_path) == 0);
+    assert(aaas_read_resize_resume_state(link_path).generation == 0);
     assert(unlink(link_path) == 0);
     assert(unlink(path) == 0);
     puts("resize generation seed tests passed");
