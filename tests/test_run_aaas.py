@@ -1864,13 +1864,22 @@ class ForegroundRunnerTests(unittest.TestCase):
             self.skipTest('external AaaS workspace guard is not healthy')
         lock_path = SESSION.TMP / '.aaas_session.lock'
         lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        acquired = False
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except BlockingIOError:
+                # A live persistent runtime may already own this workspace
+                # lock. That is itself the realistic second-instance case;
+                # invoke the runner and verify it rejects the concurrent start.
+                pass
             res = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True)
             self.assertEqual(res.returncode, 2)
             self.assertIn('another foreground session is already running', res.stderr)
         finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            if acquired:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
             os.close(lock_fd)
 
     def test_invalid_startup_timeout_rejected(self):
