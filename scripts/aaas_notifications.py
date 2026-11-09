@@ -267,7 +267,7 @@ def run_bridge(directory: Path, android_uid: int) -> int:
         "interface='org.freedesktop.Notifications',member='ActionInvoked',"
         "path='/org/freedesktop/Notifications'")
 
-    def dispatch_notification_signal(message):
+    def dispatch_notification_signal(_connection, message):
         if (message.get_type() == dbus.lowlevel.MESSAGE_TYPE_SIGNAL and
                 message.get_sender() == notification_owner and
                 message.get_interface() == 'org.freedesktop.Notifications' and
