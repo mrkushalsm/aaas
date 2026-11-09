@@ -73,6 +73,20 @@ evidence-backed recovery transition.
 The prior NTFS3 incident remains preserved in
 [`ntfs3-health-assessment-2026-11-07.md`](ntfs3-health-assessment-2026-11-07.md).
 
+## Recurrent I/O failure after the 2026-11-10 checkpoint
+
+After a clean offline `e2fsck -fn` and passive SMART query, a bounded AaaS
+service start was attempted on 2026-11-10. At 01:14:16 IST the kernel reported
+write I/O errors to ext4 inodes, failed unwritten-extent conversion, block I/O
+errors, and a JBD2 journal-superblock write failure. `logcat` then received an
+aborted-journal error. The kernel unmounted the volume at 01:14:38 and mounted
+it read-write after journal recovery at 01:14:50. The workspace guard recorded
+31 post-check device-correlated errors and quarantined the volume again. The
+AaaS user service was stopped; no further runtime start is authorized by the
+guard. KWin remained alive. The clean e2fsck result predates this recurrence
+and does not supersede it. Do not use the workspace until a new offline check
+and transport/device recovery assessment are completed.
+
 ## Post-check recovery transition
 
 On 2026-11-08 the user ran `e2fsck -fn` while the filesystem was unmounted;
