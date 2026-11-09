@@ -29,6 +29,7 @@ static void print_usage(const char *prog) {
             "  --display-height <h> Initial Android source height\n"
             "  --node <path>       DRM render node path (default: /dev/dri/renderD129)\n"
             "  --implicit-sync     Force implicit synchronization\n"
+            "  --software-shm-test  Test-only wl_shm backend; requires memfd frame inputs\n"
             "  --frames <N>        Exit after presenting N frames (default: 0 = infinite)\n"
             "  --exit-on-close     Exit after the first client window closes\n"
             "  --input-socket <p>  Private pointer input socket (SEQPACKET)\n"
@@ -56,6 +57,7 @@ int main(int argc, char **argv) {
     uint32_t display_height = 0;
     const char *drm_node = "/dev/dri/renderD129";
     bool force_implicit = false;
+    bool software_shm_test = false;
     bool trace_buffer_identities = false;
     bool trace_staging_stages = false;
     bool trace_input_roi = false;
@@ -86,6 +88,8 @@ int main(int argc, char **argv) {
             drm_node = argv[++i];
         } else if (strcmp(argv[i], "--implicit-sync") == 0) {
             force_implicit = true;
+        } else if (strcmp(argv[i], "--software-shm-test") == 0) {
+            software_shm_test = true;
         } else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             max_frames = (uint32_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--exit-on-close") == 0) {
@@ -224,6 +228,7 @@ int main(int argc, char **argv) {
             .initial_display_width = display_width,
             .initial_display_height = display_height,
             .drm_node = drm_node,
+            .software_shm_test = software_shm_test,
             .force_implicit_sync = force_implicit,
             .trace_buffer_identities = trace_buffer_identities,
             .trace_staging_stages = trace_staging_stages,

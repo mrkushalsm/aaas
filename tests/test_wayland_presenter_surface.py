@@ -48,18 +48,62 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         wait_start = self.source.index(
             "if (acquire_fence_fd >= 0 &&\n        (!a->syncobj_surface || !a->acquire_timeline))")
         import_start = self.source.index(
-            "// Import DMA-BUF into Wayland wl_buffer", wait_start)
+            "// The opt-in test backend imports a memfd through core wl_shm.", wait_start)
         fallback = self.source[wait_start:import_start]
-        self.assertIn("sync_file_wait(acquire_fence_fd, 2000)", fallback)
+        self.assertIn("wait_for_acquire_fence(a, acquire_fence_fd, 2000)", fallback)
         self.assertIn('"implicit_acquire_wait_failed"', fallback)
         self.assertIn('"implicit_acquire_wait_complete"', fallback)
         self.assertIn('"implicit_acquire_timeout"', fallback)
         self.assertIn("m.flags &= ~AAAS_V2_FLAG_EXPLICIT_SYNC", fallback)
-        self.assertLess(fallback.index("sync_file_wait("),
+        self.assertLess(fallback.index("wait_for_acquire_fence("),
                         fallback.index("implicit_acquire_wait_complete"))
         params_start = self.source.index(
-            "zwp_linux_dmabuf_v1_create_params", import_start)
+            "params = zwp_linux_dmabuf_v1_create_params", import_start)
         self.assertLess(import_start, params_start)
+
+    def test_acquire_fence_wait_pumps_wayland_and_input_events(self):
+        start = self.source.index("static int wait_for_acquire_fence(")
+        end = self.source.index("static void check_release_timelines(", start)
+        wait = self.source[start:end]
+        self.assertIn("poll(p, n, wait_ms)", wait)
+        self.assertIn("wl_display_flush(a->display)", wait)
+        self.assertIn("wayland_events |= POLLOUT", wait)
+        self.assertIn("libdecor_dispatch(a->decor_context, 0)", wait)
+        self.assertIn("input_adapter_read(a)", wait)
+        self.assertIn("input_adapter_accept(a)", wait)
+        self.assertIn("check_release_timelines(a)", wait)
+        self.assertIn("flush_scheduled_android_resize(a)", wait)
+        self.assertIn("ETIMEDOUT", wait)
+        self.assertIn("ECANCELED", wait)
+        self.assertIn("POLLHUP | POLLERR | POLLNVAL", wait)
+
+    def test_software_shm_backend_is_explicit_and_keeps_dmabuf_default(self):
+        self.assertIn("--software-shm-test", (ROOT / "experiments/m1a/src/wayland_host_presenter.c").read_text())
+        self.assertIn("app.software_shm_test ? !app.shm : !app.dmabuf", self.source)
+        self.assertIn("wl_shm_pool_create_buffer", self.source)
+        self.assertIn("if (!a->software_shm_test) {\n        params = zwp_linux_dmabuf_v1_create_params", self.source)
+        self.assertIn("!is_memfd", self.source)
+
+    def test_software_shm_teardown_does_not_destroy_absent_dmabuf_proxy(self):
+        self.assertIn("if (app.dmabuf) zwp_linux_dmabuf_v1_destroy(app.dmabuf);",
+                      self.source)
+
+    def test_isolated_software_harness_masks_host_graphics_devices(self):
+        harness = (ROOT / "scripts/test_software_presenter.py").read_text()
+        self.assertIn('"--renderer=pixman"', harness)
+        self.assertIn('"--tmpfs", "/dev/dri"', harness)
+        self.assertIn('"--new-session", "--clearenv"', harness)
+        self.assertIn("producer_env = {", harness)
+        self.assertIn('"active_kde_socket_passed": False', harness)
+        self.assertIn('"presenter_namespace_dev_dri_exposed": False', harness)
+        self.assertIn("linux-dmabuf import or GPU synchronization", harness)
+
+    def test_software_producer_waits_for_real_release_before_buffer_reuse(self):
+        producer = (ROOT / "experiments/m1a/tests/software_shm_producer.c").read_text()
+        self.assertIn("#define BUFFER_COUNT 2u", producer)
+        self.assertIn("msg.type != AAAS_V2_RELEASE", producer)
+        self.assertIn("buffer->busy = false", producer)
+        self.assertIn("max_in_flight=%u", producer)
 
     def test_teardown_distinguishes_release_from_invalidated_ownership(self):
         drain_start = self.source.index("static void drain_wayland_buffers(")

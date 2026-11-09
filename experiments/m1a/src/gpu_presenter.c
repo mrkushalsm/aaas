@@ -109,9 +109,11 @@ typedef struct {
 
 struct presenter_app {
     int sock;
+    const volatile sig_atomic_t *running;
     bool trace_buffer_identities;
     bool trace_staging_stages;
     bool trace_input_roi;
+    bool software_shm_test;
     uint32_t input_roi_x, input_roi_y, input_roi_width, input_roi_height;
     uint64_t last_input_roi_hash;
     bool last_input_roi_hash_valid;
@@ -152,6 +154,9 @@ struct presenter_app {
     struct libdecor *decor_context;
     struct libdecor_frame *decor_frame;
     struct zwp_linux_dmabuf_v1 *dmabuf;
+    struct wl_shm *shm;
+    bool shm_xrgb8888;
+    bool shm_argb8888;
     struct wp_presentation *presentation;
     uint32_t presentation_clock_id;
     bool presentation_clock_known;
@@ -1218,6 +1223,17 @@ static void dmabuf_modifier(void *data, struct zwp_linux_dmabuf_v1 *obj,
     }
 }
 
+static void shm_format(void *data, struct wl_shm *shm, uint32_t format) {
+    (void)shm;
+    presenter_app *a = data;
+    if (format == WL_SHM_FORMAT_XRGB8888) a->shm_xrgb8888 = true;
+    if (format == WL_SHM_FORMAT_ARGB8888) a->shm_argb8888 = true;
+}
+
+static const struct wl_shm_listener shm_listener = {
+    .format = shm_format,
+};
+
 static const struct zwp_linux_dmabuf_v1_listener dmabuf_listener = {
     .format = dmabuf_format,
     .modifier = dmabuf_modifier
@@ -1253,6 +1269,8 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
         }
     } else if (strcmp(iface, "zwp_linux_dmabuf_v1") == 0 && ver >= 3) {
         a->dmabuf = wl_registry_bind(r, name, &zwp_linux_dmabuf_v1_interface, 3);
+    } else if (strcmp(iface, "wl_shm") == 0) {
+        a->shm = wl_registry_bind(r, name, &wl_shm_interface, 1);
     } else if (strcmp(iface, "wp_linux_drm_syncobj_manager_v1") == 0) {
         a->syncobj_mgr = wl_registry_bind(r, name, &wp_linux_drm_syncobj_manager_v1_interface, 1);
     } else if (strcmp(iface, "wp_viewporter") == 0) {
@@ -1762,6 +1780,125 @@ static const struct wl_buffer_listener buffer_listener = {
     .release = buffer_released
 };
 
+static void input_adapter_accept(presenter_app *a);
+static void input_adapter_read(presenter_app *a);
+static void input_queue_flush(presenter_app *a);
+static void input_keyboard_flush(presenter_app *a);
+static void keyboard_repeat_tick(presenter_app *a);
+static void flush_scheduled_android_resize(presenter_app *a);
+static void check_release_timelines(presenter_app *a);
+
+/* Wait for an acquire sync_file without starving the Wayland or input event
+ * loops. The wait remains bounded; the producer FD is retained by the caller
+ * until this function reports success or the frame is rejected. */
+static int wait_for_acquire_fence(presenter_app *a, int fence_fd,
+                                  int timeout_ms) {
+    if (fence_fd < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    const uint64_t deadline = monotonic_ns() +
+        (uint64_t)timeout_ms * 1000000ULL;
+    for (;;) {
+        if (a->closed || (a->running && !*a->running)) {
+            errno = ECANCELED;
+            return -1;
+        }
+        uint64_t now = monotonic_ns();
+        if (now >= deadline) {
+            errno = ETIMEDOUT;
+            return 0;
+        }
+
+        struct pollfd p[5];
+        nfds_t n = 0;
+        int fence_idx = (int)n;
+        p[n++] = (struct pollfd){ .fd = fence_fd, .events = POLLIN };
+        int wayland_idx = (int)n;
+        short wayland_events = POLLIN;
+        if (wl_display_flush(a->display) < 0) {
+            if (errno != EAGAIN) return -1;
+            wayland_events |= POLLOUT;
+        }
+        p[n++] = (struct pollfd){ .fd = libdecor_get_fd(a->decor_context),
+                                  .events = wayland_events };
+        int socket_idx = (int)n;
+        p[n++] = (struct pollfd){ .fd = a->sock, .events = 0 };
+        int listener_idx = -1, input_idx = -1;
+        if (a->input_listen_fd >= 0) {
+            listener_idx = (int)n;
+            p[n++] = (struct pollfd){ .fd = a->input_listen_fd,
+                                      .events = POLLIN };
+        }
+        if (a->input_fd >= 0) {
+            input_idx = (int)n;
+            short events = POLLIN;
+            if (a->input_queue_count || a->keyboard_queue_count) events |= POLLOUT;
+            p[n++] = (struct pollfd){ .fd = a->input_fd, .events = events };
+        }
+        now = monotonic_ns();
+        int wait_ms = (int)((deadline - now + 999999ULL) / 1000000ULL);
+        int rc = poll(p, n, wait_ms);
+        if (rc < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (rc == 0) {
+            errno = ETIMEDOUT;
+            return 0;
+        }
+        if (p[wayland_idx].revents & POLLIN) {
+            if (libdecor_dispatch(a->decor_context, 0) < 0) {
+                errno = EPIPE;
+                return -1;
+            }
+        }
+        if (p[wayland_idx].revents & POLLOUT) {
+            if (wl_display_flush(a->display) < 0 && errno != EAGAIN)
+                return -1;
+        }
+        if (p[wayland_idx].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            errno = EPIPE;
+            return -1;
+        }
+        if (p[socket_idx].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            errno = ECANCELED;
+            return -1;
+        }
+        if (listener_idx >= 0 && (p[listener_idx].revents & POLLIN))
+            input_adapter_accept(a);
+        if (input_idx >= 0 && a->input_fd >= 0 &&
+            (p[input_idx].revents & POLLIN)) input_adapter_read(a);
+        if (input_idx >= 0 && a->input_fd >= 0 &&
+            (p[input_idx].revents & POLLOUT)) {
+            input_queue_flush(a);
+            input_keyboard_flush(a);
+        }
+        if (input_idx >= 0 && a->input_fd >= 0 &&
+            (p[input_idx].revents & (POLLHUP | POLLERR | POLLNVAL))) {
+            close(a->input_fd);
+            a->input_fd = -1;
+            a->keyboard_v2_enabled = 0;
+            a->keyboard_queue_head = 0;
+            a->keyboard_queue_count = 0;
+        }
+        keyboard_repeat_tick(a);
+        check_release_timelines(a);
+        check_android_close_ack(a);
+        flush_scheduled_android_resize(a);
+
+        if (a->closed || (a->running && !*a->running)) {
+            errno = ECANCELED;
+            return -1;
+        }
+        if (p[fence_idx].revents & POLLIN) return 1;
+        if (p[fence_idx].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            errno = EIO;
+            return -1;
+        }
+    }
+}
+
 static void check_release_timelines(presenter_app *a) {
     if (a->drm_fd < 0) return;
     for (int i = 0; i < MAX_SLOTS; i++) {
@@ -2068,8 +2205,11 @@ static void handle_incoming_buffer(presenter_app *a) {
     bool input_frame_roi_valid = false;
     bool input_frame_roi_changed = false;
 
-    bool format_ok = (m.format == DRM_FORMAT_XRGB8888 || m.format == DRM_FORMAT_ARGB8888 ||
-                      m.format == DRM_FORMAT_RGBA8888 || m.format == DRM_FORMAT_ABGR8888);
+    bool format_ok = a->software_shm_test
+        ? ((m.format == DRM_FORMAT_XRGB8888 && a->shm_xrgb8888) ||
+           (m.format == DRM_FORMAT_ARGB8888 && a->shm_argb8888))
+        : (m.format == DRM_FORMAT_XRGB8888 || m.format == DRM_FORMAT_ARGB8888 ||
+           m.format == DRM_FORMAT_RGBA8888 || m.format == DRM_FORMAT_ABGR8888);
     if (!a->configured && a->w && a->h) {
         a->configured = 1;
     }
@@ -2104,7 +2244,12 @@ static void handle_incoming_buffer(presenter_app *a) {
          m.width == (a->display_w ? a->display_w : a->initial_w) &&
          m.height == (a->display_h ? a->display_h : a->initial_h));
 
-    if (!format_ok || !gen_ok || !dim_ok || !modifier_supported(a, m.modifier)) {
+    bool layout_ok = a->software_shm_test
+        ? (m.num_planes == 1 &&
+           (m.modifier == DRM_FORMAT_MOD_LINEAR ||
+            m.modifier == DRM_FORMAT_MOD_INVALID))
+        : modifier_supported(a, m.modifier);
+    if (!format_ok || !gen_ok || !dim_ok || !layout_ok) {
         reject_unimported_buffer(a, &m, fds, nfds,
                                  "rejected_stale_or_format");
         return;
@@ -2181,7 +2326,7 @@ static void handle_incoming_buffer(presenter_app *a) {
             clock_gettime(CLOCK_THREAD_CPUTIME_ID, &wait_cpu_start);
         }
         if (acquire_fence_fd >= 0) {
-            int wait_result = sync_file_wait(acquire_fence_fd, 2000);
+            int wait_result = wait_for_acquire_fence(a, acquire_fence_fd, 2000);
             int wait_errno = wait_result == 1 ? 0 : errno;
             if (a->trace_staging_stages) {
                 perf.acquire_fence_wait_ns = elapsed_ns(wait_start_ns, monotonic_ns());
@@ -2453,7 +2598,7 @@ static void handle_incoming_buffer(presenter_app *a) {
      * compositor to read a buffer while its producer is still writing it. */
     if (acquire_fence_fd >= 0 &&
         (!a->syncobj_surface || !a->acquire_timeline)) {
-        int wait_result = sync_file_wait(acquire_fence_fd, 2000);
+        int wait_result = wait_for_acquire_fence(a, acquire_fence_fd, 2000);
         if (wait_result != 1) {
             int wait_errno = wait_result == 0 ? ETIMEDOUT : errno;
             char extra[64];
@@ -2475,21 +2620,25 @@ static void handle_incoming_buffer(presenter_app *a) {
                             m.generation, m.id, NULL);
     }
 
-    // Import DMA-BUF into Wayland wl_buffer
-    struct zwp_linux_buffer_params_v1 *params =
-        zwp_linux_dmabuf_v1_create_params(a->dmabuf);
-    zwp_linux_buffer_params_v1_add(params, dma_fd, 0, m.offset[0], m.stride[0],
-                                   (uint32_t)(m.modifier >> 32), (uint32_t)m.modifier);
+    // The opt-in test backend imports a memfd through core wl_shm. Production
+    // continues to use linux-dmabuf and its existing allocator/sync path.
+    struct zwp_linux_buffer_params_v1 *params = NULL;
+    if (!a->software_shm_test) {
+        params = zwp_linux_dmabuf_v1_create_params(a->dmabuf);
+        zwp_linux_buffer_params_v1_add(params, dma_fd, 0, m.offset[0], m.stride[0],
+                                       (uint32_t)(m.modifier >> 32), (uint32_t)m.modifier);
+    }
     // Optional diagnostic capture. Keep production presentation free of the
     // synchronous readback and disk writes performed by this probe.
     const char *frame_dump_dir = getenv("AAAS_FRAME_DUMP_DIR");
     const char *frame_dump_every = getenv("AAAS_FRAME_DUMP_EVERY");
     unsigned dump_every = frame_dump_every ? (unsigned)strtoul(frame_dump_every, NULL, 10) : 1;
     if (frame_dump_dir && frame_dump_dir[0] && dump_every && m.id % dump_every == 0) {
-        if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
+        if (acquire_fence_fd >= 0 &&
+            wait_for_acquire_fence(a, acquire_fence_fd, 2000) != 1) {
             if (owned_dma_fd) close(dma_fd);
             if (stage_bo) gbm_bo_destroy(stage_bo);
-            zwp_linux_buffer_params_v1_destroy(params);
+            if (params) zwp_linux_buffer_params_v1_destroy(params);
             reject_unimported_buffer(a, &m, fds, nfds,
                                      "capture_acquire_timeout");
             return;
@@ -2525,10 +2674,11 @@ static void handle_incoming_buffer(presenter_app *a) {
      * targets. It is disabled in normal runs and does not write frame data. */
     const char *alpha_trace = getenv("AAAS_FRAME_ALPHA_TRACE");
     if (alpha_trace && alpha_trace[0] == '1') {
-        if (acquire_fence_fd >= 0 && sync_file_wait(acquire_fence_fd, 2000) != 1) {
+        if (acquire_fence_fd >= 0 &&
+            wait_for_acquire_fence(a, acquire_fence_fd, 2000) != 1) {
             if (owned_dma_fd) close(dma_fd);
             if (stage_bo) gbm_bo_destroy(stage_bo);
-            zwp_linux_buffer_params_v1_destroy(params);
+            if (params) zwp_linux_buffer_params_v1_destroy(params);
             reject_unimported_buffer(a, &m, fds, nfds,
                                      "alpha_trace_acquire_timeout");
             return;
@@ -2565,16 +2715,42 @@ static void handle_incoming_buffer(presenter_app *a) {
         }
     }
 
-    struct wl_buffer *wl_buf =
-        zwp_linux_buffer_params_v1_create_immed(params, m.width, m.height, m.format, 0);
-    zwp_linux_buffer_params_v1_destroy(params);
+    struct wl_buffer *wl_buf = NULL;
+    if (a->software_shm_test) {
+        struct stat st;
+        uint64_t bytes = (uint64_t)m.stride[0] * m.height;
+        uint64_t pool_bytes = (uint64_t)m.offset[0] + bytes;
+        if (!is_memfd || fstat(dma_fd, &st) != 0 ||
+            (uint64_t)m.stride[0] < (uint64_t)m.width * 4U ||
+            m.width > INT32_MAX || m.height > INT32_MAX ||
+            m.offset[0] > INT32_MAX || bytes == 0 || pool_bytes > INT32_MAX || st.st_size < 0 ||
+            (uint64_t)st.st_size < pool_bytes) {
+            errno = EINVAL;
+        } else {
+            int32_t shm_format = m.format == DRM_FORMAT_XRGB8888
+                ? WL_SHM_FORMAT_XRGB8888 : WL_SHM_FORMAT_ARGB8888;
+            struct wl_shm_pool *pool = wl_shm_create_pool(
+                a->shm, dma_fd, (int32_t)pool_bytes);
+            if (pool) {
+                wl_buf = wl_shm_pool_create_buffer(
+                    pool, (int32_t)m.offset[0], (int32_t)m.width,
+                    (int32_t)m.height, (int32_t)m.stride[0], shm_format);
+                wl_shm_pool_destroy(pool);
+            }
+        }
+    } else {
+        wl_buf = zwp_linux_buffer_params_v1_create_immed(
+            params, m.width, m.height, m.format, 0);
+        zwp_linux_buffer_params_v1_destroy(params);
+    }
 
     if (!wl_buf) {
         /* dma_fd is a duplicate or staging-buffer FD; fds[] still owns the
          * received source descriptors and is used for the release ack. */
         if (owned_dma_fd) close(dma_fd);
         if (stage_bo) gbm_bo_destroy(stage_bo);
-        reject_unimported_buffer(a, &m, fds, nfds, "dmabuf_import_failed");
+        reject_unimported_buffer(a, &m, fds, nfds,
+            a->software_shm_test ? "software_shm_import_failed" : "dmabuf_import_failed");
         return;
     }
 
@@ -2835,6 +3011,8 @@ static void input_teardown(presenter_app *a) {
 int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     presenter_app app = {
         .sock = config->sock,
+        .running = config->running,
+        .software_shm_test = config->software_shm_test,
         .trace_buffer_identities = config->trace_buffer_identities,
         .trace_staging_stages = config->trace_staging_stages,
         .trace_input_roi = config->trace_input_roi,
@@ -2867,13 +3045,17 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
 
     app.registry = wl_display_get_registry(app.display);
     wl_registry_add_listener(app.registry, &registry_listener, &app);
-    if (wl_display_roundtrip(app.display) < 0 || !app.compositor || !app.wm_base || !app.dmabuf) {
+    if (wl_display_roundtrip(app.display) < 0 || !app.compositor || !app.wm_base ||
+        (app.software_shm_test ? !app.shm : !app.dmabuf)) {
         fprintf(stderr, "Required Wayland globals missing\n");
         wl_display_disconnect(app.display);
         return 2;
     }
 
-    zwp_linux_dmabuf_v1_add_listener(app.dmabuf, &dmabuf_listener, &app);
+    if (app.dmabuf)
+        zwp_linux_dmabuf_v1_add_listener(app.dmabuf, &dmabuf_listener, &app);
+    if (app.shm)
+        wl_shm_add_listener(app.shm, &shm_listener, &app);
     xdg_wm_base_add_listener(app.wm_base, &wm_base_listener, &app);
     wl_display_roundtrip(app.display);
 
@@ -2890,27 +3072,31 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
              libdecor_get_fd(app.decor_context));
     log_presenter_event("decoration_context_ready", 0, 0, decoration_extra);
 
-    if (!app.num_modifiers) {
+    if (!app.software_shm_test && !app.num_modifiers) {
         fprintf(stderr, "No DRM XRGB8888 modifiers advertised by compositor\n");
         return 2;
     }
 
     // Open DRM device for syncobjs if syncobj_mgr is advertised
-    const char *node = config->drm_node ? config->drm_node : "/dev/dri/renderD129";
-    app.drm_fd = open(node, O_RDWR | O_CLOEXEC);
-    if (app.drm_fd < 0) {
-        node = "/dev/dri/renderD128";
+    app.drm_fd = -1;
+    if (!app.software_shm_test) {
+        const char *node = config->drm_node ? config->drm_node : "/dev/dri/renderD129";
         app.drm_fd = open(node, O_RDWR | O_CLOEXEC);
-    }
-    if (app.drm_fd >= 0) {
-        app.gbm = gbm_create_device(app.drm_fd);
+        if (app.drm_fd < 0) {
+            node = "/dev/dri/renderD128";
+            app.drm_fd = open(node, O_RDWR | O_CLOEXEC);
+        }
+        if (app.drm_fd >= 0) {
+            app.gbm = gbm_create_device(app.drm_fd);
+        }
     }
 
     bool explicit_sync_available = (app.syncobj_mgr != NULL && app.drm_fd >= 0 && !config->force_implicit_sync);
     char cap_extra[128];
     snprintf(cap_extra, sizeof(cap_extra),
-             "\"explicit_sync_capable\":%s,\"modifiers_count\":%u",
-             explicit_sync_available ? "true" : "false", app.num_modifiers);
+             "\"explicit_sync_capable\":%s,\"modifiers_count\":%u,\"buffer_backend\":\"%s\"",
+             explicit_sync_available ? "true" : "false", app.num_modifiers,
+             app.software_shm_test ? "wl_shm_test" : "linux_dmabuf");
     log_presenter_event("capabilities", 0, 0, cap_extra);
 
     app.surface = wl_compositor_create_surface(app.compositor);
@@ -3148,7 +3334,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         app.decor_context = NULL;
     }
     wl_surface_destroy(app.surface);
-    zwp_linux_dmabuf_v1_destroy(app.dmabuf);
+    if (app.dmabuf) zwp_linux_dmabuf_v1_destroy(app.dmabuf);
     if (app.presentation) wp_presentation_destroy(app.presentation);
     xdg_wm_base_destroy(app.wm_base);
     wl_compositor_destroy(app.compositor);

@@ -100,6 +100,10 @@ $(BUILD)/test-window-state: tests/test_window_state.c src/window_state.h | $(BUI
 $(BUILD)/test-resize-scheduler: tests/test_resize_scheduler.c src/resize_scheduler.h | $(BUILD)
 	$(CC) $(CFLAGS) -Isrc $< -o $@
 
+# Test-only producer for the presenter's explicit wl_shm software backend.
+$(BUILD)/software-shm-producer: tests/software_shm_producer.c src/wire_v2.c src/sync_util.c src/wire_v2.h | $(BUILD)
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags libdrm) tests/software_shm_producer.c src/wire_v2.c src/sync_util.c -o $@ $(shell pkg-config --libs libdrm)
+
 $(BUILD)/test-input-state: tests/test_input_state.c src/input_state.c src/input_v1.c | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $^ -o $@
 
