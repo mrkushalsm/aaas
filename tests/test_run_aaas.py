@@ -1836,6 +1836,8 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('window_hidden_after_app_close', gpu)
         self.assertIn('wl_surface_attach(a->surface, NULL, 0, 0)', gpu)
         self.assertIn('request_window_identity(slot, package)', launcher)
+        self.assertIn("app_id = f'aaas-catalog-{package}'", launcher)
+        self.assertNotIn("desktop = data_home / 'applications' / f'aaas-catalog-{package}.desktop'", launcher)
         self.assertIn('terminate_process_group(process)', launcher)
         self.assertIn('registration.unlink(missing_ok=True)', launcher)
         self.assertIn('aaas-catalog-{package}', launcher)

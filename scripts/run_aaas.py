@@ -3771,20 +3771,22 @@ def main():
                        'com.apotris.android': 'Apotris'}
         label = known_names.get(
             package, package.rsplit('.', 1)[-1].replace('_', ' ').replace('-', ' ').title())
-        app_id = 'org.aaas.android-app'
+        # Use a stable package-specific Wayland identity.  Do not gate this on
+        # finding a desktop file in XDG_DATA_HOME: KDE's application entries
+        # may live in a different XDG data directory (for example when AaaS
+        # uses a private XDG_DATA_HOME), and the generic fallback makes KWin
+        # group every Android app under "wayland-host-presenter".
+        app_id = f'aaas-catalog-{package}'
         try:
             data_home = aaas_config.xdg_paths()['data_home']
             catalog = json.loads((data_home / 'aaas/catalog.json').read_text())
             app = next((item for item in catalog.get('applications', [])
                         if item.get('package') == package), None)
-            desktop = data_home / 'applications' / f'aaas-catalog-{package}.desktop'
             if app and isinstance(app.get('label'), str):
                 candidate = app['label'].strip()
                 if candidate and len(candidate) <= 256 and not any(
                         ord(char) < 0x20 or ord(char) == 0x7f for char in candidate):
                     label = candidate
-                if desktop.is_file() and not desktop.is_symlink():
-                    app_id = f'aaas-catalog-{package}'
         except (OSError, ValueError, TypeError):
             pass
         return label, app_id
