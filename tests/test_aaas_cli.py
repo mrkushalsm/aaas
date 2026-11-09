@@ -56,6 +56,9 @@ class AaasCliTests(unittest.TestCase):
             contents = unit.read_text()
         self.assertIn('KillMode=mixed', contents)
         self.assertNotIn('KillMode=control-group', contents)
+        self.assertIn('StartLimitIntervalSec=60', contents)
+        self.assertIn('StartLimitBurst=3', contents)
+        self.assertIn('RestartSec=10s', contents)
 
     def test_images_build_dispatches_to_source_assembler(self):
         with tempfile.TemporaryDirectory() as temporary:

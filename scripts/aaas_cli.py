@@ -411,7 +411,8 @@ def _install_runtime_service(config):
         return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'
 
     content = ('[Unit]\nDescription=AaaS persistent Android runtime\n'
-               'After=graphical-session.target\nPartOf=graphical-session.target\n\n'
+               'After=graphical-session.target\nPartOf=graphical-session.target\n'
+               'StartLimitIntervalSec=60\nStartLimitBurst=3\n\n'
                '[Service]\nType=simple\n'
                f'ExecStart={quote(python)} {quote(script)} run\n'
                'Environment=AAAS_DEV_COMPAT=1\n'
@@ -421,7 +422,7 @@ def _install_runtime_service(config):
                'PassEnvironment=WAYLAND_DISPLAY DISPLAY XDG_RUNTIME_DIR '
                'DBUS_SESSION_BUS_ADDRESS XDG_CONFIG_HOME XDG_DATA_HOME '
                'XDG_CACHE_HOME XDG_STATE_HOME\n'
-               'Restart=on-failure\nRestartSec=3s\nTimeoutStartSec=250s\n'
+               'Restart=on-failure\nRestartSec=10s\nTimeoutStartSec=250s\n'
                'TimeoutStopSec=45s\nKillMode=mixed\n\n'
                '[Install]\nWantedBy=default.target\n')
     temporary = unit.with_suffix('.service.tmp')
