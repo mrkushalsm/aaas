@@ -1252,7 +1252,10 @@ running. A second live resize changed the Android framebuffer to 792x666, then
 restored it to 592x866; both dimensions were reported by the presenter after
 the corresponding Wayland configures. Native presenter tests and all 514
 Python tests passed, including the production staging-credit lifecycle
-regression. This verifies the tested Settings interaction and resize sequence;
-cross-window focus isolation and the separate notification activation contract
-remain outside this focused closure. See
+regression. A live three-window check then kept Settings, Contacts, and
+Calendar open on displays 5, 6, and 7 with distinct presenter PIDs. Text
+entered in the Settings and Contacts search fields remained app-local after
+switching focus back to Settings. This closes the fresh input/focus and second
+resize/restore checks described in the earlier recheck; it does not add
+notification activation support. See
 [`resize-input-recovery-2026-11-10.json`](../../results/m4/resize-input-recovery-2026-11-10.json).
