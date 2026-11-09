@@ -2,6 +2,13 @@
 
 **Current canonical M4 status: PARTIAL/OPEN.** Historical M4 acceptance remains preserved in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). The shared-storage subgate is now `PASS/CLOSED`, including live relocated-installation SAF grant, restart, force-stop/relaunch, revocation, MediaStore, and capacity evidence. Broader presenter/KWin safety, fresh full M2 graphics regressions, and other canonical M4 gates remain independently open. See [`saf-shared-storage-2026-11-09.json`](../../results/m4/saf-shared-storage-2026-11-09.json) and the unresolved [KWin/Mesa incident](../incidents/host-graphics-impact-2026-11-09.md).
 
+**M4 desktop-integrations workstream: PASS/CLOSED (2026-11-10).** The
+integrated desktop gates for bidirectional clipboard, notifications, audio,
+microphone, multiwindow input/focus, dynamic content resize, and persistent
+service lifecycle are closed with live and regression evidence. This does not
+change the separate canonical M4 status above. See
+[`desktop-integration-closure-2026-11-10.json`](../../results/m4/desktop-integration-closure-2026-11-10.json).
+
 ## Baseline and scope
 
 The supported baseline is the rootless Android 16 x86_64 runtime under KWin on Wayland. Existing M2 native windows and M3's opt-in Digitalis Native Bridge remain the graphics and ARM64 paths. This implementation adds user-level desktop launchers and uses the existing two-display session controller; it does not alter the Android image or introduce a resident supervisor.
@@ -1280,3 +1287,24 @@ raise/focus the existing Wayland window. Android PendingIntent/deep-link
 metadata is also not forwarded. The stopped-app launch outcome was not tested;
 existing-window activation and arbitrary Android actions remain open. Evidence:
 [`notification-activation-2026-11-10.json`](../../results/m4/notification-activation-2026-11-10.json).
+
+### Visible notification activation and desktop-integration closure (2026-11-10)
+
+The follow-up added a bounded KWin activation path for an already-running
+catalog app. It uses the app's installed desktop identity, runs a temporary
+session script, and unloads that script immediately. A live two-window test
+kept Settings in front while the probe notification was posted. I clicked the
+visible Plasma popup; the notification bridge logged
+`notification activated existing window package=org.aaas.notificationprobe`,
+and the probe window was raised with its existing display and presenter. The
+notification bridge stayed alive, Android notification dismissal closed the
+host entry, and Android returned to zero app windows without stopping the
+persistent service. KWin remained active.
+
+Together with the accepted byte-exact clipboard transfers, PipeWire output and
+input sample capture, three-window input/focus checks, and live Android
+framebuffer resize/restore recorded above, this closes the desktop-integration
+workstream. The full Python suite passed 517 tests. Custom Android
+PendingIntent/deep-link forwarding and human-perceived audio are not claimed;
+canonical M4 and historical KWin/Mesa causation keep their independent status.
+See [`desktop-integration-closure-2026-11-10.json`](../../results/m4/desktop-integration-closure-2026-11-10.json).
