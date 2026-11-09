@@ -228,11 +228,13 @@ static uint64_t read_session_id(const char *path) {
 }
 
 static int connect_input_socket(const char *path) {
-    for (int attempt = 0; attempt < 100 && !g_stop; attempt++) {
+    unsigned attempt = 0;
+    while (!g_stop) {
         int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
         if (fd < 0) {
             adapter_log("socket_failed", NULL);
-            return -1;
+            usleep(100000);
+            continue;
         }
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
@@ -244,9 +246,10 @@ static int connect_input_socket(const char *path) {
         close(fd);
         if (attempt == 0 || attempt % 10 == 9) {
             char extra[128];
-            snprintf(extra, sizeof(extra), "\"attempt\":%d,\"errno\":%d", attempt + 1, errno);
+            snprintf(extra, sizeof(extra), "\"attempt\":%u,\"errno\":%d", attempt + 1, errno);
             adapter_log("connect_retry", extra);
         }
+        attempt++;
         usleep(100000);
     }
     return -1;
@@ -1118,24 +1121,22 @@ int main(int argc, char **argv) {
                  g_backend == INPUT_BACKEND_BINDER ? "binder"
                      : g_backend == INPUT_BACKEND_CMD ? "cmd" : "auto");
 
-    int fd = connect_input_socket(socket_path);
-    if (fd < 0) {
-        adapter_log("connect_failed", NULL);
-        if (g_log_fd >= 0) close(g_log_fd);
-        return 1;
-    }
-    adapter_log("connected", NULL);
-
-    adapter_state st;
-    memset(&st, 0, sizeof(st));
-    aaas_input_state_init(&st.order, session_id, (uint32_t)display_id);
-    st.android_display_id = (uint32_t)display_id;
-    st.selected_backend = g_backend;
-    st.focus_request_path = focus_request_path;
-    st.focus_ack_path = focus_ack_path;
-    st.focus_instance_nonce = monotonic_ns() ^ ((uint64_t)(uint32_t)getpid() << 32);
-
     while (!g_stop) {
+        int fd = connect_input_socket(socket_path);
+        if (fd < 0) break;
+        adapter_log("connected", NULL);
+
+        adapter_state st;
+        memset(&st, 0, sizeof(st));
+        aaas_input_state_init(&st.order, session_id, (uint32_t)display_id);
+        st.android_display_id = (uint32_t)display_id;
+        g_backend = g_requested_backend;
+        st.selected_backend = g_requested_backend;
+        st.focus_request_path = focus_request_path;
+        st.focus_ack_path = focus_ack_path;
+        st.focus_instance_nonce = monotonic_ns() ^ ((uint64_t)(uint32_t)getpid() << 32);
+
+        while (!g_stop) {
         struct pollfd p = { .fd = fd, .events = POLLIN, .revents = 0 };
         int r = poll(&p, 1, 200);
         if (r < 0) {
@@ -1154,9 +1155,11 @@ int main(int argc, char **argv) {
                 break;
             }
             int should_stop=0;
+            bool shutdown_message = false;
             if(n==(ssize_t)sizeof(aaas_input_msg)) {
                 aaas_input_msg message;
                 aaas_input_from_wire(&message,&packet.pointer);
+                shutdown_message = message.type == AAAS_INPUT_SHUTDOWN;
                 should_stop = message.type == AAAS_INPUT_SCROLL
                     ? handle_scroll_burst(fd, &st, &packet.pointer)
                     : handle_message(fd, &st, &packet.pointer);
@@ -1167,6 +1170,9 @@ int main(int argc, char **argv) {
                 continue;
             }
             if (should_stop) {
+                if (shutdown_message) {
+                    adapter_log("presenter_transport_shutdown", NULL);
+                }
                 break;
             }
         }
@@ -1174,15 +1180,22 @@ int main(int argc, char **argv) {
             adapter_log("socket_hangup", NULL);
             break;
         }
+        }
+
+        for(uint32_t k=0;k<768;k++) if(st.pressed_keys[k])
+            (void)aaas_binder_inject_key(1,(int32_t)st.pressed_keycodes[k],(int32_t)k,
+                 0,0,(int64_t)monotonic_ns(),st.key_down_ns[k],g_android_display_id);
+        release_all(&st, st.last_x, st.last_y, st.order.sequence,
+                    "transport_disconnect");
+        aaas_binder_shutdown();
+        close(fd);
+        if (!g_stop) {
+            adapter_log("reconnect_wait", NULL);
+            usleep(100000);
+        }
     }
 
-    for(uint32_t k=0;k<768;k++) if(st.pressed_keys[k])
-        (void)aaas_binder_inject_key(1,(int32_t)st.pressed_keycodes[k],(int32_t)k,
-             0,0,(int64_t)monotonic_ns(),st.key_down_ns[k],g_android_display_id);
-    release_all(&st, st.last_x, st.last_y, st.order.sequence, "adapter_exit");
-    aaas_binder_shutdown();
     adapter_log("stop", NULL);
-    close(fd);
     if (g_log_fd >= 0) close(g_log_fd);
     return 0;
 }
