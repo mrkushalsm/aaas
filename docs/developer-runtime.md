@@ -18,6 +18,40 @@ The CLI includes `doctor`, `setup`, `status`, `start`, `stop`, `restart`,
 diagnostic and inspection output. `doctor`, `status`, `verify`, `images list`,
 and `version` are read-only and do not download files.
 
+## Persistent graphical development runtime
+
+The current M1–M4 development runtime can remain warm as a user service while
+application windows are created on demand. From the checkout, install and
+start it with:
+
+```sh
+./aaas runtime install-service
+./aaas runtime start
+./aaas apps launch com.android.settings
+./aaas apps launch com.android.contacts
+./aaas apps running
+./aaas apps close 1
+./aaas runtime stop
+```
+
+Equivalent service controls are `systemctl --user start aaas-runtime.service`,
+`systemctl --user status aaas-runtime.service`, and
+`systemctl --user stop aaas-runtime.service`. The service is not enabled for
+automatic login startup. It bootstraps Android, closes its bootstrap window,
+and remains ready with no app presenters. Closing the last app leaves Android
+running; explicitly stop the service to shut Android down. Launching another
+package while the service is active does not restart Android. The active
+workspace and rootfs come from the resolved AaaS configuration and are captured
+in the generated user unit.
+
+This graphical mode was exercised on the development KDE session with nine
+distinct Android packages open concurrently. Closing a middle app released its
+presenter/display and allowed another app to launch; a full runtime restart
+preserved installed packages. Android SELinux enforcement is unavailable in
+this local development profile. Run trusted APKs only; this is not production
+security approval. The generated systemd unit currently invokes the checkout,
+so keep that checkout in place while using this service.
+
 ## Restricted local diagnostic installation
 
 The historical M4 installation can be operated only through the explicit
@@ -30,8 +64,9 @@ command remains attached to the Android session after installation; press
 Ctrl+C to stop it cleanly and inspect `aaas dev logs` for the installer result.
 The profile has no Android SELinux enforcement and is not security-approved; use
 only trusted development APKs. This workflow verifies package installation,
-not app-window rendering or arbitrary APK compatibility. Graphical launch stays
-subject to the separate presenter safety gate documented in the M4 incident.
+not arbitrary APK compatibility. The separate graphical stability workstream
+and the historical KWin/Mesa incident remain distinct from this local runtime
+acceptance.
 
 `setup` enrolls a workspace only after a health check and disposable filesystem
 capability probes. It will not rewrite an existing configuration or adopt a
