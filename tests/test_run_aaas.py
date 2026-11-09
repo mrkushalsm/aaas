@@ -1778,8 +1778,16 @@ class ForegroundRunnerTests(unittest.TestCase):
     def test_presenter_exposes_per_window_wayland_app_identity(self):
         host = (SCRIPT.parents[1] / 'experiments/m1a/src/wayland_host_presenter.c').read_text()
         gpu = (SCRIPT.parents[1] / 'experiments/m1a/src/gpu_presenter.c').read_text()
+        launcher = SCRIPT.read_text()
         self.assertIn('--app-id', host)
         self.assertIn('libdecor_frame_set_app_id(app.decor_frame, config->app_id)', gpu)
+        self.assertIn('--identity-request', host)
+        self.assertIn('--defer-map', host)
+        self.assertIn("['--defer-map'] if package == 'Android Application' else []", launcher)
+        self.assertIn('window_identity_applied', gpu)
+        self.assertIn('request_window_identity(slot, package)', launcher)
+        self.assertIn('aaas-catalog-{package}', launcher)
+        self.assertNotIn("placeholder = f'available-slot-", launcher)
 
     def test_second_app_requires_a_distinct_package_and_virtual_display_mode(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -27,6 +27,7 @@ class AaasCliTests(unittest.TestCase):
         self.assertEqual(parser.parse_args(['help', 'setup']).topic, 'setup')
         self.assertEqual(parser.parse_args(['doctor', '--json']).command, 'doctor')
         self.assertEqual(parser.parse_args(['apps', '--json', 'list']).apps_command, 'list')
+        self.assertTrue(parser.parse_args(['apps', 'list', '--refresh']).refresh)
         self.assertEqual(parser.parse_args(['images', '--json', 'list']).images_command, 'list')
         build = parser.parse_args(['images', 'build', 'android16-ranchu-x86_64',
                                    '--dry-run', '--image', '/tmp/image.zip'])
@@ -159,10 +160,12 @@ class AaasCliTests(unittest.TestCase):
                         'runtime': {'state': 'STOPPED'}}), \
                     mock.patch.object(aaas_cli, '_run_script', return_value=0) as run:
                 self.assertEqual(aaas_cli.main(['dev', 'install', str(apk)]), 0)
-            args = run.call_args
+            args = run.call_args_list[0]
             self.assertEqual(args.args[:3],
                              ('run_aaas.py', '--headless-storage', '--install-apk'))
             self.assertIn('AAAS_HEADLESS_STORAGE', args.kwargs['env_extra'])
+            self.assertEqual(run.call_args_list[1].args[:3],
+                             ('aaas_desktop.py', 'catalog', 'refresh'))
 
     def test_logs_ignore_matching_files_and_choose_latest_session_directory(self):
         with tempfile.TemporaryDirectory() as temporary:

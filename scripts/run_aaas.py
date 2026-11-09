@@ -3371,6 +3371,11 @@ def main():
                 path = ipc / name
                 path.write_text('')
                 path.chmod(0o666)
+            for name in (f'window_identity_{index}_request',
+                         f'window_identity_{index}_ack'):
+                path = ipc / name
+                path.write_text('')
+                path.chmod(0o600)
     if storage_scan_apk is not None:
         for name in ('storage_scan_request', 'storage_scan_ack',
                      'storage_scan_query_request', 'storage_scan_query_ack',
@@ -3667,6 +3672,49 @@ def main():
         temporary.chmod(0o666)
         os.replace(temporary, path)
 
+    def window_identity_for_package(package):
+        known_names = {'com.android.settings': 'Settings',
+                       'com.android.contacts': 'Contacts',
+                       'com.android.calendar': 'Calendar',
+                       'com.android.deskclock': 'Clock',
+                       'com.android.dialer': 'Phone',
+                       'com.apotris.android': 'Apotris'}
+        label = known_names.get(
+            package, package.rsplit('.', 1)[-1].replace('_', ' ').replace('-', ' ').title())
+        app_id = 'org.aaas.android-app'
+        try:
+            data_home = aaas_config.xdg_paths()['data_home']
+            catalog = json.loads((data_home / 'aaas/catalog.json').read_text())
+            app = next((item for item in catalog.get('applications', [])
+                        if item.get('package') == package), None)
+            desktop = data_home / 'applications' / f'aaas-catalog-{package}.desktop'
+            if app and isinstance(app.get('label'), str):
+                candidate = app['label'].strip()
+                if candidate and len(candidate) <= 256 and not any(
+                        ord(char) < 0x20 or ord(char) == 0x7f for char in candidate):
+                    label = candidate
+                if desktop.is_file() and not desktop.is_symlink():
+                    app_id = f'aaas-catalog-{package}'
+        except (OSError, ValueError, TypeError):
+            pass
+        return label, app_id
+
+    def request_window_identity(slot, package):
+        request_path = ipc / f'window_identity_{slot}_request'
+        ack_path = ipc / f'window_identity_{slot}_ack'
+        if request_path.is_symlink() or ack_path.is_symlink():
+            raise RuntimeError(f'Android window identity IPC is unsafe for slot {slot}')
+        request_id = os.urandom(12).hex()
+        label, app_id = window_identity_for_package(package)
+        ack_path.write_text('')
+        atomic_control_write(request_path, f'{request_id}\n{label}\n{app_id}')
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if ack_path.read_text().strip() == request_id:
+                return {'title': label, 'app_id': app_id}
+            time.sleep(.025)
+        raise RuntimeError(f'presenter did not apply app identity for {package}')
+
     def start_dynamic_presenter(slot, package):
         socket_path = ipc / ('wayland-vdisplay.sock' if slot == 1
                              else f'wayland-vdisplay.sock-{slot}')
@@ -3674,6 +3722,9 @@ def main():
                             else f'input-vdisplay-{slot}.sock')
         display_path = ipc / ('vdisplay_id' if slot == 1 else f'vdisplay{slot}_id')
         resize_path = ipc / f'vdisplay_resize_{slot}'
+        identity_request_path = ipc / f'window_identity_{slot}_request'
+        identity_ack_path = ipc / f'window_identity_{slot}_ack'
+        window_title, window_app_id = window_identity_for_package(package)
         log_path = session / ('virtual-presenter.log' if slot == 1
                               else f'virtual-presenter{slot}.log')
         # A released slot may retain the last xdg_toplevel configure. A new
@@ -3690,8 +3741,10 @@ def main():
                  '--input-session', f'0x{input_session:016x}',
                  '--input-display-id-file', str(display_path),
                  '--resize-request', str(resize_path),
-                 '--title', f'AaaS: {package}', '--app-id',
-                 'org.aaas.' + package.replace('.', '-')],
+                 '--title', window_title, '--app-id', window_app_id,
+                 *(['--defer-map'] if package == 'Android Application' else []),
+                 '--identity-request', str(identity_request_path),
+                 '--identity-ack', str(identity_ack_path)],
                 stdout=presenter_log, stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
@@ -4029,6 +4082,7 @@ def main():
             if presenter_process is None:
                 presenter_process = start_dynamic_presenter(slot, package)
                 presenter_started_here = True
+            window_identity = request_window_identity(slot, package)
             create_path = ipc / f'vdisplay_create_{slot}'
             create_ack = ipc / f'vdisplay_create_ack_{slot}'
             (ipc / f'vdisplay_close_{slot}').write_text('')
@@ -4088,7 +4142,9 @@ def main():
             (ipc / f'vdisplay_close_{slot}').write_text('')
             (ipc / f'vdisplay_control_ack_{slot}').write_text('')
             return {'ok': True, 'slot': slot, 'package': package,
-                    'display_id': display_id, 'state': 'RUNNING'}
+                    'display_id': display_id, 'state': 'RUNNING',
+                    'window_title': window_identity['title'],
+                    'desktop_app_id': window_identity['app_id']}
         except Exception as error:
             if presenter_started_here and presenter_process is not None:
                 terminate_process_group(presenter_process)
@@ -4168,6 +4224,9 @@ def main():
                     print('AaaS: primary diagnostic presenter suppressed in app mode',
                           flush=True)
             if args.experimental_virtual_display:
+                primary_title, primary_app_id = window_identity_for_package(args.app)
+                primary_identity_request = ipc / 'window_identity_1_request'
+                primary_identity_ack = ipc / 'window_identity_1_ack'
                 virtual_log_path = session / 'virtual-presenter.log'
                 with virtual_log_path.open('wb') as virtual_log:
                     virtual_presenter = subprocess.Popen(
@@ -4179,8 +4238,9 @@ def main():
                          '--input-session', f'0x{input_session:016x}',
                          '--input-display-id-file', str(ipc / 'vdisplay_id'),
                          '--resize-request', str(ipc / 'vdisplay_resize_1'),
-                         '--title', f'AaaS: {args.app}', '--app-id',
-                         'org.aaas.' + args.app.replace('.', '-')],
+                         '--title', primary_title, '--app-id', primary_app_id,
+                         '--identity-request', str(primary_identity_request),
+                         '--identity-ack', str(primary_identity_ack)],
                         stdout=virtual_log, stderr=subprocess.STDOUT,
                         start_new_session=True,
                     )
@@ -4190,6 +4250,7 @@ def main():
                         raise RuntimeError('virtual display presenter did not start')
                     time.sleep(.1)
                 if args.app2:
+                    second_title, second_app_id = window_identity_for_package(args.app2)
                     virtual2_log_path = session / 'virtual-presenter2.log'
                     with virtual2_log_path.open('wb') as virtual2_log:
                         virtual_presenter2 = subprocess.Popen(
@@ -4201,8 +4262,9 @@ def main():
                              '--input-session', f'0x{input_session:016x}',
                              '--input-display-id-file', str(ipc / 'vdisplay2_id'),
                             '--resize-request', str(ipc / 'vdisplay_resize_2'),
-                             '--title', f'AaaS: {args.app2}', '--app-id',
-                             'org.aaas.' + args.app2.replace('.', '-')],
+                             '--title', second_title, '--app-id', second_app_id,
+                             '--identity-request', str(ipc / 'window_identity_2_request'),
+                             '--identity-ack', str(ipc / 'window_identity_2_ack')],
                             stdout=virtual2_log, stderr=subprocess.STDOUT,
                             start_new_session=True,
                         )
@@ -4220,7 +4282,7 @@ def main():
                 # the broker until a package is actually launched.
                 for available_slot in range(2, 9):
                     if slot_presenters[available_slot] is None:
-                        placeholder = f'available-slot-{available_slot}'
+                        placeholder = 'Android Application'
                         slot_presenters[available_slot] = start_dynamic_presenter(
                             available_slot, placeholder)
             # Recheck the complete budget and mount identity immediately before

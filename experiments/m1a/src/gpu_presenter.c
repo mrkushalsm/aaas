@@ -37,6 +37,7 @@
 #include <linux/dma-buf.h>
 #include <math.h>
 #include <limits.h>
+#include <ctype.h>
 
 #define MAX_SLOTS 32
 #define MAX_PENDING_PRESENTATION_FEEDBACK 128u
@@ -135,7 +136,10 @@ struct presenter_app {
     uint64_t last_resize_configure_ns;
     aaas_resize_scheduler resize_scheduler;
     bool resize_waiting_frame;
+    bool frame_mapped;
     const char *resize_request_path;
+    const char *identity_request_path;
+    const char *identity_ack_path;
     int configured;
     bool producer_hello_received;
     int closed;
@@ -282,6 +286,66 @@ static void log_presenter_event(const char *event, uint32_t gen, uint32_t id,
                         "\"generation\":%u,\"id\":%u}\n",
                 (unsigned long long)t_ns, event, gen, id);
     }
+}
+
+static void apply_window_identity_request(presenter_app *a) {
+    if (!a || !a->decor_frame || !a->identity_request_path ||
+        !a->identity_request_path[0] || !a->identity_ack_path ||
+        !a->identity_ack_path[0]) return;
+    int fd = open(a->identity_request_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return;
+    struct stat st;
+    char payload[768];
+    ssize_t length = -1;
+    if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0 &&
+        st.st_size < (off_t)sizeof(payload)) {
+        length = read(fd, payload, sizeof(payload) - 1);
+    }
+    close(fd);
+    if (length <= 0 || (size_t)length >= sizeof(payload) - 1) return;
+    payload[length] = '\0';
+    char *first = strchr(payload, '\n');
+    if (!first) return;
+    *first++ = '\0';
+    char *second = strchr(first, '\n');
+    if (!second) return;
+    *second++ = '\0';
+    char *end = strchr(second, '\n');
+    if (end) *end = '\0';
+    size_t request_len = strlen(payload);
+    size_t title_len = strlen(first);
+    size_t app_id_len = strlen(second);
+    if (request_len < 16 || request_len > 32 || title_len == 0 || title_len > 256 ||
+        app_id_len == 0 || app_id_len > 256) return;
+    for (size_t i = 0; i < request_len; ++i)
+        if (!isxdigit((unsigned char)payload[i])) return;
+    for (size_t i = 0; i < title_len; ++i)
+        if ((unsigned char)first[i] < 0x20 || (unsigned char)first[i] == 0x7f) return;
+    for (size_t i = 0; i < app_id_len; ++i) {
+        unsigned char c = (unsigned char)second[i];
+        if (!(isalnum(c) || c == '.' || c == '-' || c == '_')) return;
+    }
+
+    libdecor_frame_set_title(a->decor_frame, first);
+    libdecor_frame_set_app_id(a->decor_frame, second);
+    if (!a->frame_mapped) {
+        libdecor_frame_map(a->decor_frame);
+        a->frame_mapped = true;
+    }
+    int ack_fd = open(a->identity_ack_path,
+                      O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
+                      0600);
+    if (ack_fd < 0) return;
+    size_t ack_len = request_len;
+    ssize_t written = write(ack_fd, payload, ack_len);
+    if (written == (ssize_t)ack_len && unlink(a->identity_request_path) == 0) {
+        (void)write(ack_fd, "\n", 1);
+        char extra[320];
+        snprintf(extra, sizeof(extra), "\"app_id\":\"%s\"", second);
+        log_presenter_event("window_identity_applied", a->gen, 0, extra);
+        fprintf(stderr, "[AaaS Presenter] window title: %s\n", first);
+    }
+    close(ack_fd);
 }
 
 static uint64_t monotonic_ns(void) {
@@ -3143,6 +3207,8 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         .expected_display_w = config->initial_display_width,
         .expected_display_h = config->initial_display_height,
         .resize_request_path = config->resize_request_path,
+        .identity_request_path = config->identity_request_path,
+        .identity_ack_path = config->identity_ack_path,
         .input_listen_fd = config->input_listen_fd,
         .input_fd = -1,
         .input_session_id = config->input_session_id,
@@ -3242,6 +3308,14 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         config->title ? config->title : "AaaS M1A.1 GPU Presenter");
     if (config->app_id && config->app_id[0])
         libdecor_frame_set_app_id(app.decor_frame, config->app_id);
+    if (config->app_id && config->app_id[0]) {
+        char identity_extra[320];
+        snprintf(identity_extra, sizeof(identity_extra), "\"app_id\":\"%s\"",
+                 config->app_id);
+        log_presenter_event("window_identity_initial", 0, 0, identity_extra);
+        fprintf(stderr, "[AaaS Presenter] window title: %s\n",
+                config->title ? config->title : "AaaS M1A.1 GPU Presenter");
+    }
 
     // Initialize explicit sync surface and acquire timeline
     if (explicit_sync_available) {
@@ -3257,11 +3331,16 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         app.acquire_point = 0;
     }
 
-    libdecor_frame_map(app.decor_frame);
-    wl_display_roundtrip(app.display);
+    if (!config->defer_map) {
+        libdecor_frame_map(app.decor_frame);
+        app.frame_mapped = true;
+        wl_display_roundtrip(app.display);
+    }
+    apply_window_identity_request(&app);
 
     // Event loop
     while (!app.closed && (!config->running || *config->running)) {
+        apply_window_identity_request(&app);
         if (config->max_frames > 0 && app.submitted >= config->max_frames) {
             break;
         }

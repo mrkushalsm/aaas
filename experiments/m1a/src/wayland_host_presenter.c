@@ -23,6 +23,7 @@ static void print_usage(const char *prog) {
             "  --socket <path>     UNIX domain socket path (default: /run/media/mrkus/Aaas/aaas-workspace/tmp/aaas_wayland.sock)\n"
             "  --title <title>     Wayland window title (default: 'AaaS Android 16 Desktop')\n"
             "  --app-id <id>       Wayland toplevel application identity\n"
+            "  --defer-map         Keep an unassigned dynamic slot hidden until it receives an app identity\n"
             "  --width <w>         Initial window width (default: 1280)\n"
             "  --height <h>        Initial window height (default: 720)\n"
             "  --display-width <w> Initial Android source width\n"
@@ -36,6 +37,8 @@ static void print_usage(const char *prog) {
             "  --input-session <id> 64-bit input session identity\n"
             "  --input-display-id-file <p> Android target display ID file\n"
             "  --resize-request <p>  Session-local Android display resize request\n"
+            "  --identity-request <p> Update the app window title and desktop identity\n"
+            "  --identity-ack <p>     Acknowledge the applied window identity\n"
             "  --trace-buffer-identities  Log DMA-BUF backing identity transitions\n"
             "  --trace-staging-stages  Log per-operation staging timing and thread CPU data\n"
             "  --trace-input-response-roi x,y,w,h  Track a small visible region after pointer input\n"
@@ -51,6 +54,7 @@ int main(int argc, char **argv) {
     const char *socket_path = "/run/media/mrkus/Aaas/aaas-workspace/tmp/aaas_ipc/wayland.sock";
     const char *title = "AaaS Android 16 Desktop";
     const char *app_id = "org.aaas.android";
+    bool defer_map = false;
     uint32_t width = 1280;
     uint32_t height = 720;
     uint32_t display_width = 0;
@@ -68,6 +72,8 @@ int main(int argc, char **argv) {
     uint64_t input_session_id = 0;
     const char *input_display_id_file = NULL;
     const char *resize_request_path = NULL;
+    const char *identity_request_path = NULL;
+    const char *identity_ack_path = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) {
@@ -76,6 +82,8 @@ int main(int argc, char **argv) {
             title = argv[++i];
         } else if (strcmp(argv[i], "--app-id") == 0 && i + 1 < argc) {
             app_id = argv[++i];
+        } else if (strcmp(argv[i], "--defer-map") == 0) {
+            defer_map = true;
         } else if (strcmp(argv[i], "--width") == 0 && i + 1 < argc) {
             width = (uint32_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--height") == 0 && i + 1 < argc) {
@@ -102,6 +110,10 @@ int main(int argc, char **argv) {
             input_display_id_file = argv[++i];
         } else if (strcmp(argv[i], "--resize-request") == 0 && i + 1 < argc) {
             resize_request_path = argv[++i];
+        } else if (strcmp(argv[i], "--identity-request") == 0 && i + 1 < argc) {
+            identity_request_path = argv[++i];
+        } else if (strcmp(argv[i], "--identity-ack") == 0 && i + 1 < argc) {
+            identity_ack_path = argv[++i];
         } else if (strcmp(argv[i], "--trace-buffer-identities") == 0) {
             trace_buffer_identities = true;
         } else if (strcmp(argv[i], "--trace-staging-stages") == 0) {
@@ -223,6 +235,7 @@ int main(int argc, char **argv) {
             .sock = client_sock,
             .title = title,
             .app_id = app_id,
+            .defer_map = defer_map,
             .initial_width = width,
             .initial_height = height,
             .initial_display_width = display_width,
@@ -243,6 +256,8 @@ int main(int argc, char **argv) {
             .input_session_id = input_session_id,
             .input_display_id_file = input_display_id_file,
             .resize_request_path = resize_request_path,
+            .identity_request_path = identity_request_path,
+            .identity_ack_path = identity_ack_path,
         };
 
         int ret = aaas_run_gpu_presenter(&cfg);

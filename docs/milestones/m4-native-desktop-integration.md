@@ -1122,3 +1122,9 @@ To refresh it while AaaS is running, use
 APK, stop the runtime and run `./aaas dev install /absolute/path/to/app.apk`;
 then start AaaS again and refresh the catalog. The development profile prints
 its SELinux/security warning and does not claim production approval.
+
+### Android window names and icons (2026-11-09)
+
+The native presenter now receives the Android PackageManager label and the matching AaaS desktop application ID for each app window. Reused dynamic slots update their Wayland title and app ID when assigned, instead of keeping a slot placeholder. Unassigned Composer endpoints remain unmapped, so they do not appear as blank “available slot” windows. Since the app ID matches the generated desktop-entry basename, KDE can resolve the same PackageManager-rendered icon used by the launcher and desktop entry. APK installation refreshes the catalog; `./aaas apps list --refresh` requests an explicit refresh.
+
+Live installed-runtime verification opened Settings and Contacts as separate RUNNING windows with titles `Settings` and `Contacts`, catalog app IDs, and display IDs 2 and 3. A separate dynamic-slot session applied identities for Apotris, Calendar, Phone, and Files, including closing Phone and reusing its slot for Files. A fresh installed-runtime run kept unassigned slots 4–8 unmapped, then launched Phone and Files in slot 3 in turn while Settings and Contacts stayed active. Six corresponding desktop entries passed `desktop-file-validate` and their referenced PNG icons exist. The installed portable runtime and its source bundle passed integrity verification after incremental runtime refresh. The final installed presenter SHA-256 is `2c630c4a2e2dfb622ca46f74ef3b4f22ca53d55dddd9fed01b91b1d9bb38bc69`. KWin remained running. This confirms the app identity and icon mapping; titlebar icon pixels were not separately captured. See [`window-identity-icons-2026-11-09.json`](../../results/m4/window-identity-icons-2026-11-09.json).

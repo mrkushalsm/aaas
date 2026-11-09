@@ -351,6 +351,17 @@ def refresh_package_catalog(*, env=None):
                     time.sleep(.25)
 
 
+def cached_application(package, *, env=None):
+    env = os.environ if env is None else env
+    _root, catalog_path, _manifest = catalog_paths(env)
+    try:
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+        return next((item for item in catalog.get("applications", [])
+                     if item.get("package") == package), None)
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def validate_package(package):
     if not isinstance(package, str) or not PACKAGE.fullmatch(package):
         raise ValueError("package must be a dotted Android application ID")
@@ -454,6 +465,13 @@ def _newest_session_after(started_at):
 
 def launch_application(package, native_bridge_bundle=None, timeout=240):
     validate_package(package)
+    catalog_app = cached_application(package)
+    desktop = catalog_launcher_path(package)
+    if (package != "com.android.settings" and
+            (catalog_app is None or not desktop.is_file() or desktop.is_symlink())):
+        # Populate the user-local desktop entry and icon before creating the
+        # Wayland toplevel, so KWin can match its app_id to the right icon.
+        refresh_package_catalog()
     WORKSPACE_TMP.mkdir(parents=True, exist_ok=True)
     lock_path = WORKSPACE_TMP / ".aaas-desktop-launch.lock"
     with lock_path.open("a") as lock:
@@ -548,7 +566,7 @@ def launch_application(package, native_bridge_bundle=None, timeout=240):
                         helper_state = next((window for window in snapshot.get("windows", [])
                                              if window.get("slot") == helper["slot"]), {})
                         if (helper_state.get("state") == "CLOSED" and
-                                helper_state.get("presenter_pid") is None):
+                                helper_state.get("display_id") is None):
                             break
                         time.sleep(.25)
                     else:

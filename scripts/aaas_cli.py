@@ -292,7 +292,9 @@ def _parser():
             sub.add_argument('--lines', type=int, default=100)
     apps = json_flag(commands.add_parser('apps', help='list and launch Android applications'))
     app_commands = apps.add_subparsers(dest='apps_command', required=True)
-    app_commands.add_parser('list')
+    app_list = app_commands.add_parser('list')
+    app_list.add_argument('--refresh', action='store_true',
+                          help='query Android and update desktop entries and icons')
     launch = app_commands.add_parser('launch'); launch.add_argument('package')
     install = app_commands.add_parser('install'); install.add_argument('apk', type=Path)
     uninstall = app_commands.add_parser('uninstall'); uninstall.add_argument('package')
@@ -443,13 +445,21 @@ def main(argv=None):
                 print('Android SELinux enforcement: unavailable; security approval not granted',
                       flush=True)
                 print('Only trusted development APKs are supported', flush=True)
-                return _run_script(
+                install_status = _run_script(
                     'run_aaas.py', '--headless-storage', '--install-apk', apk,
                     '--startup-timeout', '180', '--idle-timeout-seconds',
                     config.idle_timeout_seconds, '--app', 'com.android.settings',
                     config=config,
                     env_extra={'AAAS_DEV_COMPAT': '1', 'AAAS_HEADLESS_STORAGE': '1',
                                'AAAS_RUNTIME_ROOT': str(aaas_dev.runtime_root(config))})
+                if install_status == 0:
+                    catalog_status = _run_script('aaas_desktop.py', 'catalog', 'refresh',
+                                                 config=config, check=False)
+                    if catalog_status:
+                        print('APK installed, but desktop catalog refresh failed; '
+                              'run `aaas apps list --refresh` after the next Android start.',
+                              file=sys.stderr)
+                return install_status
             if args.dev_command == 'logs':
                 if not 1 <= args.lines <= 10000:
                     raise CliError('--lines must be between 1 and 10000')
@@ -631,6 +641,8 @@ def main(argv=None):
             return 0
         if args.command == 'apps':
             if args.apps_command == 'list':
+                if args.refresh:
+                    return _run_script('aaas_desktop.py', 'catalog', 'refresh', config=config)
                 return _run_script('aaas_desktop.py', 'catalog', 'list', config=config)
             if args.apps_command == 'launch':
                 return _run_script('aaas_desktop.py', 'launch', '--package', args.package,
@@ -643,8 +655,16 @@ def main(argv=None):
                 if not verification['ready']:
                     _emit(verification, True)
                     raise CliError('runtime artifacts are missing, unverified, or not reproducible')
-                return _run_script('run_aaas.py', '--install-apk', apk,
-                                   '--app', 'com.android.settings', config=config)
+                install_status = _run_script('run_aaas.py', '--install-apk', apk,
+                                             '--app', 'com.android.settings', config=config)
+                if install_status == 0:
+                    catalog_status = _run_script('aaas_desktop.py', 'catalog', 'refresh',
+                                                 config=config, check=False)
+                    if catalog_status:
+                        print('APK installed, but desktop catalog refresh failed; '
+                              'run `aaas apps list --refresh` after the next Android start.',
+                              file=sys.stderr)
+                return install_status
             package = args.package
             if not package.startswith('org.aaas.'):
                 raise CliError('safe uninstall is currently limited to controlled org.aaas packages')

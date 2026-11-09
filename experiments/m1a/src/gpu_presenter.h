@@ -9,6 +9,7 @@ typedef struct {
     int sock;
     const char *title;
     const char *app_id;
+    bool defer_map;
     uint32_t initial_width;
     uint32_t initial_height;
     uint32_t initial_display_width;
@@ -29,6 +30,8 @@ typedef struct {
     /* Optional file containing the Android display ID for this private output. */
     const char *input_display_id_file;
     const char *resize_request_path;
+    const char *identity_request_path;
+    const char *identity_ack_path;
 } aaas_presenter_config;
 
 /**

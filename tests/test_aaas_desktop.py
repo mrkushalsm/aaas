@@ -244,6 +244,8 @@ class DesktopLauncherTests(unittest.TestCase):
             installation_manifest.write_text(json.dumps({
                 "classification": "LOCAL_DEVELOPMENT_DIAGNOSTIC"}))
             with patch.object(aaas_desktop, "WORKSPACE_TMP", root), \
+                    patch.object(aaas_desktop, "cached_application",
+                                 return_value={"package": "com.android.documentsui"}), \
                     patch.object(aaas_desktop.aaas_config, "resolve_config",
                                  return_value=SimpleNamespace(
                                      installation_manifest=installation_manifest)), \
