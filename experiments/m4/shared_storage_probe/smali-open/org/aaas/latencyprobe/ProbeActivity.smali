@@ -240,7 +240,7 @@
     const-string v0, "UTF-8"
     const/4 v1, 0x0
     invoke-direct {v4, v2, v1, v3, v0}, Ljava/lang/String;-><init>([BIILjava/lang/String;)V
-    const-string v0, "host-to-android fixture v2\n"
+    const-string v0, "AAAS_EXPECTED_CONTENT"
     invoke-virtual {v0, v4}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
     move-result v1
     if-eqz v1, :persisted_mismatch

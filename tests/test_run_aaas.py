@@ -1485,9 +1485,13 @@ class ForegroundRunnerTests(unittest.TestCase):
                 root / 'session', app_package='org.aaas.storagetest',
                 experimental_virtual_display=True,
                 diagnostic_storage_apk=apk, diagnostic_storage_open=True,
+                diagnostic_storage_relaunch=True,
                 shared_storage_dir=root / 'media' / '0').read_text()
         self.assertIn('tap 160 430', generated)
         self.assertIn('tap 640 1240', generated)
+        self.assertIn('cmd appops get --user 0 org.aaas.storagetest', generated)
+        self.assertIn('activity force-stop --user 0 org.aaas.storagetest', generated)
+        self.assertIn('AAAS_STORAGE_PROBE_RELAUNCH=', generated)
         self.assertIn('content://media/external_primary/file', generated)
         self.assertIn('--projection _id:_display_name', generated)
         self.assertNotIn('AAAS_STORAGE_PROBE_OUTPUT_FILE_PRESENT', generated)

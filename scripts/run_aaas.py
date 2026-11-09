@@ -743,7 +743,8 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                         native_bridge_overlay=None, capture_app_tombstones=False,
                         idle_timeout_seconds=60, shared_storage_dir=None,
                         diagnostic_storage_apk=None,
-                        diagnostic_storage_open=False, install_apk=None,
+                        diagnostic_storage_open=False,
+                        diagnostic_storage_relaunch=False, install_apk=None,
                         uninstall_package=None, assert_package_absent=None,
                         storage_scan_apk=None, persistent_userdata_dir=None,
                         native_bridge_exec=False, clipboard_apk=None,
@@ -2096,6 +2097,9 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
             probe_replacement = ''.join([
                 '    echo "AAAS_ACTIVITY_LAUNCH_OK display=$VD_ID component=$APP_COMPONENT" '
                 '>> /aaas_session_commands\n'
+                '    echo "=== STORAGE PROBE APP OPS ===" >> /aaas_session_commands\n'
+                '    /system/bin/cmd appops get --user 0 '
+                f'{app_package} >> /aaas_session_commands 2>&1\n'
                 '    echo "AAAS_STORAGE_PROBE_UI_AUTOMATION_BEGIN" >> /aaas_session_commands\n'
                 '    STORAGE_PICKER_WAIT=0\n'
                 '    while ! /system/bin/dumpsys activity activities | '
@@ -2116,6 +2120,17 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
                 '>> /aaas_session_commands 2>&1\n',
                 output_file_check,
                 media_store_query,
+                ('      /system/bin/cmd activity force-stop --user 0 '
+                 f'{app_package}\n'
+                 '      echo "AAAS_STORAGE_PROBE_FORCE_STOP=$?" >> /aaas_session_commands\n'
+                 '      /system/bin/toybox sleep 2\n'
+                 '      /system/bin/cmd activity start-activity -W --display "$VD_ID" '
+                 '-n "$APP_COMPONENT" >> /aaas_session_commands 2>&1\n'
+                 '      echo "AAAS_STORAGE_PROBE_RELAUNCH=$?" >> /aaas_session_commands\n'
+                 '      /system/bin/toybox sleep 3\n'
+                 '      /system/bin/logcat -d -s AaasStorageProbe:I AaasStorageProbe:E '
+                 '>> /aaas_session_commands 2>&1\n'
+                 if diagnostic_storage_relaunch else ''),
                 ('      echo AAAS_STORAGE_PROBE_OPEN_TAPS_SENT >> /aaas_session_commands\n'
                  if diagnostic_storage_open else
                  '      echo AAAS_STORAGE_PROBE_SAVE_TAP_SENT >> /aaas_session_commands\n'),
@@ -3055,6 +3070,8 @@ def main():
                         help='verify a controlled org.aaas package and its user data are absent')
     parser.add_argument('--diagnostic-storage-open', action='store_true',
                         help='select the first file in DocumentsUI for the storage diagnostic APK')
+    parser.add_argument('--diagnostic-storage-relaunch', action='store_true',
+                        help='force-stop and relaunch the app after SAF selection')
     parser.add_argument('--headless-storage', action='store_true',
                         help='run storage checks without host Wayland presentation')
     parser.add_argument('--diagnostic-native-bridge-overlay',
@@ -3135,6 +3152,8 @@ def main():
         parser.error('--diagnostic-storage-apk requires --app org.aaas.storagetest')
     if args.diagnostic_storage_open and not args.diagnostic_storage_apk:
         parser.error('--diagnostic-storage-open requires --diagnostic-storage-apk')
+    if args.diagnostic_storage_relaunch and not args.diagnostic_storage_open:
+        parser.error('--diagnostic-storage-relaunch requires --diagnostic-storage-open')
     if args.install_apk and args.diagnostic_storage_apk:
         parser.error('--install-apk and --diagnostic-storage-apk are mutually exclusive')
     for package, option in ((args.uninstall_package, '--uninstall-package'),
@@ -3491,6 +3510,7 @@ def main():
                                  shared_storage_dir=shared_storage_path,
                                  diagnostic_storage_apk=args.diagnostic_storage_apk,
                                  diagnostic_storage_open=args.diagnostic_storage_open,
+                                 diagnostic_storage_relaunch=args.diagnostic_storage_relaunch,
                                  install_apk=args.install_apk,
                                  uninstall_package=args.uninstall_package,
                                  assert_package_absent=args.assert_package_absent,

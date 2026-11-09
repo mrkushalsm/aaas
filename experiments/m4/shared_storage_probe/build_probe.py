@@ -31,7 +31,7 @@ def main() -> int:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--package', default=PACKAGE,
                         help='application ID (defaults to the established storage probe)')
-    parser.add_argument('--operation', choices=('create', 'open', 'headless'), default='create')
+    parser.add_argument('--operation', choices=('create', 'open', 'saf', 'headless'), default='create')
     parser.add_argument('--host-file-probe-name',
                         help='for headless mode, test denied direct access to a Download file')
     parser.add_argument('--target-sdk', type=int, default=28,
@@ -42,6 +42,8 @@ def main() -> int:
                         help='include the opt-in Android private-data/SQLite probe')
     parser.add_argument('--version-code', type=int, default=1)
     parser.add_argument('--version-name', default='1.0')
+    parser.add_argument('--expected-content', default='host-to-android fixture v2\n',
+                        help='UTF-8 content expected when reopening a persisted SAF URI')
     parser.add_argument('--request-media-permission-on-launch', action='store_true',
                         help='request READ_MEDIA_IMAGES through the Android app UI')
     parser.add_argument('--release-persisted-grants-on-launch', action='store_true',
@@ -88,7 +90,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='aaas-storage-apk-') as temp:
         work = Path(temp)
-        smali_source = source / ({'open': 'smali-open',
+        smali_source = source / ({'open': 'smali-open', 'saf': 'smali-open',
                                   'headless': 'smali-headless'}.get(
                                       args.operation, 'smali'))
         shutil.copytree(smali_source, work / 'smali')
@@ -96,6 +98,12 @@ def main() -> int:
             text = smali_file.read_text()
             text = text.replace('org.aaas.latencyprobe', args.package)
             text = text.replace('org/aaas/latencyprobe', args.package.replace('.', '/'))
+            if smali_file.name == 'ProbeActivity.smali' and args.operation in ('open', 'saf'):
+                literal = args.expected_content.replace('\\', '\\\\').replace('"', '\\"')
+                literal = literal.replace('\n', '\\n').replace('\r', '\\r')
+                if 'AAAS_EXPECTED_CONTENT' not in text:
+                    raise RuntimeError('SAF probe template lacks expected-content marker')
+                text = text.replace('AAAS_EXPECTED_CONTENT', literal)
             if (args.userdata_diagnostics and
                     f'.class public L{args.package.replace(".", "/")}/ProbeActivity;' in text):
                 anchor = '    invoke-super {p0, p1}, Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V\n'
@@ -107,7 +115,7 @@ def main() -> int:
                     call = f'    invoke-static {{p0}}, L{args.package.replace(".", "/")}/UserdataProbe;->run(Landroid/content/Context;)V\n'
                     text = text.replace(call, call + '    return-void\n', 1)
             smali_file.write_text(text)
-        permissions = () if args.operation == 'headless' else PERMISSIONS
+        permissions = () if args.operation in ('headless', 'saf') else PERMISSIONS
         manifest = binary_manifest(
             args.package, target_sdk=args.target_sdk, requested_permissions=permissions,
             version_code=args.version_code, version_name=args.version_name)

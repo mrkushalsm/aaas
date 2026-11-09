@@ -12,6 +12,44 @@ from experiments.perf.input_latency_probe.build_probe import binary_manifest
 
 
 class StorageProbeBuilderTests(unittest.TestCase):
+    def test_saf_operation_uses_open_document_without_storage_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apktool, keystore, apksig, output = [root / name for name in
+                ('apktool.jar', 'probe.keystore', 'apksig.jar', 'probe.apk')]
+            for path in (apktool, keystore, apksig):
+                path.write_bytes(b'fixture')
+
+            def run(command):
+                if command[1:4] == ['-jar', str(apktool), 'b']:
+                    work = Path(command[-1])
+                    activity = next((work / 'smali').rglob('ProbeActivity.smali'))
+                    self.assertIn('host-to-android fixture v3\\n', activity.read_text())
+                    dex = work / 'build/apk/classes.dex'
+                    dex.parent.mkdir(parents=True)
+                    dex.write_bytes(b'dex fixture')
+                elif command[0] == 'javac':
+                    return
+                elif command[0] == 'java' and 'ApkSign' in command:
+                    shutil.copyfile(command[-2], command[-1])
+                else:
+                    raise AssertionError(f'unexpected build command: {command}')
+
+            argv = ['build_probe.py', '--apktool', str(apktool), '--keystore', str(keystore),
+                    '--apksig', str(apksig), '--target-sdk', '35', '--operation', 'saf',
+                    '--expected-content', 'host-to-android fixture v3\n',
+                    '--output', str(output)]
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(build_probe, 'run', side_effect=run), \
+                    patch.object(build_probe, 'binary_manifest', return_value=b'manifest') as manifest, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(build_probe.main(), 0)
+            manifest.assert_called_once()
+            self.assertEqual(manifest.call_args.kwargs['requested_permissions'], ())
+            activity = Path(build_probe.__file__).parent / 'smali-open' / \
+                'org/aaas/latencyprobe/ProbeActivity.smali'
+            self.assertIn('android.intent.action.OPEN_DOCUMENT', activity.read_text())
+
     def test_headless_app_context_mode_is_permissionless_and_uses_media_store(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
