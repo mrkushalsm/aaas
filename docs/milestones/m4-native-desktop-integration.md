@@ -955,3 +955,21 @@ incident remains unresolved, so this storage test does not approve general
 presenter use on the active host compositor or replace a fresh complete M2
 multi-window regression. Detailed logs and hashes are in the
 [SAF acceptance record](../../results/m4/saf-shared-storage-2026-11-09.json).
+
+### Graphical presenter follow-up (2026-11-09)
+
+Review of the native presenter found and fixed an acquire-fence fallback bug:
+when DRM syncobj synchronization was unavailable, an incoming acquire
+`sync_file` was previously closed without waiting before Wayland buffer
+submission. The presenter now waits on the producer fence (bounded at two
+seconds) and rejects the frame if that wait fails. The focused presenter tests,
+strict native compilation, and full Python suite passed. See
+[`graphics-stability-followup-2026-11-09.json`](../../results/m4/graphics-stability-followup-2026-11-09.json).
+
+Graphical stability remains `PARTIAL/OPEN`. The current host has no isolated
+DRM render device; the presenter requires GBM allocations through a render
+node, so a new sustained or Android presentation run could exercise the same
+host graphics driver as KDE. No new presenter frames were sent in this
+follow-up. Historical isolated Weston and multi-window evidence is retained as
+historical evidence only. The KWin/Mesa incident is still correlated but
+unexplained, and active-KWin presentation is not approved by this result.

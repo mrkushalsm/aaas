@@ -127,3 +127,36 @@ two-frame backpressure contract and is not evidence of a fix for the earlier
 32-slot exhaustion. The KWin/Mesa crash's cause remains undetermined; no claim
 is made that the presenter is safe against the active host compositor. No
 system graphics setting or active desktop process was changed.
+
+## Presenter synchronization source review (2026-11-09)
+
+A source review found a distinct acquire-synchronization defect in the
+presenter's no-syncobj fallback. If an incoming DMA-BUF carried an acquire
+`sync_file` but the compositor did not negotiate `linux-drm-syncobj-v1`, the
+presenter closed that fence immediately before attaching the buffer. It now
+waits up to two seconds for the actual fence to signal before submission. On
+timeout or wait error it rejects the unimported buffer and returns its acquire
+dependency through the existing transport rejection path. This does not fake
+completion or change the normal Wayland release ownership rule.
+
+The focused source-contract test passed, the native presenter rebuilt with
+`-Werror`, and the complete Python suite passed (487 tests). Existing
+historical Weston/KWin/Sway evidence continues to show balanced ownership in
+its recorded sessions, but no new presenter session was run in this follow-up.
+The host presenter allocates/imports GBM DMA-BUFs through a host DRM render
+node; this host has no isolated render device, and that node shares the host
+graphics driver. Repeating a graphical load test could therefore affect the
+active KDE session even when Weston is on a private socket. No fresh
+Wayland-frame, Android-window, resize, multi-window, or compositor-disconnect
+test was run. The active KWin session remained running after the bounded
+64×64 GBM/syncobj exercise in the existing wire-v2 native test; no conclusion
+about KWin safety follows from that small allocation test.
+
+The `slot_registry_exhausted` trace follows 32 imported CPU-staged buffers and
+then rejects the next buffer. The producer implementation uses two GBM
+buffers and waits until one is released before reuse. The prior 96-frame burst
+ignored that producer contract and was correctly rejected at the registry
+cap. This explains that burst result, but does not establish why the earlier
+KWin/Mesa crash occurred. The core stack points into KWin's Mesa Gallium frame
+completion path, without identifying a client or proving causation. KWin
+presentation remains an unresolved safety gate.
