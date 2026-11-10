@@ -26,17 +26,17 @@ import aaas_control
 
 def _socket_for(workspace: Path):
     for path in aaas_control.socket_candidates(workspace / 'tmp'):
+        # Connecting to "probe" a listening socket puts a client into the
+        # app manager's accept queue, then closes it without a request. During
+        # slow first boot the service polls frequently enough to fill that
+        # queue and starve real launch/list requests. The published pointer
+        # and socket inode are sufficient discovery; _request performs the
+        # actual liveness check and retries if the server is still starting.
         try:
-            probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            probe.settimeout(1)
-            probe.connect(str(path))
-            probe.close()
-            return path
+            if path.is_socket():
+                return path
         except OSError:
-            try:
-                probe.close()
-            except UnboundLocalError:
-                pass
+            pass
     return None
 
 
@@ -129,7 +129,7 @@ def run():
                     break
             except (OSError, RuntimeError, ValueError):
                 pass
-        time.sleep(.25)
+        time.sleep(.5)
     else:
         process.terminate()
         process.wait(timeout=20)

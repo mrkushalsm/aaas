@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import socket
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -9,6 +10,21 @@ from scripts import aaas_runtime_service
 
 
 class PersistentServiceCommandTests(unittest.TestCase):
+    def test_socket_discovery_does_not_open_probe_connections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            session_ipc = workspace / 'tmp/m1b84_session_test/ipc'
+            session_ipc.mkdir(parents=True)
+            path = Path(directory) / 'runtime.sock'
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                listener.bind(str(path))
+                listener.listen(4)
+                listener.setblocking(False)
+                (session_ipc / 'aaas-control.path').write_text(str(path) + '\n')
+                self.assertEqual(aaas_runtime_service._socket_for(workspace), path)
+                with self.assertRaises(BlockingIOError):
+                    listener.accept()
+
     def test_audio_feature_enables_runner_audio_hal(self):
         command = aaas_runtime_service._runner_command(
             Path('/opt/aaas/scripts/run_aaas.py'),
