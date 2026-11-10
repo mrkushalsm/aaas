@@ -1676,6 +1676,8 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('createSecond', broker)
         self.assertIn('vdisplay2_id', service)
         self.assertIn('oneshot', service)
+        self.assertIn('on post-fs-data\n    # Development runtime uses a rootless data bind mount.', service)
+        self.assertIn('setprop persist.zygote.app_data_isolation false', service)
 
     def test_two_app_runner_creates_two_displays_and_task_routes(self):
         with tempfile.TemporaryDirectory() as directory:
