@@ -8,7 +8,7 @@ fix. An update is not equivalent to a clean fresh install.
 ## Release identity
 
 - Bundle source revision: `7226838e908e071d971d37e5a9989f111c72d47d`.
-- Current source HEAD: `cc2dffbffc22c720d231e760c99d472a5f325242` (uninstall-only runtime fix after bundle build).
+- Runtime source revision tested: `cc2dffbffc22c720d231e760c99d472a5f325242` (uninstall-only runtime fix after bundle build; subsequent commit is documentation/evidence only).
 - Bundle: `engineering-7226838`, ID `fd386b95a7a949de9da3bb18c88e5c64`.
 - Bundle location: `$XDG_DATA_HOME/aaas-release-artifacts/engineering-7226838`.
 - Manifest SHA-256: `1d743363858b5836f7364d7d6b67c22cfb190c4eda10dfa6b58e0805f774faa2`.
@@ -51,7 +51,7 @@ Update and rollback are **PASS for this isolated lifecycle**, with a temporary e
 
 ## Automated tests and documentation
 
-- `python3 -m unittest discover -s tests -q`: 549 passed, zero failures/errors (17.585 s) on source HEAD `cc2dffb`. The focused CLI suite passed 21 tests, including two uninstall-backup regressions.
+- `python3 -m unittest discover -s tests -q`: 549 passed, zero failures/errors (15.732 s) on runtime source revision `cc2dffb`. The focused CLI suite passed 21 tests, including two uninstall-backup regressions.
 - Focused desktop tests: 18 passed. Previously built native regression binaries: 17 passed; no native code changed in this pass.
 - Documentation audit: 89 Markdown/license-named files inventoried, all read/hashed, local links checked; zero broken local links. The audit distinguishes current operational docs reviewed against the implementation from historical records whose old experiments were not rerun.
 - Audit inventory: [`documentation audit`](release/documentation-audit-2026-11-11.json).
