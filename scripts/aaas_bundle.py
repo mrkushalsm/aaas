@@ -598,6 +598,12 @@ def verify_installation(installation: Path):
         manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError) as error:
         raise BundleError(f'installation bundle manifest is invalid: {error}') from error
+    closure = manifest.get('runtime_closure', {})
+    checked_closure = _runtime_closure_report(installation)
+    if (closure.get('checker') == 'aaas-runtime-inputs-v1' and
+            (checked_closure['status'] != closure.get('status') or
+             checked_closure['missing_inputs'] != closure.get('missing_inputs'))):
+        raise BundleError('installed runtime closure report does not match installed inputs')
     checked = 0
     for record in manifest.get('artifacts', []):
         if record.get('scope') == 'bundle-installer':
@@ -629,6 +635,7 @@ def verify_installation(installation: Path):
         checked += 1
     return {'installation': str(installation), 'integrity': 'PASS',
             'artifact_count': checked, 'bundle_id': manifest.get('bundle_id'),
+            'runtime_closure': closure.get('status', 'PARTIAL'),
             'runtime_security': 'NOT_APPROVED', 'general_runtime_start': 'BLOCKED'}
 
 
@@ -900,7 +907,7 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
             'installation_integrity': 'PASS', 'runtime_security': 'NOT_APPROVED',
             'general_runtime_start': 'BLOCKED',
             'userdata': 'fresh path; not initialized or copied from source',
-            'runtime_closure': 'PARTIAL',
+            'runtime_closure': manifest.get('runtime_closure', {}).get('status', 'PARTIAL'),
             'generated_rootfs_mountpoints': list(INSTALL_ROOTFS_MOUNTPOINTS),
         }
         (stage / 'installation.json').write_text(
@@ -922,6 +929,8 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
         launcher.chmod(0o755)
         install_integrity = verify_installation(stage)
         install_manifest['installation_integrity'] = install_integrity['integrity']
+        install_manifest['runtime_closure'] = manifest.get('runtime_closure', {}).get(
+            'status', 'PARTIAL')
         (stage / 'installation.json').write_text(
             json.dumps(install_manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
         stage.rename(install_root)
@@ -1043,6 +1052,8 @@ def stage_installation_update(*, bundle: Path, installation: Path) -> Path:
         updated = dict(old_manifest)
         updated.update({'bundle_id': incoming['bundle_id'],
                         'installation_integrity': 'PASS',
+                        'runtime_closure': new_manifest.get('runtime_closure', {}).get(
+                            'status', 'PARTIAL'),
                         'update_from': current.get('bundle_id')})
         updated['paths'] = dict(old_manifest.get('paths', {}))
         updated['paths'].update({'rootfs': str(installation / 'rootfs'),
