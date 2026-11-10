@@ -869,7 +869,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertNotIn('/system/bin/init second_stage &', generated)
         self.assertIn('    echo RUNNING > /aaas_session_status', generated)
 
-    def test_emulated_storage_mount_waits_for_framework_volume_and_fails_closed(self):
+    def test_emulated_storage_mount_waits_but_does_not_fail_android_startup(self):
         import os
         import subprocess
 
@@ -932,18 +932,20 @@ class ForegroundRunnerTests(unittest.TestCase):
             env = dict(os.environ, FAIL_MOUNT='1')
             result = subprocess.run(['/bin/sh', '-c', nested_command], env=env,
                                     capture_output=True, text=True, timeout=5)
-            self.assertEqual(result.returncode, 75)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('AAAS_EMULATED_STORAGE_NOT_MOUNTED state=unmounted',
                           log.read_text())
+            self.assertIn('AAAS_WARNING_EMULATED_STORAGE_UNAVAILABLE', log.read_text())
 
             calls.unlink(missing_ok=True)
             log.unlink(missing_ok=True)
             state.write_text('missing\n')
             result = subprocess.run(['/bin/sh', '-c', nested_command],
                                     capture_output=True, text=True, timeout=5)
-            self.assertEqual(result.returncode, 75)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(calls.exists(), 'do not mount an unpublished volume ID')
             self.assertIn('AAAS_EMULATED_STORAGE_NOT_MOUNTED state=', log.read_text())
+            self.assertIn('AAAS_WARNING_EMULATED_STORAGE_UNAVAILABLE', log.read_text())
 
     def test_runner_binds_persistent_shared_storage_and_starts_storaged(self):
         with tempfile.TemporaryDirectory(prefix='aaas storage ') as directory:
@@ -966,7 +968,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('AAAS_EMULATED_STORAGE_ALREADY_MOUNTED', generated)
         self.assertIn('/system/bin/sm mount "emulated;0"', generated)
         self.assertIn('AAAS_EMULATED_STORAGE_NOT_MOUNTED', generated)
-        self.assertIn('exit 75', generated)
+        self.assertIn('AAAS_WARNING_EMULATED_STORAGE_UNAVAILABLE', generated)
         self.assertLess(generated.index('[ -n "$AAAS_EMULATED_STATE" ]'),
                         generated.index('/system/bin/sm mount "emulated;0"'))
         self.assertNotIn('aaas-storage-android-to-host.txt', generated)

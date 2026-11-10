@@ -713,7 +713,9 @@ def emulated_storage_mount_script(sm='/system/bin/sm', toybox='/system/bin/toybo
     StorageManager can publish the emulated volume after the framework's first
     readiness signal, especially on a fresh userdata directory. Do not issue
     `sm mount emulated;0` while there is no volume record: that is not a valid
-    mount target and turns a startup race into a whole-runtime failure.
+    mount target. Emulated storage is optional for the Android runtime itself;
+    a missing or unmountable volume is logged as a capability limitation rather
+    than taking down Android and all application windows.
     """
     sm_cmd = shlex.quote(str(sm))
     toybox_cmd = shlex.quote(str(toybox))
@@ -752,7 +754,7 @@ def emulated_storage_mount_script(sm='/system/bin/sm', toybox='/system/bin/toybo
         '    if [ "$AAAS_EMULATED_STATE" != mounted ]; then\n'
         '      echo "AAAS_EMULATED_STORAGE_NOT_MOUNTED state=$AAAS_EMULATED_STATE" '
         '>> ' + log_file + '\n'
-        '      exit 75\n'
+        '      echo AAAS_WARNING_EMULATED_STORAGE_UNAVAILABLE >> ' + log_file + '\n'
         '    fi\n'
     )
 
