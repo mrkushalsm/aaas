@@ -24,17 +24,17 @@ By restoring the diagnostic container environment (Bubblewrap, Linux namespaces,
 
 ## 2. Recovered Artifacts & Cryptographic Manifest
 
-All pre-existing and recovered Gemini files were preserved and indexed in [`manifests/gemini-recovery-manifest.json`](file:///home/mrkus/Work/personal/projects/aaas/manifests/gemini-recovery-manifest.json):
+All pre-existing and recovered Gemini files were preserved and indexed in [`manifests/gemini-recovery-manifest.json`](../manifests/gemini-recovery-manifest.json):
 
 | Artifact | Original Status | SHA256 Hash | Function / Role |
 | :--- | :---: | :---: | :--- |
-| [`scripts/extract_all_apexes.py`](file:///home/mrkus/Work/personal/projects/aaas/scripts/extract_all_apexes.py) | Modified | `226c304bfefce66c86ed27c4266751f28ef6ea921b78c9f23029c353821fd57e` | Unpacks `.apex`/`.capex` payloads with symlink normalization for staged Bionic runtime |
-| [`experiments/m1b/shim_selinux.c`](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/shim_selinux.c) | Untracked | `e5df4d81ee296f475954d34b5d7ca5279bbeb5e0935bc332d5d810c700e2f75d` | Freestanding compatibility shim (`libselinux_shim.so`) satisfying Android libc/SELinux assertions |
-| [`experiments/m1b/surfaceflinger_minimal.cpp`](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/surfaceflinger_minimal.cpp) | Untracked | `38975f36f99e72893ecaa2c47e951e23eacf4baa95e85e93b59c00bc32ade88d` | Diagnostic minimal SurfaceFlinger probe source |
-| [`scripts/run_container_init.py`](file:///home/mrkus/Work/personal/projects/aaas/scripts/run_container_init.py) | Untracked | `b652d9c2a1eb09fb3426d4d302b2522dffd215e0eaa423fbe5a67ec345f15bc8` | Container runner configuring unprivileged user, mount, PID namespaces, binderfs, and dummy sysctls |
-| [`scripts/test_property_service.py`](file:///home/mrkus/Work/personal/projects/aaas/scripts/test_property_service.py) | Untracked | `f18823fa5c56030382005c98208dfb3086ab9a82b1b1fd0dd60a0c58a48dc56b` | Property service live set/get roundtrip verification |
-| [`scripts/test_binder_ipc.py`](file:///home/mrkus/Work/personal/projects/aaas/scripts/test_binder_ipc.py) | Untracked | `ad4f2b8518f402308c8de30a462962f1c94e2fa43678e72d9cf5672c26457596` | Multi-service Binder IPC transaction and lookup probe |
-| [`scripts/test_zygote_startup.py`](file:///home/mrkus/Work/personal/projects/aaas/scripts/test_zygote_startup.py) | Untracked | `b71f36f7d11da1024015a061ac9f6fcbd57489612da14bf22625ab4d66f6404f` | Full diagnostic Zygote, SurfaceFlinger, and system_server runner |
+| [`scripts/extract_all_apexes.py`](../scripts/extract_all_apexes.py) | Modified | `226c304bfefce66c86ed27c4266751f28ef6ea921b78c9f23029c353821fd57e` | Unpacks `.apex`/`.capex` payloads with symlink normalization for staged Bionic runtime |
+| [`experiments/m1b/shim_selinux.c`](../experiments/m1b/shim_selinux.c) | Untracked | `e5df4d81ee296f475954d34b5d7ca5279bbeb5e0935bc332d5d810c700e2f75d` | Freestanding compatibility shim (`libselinux_shim.so`) satisfying Android libc/SELinux assertions |
+| [`experiments/m1b/surfaceflinger_minimal.cpp`](../experiments/m1b/surfaceflinger_minimal.cpp) | Untracked | `38975f36f99e72893ecaa2c47e951e23eacf4baa95e85e93b59c00bc32ade88d` | Diagnostic minimal SurfaceFlinger probe source |
+| [`scripts/run_container_init.py`](../scripts/run_container_init.py) | Untracked | `b652d9c2a1eb09fb3426d4d302b2522dffd215e0eaa423fbe5a67ec345f15bc8` | Container runner configuring unprivileged user, mount, PID namespaces, binderfs, and dummy sysctls |
+| [`scripts/test_property_service.py`](../scripts/test_property_service.py) | Untracked | `f18823fa5c56030382005c98208dfb3086ab9a82b1b1fd0dd60a0c58a48dc56b` | Property service live set/get roundtrip verification |
+| [`scripts/test_binder_ipc.py`](../scripts/test_binder_ipc.py) | Untracked | `ad4f2b8518f402308c8de30a462962f1c94e2fa43678e72d9cf5672c26457596` | Multi-service Binder IPC transaction and lookup probe |
+| [`scripts/test_zygote_startup.py`](../scripts/test_zygote_startup.py) | Untracked | `b71f36f7d11da1024015a061ac9f6fcbd57489612da14bf22625ab4d66f6404f` | Full diagnostic Zygote, SurfaceFlinger, and system_server runner |
 
 ---
 
@@ -52,7 +52,7 @@ All pre-existing and recovered Gemini files were preserved and indexed in [`mani
 
 ## 4. Audit of `libselinux_shim.so` Intercepts
 
-Every function in [`experiments/m1b/shim_selinux.c`](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/shim_selinux.c) serves a specific container compatibility function:
+Every function in [`experiments/m1b/shim_selinux.c`](../experiments/m1b/shim_selinux.c) serves a specific container compatibility function:
 
 | Symbol / Intercept | Original Android Behavior | Why It Fails in Container | Shim Behavior | Affected Daemons | Production Alternative |
 | :--- | :--- | :--- | :--- | :--- | :--- |

@@ -1,19 +1,62 @@
-# Preliminary dependency and license audit
+# Dependency provenance and redistribution status
 
-This is a source-level planning matrix, not legal clearance. Full transitive SBOM and exact Android lock are blocked by the unmaterialized AOSP project graph and unavailable product build. Review LICENSE/COPYING and generated build dependency graphs before importing code.
+**Status: not cleared for binary redistribution or public source publication.** This is an engineering inventory, not legal advice or a grant of rights.
 
-The actual M0.1 Lipstick probe subset, including a 389-package isolated-image notice inventory and the unresolved Sailfish dependencies, is audited separately in `lipstick-m01.md`. That audit does not extend to the whole Android runtime.
+## Current candidate
 
-| Component | Report license / status | Build/toolchain and dependencies | Privilege/hardware |
-|---|---|---|---|
-| AOSP 16 + drm_hwcomposer + Goldfish | Mostly Apache-2.0; transitive AOSP notices pending | repo/Soong, Android clang/JDK; exact manifest absent | Binder, render node, large build host |
-| Lipstick | LGPLv2 according to report; verify files | qmake/Qt5, QtWayland and Sailfish MCE/DSME/Nemo/system services | Wayland server; nested compositor test |
-| Qt HWC plugin | GPLv3/LGPLv2.1 exception per report; inspect exact files | qmake/Qt5, libhybris, Android headers/HWC ABI | HWC/EGL service for runtime probe |
-| libhybris / libgbinder | mixed licenses / BSD-3-Clause respectively | Autotools/Meson and GLib; full dependency closure pending | Binder/HWC depending test |
-| Digitalis/Teto/Berberis | Apache-2.0 plus upstream notices; inspect transitive | AOSP 16, repo/Soong, NDK, AArch64 toolchain; manifest pin absent | x86_64 Android image; ample disk/RAM |
-| LXC | LGPL-2.1+ core, component notices pending | Autotools/Meson, libcap/seccomp/SELinux/AppArmor options | userns, cgroup2, Binder/render nodes |
-| Waydroid | GPL-3.0; HAL Apache/Android mix | Python, LXC, Android image | container setup; host-wide install avoided |
-| Droidloom | GPL-3.0-or-later original code per report | inspect pinned repository before build | Android image, Binder, GPU/Wayland |
-| Mesa/Zink, PipeWire, portals | mixed permissive / LGPL ecosystem | distro-provided versions recorded in host logs | GPU and desktop services |
+The latest locally built bundle is `engineering-7226838`, bundle ID
+`fd386b95a7a949de9da3bb18c88e5c64`, from source revision
+`7226838e908e071d971d37e5a9989f111c72d47d`. Its manifest SHA-256 is
+`1d743363858b5836f7364d7d6b67c22cfb190c4eda10dfa6b58e0805f774faa2`, with 6,999 entries and runtime closure PASS (24 checked inputs).
+The machine-readable per-file inventory is
+[`sbom-engineering-fd386b95.json`](release/sbom-engineering-fd386b95.json).
+It records relative bundle paths and hashes, with `NOASSERTION` and
+`NOT_CLEARED` where source/license rights are unverified. The candidate was
+built while the repository worktree was dirty; it has not passed installed
+fresh-boot acceptance.
 
-Competitor code remains external under ignored `sources/`. No competitor implementation has been copied into production modules. Toolchain exact versions and full transitive dependencies are unresolved until source build systems and an AOSP manifest are locked.
+The manifest has 1,982 executable/library provenance records: 1,846 Android
+platform files, 94 retained historical generated workspace artifacts, 25 local
+runtime artifacts with unverified acquisition, and 17 AaaS source files. Of
+these, 1,965 provenance records are marked unverified; all 1,982 license
+reviews are `NOT_REVIEWED_FOR_DISTRIBUTION`. The SBOM includes relative paths
+and hashes for 5,296 regular files; the bundle manifest additionally records
+all 6,999 filesystem entries, including directories and links.
+
+The Android image is Android 16/API 36, build `BE2A.250530.026.D1`, described as
+a historical modified M4 diagnostic rootfs based on an Android SDK image, not a
+rebuild from the complete AOSP source graph. The manifest does not include a
+complete verified source/license chain for the Android image, vendor
+components, Berberis/Digitalis, graphics/audio overlays, helper APKs, and host
+utilities.
+
+The artifact-level inventory is useful for tracing each path to a hash. It does
+not establish that each artifact's stated origin is correct, that notices are
+complete, or that redistribution is permitted. The local engineering bundle
+also contains SELinux compatibility shims and is not approved for untrusted
+APKs.
+
+## Distribution decisions
+
+| Distribution form | Status | Reason |
+|---|---|---|
+| Local trusted engineering use | Available with diagnostic/security limitations | Integrity and declared runtime closure pass; use trusted APKs only. |
+| Public source publication | Not ready | No root project `LICENSE` grants rights for AaaS-authored source; a license choice/authorization is needed. |
+| Full binary bundle | Not approved | Android image and third-party provenance/license obligations are unresolved; runtime security and publisher authenticity are not approved. |
+| Reduced binary bundle | Not prepared | No legally cleared, technically complete subset has been assembled and validated. |
+
+No bundled third-party component is counted as cleared for redistribution by
+this audit. Resolve component licenses, notices, source-offer obligations,
+Android image provenance, and any proprietary terms from authoritative source
+records before publication. If the image cannot be redistributed, a lawful
+user-side acquisition/build path must be implemented and tested before it can
+replace the image in a public installation workflow.
+
+The repository itself has no project-level license file. Do not infer a license
+for AaaS code from licenses of upstream dependencies.
+
+## Historical research
+
+The earlier Lipstick/Qt-HWC audit in [`lipstick-m01.md`](lipstick-m01.md) is a
+scoped historical source experiment. Its license observations apply only to
+that source subset and do not clear the current Android runtime or bundle.

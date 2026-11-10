@@ -4,7 +4,7 @@
 
 Milestone M1B.6 addresses the hardware composition barrier identified at the conclusion of M1B.5: `android.hardware.graphics.composer3-service.ranchu` failing because it hardcoded a check for `virtio_gpu` DRM nodes and QEMU-specific ioctls (`VIRTGPU_RESOURCE_CREATE_BLOB`, `VIRTGPU_EXECBUFFER`), aborting SurfaceFlinger during client creation and stalling framework initialization.
 
-By designing and implementing a freestanding, native Android 16 AIDL Composer3 v4 service ([experiments/m1b/composer_aaas/composer_service.cpp](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/composer_aaas/composer_service.cpp)), building against Bionic SDK libraries via isolated NDK interfaces, and mounting it via reversible container overlay in [scripts/test_zygote_startup.py](file:///home/mrkus/Work/personal/projects/aaas/scripts/test_zygote_startup.py):
+By designing and implementing a freestanding, native Android 16 AIDL Composer3 v4 service ([experiments/m1b/composer_aaas/composer_service.cpp](../experiments/m1b/composer_aaas/composer_service.cpp)), building against Bionic SDK libraries via isolated NDK interfaces, and mounting it via reversible container overlay in [scripts/test_zygote_startup.py](../scripts/test_zygote_startup.py):
 
 1. **AaaS Composer3 Service Running**: The service starts inside Android userspace, registers `android.hardware.graphics.composer3.IComposer/default` in ServiceManager, and creates functional client sessions.
 2. **SurfaceFlinger Client Creation**: SurfaceFlinger connects to `IComposer/default`, calls `createClient()`, and receives a delegated `AidlComposerClient`.
@@ -37,7 +37,7 @@ Instead of emulating QEMU virtio-gpu hardware protocols, we built an independent
 ### 3.1 Freestanding Bionic Linkage & NDK Stability
 - **Headers & ABI**: Generated 261 official NDK headers from AOSP AIDL source definitions using the prebuilt `aidl` compiler (`--lang=ndk --stability=vintf --structured`).
 - **Standard Library Coherence**: Replaced host GCC `libstdc++` with LLVM `libc++` headers matching Android Bionic's `/system/lib64/libc++.so`. Used `-fno-rtti` to match Android NDK library ABI conventions.
-- **Bionic Runtime Entrypoint**: Implemented freestanding `_start` assembly in [composer_service.cpp](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/composer_aaas/composer_service.cpp) invoking `__libc_init` and forwarding `__errno_location` to Bionic's `__errno()`.
+- **Bionic Runtime Entrypoint**: Implemented freestanding `_start` assembly in [composer_service.cpp](../experiments/m1b/composer_aaas/composer_service.cpp) invoking `__libc_init` and forwarding `__errno_location` to Bionic's `__errno()`.
 
 ### 3.2 Display Lifecycle & Hotplug Synchronization
 - **Hotplug Event Timing**: In `SurfaceFlinger::init()`, `LOG_ALWAYS_FATAL_IF(!configureLocked(), "Initial display configuration failed: HWC did not hotplug")` executes immediately after `composer.setCallback(*this)`. `AaasComposerClient::registerCallback` synchronously invokes `callback->onHotplugEvent(1, DisplayHotplugEvent::CONNECTED)` within the Binder transaction, ensuring `mPendingHotplugEvents` is populated before `configureLocked()` evaluates.
@@ -49,7 +49,7 @@ Instead of emulating QEMU virtio-gpu hardware protocols, we built an independent
 
 ## 4. Live Container Verification Results
 
-Executing [scripts/test_zygote_startup.py](file:///home/mrkus/Work/personal/projects/aaas/scripts/test_zygote_startup.py) with `AAAS_LOG_PREFIX="m1b6_hotplug_"` recorded:
+Executing [scripts/test_zygote_startup.py](../scripts/test_zygote_startup.py) with `AAAS_LOG_PREFIX="m1b6_hotplug_"` recorded:
 
 ```text
 10-25 23:00:51.423    74    74 I HWComposer: Switching to generalized multi-display mode

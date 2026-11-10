@@ -166,7 +166,7 @@ unchanged critical file (`surfaceflinger`), two `libselinux_shim.so` overlays,
 and a modified SwiftShader checkout with 11 worktree entries (10 tracked
 changes and one untracked backup). The exact original/current hashes and
 classification for each finding are in
-[`android16-diagnostic-rootfs-audit.json`](../../manifests/android16-diagnostic-rootfs-audit.json).
+[`android16-diagnostic-rootfs-audit.json`](../manifests/android16-diagnostic-rootfs-audit.json).
 All 16 critical changes remain `UNRESOLVED`: the diagnostic source image
 shows their outputs, but no reviewed source patch/build recipe establishes
 their provenance or security behavior. The diagnostic rootfs is not a

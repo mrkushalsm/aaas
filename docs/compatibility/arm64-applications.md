@@ -68,7 +68,7 @@ classified as BFE's cross-ABI child-process environment/launcher issue;
 archive compatibility remains `PARTIAL/OPEN`. Ordinary BFE shared-file
 operations and the platform storage integration are tracked separately. Raw
 session log hashes and the exact linker line are in
-[`results/m4/acceptance.json`](../results/m4/acceptance.json).
+[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
 
 ### BFE archive UI follow-up (2026-11-05)
 

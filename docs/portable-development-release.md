@@ -1,5 +1,10 @@
 # Portable Android development bundle
 
+**Current release state:** This guide describes installed-bundle operations;
+it is not an assertion that a public bundle is currently available. The latest
+candidate and its open acceptance gates are recorded in
+[`release-readiness-2026-11-11.md`](release-readiness-2026-11-11.md).
+
 This directory bundle is for local, trusted development use. It is not a
 production-secure Android environment and has no signed release provenance.
 
@@ -76,18 +81,27 @@ Nine-window multiwindow operation and M4 desktop bridges were accepted on the
 existing runtime before this packaging pass; they were not all rerun against
 the fresh profile in this acceptance.
 
-## Known limitations
+## Current release limitations
 
-- The bundle manifest reports runtime closure `PARTIAL`: helper APK/audio
-  overlay rebuild inputs and a clean per-install signing flow are incomplete.
-- Gallery app-specific external cache remains unavailable on the tested ext4
-  backing filesystem because Android project-quota support is not configured.
-  AaaS logs the emulated-storage limitation and keeps the Android runtime alive;
-  this does not establish Gallery or full shared-storage compatibility.
-- A strict test that hides the checkout from the systemd service could not
-  complete: with `InaccessiblePaths` enabled, the host rejected `newuidmap`
-  (`Operation not permitted`) during AaaS's rootless workspace accounting.
-  The service's executable and runtime modules resolve from the installed
-  bundle, but the mount-isolated source-independence gate remains unverified.
-- Android SELinux enforcement and production security approval remain separate
-  workstreams. Run only trusted APKs in this development profile.
+- The newest bundle's integrity and 24-input runtime closure pass, but it has
+  not completed fresh installed boot acceptance. Its update was automatically
+  rolled back when the host's 10 GiB free-space reserve prevented startup.
+- Runtime security is not approved: the diagnostic image includes SELinux
+  authorization shims, enforcement is unavailable/unverified, and untrusted
+  APKs are outside the supported trust model.
+- Android rootfs and third-party artifact provenance/licensing are not cleared
+  for public redistribution. The repository has no project-level license.
+- A SurfaceFlinger crash occurred in one earlier pristine first-boot run; other
+  first boots succeeded. Reliability is not established from the available
+  sample.
+- Gallery app-specific external-cache/project-quota behavior remains limited on
+  the tested filesystem. Physical Android Wi-Fi and Bluetooth mediation are
+  unsupported; Android internet access uses virtual Ethernet.
+- The strict mount-isolated checkout-independence test was not completed because
+  hiding the checkout prevented `newuidmap` from operating. Installed path
+  checks and runtime dependency closure are evidence, but not equivalent to a
+  full repository-absence test.
+
+See [current release readiness](release-readiness-2026-11-11.md) and the
+[dependency/licensing inventory](dependencies-and-licenses.md) before using or
+distributing a candidate.

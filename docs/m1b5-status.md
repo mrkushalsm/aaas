@@ -4,7 +4,7 @@
 
 Milestone M1B.5 targeted the earliest graphics blocker identified in the recovered Android 16 container runtime: `mapper.ranchu.so` aborting due to missing Goldfish emulator pipe and address space devices (`/dev/goldfish_pipe_dprctd` and `/dev/goldfish_address_space`), which previously crashed `surfaceflinger` and blocked `SurfaceFlingerAIDL` publication.
 
-By engineering a freestanding, Bionic-compatible native DRM/DMA-BUF Mapper 5 (Stable-C) implementation ([experiments/m1b/mapper_drm/mapper_drm.cpp](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/mapper_drm/mapper_drm.cpp)), validating it with a standalone compatibility harness ([experiments/m1b/mapper_drm/test_mapper_compat.cpp](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/mapper_drm/test_mapper_compat.cpp)), and mounting it via isolated overlay in [scripts/test_zygote_startup.py](file:///home/mrkus/Work/personal/projects/aaas/scripts/test_zygote_startup.py), **SurfaceFlinger successfully advanced past graphics allocation and completed full RenderEngine initialization** using ANGLE OpenGL ES 3.1 on SwiftShader Vulkan.
+This historical experiment engineered a freestanding, Bionic-compatible native DRM/DMA-BUF Mapper 5 (Stable-C) implementation and exercised it with a standalone compatibility harness, then mounted it through an isolated overlay in [`scripts/test_zygote_startup.py`](../scripts/test_zygote_startup.py). The original mapper sources and harness are not retained in this repository revision. **SurfaceFlinger was reported to advance past graphics allocation and complete RenderEngine initialization** using ANGLE OpenGL ES 3.1 on SwiftShader Vulkan. This dated result is not the current runtime graphics implementation or a release acceptance result.
 
 As explicitly anticipated in Section 12 of the milestone specification, advancing past graphics allocation revealed the exact next integration boundary: `android.hardware.graphics.composer3-service.ranchu` rejects non-QEMU hosts because it hardcodes a requirement for `virtio_gpu` DRM nodes. This document details the causal chain, the native Mapper 5 implementation, live container verification, and the technical specification for the upcoming independent AaaS Composer3 implementation.
 
@@ -14,11 +14,9 @@ As explicitly anticipated in Section 12 of the milestone specification, advancin
 
 Before introducing any modifications, the historical baseline logs were preserved and isolated:
 - Historical logs preserved in:
-  - [full_logcat.log](file:///run/media/mrkus/Homework/aaas-workspace/tmp/historical_baseline/full_logcat.log)
-  - [sf_strace.log](file:///run/media/mrkus/Homework/aaas-workspace/tmp/historical_baseline/sf_strace.log)
-  - [zygote_recovery_run.log](file:///run/media/mrkus/Homework/aaas-workspace/tmp/historical_baseline/zygote_recovery_run.log)
+  - `full_logcat.log`, `sf_strace.log`, and `zygote_recovery_run.log` were stored on an external workspace that is no longer available at its original path; these raw logs are not included in this repository.
 
-To guarantee that subsequent test runs would not overwrite historical records, [scripts/test_zygote_startup.py](file:///home/mrkus/Work/personal/projects/aaas/scripts/test_zygote_startup.py) was enhanced to support `AAAS_LOG_PREFIX`. A fresh baseline run (`AAAS_LOG_PREFIX="m1b5_baseline_"`) was executed and reconfirmed:
+To guarantee that subsequent test runs would not overwrite historical records, [`scripts/test_zygote_startup.py`](../scripts/test_zygote_startup.py) was enhanced to support `AAAS_LOG_PREFIX`. A fresh baseline run (`AAAS_LOG_PREFIX="m1b5_baseline_"`) was executed and reconfirmed:
 1. Zygote forked `system_server` (PID 230), publishing 30 core Binder services.
 2. `DisplayManagerService` blocked indefinitely waiting for `SurfaceFlingerAIDL`.
 3. `surfaceflinger` (PID 83) loaded `/vendor/lib64/hw/mapper.ranchu.so`, logged `GoldfishAddressSpaceHostMemoryAllocator failed to open`, and terminated with `SIGABRT`.
@@ -71,8 +69,8 @@ Rather than emulating goldfish pipe protocols or attempting a multi-gigabyte AOS
 
 ### 4.1 Freestanding Architecture
 - **Stable-C Interface**: Mapper 5 does not use HIDL or AIDL Binder IPC; it operates as an in-process C function table (`AIMapper`) containing `uint32_t version` and 15 C function pointers.
-- **Freestanding Bionic Linkage**: To avoid ABI mismatches between host GCC/Clang `libc++` and Android Bionic `libc++.so`, the implementation in [experiments/m1b/mapper_drm/mapper_drm.cpp](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/mapper_drm/mapper_drm.cpp) uses freestanding C/C++ primitives without STL dependencies (`std::mutex`, `std::unordered_map`). Thread safety is implemented using standard `pthread_mutex_t`, and handle tracking uses fixed-capacity memory slots.
-- **Native Handle Layout**: Defined in [experiments/m1b/mapper_drm/include/cutils/native_handle.h](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/mapper_drm/include/cutils/native_handle.h), tracking DMA-BUF file descriptors, pixel dimensions, strides, pixel formats, usage flags, and allocation sizes.
+- **Freestanding Bionic Linkage**: The historical implementation, recorded as `experiments/m1b/mapper_drm/mapper_drm.cpp`, used freestanding C/C++ primitives without STL dependencies. That experimental source is not retained in the current checkout; this description is historical and is not part of the current graphics path.
+- **Native Handle Layout**: The historical `native_handle.h` described DMA-BUF file descriptors, pixel dimensions, strides, pixel formats, usage flags, and allocation sizes. The experiment source is not retained in this checkout.
 
 ### 4.2 Stable-C Function Table Coverage
 The implementation exports:
@@ -110,7 +108,7 @@ clang++ -target x86_64-linux-android \
 
 ## 5. Standalone Compatibility Verification
 
-A comprehensive standalone test harness was built in [experiments/m1b/mapper_drm/test_mapper_compat.cpp](file:///home/mrkus/Work/personal/projects/aaas/experiments/m1b/mapper_drm/test_mapper_compat.cpp) and executed inside an unprivileged Bubblewrap container simulating Android Bionic userspace:
+A comprehensive standalone harness, historically recorded as `experiments/m1b/mapper_drm/test_mapper_compat.cpp`, was executed inside an unprivileged Bubblewrap container simulating Android Bionic userspace. The harness source and raw run output are not retained in this checkout:
 
 ```bash
 bwrap --ro-bind "$ROOTFS" / \
@@ -152,10 +150,10 @@ bwrap --ro-bind "$ROOTFS" / \
 ## 6. Live Container SurfaceFlinger Bringup & RenderEngine Breakthrough
 
 ### 6.1 Isolated Overlay Execution
-Using [scripts/test_zygote_startup.py](file:///home/mrkus/Work/personal/projects/aaas/scripts/test_zygote_startup.py) with `mapper.drm.so` mounted over `/vendor/lib64/hw/mapper.ranchu.so`, the container booted under full Zygote, `system_server`, and SurfaceFlinger supervision.
+Using [`scripts/test_zygote_startup.py`](../scripts/test_zygote_startup.py) with `mapper.drm.so` mounted over `/vendor/lib64/hw/mapper.ranchu.so`, the container booted under full Zygote, `system_server`, and SurfaceFlinger supervision.
 
 ### 6.2 Breakthrough in RenderEngine Initialization
-The live logcat in `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b5_primary_full_logcat.log` confirmed that SurfaceFlinger loaded the native DRM mapper:
+The historical live logcat at `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b5_primary_full_logcat.log` was reported to confirm that SurfaceFlinger loaded the native DRM mapper. That external log is not included in this checkout:
 ```
 I mapper.drm: [MAPPER.DRM] AIMapper_loadIMapper called! Native DRM Mapper 5 loaded.
 ```
@@ -205,7 +203,7 @@ This result precisely establishes that:
 
 ## 8. Automated Verification Suite
 
-Unit tests validating Milestone M1B.5 are implemented in [tests/test_m1b5_graphics.py](file:///home/mrkus/Work/personal/projects/aaas/tests/test_m1b5_graphics.py):
+Unit tests validating Milestone M1B.5 are implemented in [`tests/test_m1b5_graphics.py`](../tests/test_m1b5_graphics.py):
 - `test_vintf_graphics_declarations`: Validates VINTF manifests for Gralloc 5 (`IAllocator/default`, `mapper@5.0/ranchu`) and HWC3 (`IComposer/default`).
 - `test_mapper_drm_source_structure`: Enforces presence and structure of all 15 Stable-C function pointers in `mapper_drm.cpp` and `native_handle.h`.
 - `test_mapper_drm_binary_symbols`: Verifies `AIMapper_loadIMapper` and `ANDROID_HAL_MAPPER_VERSION` dynamic symbol visibility.
