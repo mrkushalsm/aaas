@@ -24,6 +24,8 @@ The runtime-input closure check verifies that helper builders, build tools,
 framework resources, audio recipes and required overlay sources are present.
 It reports host interfaces separately because Wayland, PipeWire, Binder, DRM,
 rootless namespaces and build utilities are detected on the target host.
+Root-filesystem reserves are configurable with `AAAS_ROOT_FREE_RESERVE_GIB`;
+the workspace marker reserve remains specific to its backing filesystem.
 
 This development release consumes a recorded Android diagnostic rootfs and
 system image. It does not claim that Android itself is reproducibly built from

@@ -181,6 +181,13 @@ class WorkspaceGuardTest(unittest.TestCase):
         self.assertTrue(result['host_root_reserve_applies'])
         self.assertEqual(result['host_root_reserve_bytes'], 16 * guard.GIB)
 
+    def test_host_root_reserve_environment_override_is_bounded(self):
+        with patch.dict(guard.os.environ, {'AAAS_ROOT_FREE_RESERVE_GIB': '10'}):
+            self.assertEqual(guard._host_root_reserve_gib({'host_root_free_reserve_gib': 20}), 10)
+        with patch.dict(guard.os.environ, {'AAAS_ROOT_FREE_RESERVE_GIB': '257'}):
+            with self.assertRaisesRegex(guard.WorkspaceError, '0 to 256 GiB'):
+                guard._host_root_reserve_gib({})
+
     def test_capacity_reports_filesystem_and_workspace_allocation_separately(self):
         fs = SimpleNamespace(f_bavail=100, f_frsize=guard.GIB,
                              f_blocks=200, f_bfree=110)

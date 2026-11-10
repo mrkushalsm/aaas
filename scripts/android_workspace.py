@@ -69,7 +69,14 @@ def _free_reserve_gib(marker):
 
 
 def _host_root_reserve_gib(marker):
-    value = marker.get('host_root_free_reserve_gib', HOST_ROOT_FREE_RESERVE_BYTES // GIB)
+    configured = os.environ.get('AAAS_ROOT_FREE_RESERVE_GIB')
+    if configured is not None:
+        try:
+            value = int(configured)
+        except ValueError as error:
+            raise WorkspaceError('AAAS_ROOT_FREE_RESERVE_GIB must be an integer') from error
+    else:
+        value = marker.get('host_root_free_reserve_gib', HOST_ROOT_FREE_RESERVE_BYTES // GIB)
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 256:
         raise WorkspaceError('host root free-space reserve must be from 0 to 256 GiB')
     return value
@@ -941,7 +948,9 @@ def filesystem_capability_probe(workspace, *, require_acl=True):
 
 def initialize(workspace, mount_target=None, *, adopt=False,
                free_reserve_gib=DEFAULT_WORKSPACE_FREE_RESERVE_GIB,
-               host_root_reserve_gib=HOST_ROOT_FREE_RESERVE_BYTES // GIB):
+               host_root_reserve_gib=None):
+    if host_root_reserve_gib is None:
+        host_root_reserve_gib = _host_root_reserve_gib({})
     workspace = Path(workspace).expanduser().absolute()
     current = workspace
     while current != current.parent:
