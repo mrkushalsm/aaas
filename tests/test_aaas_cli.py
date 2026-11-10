@@ -63,6 +63,20 @@ class AaasCliTests(unittest.TestCase):
         self.assertIn('StartLimitBurst=3', contents)
         self.assertIn('RestartSec=10s', contents)
 
+    def test_runtime_service_enables_verified_workspace_native_bridge_bundle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            bundle = config.workspace / 'tmp/m3_native_bridge/digitalis'
+            bundle.mkdir(parents=True)
+            (bundle / 'SHA256SUMS').write_text('verified bundle marker')
+            with mock.patch.object(aaas_cli, '_runtime_systemctl'), \
+                    mock.patch.object(aaas_cli, '_runtime_unit_path',
+                                      return_value=config.config_file.parent.parent /
+                                      'systemd/user/aaas-runtime.service'):
+                unit = aaas_cli._install_runtime_service(config)
+            contents = unit.read_text()
+        self.assertIn(f'AAAS_NATIVE_BRIDGE_BUNDLE="{bundle}"', contents)
+
     def test_images_build_dispatches_to_source_assembler(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = self.config(temporary)

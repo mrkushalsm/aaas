@@ -68,6 +68,19 @@ def _runner_command(runner: Path, config):
                '--idle-timeout-seconds', '3600']
     if config.audio:
         command.append('--audio')
+    # A package may have been installed with an ARM64 primary ABI during an
+    # accepted M3 session.  Keep the Native Bridge enabled for the persistent
+    # runtime whenever the configured workspace carries the verified M3
+    # bundle; without it Android tries the absent secondary zygote and silently
+    # closes those activities before they can produce a frame.
+    bridge = os.environ.get('AAAS_NATIVE_BRIDGE_BUNDLE', '').strip()
+    workspace = getattr(config, 'workspace', None)
+    if not bridge and workspace is not None:
+        candidate = Path(workspace) / 'tmp/m3_native_bridge/digitalis'
+        if (candidate / 'SHA256SUMS').is_file():
+            bridge = str(candidate)
+    if bridge:
+        command.extend(('--diagnostic-native-bridge-overlay', bridge))
     return command
 
 

@@ -447,6 +447,14 @@ def _install_runtime_service(config):
                'Restart=on-failure\nRestartSec=10s\nTimeoutStartSec=250s\n'
                'TimeoutStopSec=45s\nKillMode=mixed\n\n'
                '[Install]\nWantedBy=default.target\n')
+    native_bridge_bundle = config.workspace / 'tmp/m3_native_bridge/digitalis'
+    if (not native_bridge_bundle.is_symlink() and
+            (native_bridge_bundle / 'SHA256SUMS').is_file()):
+        content = content.replace(
+            'Environment=AAAS_DEV_COMPAT=1\n',
+            'Environment=AAAS_DEV_COMPAT=1\n'
+            f'Environment=AAAS_NATIVE_BRIDGE_BUNDLE={quote(native_bridge_bundle)}\n',
+            1)
     temporary = unit.with_suffix('.service.tmp')
     temporary.write_text(content, encoding='utf-8')
     temporary.chmod(0o600)
