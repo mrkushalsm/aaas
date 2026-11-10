@@ -419,6 +419,23 @@ def _unit_environment(unit: Path, name: str) -> str | None:
     return None
 
 
+def _restore_previous_unit_after_uninstall(unit: Path, backup: Path, config):
+    """Restore a prior service unit unless it belongs to the removed profile."""
+    if not backup.is_file() and not backup.is_symlink():
+        return
+    same_profile = False
+    if (not backup.is_symlink() and
+            'Description=AaaS persistent Android runtime' in
+            backup.read_text(encoding='utf-8', errors='replace')):
+        same_profile = (
+            _unit_environment(backup, 'AAAS_WORKSPACE') == str(config.workspace) and
+            _unit_environment(backup, 'AAAS_ROOTFS') == str(config.rootfs))
+    if same_profile:
+        backup.unlink()
+    else:
+        os.replace(backup, unit)
+
+
 def _require_owned_runtime_unit(config):
     unit = _runtime_unit_path(config)
     try:
@@ -760,8 +777,7 @@ def main(argv=None):
                     raise CliError(f'refusing to remove unowned service unit: {service_unit}')
                 service_unit.unlink()
                 backup = service_unit.with_name(service_unit.name + '.aaas-backup')
-                if backup.is_file():
-                    os.replace(backup, service_unit)
+                _restore_previous_unit_after_uninstall(service_unit, backup, config)
                 _runtime_systemctl('daemon-reload')
             alias = Path.home() / '.local/bin/aaas-portable'
             if alias.is_symlink():

@@ -162,6 +162,39 @@ class AaasCliTests(unittest.TestCase):
             systemctl.assert_not_called()
             self.assertIn('/different/workspace', foreign_unit.read_text())
 
+    def test_uninstall_discards_backup_unit_owned_by_removed_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            unit = Path(temporary) / 'aaas-runtime.service'
+            backup = unit.with_name(unit.name + '.aaas-backup')
+            backup.write_text(
+                '[Unit]\nDescription=AaaS persistent Android runtime\n'
+                '[Service]\n'
+                f'Environment=AAAS_WORKSPACE="{config.workspace}"\n'
+                f'Environment=AAAS_ROOTFS="{config.rootfs}"\n')
+
+            aaas_cli._restore_previous_unit_after_uninstall(unit, backup, config)
+
+        self.assertFalse(unit.exists())
+        self.assertFalse(backup.exists())
+
+    def test_uninstall_restores_backup_unit_for_another_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            unit = Path(temporary) / 'aaas-runtime.service'
+            backup = unit.with_name(unit.name + '.aaas-backup')
+            backup.write_text(
+                '[Unit]\nDescription=AaaS persistent Android runtime\n'
+                '[Service]\nEnvironment=AAAS_WORKSPACE="/other/workspace"\n'
+                'Environment=AAAS_ROOTFS="/other/rootfs"\n')
+
+            aaas_cli._restore_previous_unit_after_uninstall(unit, backup, config)
+
+            self.assertTrue(unit.is_file())
+            self.assertEqual(aaas_cli._unit_environment(unit, 'AAAS_WORKSPACE'),
+                             '/other/workspace')
+            self.assertFalse(backup.exists())
+
     def test_release_lifecycle_commands_are_available(self):
         parser = aaas_cli._parser()
         self.assertEqual(parser.parse_args(['update', '/tmp/release']).command, 'update')
