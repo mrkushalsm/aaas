@@ -491,20 +491,16 @@ def _newest_session_after(started_at):
 def _persistent_service_unit_path():
     service_name = _runtime_service_name()
     try:
-        manager = subprocess.run(['systemctl', '--user', 'show-environment'],
-                                 capture_output=True, text=True, timeout=3)
-        manager_config = next((line.split('=', 1)[1] for line in
-                               manager.stdout.splitlines()
-                               if line.startswith('XDG_CONFIG_HOME=')), None)
-        if manager.returncode == 0 and manager_config:
-            root = Path(manager_config)
-        else:
-            clean_env = dict(os.environ)
-            clean_env.pop('XDG_CONFIG_HOME', None)
-            result = subprocess.run(['systemd-path', 'user-configuration'],
-                                    env=clean_env, capture_output=True, text=True,
-                                    timeout=3)
-            root = Path(result.stdout.strip()) if result.returncode == 0 else None
+        # systemd's user manager searches its fixed configuration path. A
+        # profile-specific XDG_CONFIG_HOME can be present in the manager
+        # environment without changing that search path, so use systemd-path
+        # just as the installer does when placing the owned unit.
+        clean_env = dict(os.environ)
+        clean_env.pop('XDG_CONFIG_HOME', None)
+        result = subprocess.run(['systemd-path', 'user-configuration'],
+                                env=clean_env, capture_output=True, text=True,
+                                timeout=3)
+        root = Path(result.stdout.strip()) if result.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError):
         root = None
     if not root or not root.is_absolute():

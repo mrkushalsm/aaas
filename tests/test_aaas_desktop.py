@@ -18,15 +18,17 @@ class DesktopLauncherTests(unittest.TestCase):
             unit = config_home / 'systemd/user/aaas-runtime.service'
             unit.parent.mkdir(parents=True)
             unit.write_text('[Service]\n')
-            with patch.object(aaas_desktop.aaas_config, 'xdg_paths',
-                              return_value={'config_home': config_home}), \
-                    patch.object(aaas_desktop.subprocess, 'run', return_value=
-                                 SimpleNamespace(returncode=0, stdout='active\n')):
+            def run(command, **kwargs):
+                if command[0] == 'systemd-path':
+                    return SimpleNamespace(returncode=0, stdout=str(config_home) + '\n')
+                return SimpleNamespace(returncode=0, stdout='active\n')
+            with patch.object(aaas_desktop.subprocess, 'run', side_effect=run):
                 self.assertTrue(aaas_desktop._persistent_service_active())
-            with patch.object(aaas_desktop.aaas_config, 'xdg_paths',
-                              return_value={'config_home': config_home}), \
-                    patch.object(aaas_desktop.subprocess, 'run', return_value=
-                                 SimpleNamespace(returncode=3, stdout='inactive\n')):
+            def inactive(command, **kwargs):
+                if command[0] == 'systemd-path':
+                    return SimpleNamespace(returncode=0, stdout=str(config_home) + '\n')
+                return SimpleNamespace(returncode=3, stdout='inactive\n')
+            with patch.object(aaas_desktop.subprocess, 'run', side_effect=inactive):
                 self.assertFalse(aaas_desktop._persistent_service_active())
 
     def test_custom_installed_service_name_is_detected(self):
@@ -35,14 +37,22 @@ class DesktopLauncherTests(unittest.TestCase):
             unit = config_home / 'systemd/user/aaas-runtime-test.service'
             unit.parent.mkdir(parents=True)
             unit.write_text('[Service]\n')
-            with patch.dict('os.environ', {'AAAS_RUNTIME_SERVICE':
-                                           'aaas-runtime-test.service'}), \
-                    patch.object(aaas_desktop.aaas_config, 'xdg_paths',
-                                 return_value={'config_home': config_home}), \
-                    patch.object(aaas_desktop.subprocess, 'run', return_value=
-                                 SimpleNamespace(returncode=0, stdout='active\n')):
-                self.assertEqual(aaas_desktop._persistent_service_unit_path(), unit)
-                self.assertTrue(aaas_desktop._persistent_service_active())
+            with patch.dict('os.environ', {
+                    'AAAS_RUNTIME_SERVICE': 'aaas-runtime-test.service',
+                    'XDG_CONFIG_HOME': str(config_home / 'isolated-profile')}):
+                def run(command, **kwargs):
+                    if command[:3] == ['systemctl', '--user', 'show-environment']:
+                        return SimpleNamespace(
+                            returncode=0,
+                            stdout=f'XDG_CONFIG_HOME={config_home / "isolated-profile"}\n')
+                    if command[0] == 'systemd-path':
+                        self.assertNotIn('XDG_CONFIG_HOME', kwargs['env'])
+                        return SimpleNamespace(returncode=0,
+                                               stdout=str(config_home) + '\n')
+                    return SimpleNamespace(returncode=0, stdout='active\n')
+                with patch.object(aaas_desktop.subprocess, 'run', side_effect=run):
+                    self.assertEqual(aaas_desktop._persistent_service_unit_path(), unit)
+                    self.assertTrue(aaas_desktop._persistent_service_active())
 
     def test_package_identity_is_validated(self):
         with self.assertRaises(ValueError):
