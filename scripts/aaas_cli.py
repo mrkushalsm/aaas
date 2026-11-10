@@ -309,10 +309,11 @@ def _parser():
     uninstall = app_commands.add_parser('uninstall'); uninstall.add_argument('package')
     runtime = json_flag(commands.add_parser('runtime', help='manage the persistent user runtime'))
     runtime_commands = runtime.add_subparsers(dest='runtime_command', required=True)
-    runtime_commands.add_parser('install-service', help='install the systemd user service')
-    runtime_commands.add_parser('start', help='start Android as a persistent user service')
-    runtime_commands.add_parser('status', help='show persistent runtime readiness')
-    runtime_commands.add_parser('stop', help='stop the persistent user service')
+    json_flag(runtime_commands.add_parser('install-service',
+                                         help='install the systemd user service'))
+    json_flag(runtime_commands.add_parser('start', help='start Android as a persistent user service'))
+    json_flag(runtime_commands.add_parser('status', help='show persistent runtime readiness'))
+    json_flag(runtime_commands.add_parser('stop', help='stop the persistent user service'))
     images = json_flag(commands.add_parser('images', help='inspect supported Android profiles and images'))
     image_commands = images.add_subparsers(dest='images_command', required=True)
     image_commands.add_parser('list')
@@ -941,7 +942,7 @@ def main(argv=None):
                 if _status(config)['runtime']['state'] != 'STOPPED':
                     raise CliError('bundle creation requires all AaaS sessions to be stopped')
                 result = aaas_bundle.create_bundle(
-                    repo=ROOT, rootfs=config.rootfs, output=output,
+                    repo=ROOT, rootfs=config.workspace / 'rootfs_m1b1', output=output,
                     workspace=config.workspace,
                     preflight=lambda: __import__('android_workspace').check(config.workspace))
                 verification = result['verification']

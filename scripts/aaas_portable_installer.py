@@ -31,9 +31,17 @@ def main(argv=None):
     workspace = (args.workspace or data_home / 'aaas/workspace').expanduser().absolute()
     installation = (args.installation or
                     data_home / 'aaas/installations' / verified['bundle_id']).expanduser().absolute()
-    result = aaas_bundle.install_bundle(
-        bundle=bundle, workspace=workspace, install_root=installation,
-        config_home=config_home, data_home=data_home, desktop_home=data_home)
+    if installation.exists():
+        existing = aaas_bundle.verify_installation(installation)
+        if existing.get('bundle_id') != verified.get('bundle_id'):
+            raise aaas_bundle.BundleError(
+                'destination already contains a different release; choose a new prefix')
+        result = {'installation': str(installation), 'workspace': str(workspace),
+                  'installation_integrity': 'PASS', 'resumed_existing_install': True}
+    else:
+        result = aaas_bundle.install_bundle(
+            bundle=bundle, workspace=workspace, install_root=installation,
+            config_home=config_home, data_home=data_home, desktop_home=data_home)
     cli = installation / 'bin/aaas'
     env = dict(os.environ)
     env.update({'XDG_CONFIG_HOME': str(config_home), 'XDG_DATA_HOME': str(data_home),

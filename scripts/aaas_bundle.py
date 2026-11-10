@@ -88,6 +88,7 @@ WORKSPACE_FILES = (
     'tmp/android.hardware.graphics.composer3-service.aaas',
     'tmp/android.hardware.graphics.allocator-service.aaas',
     'tmp/m1e_composer_vdisplay_experimental', 'tmp/m1e_composer_two_output',
+    'tmp/m1e_composer_two_output.json',
     'tmp/m1e_aaas_display_broker.dex', 'tmp/m1e_services_alarm_fallback.jar',
     'tmp/m1e_services_alarm_fallback.json', 'tmp/m1e_framework_transition_input.jar',
     'tmp/m1e_framework_transition_input.json',

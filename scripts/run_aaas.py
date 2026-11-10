@@ -34,6 +34,7 @@ import aaas_resources
 import aaas_clipboard
 import aaas_notifications
 import aaas_storage
+import aaas_control
 import aaas_userdata
 import android_workspace
 import aaas_graphics
@@ -3752,7 +3753,9 @@ def main():
     window_hidden = {index: slot_packages[index] is None
                      for index in range(1, args.max_apps + 1)}
     storage_scan_uris = {}
-    control_path = ipc / 'aaas-control.sock'
+    control_path = aaas_control.session_socket_path(WORKSPACE, session.name)
+    socket_dir = control_path.parent
+    control_path_pointer = ipc / 'aaas-control.path'
     control_server = None
     capture_status = 'not_requested'
 
@@ -4367,12 +4370,20 @@ def main():
                     'detail': str(error)[:240]}
 
     if storage_scan_apk is not None:
+        socket_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        if socket_dir.is_symlink() or socket_dir.stat().st_uid != os.getuid():
+            raise RuntimeError(f'AaaS runtime socket directory is not user-owned: {socket_dir}')
+        socket_dir.chmod(0o700)
+        if control_path.exists() and not control_path.is_socket():
+            raise RuntimeError(f'refusing to replace non-socket runtime path: {control_path}')
         control_path.unlink(missing_ok=True)
         control_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         control_server.bind(str(control_path))
         control_path.chmod(0o600)
         control_server.listen(4)
         control_server.setblocking(False)
+        control_path_pointer.write_text(str(control_path) + '\n', encoding='utf-8')
+        control_path_pointer.chmod(0o600)
 
     def transition(new_state):
         nonlocal state
@@ -4879,6 +4890,8 @@ def main():
             control_server.close()
             try:
                 control_path.unlink(missing_ok=True)
+                control_path_pointer.unlink(missing_ok=True)
+                socket_dir.rmdir()
             except OSError as error:
                 print(f'AaaS: cannot remove session control socket: {error}',
                       file=sys.stderr, flush=True)

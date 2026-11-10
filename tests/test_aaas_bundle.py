@@ -71,6 +71,10 @@ class BundleTests(unittest.TestCase):
         (rootfs / 'data/private.db').write_bytes(b'private userdata')
         (rootfs / 'tmp/old.log').write_text('not bundle data')
         (rootfs / 'init').symlink_to('system/bin/init')
+        (workspace / 'tmp').mkdir(exist_ok=True)
+        (workspace / 'tmp/m1e_composer_two_output').write_bytes(b'composer-binary')
+        (workspace / 'tmp/m1e_composer_two_output.json').write_text(
+            '{"endpoint_mode":"on-demand"}\n')
         return repo, workspace, rootfs
 
     def test_create_manifest_excludes_user_state_and_verifies_relocated_bundle(self):
@@ -90,6 +94,7 @@ class BundleTests(unittest.TestCase):
             self.assertIn('--workspace', installer_help.stdout)
             self.assertFalse((output / 'rootfs/data/private.db').exists())
             self.assertFalse((output / 'rootfs/tmp/old.log').exists())
+            self.assertTrue((output / 'workspace-artifacts/tmp/m1e_composer_two_output.json').is_file())
             self.assertTrue((output / 'rootfs/init').is_symlink())
             self.assertEqual(
                 (output / 'runtime/experiments/perf/input_latency_probe/build_probe.py').read_bytes(),

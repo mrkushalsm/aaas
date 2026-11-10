@@ -12,15 +12,14 @@ import sys
 
 import aaas_config
 import aaas_storage
+import aaas_control
 
 TMP = aaas_config.resolve_config().workspace / 'tmp'
 PACKAGE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+')
 
 
 def active_control_socket():
-    candidates = sorted(TMP.glob('m1b84_session_*/ipc/aaas-control.sock'),
-                        key=lambda path: path.stat().st_mtime, reverse=True)
-    for path in candidates:
+    for path in aaas_control.socket_candidates(TMP):
         try:
             connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             connection.settimeout(180)

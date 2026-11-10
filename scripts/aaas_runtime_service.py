@@ -21,13 +21,11 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import aaas_config
+import aaas_control
 
 
 def _socket_for(workspace: Path):
-    paths = sorted(workspace.joinpath('tmp').glob(
-        'm1b84_session_*/ipc/aaas-control.sock'),
-        key=lambda path: path.stat().st_mtime, reverse=True)
-    for path in paths:
+    for path in aaas_control.socket_candidates(workspace / 'tmp'):
         try:
             probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             probe.settimeout(1)

@@ -36,6 +36,8 @@ class AaasCliTests(unittest.TestCase):
         self.assertTrue(build.dry_run)
         self.assertEqual(build.image, Path('/tmp/image.zip'))
         self.assertEqual(parser.parse_args(['verify', '--json']).command, 'verify')
+        self.assertEqual(parser.parse_args(['runtime', 'install-service', '--json']).runtime_command,
+                         'install-service')
 
     def test_runtime_readiness_requires_zero_live_window_resources(self):
         self.assertTrue(aaas_cli._runtime_windows_are_idle([]))

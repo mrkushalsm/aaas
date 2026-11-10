@@ -19,6 +19,7 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 RUNNER = ROOT / "scripts/run_aaas.py"
 import aaas_config
+import aaas_control
 
 WORKSPACE_TMP = aaas_config.resolve_config(repository=ROOT).workspace / "tmp"
 PACKAGE = re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+")
@@ -443,8 +444,7 @@ def install_launcher(package, name=None, icon=None, env=None):
 
 
 def _control_request(request, timeout=5):
-    candidates = sorted(WORKSPACE_TMP.glob("m1b84_session_*/ipc/aaas-control.sock"),
-                        key=lambda item: item.stat().st_mtime, reverse=True)
+    candidates = aaas_control.socket_candidates(WORKSPACE_TMP)
     last_error = None
     for path in candidates:
         try:

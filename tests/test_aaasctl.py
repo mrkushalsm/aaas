@@ -1,5 +1,6 @@
 import json
 from io import StringIO
+import os
 from pathlib import Path
 import socket
 import sys
@@ -10,9 +11,17 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import aaasctl
+import aaas_control
 
 
 class AaasControlClientTests(unittest.TestCase):
+    def test_long_workspace_uses_short_advertised_runtime_socket(self):
+        path = aaas_control.session_socket_path(
+            '/tmp/' + 'workspace-segment-' * 8, 'm1b84_session_abcdefgh',
+            runtime_dir='/run/user/1000')
+        self.assertLess(len(os.fsencode(path)), 108)
+        self.assertTrue(str(path).startswith('/run/user/1000/aaas/'))
+
     def test_storage_scan_sends_a_relative_shared_path_to_the_active_session(self):
         class Connection:
             def __enter__(self):
