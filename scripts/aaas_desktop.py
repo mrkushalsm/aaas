@@ -419,7 +419,7 @@ def render_launcher(package, name, icon=None, env=None):
         f"Comment=Run {desktop_escape(name)} with AaaS",
         "Terminal=false",
         "Categories=Utility;",
-        "StartupNotify=false",
+        "StartupNotify=true",
         "Exec=" + " ".join(desktop_exec_quote(token) for token in
                              (sys.executable, script, "launch", "--package", package)),
     ]
@@ -564,6 +564,18 @@ def _start_persistent_service():
 
 def launch_application(package, native_bridge_bundle=None, timeout=240):
     validate_package(package)
+    # Plasma supplies a one-shot token for a user-initiated desktop launch.
+    # The persistent Android service does not inherit the launcher process's
+    # environment, so carry this token over its private control socket.
+    activation_token = os.environ.get("XDG_ACTIVATION_TOKEN", "")
+    if len(activation_token) > 2048 or any(ord(c) < 0x20 or ord(c) == 0x7f
+                                           for c in activation_token):
+        activation_token = ""
+
+    def launch_request():
+        return _control_request({"op": "launch", "package": package,
+                                 "activation_token": activation_token}, timeout=90)
+
     catalog_app = cached_application(package)
     desktop = catalog_launcher_path(package)
     if (package != "com.android.settings" and
@@ -597,7 +609,7 @@ def launch_application(package, native_bridge_bundle=None, timeout=240):
                 raise RuntimeError('AaaS user service is active but its app-control '
                                    f'interface did not become ready: {last_error}')
         if status is not None and status.get("state") in ("STARTING", "RUNNING"):
-            _, result = _control_request({"op": "launch", "package": package}, timeout=90)
+            _, result = launch_request()
             if not result.get("ok"):
                 raise RuntimeError(f"active AaaS session could not launch app: {result}")
             return {"mode": "reused", **result}
@@ -606,7 +618,7 @@ def launch_application(package, native_bridge_bundle=None, timeout=240):
             # as CLI launch. A stopped service is started once, then this app
             # is allocated through its live control socket.
             _start_persistent_service()
-            _, result = _control_request({"op": "launch", "package": package}, timeout=90)
+            _, result = launch_request()
             if not result.get("ok"):
                 raise RuntimeError(f"persistent AaaS runtime could not launch app: {result}")
             return {"mode": "service-started", **result}
@@ -616,7 +628,7 @@ def launch_application(package, native_bridge_bundle=None, timeout=240):
                 try:
                     _, current = _control_request({"op": "list"}, timeout=1)
                     if current.get("state") in ("STARTING", "RUNNING"):
-                        _, result = _control_request({"op": "launch", "package": package}, timeout=90)
+                        _, result = launch_request()
                         if not result.get("ok"):
                             raise RuntimeError(f"AaaS shutdown/start race: {result}")
                         return {"mode": "reused", **result}

@@ -41,6 +41,7 @@ class DesktopLauncherTests(unittest.TestCase):
 
     def test_exec_quoting_and_percent_field_codes_are_safe(self):
         entry = aaas_desktop.render_launcher("com.example.reader", "Reader % Copy")
+        self.assertIn("StartupNotify=true", entry)
         self.assertIn("Name=Reader % Copy", entry)
         exec_line = next(line for line in entry.splitlines() if line.startswith("Exec="))
         self.assertEqual(aaas_desktop.desktop_exec_quote("reader%copy"),

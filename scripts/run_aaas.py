@@ -3791,7 +3791,7 @@ def main():
             pass
         return label, app_id
 
-    def request_window_identity(slot, package):
+    def request_window_identity(slot, package, activation_token=''):
         request_path = ipc / f'window_identity_{slot}_request'
         ack_path = ipc / f'window_identity_{slot}_ack'
         if request_path.is_symlink() or ack_path.is_symlink():
@@ -3799,7 +3799,8 @@ def main():
         request_id = os.urandom(12).hex()
         label, app_id = window_identity_for_package(package)
         ack_path.write_text('')
-        atomic_control_write(request_path, f'{request_id}\n{label}\n{app_id}')
+        atomic_control_write(request_path,
+                             f'{request_id}\n{label}\n{app_id}\n{activation_token}')
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             if ack_path.read_text().strip() == request_id:
@@ -4230,6 +4231,10 @@ def main():
             package = validate_app_package(request.get('package'))
         except ValueError:
             return {'ok': False, 'error': 'invalid_package'}
+        activation_token = request.get('activation_token', '')
+        if (not isinstance(activation_token, str) or len(activation_token) > 2048 or
+                any(ord(char) < 0x20 or ord(char) == 0x7f for char in activation_token)):
+            return {'ok': False, 'error': 'invalid_activation_token'}
         if any(slot_packages[slot] == package and slot_presenters[slot] is not None and
                read_presenter_slot_state(ipc, slot) != 'CLOSED'
                for slot in slot_packages):
@@ -4317,7 +4322,7 @@ def main():
             # already supplied on argv; wait for the frame before requesting
             # the runtime identity update (otherwise the five-second request
             # can never be observed by a presenter with no decor frame).
-            window_identity = request_window_identity(slot, package)
+            window_identity = request_window_identity(slot, package, activation_token)
             slot_presenters[slot] = presenter_process
             if slot == 1: virtual_presenter = presenter_process
             if slot == 2: virtual_presenter2 = presenter_process

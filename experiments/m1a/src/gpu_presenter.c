@@ -13,6 +13,7 @@
 #include "presentation-time-client-protocol.h"
 #include "linux-drm-syncobj-client-protocol.h"
 #include "viewporter-client-protocol.h"
+#include "xdg-activation-v1-client-protocol.h"
 
 #include <wayland-client.h>
 #include <libdecor.h>
@@ -159,6 +160,7 @@ struct presenter_app {
     struct wl_registry *registry;
     struct wl_compositor *compositor;
     struct xdg_wm_base *wm_base;
+    struct xdg_activation_v1 *activation_manager;
     struct libdecor *decor_context;
     struct libdecor_frame *decor_frame;
     struct zwp_linux_dmabuf_v1 *dmabuf;
@@ -295,7 +297,7 @@ static void apply_window_identity_request(presenter_app *a) {
     int fd = open(a->identity_request_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (fd < 0) return;
     struct stat st;
-    char payload[768];
+    char payload[4096];
     ssize_t length = -1;
     if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0 &&
         st.st_size < (off_t)sizeof(payload)) {
@@ -311,15 +313,23 @@ static void apply_window_identity_request(presenter_app *a) {
     if (!second) return;
     *second++ = '\0';
     char *end = strchr(second, '\n');
-    if (end) *end = '\0';
+    char *activation_token = "";
+    if (end) {
+        *end++ = '\0';
+        activation_token = end;
+        char *token_end = strchr(activation_token, '\n');
+        if (token_end) *token_end = '\0';
+    }
     size_t request_len = strlen(payload);
     size_t title_len = strlen(first);
     size_t app_id_len = strlen(second);
+    size_t activation_token_len = strlen(activation_token);
     bool hide_window = title_len == 0 &&
         strcmp(second, "org.aaas.android-app") == 0;
     if (request_len < 16 || request_len > 32 ||
         (!hide_window && title_len == 0) || title_len > 256 ||
         app_id_len == 0 || app_id_len > 256) return;
+    if (activation_token_len > 2048) return;
     for (size_t i = 0; i < request_len; ++i)
         if (!isxdigit((unsigned char)payload[i])) return;
     for (size_t i = 0; i < title_len; ++i)
@@ -327,6 +337,10 @@ static void apply_window_identity_request(presenter_app *a) {
     for (size_t i = 0; i < app_id_len; ++i) {
         unsigned char c = (unsigned char)second[i];
         if (!(isalnum(c) || c == '.' || c == '-' || c == '_')) return;
+    }
+    for (size_t i = 0; i < activation_token_len; ++i) {
+        unsigned char c = (unsigned char)activation_token[i];
+        if (c < 0x20 || c == 0x7f) return;
     }
 
     if (hide_window) {
@@ -340,6 +354,12 @@ static void apply_window_identity_request(presenter_app *a) {
         if (!a->frame_mapped) {
             libdecor_frame_map(a->decor_frame);
             a->frame_mapped = true;
+        }
+        if (activation_token_len && a->activation_manager) {
+            xdg_activation_v1_activate(a->activation_manager, activation_token,
+                                       a->surface);
+            if (wl_display_flush(a->display) >= 0)
+                log_presenter_event("xdg_activation_requested", a->gen, 0, NULL);
         }
     }
     int ack_fd = open(a->identity_ack_path,
@@ -1345,6 +1365,9 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
         a->compositor = wl_registry_bind(r, name, &wl_compositor_interface, ver < 4 ? ver : 4);
     } else if (strcmp(iface, "xdg_wm_base") == 0) {
         a->wm_base = wl_registry_bind(r, name, &xdg_wm_base_interface, ver < 3 ? ver : 3);
+    } else if (strcmp(iface, "xdg_activation_v1") == 0 && ver >= 1) {
+        a->activation_manager = wl_registry_bind(
+            r, name, &xdg_activation_v1_interface, 1);
     } else if (strcmp(iface, "wp_presentation") == 0) {
         a->presentation = wl_registry_bind(r, name, &wp_presentation_interface, 1);
         if (a->trace_staging_stages) {
@@ -3650,6 +3673,7 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     wl_surface_destroy(app.surface);
     if (app.dmabuf) zwp_linux_dmabuf_v1_destroy(app.dmabuf);
     if (app.presentation) wp_presentation_destroy(app.presentation);
+    if (app.activation_manager) xdg_activation_v1_destroy(app.activation_manager);
     xdg_wm_base_destroy(app.wm_base);
     wl_compositor_destroy(app.compositor);
     wl_registry_destroy(app.registry);

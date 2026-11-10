@@ -13,14 +13,16 @@ PROTOCOLS_HDR = \
 	$(BUILD)/linux-dmabuf-client-protocol.h \
 	$(BUILD)/presentation-time-client-protocol.h \
 	$(BUILD)/linux-drm-syncobj-client-protocol.h \
-	$(BUILD)/viewporter-client-protocol.h
+	$(BUILD)/viewporter-client-protocol.h \
+	$(BUILD)/xdg-activation-v1-client-protocol.h
 
 PROTOCOLS_SRC = \
 	$(BUILD)/xdg-shell-protocol.c \
 	$(BUILD)/linux-dmabuf-protocol.c \
 	$(BUILD)/presentation-time-protocol.c \
 	$(BUILD)/linux-drm-syncobj-protocol.c \
-	$(BUILD)/viewporter-protocol.c
+	$(BUILD)/viewporter-protocol.c \
+	$(BUILD)/xdg-activation-v1-protocol.c
 
 all: $(BUILD)/aaas-m1a $(BUILD)/aaas-m1a1 $(BUILD)/wayland-host-presenter
 
@@ -55,6 +57,12 @@ $(BUILD)/viewporter-client-protocol.h: $(LOCAL_XML)/viewporter.xml | $(BUILD)
 	wayland-scanner client-header $< $@
 
 $(BUILD)/viewporter-protocol.c: $(LOCAL_XML)/viewporter.xml | $(BUILD)
+	wayland-scanner private-code $< $@
+
+$(BUILD)/xdg-activation-v1-client-protocol.h: $(XML)/xdg-activation/xdg-activation-v1.xml | $(BUILD)
+	wayland-scanner client-header $< $@
+
+$(BUILD)/xdg-activation-v1-protocol.c: $(XML)/xdg-activation/xdg-activation-v1.xml | $(BUILD)
 	wayland-scanner private-code $< $@
 
 # Original M1A baseline (v1)
