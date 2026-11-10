@@ -118,7 +118,11 @@ class AaasCliTests(unittest.TestCase):
             unit_path = (config.config_file.parent.parent /
                          'systemd/user/aaas-runtime.service')
             unit_path.parent.mkdir(parents=True)
-            unit_path.write_text(f'Environment=AAAS_HELPER_KEYSTORE="{old_key}"\n')
+            unit_path.write_text(
+                'Description=AaaS persistent Android runtime\n'
+                f'Environment=AAAS_WORKSPACE="{config.workspace}"\n'
+                f'Environment=AAAS_ROOTFS="{config.rootfs}"\n'
+                f'Environment=AAAS_HELPER_KEYSTORE="{old_key}"\n')
             with mock.patch.object(aaas_cli, '_runtime_systemctl'), \
                     mock.patch.object(aaas_cli, '_runtime_unit_path', return_value=unit_path), \
                     mock.patch.object(aaas_cli.aaas_dev, 'ensure_signing_key',
@@ -139,6 +143,24 @@ class AaasCliTests(unittest.TestCase):
                 run.return_value = mock.Mock(returncode=0, stdout='/tmp/user-config\n')
                 path = aaas_cli._runtime_unit_path(config)
             self.assertEqual(path, Path('/tmp/user-config/systemd/user/aaas-isolated-check.service'))
+
+    def test_release_lifecycle_refuses_foreign_service_before_stop(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            foreign_unit = Path(temporary) / 'aaas-runtime.service'
+            foreign_unit.write_text(
+                'Description=AaaS persistent Android runtime\n'
+                'Environment=AAAS_WORKSPACE="/different/workspace"\n'
+                'Environment=AAAS_ROOTFS="/different/rootfs"\n')
+            with mock.patch.object(aaas_cli, '_runtime_unit_path',
+                                   return_value=foreign_unit), \
+                    mock.patch.object(aaas_cli, '_runtime_systemctl') as systemctl:
+                with self.assertRaisesRegex(aaas_cli.CliError, 'unowned service'):
+                    aaas_cli._require_owned_runtime_unit(config)
+                with self.assertRaisesRegex(aaas_cli.CliError, 'unowned service'):
+                    aaas_cli._install_runtime_service(config)
+            systemctl.assert_not_called()
+            self.assertIn('/different/workspace', foreign_unit.read_text())
 
     def test_release_lifecycle_commands_are_available(self):
         parser = aaas_cli._parser()

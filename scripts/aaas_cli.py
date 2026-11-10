@@ -419,6 +419,20 @@ def _unit_environment(unit: Path, name: str) -> str | None:
     return None
 
 
+def _require_owned_runtime_unit(config):
+    unit = _runtime_unit_path(config)
+    try:
+        contents = unit.read_text(encoding='utf-8')
+    except OSError as error:
+        raise CliError(f'installed runtime service is unavailable: {unit}') from error
+    if (unit.is_symlink() or
+            'Description=AaaS persistent Android runtime' not in contents or
+            _unit_environment(unit, 'AAAS_WORKSPACE') != str(config.workspace) or
+            _unit_environment(unit, 'AAAS_ROOTFS') != str(config.rootfs)):
+        raise CliError(f'refusing to operate on unowned service unit: {unit}')
+    return unit
+
+
 def _runtime_systemctl(*args, check=True):
     result = subprocess.run(['systemctl', '--user', *args], text=True,
                             capture_output=True, timeout=30)
@@ -490,7 +504,8 @@ def _runtime_windows_are_idle(windows):
 def _install_runtime_service(config):
     unit = _runtime_unit_path(config)
     unit.parent.mkdir(parents=True, exist_ok=True)
-    if unit.exists() and not unit.is_symlink():
+    if unit.exists() or unit.is_symlink():
+        _require_owned_runtime_unit(config)
         backup = unit.with_name(unit.name + '.aaas-backup')
         if not backup.exists():
             shutil.copy2(unit, backup)
@@ -647,11 +662,12 @@ def main(argv=None):
         json_output = getattr(args, 'json', False) or getattr(args, 'json_local', False)
         if args.command == 'update':
             root = _installed_root(config)
+            service_unit = _require_owned_runtime_unit(config)
             candidate = aaas_bundle.verify_bundle(args.bundle)
             stage = aaas_bundle.stage_installation_update(
                 bundle=args.bundle, installation=root)
             try:
-                _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
+                _runtime_systemctl('stop', service_unit.name, check=False)
                 previous = aaas_bundle.activate_staged_update(stage=stage,
                                                               installation=root)
                 _write_installation_record(config, root, bundle_id=candidate['bundle_id'])
@@ -682,6 +698,7 @@ def main(argv=None):
                     shutil.rmtree(stage)
         if args.command == 'rollback':
             root = _installed_root(config)
+            service_unit = _require_owned_runtime_unit(config)
             state_path = _release_state_path(config)
             try:
                 previous = Path(json.loads(state_path.read_text(encoding='utf-8'))['previous'])
@@ -690,7 +707,7 @@ def main(argv=None):
             if previous.parent.resolve() != root.parent.resolve() or not previous.name.startswith(
                     f'.{root.name}.'):
                 raise CliError('rollback metadata points outside the installation release family')
-            _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
+            _runtime_systemctl('stop', service_unit.name, check=False)
             failed = aaas_bundle.restore_previous_installation(
                 installation=root, previous=previous)
             _write_installation_record(config, root)
@@ -714,6 +731,7 @@ def main(argv=None):
             return 0
         if args.command == 'uninstall':
             root = _installed_root(config)
+            service_unit = _require_owned_runtime_unit(config)
             workspace_removal = False
             if args.remove_user_data:
                 import android_workspace
@@ -723,7 +741,6 @@ def main(argv=None):
                     raise CliError('preserving the workspace: enrolled health check failed')
                 aaas_userdata.prepare_userdata_directory(config.workspace)
                 workspace_removal = True
-            service_unit = _runtime_unit_path(config)
             _runtime_systemctl('stop', service_unit.name, check=False)
             backups = (*root.parent.glob(f'.{root.name}.previous-*'),
                        *root.parent.glob(f'.{root.name}.rolled-back-*'))
