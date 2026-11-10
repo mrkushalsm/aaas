@@ -166,6 +166,7 @@ class DesktopLauncherTests(unittest.TestCase):
             unrelated.write_text("keep")
             entry = reader.read_text()
             self.assertIn("Name=Reader % Copy", entry)
+            self.assertIn("StartupNotify=true", entry)
             self.assertIn("Icon=application-x-executable", entry)
             self.assertIn('"--package" "com.example.reader"', entry)
             second = aaas_desktop.sync_package_catalog([

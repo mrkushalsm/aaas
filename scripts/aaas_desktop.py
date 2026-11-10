@@ -207,7 +207,7 @@ def _catalog_entry_text(application, icon, env=None):
     fields = [
         "[Desktop Entry]", "Type=Application", f"Name={desktop_escape(name)}",
         f"Comment={comment}", "Terminal=false",
-        "Categories=Utility;", "StartupNotify=false",
+        "Categories=Utility;", "StartupNotify=true",
         "X-AaaS-Package=" + package,
         "X-AaaS-VersionCode=" + str(application["version_code"]),
         "Exec=" + " ".join(desktop_exec_quote(token) for token in command),
