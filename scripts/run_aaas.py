@@ -4235,10 +4235,28 @@ def main():
         if (not isinstance(activation_token, str) or len(activation_token) > 2048 or
                 any(ord(char) < 0x20 or ord(char) == 0x7f for char in activation_token)):
             return {'ok': False, 'error': 'invalid_activation_token'}
-        if any(slot_packages[slot] == package and slot_presenters[slot] is not None and
-               read_presenter_slot_state(ipc, slot) != 'CLOSED'
-               for slot in slot_packages):
-            return {'ok': False, 'error': 'package_already_running'}
+        existing_slot = next((slot for slot in slot_packages
+                              if slot_packages[slot] == package and
+                              slot_presenters[slot] is not None and
+                              read_presenter_slot_state(ipc, slot) != 'CLOSED'), None)
+        if existing_slot is not None:
+            # A desktop-menu click on an already-running app should raise its
+            # existing toplevel, not silently fail (or allocate a duplicate
+            # Android display).  The one-shot token comes from the initiating
+            # desktop launch and is consumed by the presenter via
+            # xdg_activation_v1.
+            try:
+                identity = request_window_identity(existing_slot, package,
+                                                   activation_token)
+            except RuntimeError as error:
+                return {'ok': False, 'error': 'existing_window_activation_failed',
+                        'detail': str(error)[:240]}
+            return {'ok': True, 'already_running': True, 'slot': existing_slot,
+                    'package': package,
+                    'display_id': int((ipc / ('vdisplay_id' if existing_slot == 1 else
+                                             f'vdisplay{existing_slot}_id')).read_text().strip()),
+                    'state': 'RUNNING', 'window_title': identity['title'],
+                    'desktop_app_id': identity['app_id']}
         candidates = [slot for slot, process in slot_presenters.items()
                       if slot_packages[slot] is None and
                       (process is None or process.poll() is None)]
