@@ -138,6 +138,8 @@ class BundleTests(unittest.TestCase):
                         config_home=base / f'config-{suffix}', data_home=base / f'data-{suffix}')
                 results.append(result)
                 self.assertEqual(result['installation_integrity'], 'PASS')
+                expected_closure = aaas_bundle.inspect_bundle(bundle)['runtime_closure']['status']
+                self.assertEqual(result['runtime_closure'], expected_closure)
                 self.assertEqual(result['general_runtime_start'], 'BLOCKED')
                 self.assertTrue((base / f'install-{suffix}/bin/aaas').is_file())
                 self.assertTrue((base / f'install-{suffix}/rootfs/data').is_dir())

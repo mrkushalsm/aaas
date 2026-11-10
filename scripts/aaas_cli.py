@@ -564,6 +564,7 @@ def _runtime_start(config):
     _runtime_import_desktop_environment()
     _runtime_systemctl('start', service_name)
     deadline = time.monotonic() + 250
+    inactive_since = None
     while time.monotonic() < deadline:
         if _status(config)['runtime']['state'] == 'RUNNING':
             try:
@@ -581,8 +582,34 @@ def _runtime_start(config):
                 pass
         active = _runtime_systemctl('is-active', service_name, check=False)
         if active.returncode:
-            raise CliError('AaaS service stopped before Android became ready; inspect '
-                           f'`journalctl --user -u {service_name}`')
+            state_result = _runtime_systemctl(
+                'show', service_name, '--property=ActiveState', '--property=SubState',
+                '--property=NRestarts', check=False)
+            state = {}
+            for line in state_result.stdout.splitlines():
+                key, separator, value = line.partition('=')
+                if separator:
+                    state[key] = value
+            # Fresh Android userdata can make ART restart briefly during its
+            # first classpath/APEX initialization. The unit is configured to
+            # recover these bounded failures; keep waiting for an actual
+            # application-manager/zero-window ready state instead of failing
+            # on the first transient inactive sample.
+            auto_restarting = (state.get('ActiveState') == 'activating' or
+                               state.get('SubState') == 'auto-restart')
+            if auto_restarting:
+                inactive_since = None
+            else:
+                now = time.monotonic()
+                if inactive_since is None:
+                    inactive_since = now
+                try:
+                    restart_count = int(state.get('NRestarts', '0'))
+                except ValueError:
+                    restart_count = 0
+                if (restart_count >= 3 or now - inactive_since >= 15):
+                    raise CliError('AaaS service stopped before Android became ready; inspect '
+                                   f'`journalctl --user -u {service_name}`')
         time.sleep(.5)
     raise CliError('AaaS user service did not report readiness within 250 seconds')
 

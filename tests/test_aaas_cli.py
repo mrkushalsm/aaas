@@ -51,6 +51,35 @@ class AaasCliTests(unittest.TestCase):
             {'state': 'RUNNING', 'presenter_pid': 123, 'display_id': 7},
         ]))
 
+    def test_runtime_start_waits_through_systemd_auto_restart(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            unit = Path(temporary) / 'aaas-runtime.service'
+            is_active = [mock.Mock(returncode=1), mock.Mock(returncode=0)]
+
+            def systemctl(*args, check=True):
+                if args[0] == 'is-active':
+                    return is_active.pop(0)
+                if args[0] == 'show':
+                    return mock.Mock(returncode=0, stdout=(
+                        'ActiveState=activating\nSubState=auto-restart\nNRestarts=1\n'))
+                return mock.Mock(returncode=0, stdout='')
+
+            app_list = [mock.Mock(returncode=1, stdout=''),
+                        mock.Mock(returncode=0,
+                                   stdout='{"state":"RUNNING","windows":[]}\n')]
+            with mock.patch.object(aaas_cli, '_runtime_unit_path', return_value=unit), \
+                    mock.patch.object(aaas_cli, '_install_runtime_service'), \
+                    mock.patch.object(aaas_cli, '_runtime_import_desktop_environment'), \
+                    mock.patch.object(aaas_cli, '_runtime_systemctl', side_effect=systemctl), \
+                    mock.patch.object(aaas_cli, '_status', return_value={
+                        'runtime': {'state': 'RUNNING'}}), \
+                    mock.patch.object(aaas_cli.subprocess, 'run', side_effect=app_list), \
+                    mock.patch.object(aaas_cli.time, 'sleep'):
+                result = aaas_cli._runtime_start(config)
+        self.assertEqual(result['state'], 'RUNNING')
+        self.assertEqual(result['windows'], [])
+
     def test_runtime_service_gracefully_stops_its_android_child(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = self.config(temporary)
