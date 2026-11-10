@@ -593,6 +593,10 @@ def main(argv=None):
                                                               installation=root)
                 _write_installation_record(config, root, bundle_id=candidate['bundle_id'])
                 try:
+                    aaas_dev.ensure_signing_key(
+                        config.state,
+                        config.workspace / 'tmp/m4-storage-probe/storage-probe.keystore')
+                    _install_runtime_service(config)
                     ready = _runtime_start(config)
                 except Exception:
                     _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
@@ -601,6 +605,7 @@ def main(argv=None):
                     _write_installation_record(config, root)
                     _save_release_state(config, failed)
                     try:
+                        _install_runtime_service(config)
                         _runtime_start(config)
                     except Exception as recovery_error:
                         raise CliError('update failed and previous release was restored, '
@@ -631,6 +636,7 @@ def main(argv=None):
             _write_installation_record(config, root)
             _save_release_state(config, failed)
             try:
+                _install_runtime_service(config)
                 ready = _runtime_start(config)
             except Exception as error:
                 _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
@@ -638,6 +644,7 @@ def main(argv=None):
                     installation=root, previous=failed)
                 _write_installation_record(config, root)
                 _save_release_state(config, restored)
+                _install_runtime_service(config)
                 raise CliError(f'rollback failed to start; the prior running release was '
                                f'restored: {error}') from error
             _refresh_installed_catalog(config)
