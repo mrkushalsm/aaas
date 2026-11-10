@@ -80,6 +80,27 @@ class AaasCliTests(unittest.TestCase):
             contents = unit.read_text()
         self.assertIn(f'AAAS_NATIVE_BRIDGE_BUNDLE="{bundle}"', contents)
 
+    def test_runtime_service_preserves_helper_signer_across_bundle_update(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            old_key = Path(temporary) / 'previous-state/aaas/signing/storage-probe.keystore'
+            old_key.parent.mkdir(parents=True)
+            old_key.write_bytes(b'existing per-install identity')
+            unit_path = (config.config_file.parent.parent /
+                         'systemd/user/aaas-runtime.service')
+            unit_path.parent.mkdir(parents=True)
+            unit_path.write_text(f'Environment=AAAS_HELPER_KEYSTORE="{old_key}"\n')
+            with mock.patch.object(aaas_cli, '_runtime_systemctl'), \
+                    mock.patch.object(aaas_cli, '_runtime_unit_path', return_value=unit_path), \
+                    mock.patch.object(aaas_cli.aaas_dev, 'ensure_signing_key',
+                                      return_value=old_key) as ensure:
+                unit = aaas_cli._install_runtime_service(config)
+            contents = unit.read_text()
+        self.assertEqual(ensure.call_args.args[0], old_key.parent.parent)
+        self.assertIn(f'AAAS_HELPER_KEYSTORE="{old_key}"', contents)
+        self.assertIn(f'XDG_CACHE_HOME="{Path(temporary) / "cache"}"', contents)
+        self.assertIn(f'XDG_STATE_HOME="{Path(temporary) / "state"}"', contents)
+
     def test_runtime_service_name_can_be_isolated_for_profile_tests(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = self.config(temporary)

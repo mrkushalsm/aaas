@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import platform
 import signal
+import shlex
 import shutil
 import subprocess
 import sys
@@ -400,6 +401,24 @@ def _runtime_unit_path(config=None):
     return config_home / 'systemd/user' / service_name
 
 
+def _unit_environment(unit: Path, name: str) -> str | None:
+    """Read a simple Environment= value from an existing user unit."""
+    try:
+        lines = unit.read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return None
+    prefix = f'Environment={name}='
+    for line in lines:
+        if line.startswith(prefix):
+            try:
+                values = shlex.split(line[len('Environment='):], posix=True)
+            except ValueError:
+                return None
+            if len(values) == 1 and values[0].startswith(name + '='):
+                return values[0].split('=', 1)[1]
+    return None
+
+
 def _runtime_systemctl(*args, check=True):
     result = subprocess.run(['systemctl', '--user', *args], text=True,
                             capture_output=True, timeout=30)
@@ -477,7 +496,24 @@ def _install_runtime_service(config):
             shutil.copy2(unit, backup)
     script = ROOT / 'scripts/aaas_runtime_service.py'
     python = Path(sys.executable).resolve()
-    xdg = aaas_config.xdg_paths()
+    # Use the configuration resolved for this installation, rather than the
+    # caller's ambient environment (which can differ during update/rollback).
+    xdg = {
+        'config_home': config.config_file.parent.parent,
+        'data_home': config.runtime_data.parent,
+        'cache_home': config.cache.parent,
+        'state_home': config.state.parent,
+    }
+
+    # Helper APK updates must retain the certificate already trusted by
+    # PackageManager. A newly generated signer makes an otherwise valid
+    # runtime update fail before the first Android app frame.
+    previous_keystore = _unit_environment(unit, 'AAAS_HELPER_KEYSTORE')
+    signing_state = (Path(previous_keystore).parent.parent
+                     if previous_keystore and Path(previous_keystore).is_file()
+                     else config.state)
+    helper_keystore = aaas_dev.ensure_signing_key(
+        signing_state, config.workspace / 'tmp/m4-storage-probe/storage-probe.keystore')
 
     def quote(value):
         return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'
@@ -491,11 +527,11 @@ def _install_runtime_service(config):
                f'Environment=AAAS_WORKSPACE={quote(config.workspace)}\n'
                f'Environment=AAAS_ROOTFS={quote(config.rootfs)}\n'
                f'Environment=AAAS_RUNTIME_ROOT={quote(ROOT)}\n'
-               f'Environment=AAAS_HELPER_KEYSTORE={quote(config.state / "signing/storage-probe.keystore")}\n'
+               f'Environment=AAAS_HELPER_KEYSTORE={quote(helper_keystore)}\n'
                f'Environment=XDG_CONFIG_HOME={quote(xdg["config_home"])}\n'
                f'Environment=XDG_DATA_HOME={quote(xdg["data_home"])}\n'
-               f'Environment=XDG_CACHE_HOME={quote(xdg["cache_home"].parent)}\n'
-               f'Environment=XDG_STATE_HOME={quote(xdg["state_home"].parent)}\n'
+               f'Environment=XDG_CACHE_HOME={quote(xdg["cache_home"])}\n'
+               f'Environment=XDG_STATE_HOME={quote(xdg["state_home"])}\n'
                f'Environment=AAAS_DESKTOP_DATA_HOME={quote(os.environ.get("AAAS_DESKTOP_DATA_HOME", str(xdg["data_home"]))) }\n'
                f'Environment=AAAS_LAUNCHER_PATH={quote(str(ROOT.parent / "bin/aaas"))}\n'
                'Environment=AAAS_AUDIO=' + ('1' if config.audio else '0') + '\n'
@@ -593,9 +629,6 @@ def main(argv=None):
                                                               installation=root)
                 _write_installation_record(config, root, bundle_id=candidate['bundle_id'])
                 try:
-                    aaas_dev.ensure_signing_key(
-                        config.state,
-                        config.workspace / 'tmp/m4-storage-probe/storage-probe.keystore')
                     _install_runtime_service(config)
                     ready = _runtime_start(config)
                 except Exception:
@@ -1005,8 +1038,8 @@ def main(argv=None):
             install_env.update({
                 'XDG_CONFIG_HOME': str(args.config_home or xdg['config_home']),
                 'XDG_DATA_HOME': str(args.data_home or xdg['data_home']),
-                'XDG_CACHE_HOME': str(xdg['cache_home'].parent),
-                'XDG_STATE_HOME': str(xdg['state_home'].parent),
+                'XDG_CACHE_HOME': str(xdg['cache_home']),
+                'XDG_STATE_HOME': str(xdg['state_home']),
                 'AAAS_DESKTOP_DATA_HOME': str(args.data_home or xdg['data_home']),
                 'AAAS_LAUNCHER_PATH': str(install_cli),
             })
