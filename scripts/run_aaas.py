@@ -82,7 +82,13 @@ STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
-RUNNER_SHA256 = '6fabac989cb4ba26380668a68896499cee9e052b14d1acfa0e7ef488fb62694a'
+RUNNER_SHA256 = 'a558b0c0c96dab96c692fbc094c37eae723ef40f8bd7127b276edbf7c674b1fb'
+ETHERNET_FEATURE_OVERLAY = TMP / 'android.hardware.ethernet.xml'
+ETHERNET_OVERLAY_DIR = TMP / 'aaas-ethernet-compat'
+ETHERNET_CONNECTIVITY_OVERLAY = ETHERNET_OVERLAY_DIR / 'aaas_ethernet_connectivity_overlay.apk'
+SERVICE_CONNECTIVITY_OVERLAY = ETHERNET_OVERLAY_DIR / 'aaas_service-connectivity.jar'
+NETWORK_STACK_OVERLAY = ETHERNET_OVERLAY_DIR / 'aaas_NetworkStack.apk'
+NETWORKSTATS_IFACE_OVERLAY = TMP / 'aaas_networkstats_no_iface_register.so'
 SWIFTSHADER_RUNTIME_OVERLAY = TMP / 'm1e_swiftshader_fixed_notrace_v2.so'
 SWIFTSHADER_RUNTIME_SHA256 = 'e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee'
 SWIFTSHADER_RUNTIME_SOURCE_DIFF_SHA256 = '49c1ce42f0cb09dd69a81645c9a3bec91a390c958ac3d49ff2bd3edf4df86ece'
@@ -1503,12 +1509,13 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
         source,
         '    wifi_feature_overlay = os.environ.get("AAAS_WIFI_FEATURE_OVERLAY")',
         '    bluetooth_policy_bind = ' + repr(bluetooth_policy_bind) + '\n'
+        '    ethernet_feature_overlay = os.environ.get("AAAS_ETHERNET_FEATURE_OVERLAY")\n'
         '    wifi_feature_overlay = os.environ.get("AAAS_WIFI_FEATURE_OVERLAY")',
     )
     source = replace_once(
         source,
-        '{wifi_feature_bind}{services_jar_bind}',
-        '{wifi_feature_bind}{bluetooth_policy_bind}{services_jar_bind}',
+        '{wifi_feature_bind}{ethernet_feature_bind}{services_jar_bind}',
+        '{wifi_feature_bind}{ethernet_feature_bind}{bluetooth_policy_bind}{services_jar_bind}',
     )
     source = replace_once(
         source,
@@ -3052,6 +3059,18 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
         if expected_hash and sha256(path) != expected_hash:
             raise RuntimeError(f'overlay checksum changed: {path}')
         paths[key] = str(path)
+    networkstats_patcher = ROOT / 'scripts/patch_networkstats_iface_diagnostic.py'
+    if not networkstats_patcher.is_file():
+        raise RuntimeError(f'missing networkstats compatibility patcher: {networkstats_patcher}')
+    try:
+        subprocess.run(
+            [sys.executable, str(networkstats_patcher), '--input', paths['AAAS_NETWORKSTATS_LIB_OVERLAY'],
+             '--output', str(NETWORKSTATS_IFACE_OVERLAY)], check=True, capture_output=True,
+            text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as error:
+        detail = getattr(error, 'stderr', '') or str(error)
+        raise RuntimeError(f'cannot prepare isolated NetworkStats interface overlay: {detail}') from error
+    paths['AAAS_NETWORKSTATS_LIB_OVERLAY'] = str(NETWORKSTATS_IFACE_OVERLAY)
     if orientation == 'portrait':
         composer = COMPOSER_PORTRAIT
         expected_composer_hash = COMPOSER_PORTRAIT_SHA256
@@ -3063,6 +3082,33 @@ def verify_requirements(use_source_lmkd=False, orientation='portrait',
     if expected_composer_hash and sha256(composer) != expected_composer_hash:
         raise RuntimeError(f'Composer overlay checksum changed: {composer}')
     paths['AAAS_COMPOSER_OVERLAY'] = str(composer)
+    ETHERNET_FEATURE_OVERLAY.parent.mkdir(parents=True, exist_ok=True)
+    ethernet_feature_xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<permissions><feature name="android.hardware.ethernet" /></permissions>\n'
+    )
+    if (not ETHERNET_FEATURE_OVERLAY.is_file() or
+            ETHERNET_FEATURE_OVERLAY.read_text(encoding='utf-8') != ethernet_feature_xml):
+        ETHERNET_FEATURE_OVERLAY.write_text(ethernet_feature_xml, encoding='utf-8')
+        ETHERNET_FEATURE_OVERLAY.chmod(0o644)
+    paths['AAAS_ETHERNET_FEATURE_OVERLAY'] = str(ETHERNET_FEATURE_OVERLAY)
+    connectivity_builder = ROOT / 'scripts/build_ethernet_connectivity_overlay.py'
+    if not connectivity_builder.is_file():
+        raise RuntimeError(f'missing Android Ethernet overlay builder: {connectivity_builder}')
+    try:
+        subprocess.run(
+            [sys.executable, str(connectivity_builder), '--workspace', str(WORKSPACE),
+             '--rootfs', str(configured_rootfs()), '--output-dir',
+             str(ETHERNET_OVERLAY_DIR)], check=True, capture_output=True, text=True,
+            timeout=180)
+    except (OSError, subprocess.SubprocessError) as error:
+        detail = getattr(error, 'stderr', '') or str(error)
+        raise RuntimeError(f'cannot build Android Ethernet capability overlay: {detail}') from error
+    paths['AAAS_CONNECTIVITY_OVERLAY'] = str(ETHERNET_CONNECTIVITY_OVERLAY)
+    if not SERVICE_CONNECTIVITY_OVERLAY.is_file() or not NETWORK_STACK_OVERLAY.is_file():
+        raise RuntimeError('Android ConnectivityService compatibility overlays were not built')
+    paths['AAAS_SERVICE_CONNECTIVITY_JAR_OVERLAY'] = str(SERVICE_CONNECTIVITY_OVERLAY)
+    paths['AAAS_NETWORK_STACK_APK_OVERLAY'] = str(NETWORK_STACK_OVERLAY)
     if drm_render_node is not None:
         paths['AAAS_DRM_RENDER_NODE'] = str(drm_render_node)
     return paths

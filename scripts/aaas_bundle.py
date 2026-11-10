@@ -103,6 +103,7 @@ WORKSPACE_FILES = (
     'tmp/m1b81_libhwsm_sid_probe_rebuilt.so', 'tmp/m1d_vdc_overlay/vdc',
     'tmp/m4_storage_services_overlay.jar', 'tmp/m4_storage_services_overlay.json',
     'tmp/apktool_3.0.3.jar', 'tmp/apksig-8.9.1.jar',
+    'tmp/slirp4netns', 'tmp/slirp4netns.build.json',
     'tmp/clipboard-ime/AaasClipboard.apk',
     'tmp/m4-notifications/AaasNotifications.apk',
     'tmp/storage-scan-helper/AaaSStorageScan.apk',
@@ -276,9 +277,22 @@ def _runtime_closure_report(root: Path):
         'workspace-artifacts/tmp/m4-audio/audio.primary.aaas.so',
         'workspace-artifacts/tmp/m4-audio/libaaas-audio-ashmem.so',
         'workspace-artifacts/tmp/m4-audio/libaaas-audio-factory-compat.so',
+        'workspace-artifacts/tmp/slirp4netns',
+        'workspace-artifacts/tmp/slirp4netns.build.json',
     )
     missing = [relative for relative in required
                if not (root / relative).is_file()]
+    slirp_binary = root / 'workspace-artifacts/tmp/slirp4netns'
+    slirp_record = root / 'workspace-artifacts/tmp/slirp4netns.build.json'
+    if slirp_binary.is_file() and slirp_record.is_file():
+        try:
+            record = json.loads(slirp_record.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            record = {}
+        actual_hash = _sha(slirp_binary)
+        if (record.get('commit') != '944fa94090e1fd1312232cbc0e6b43585553d824'
+                or record.get('binary_sha256') != actual_hash):
+            missing.append('slirp4netns pinned build provenance/hash verification')
     dev_source = root / 'runtime/scripts/aaas_dev.py'
     cli_source = root / 'runtime/scripts/aaas_cli.py'
     runner_source = root / 'runtime/scripts/run_aaas.py'
@@ -295,9 +309,10 @@ def _runtime_closure_report(root: Path):
         'missing_inputs': missing,
         'helper_apk_builds': 'rebuildable from packaged source and pinned tools',
         'audio_overlay': 're-extracted from packaged Android system image by declared script',
+        'android_network_helper': 'slirp4netns built from pinned upstream commit and hash-verified',
         'signing': 'per-install identity generated in private XDG state; key excluded from bundle',
         'external_capabilities': [
-            'Java/Javac/keytool, readelf, guestmount, Wayland, Binder, DRM and PipeWire are host-provided and preflight-checked',
+            'Java/Javac/keytool, readelf, guestmount, Wayland, Binder, DRM, PipeWire and libslirp runtime libraries are host-provided and preflight-checked',
         ],
         'reproducibility_limitations': [
             'Android base/diagnostic rootfs is a recorded historical image input, not rebuilt from AOSP source',

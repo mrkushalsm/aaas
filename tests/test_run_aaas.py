@@ -395,7 +395,7 @@ class ForegroundRunnerTests(unittest.TestCase):
                 generated = SESSION.make_session_runner(session).read_text()
         self.assertIn('--tmpfs /mnt', generated)
         self.assertIn('mount -t proc proc /proc || exit 70', generated)
-        self.assertIn('link add dummy0 type dummy', generated)
+        self.assertIn('link show eth0', generated)
         self.assertIn('if Path("/dev/net/tun").exists() else "")', generated)
         self.assertNotIn('exists() and not dev_compat', generated)
         self.assertIn('mount -t sysfs -o nosuid,nodev,noexec sysfs ', generated)
@@ -409,7 +409,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         setup, mounts, nested_namespace = (
             aaas_session_runner_base.developer_network_configuration(
                 True, '/usr/sbin/ip', '/workspace/tmp/session-sysfs'))
-        self.assertIn('/usr/sbin/ip link add dummy0 type dummy', setup)
+        self.assertIn('/usr/sbin/ip link show eth0', setup)
         self.assertIn('mount -t sysfs -o nosuid,nodev,noexec sysfs /workspace/tmp/session-sysfs', setup)
         self.assertIn('--ro-bind /workspace/tmp/session-sysfs/class/net /sys/class/net', mounts)
         self.assertIn('--ro-bind /workspace/tmp/session-sysfs/devices/virtual/net '
@@ -419,6 +419,51 @@ class ForegroundRunnerTests(unittest.TestCase):
             aaas_session_runner_base.developer_network_configuration(False))
         self.assertEqual(ordinary_setup, '')
         self.assertEqual(ordinary_mounts, '  --ro-bind /sys/class/net /sys/class/net \\\n')
+
+    def test_virtual_ethernet_feature_is_registered_without_advertising_wifi(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = root / 'session'
+            session.mkdir()
+            feature = root / 'android.hardware.ethernet.xml'
+            overlay = root / 'connectivity-overlay.apk'
+            feature_xml = ('<permissions><feature name="android.hardware.ethernet" />'
+                           '</permissions>\n')
+            feature.write_text(feature_xml)
+            overlay.write_bytes(b'fixture apk')
+            with patch.dict('os.environ', {
+                    'AAAS_ETHERNET_FEATURE_OVERLAY': str(feature),
+                    'AAAS_CONNECTIVITY_OVERLAY': str(overlay)}, clear=False):
+                generated = SESSION.make_session_runner(session).read_text()
+        self.assertIn('ethernet_feature_overlay = os.environ.get("AAAS_ETHERNET_FEATURE_OVERLAY")',
+                      generated)
+        self.assertIn('android.hardware.ethernet.xml', generated)
+        self.assertIn('{ethernet_feature_bind}', generated)
+        self.assertIn('connectivity_overlay = os.environ.get("AAAS_CONNECTIVITY_OVERLAY")',
+                      generated)
+        self.assertIn('/vendor/overlay/goldfish_overlay_connectivity_gsi.apk', generated)
+        self.assertIn('{connectivity_overlay_bind}', generated)
+        self.assertIn('android.hardware.ethernet', feature_xml)
+        self.assertNotIn('android.hardware.wifi', feature_xml)
+
+    def test_android_dhcp_owns_virtual_ethernet_addressing(self):
+        source = SESSION.RUNNER.read_text()
+        self.assertIn("[str(slirp_tool), '--userns-path'", source)
+        self.assertNotIn("[str(slirp_tool), '--configure'", source)
+
+    def test_connectivity_resources_patch_binds_compatible_consumers_without_hiding_apk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory) / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(session).read_text()
+        self.assertIn('AAAS_SERVICE_CONNECTIVITY_JAR_OVERLAY', generated)
+        self.assertIn('/apex/com.android.tethering/javalib/service-connectivity.jar', generated)
+        self.assertIn('AAAS_NETWORK_STACK_APK_OVERLAY', generated)
+        self.assertIn('/system/priv-app/NetworkStack/NetworkStack.apk', generated)
+        self.assertIn('AAAS_NETWORKSTATS_LIB_OVERLAY', generated)
+        self.assertIn('/apex/com.android.tethering/lib64/libnetworkstats.so', generated)
+        self.assertNotIn('empty-connectivity-resources', generated)
+        self.assertNotIn('system_ext/priv-app/ServiceConnectivityResources', generated)
 
     def test_audio_hal_overlay_is_absent_from_normal_runner(self):
         with tempfile.TemporaryDirectory() as directory:

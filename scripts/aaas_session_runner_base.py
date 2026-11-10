@@ -2,8 +2,10 @@
 """Test Android 16 Zygote (app_process64) startup while property service is active."""
 
 import os
+import select
 import shlex
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,7 +16,7 @@ import aaas_idmap
 
 
 def developer_network_configuration(enabled, ip_tool='ip', sysfs_root='/tmp/aaas-netns-sysfs'):
-    """Build isolated netd support without exposing host network devices."""
+    """Expose only the configured virtual Ethernet link inside Android."""
     if not enabled:
         return ('', '  --ro-bind /sys/class/net /sys/class/net \\\n', '')
     command = shlex.quote(ip_tool)
@@ -22,8 +24,8 @@ def developer_network_configuration(enabled, ip_tool='ip', sysfs_root='/tmp/aaas
     setup = (
         f'mkdir -p {sysfs}\n'
         f'{command} link set lo up || exit 71\n'
-        f'{command} link add dummy0 type dummy || exit 72\n'
-        f'{command} link set dummy0 up || exit 73\n'
+        f'{command} link show eth0 >/dev/null 2>&1 || exit 72\n'
+        f'{command} link set eth0 up || exit 73\n'
         f'mount -t sysfs -o nosuid,nodev,noexec sysfs {sysfs} || exit 74\n')
     mounts = (
         '  --dir /sys/class \\\n'
@@ -175,6 +177,30 @@ def main():
             "android.hardware.wifi.direct.xml",
         )
     ) if wifi_feature_overlay and Path(wifi_feature_overlay).is_file() else ""
+    ethernet_feature_overlay = os.environ.get("AAAS_ETHERNET_FEATURE_OVERLAY")
+    ethernet_feature_bind = (
+        f'  --ro-bind "{ethernet_feature_overlay}" '
+        '/vendor/etc/permissions/android.hardware.ethernet.xml \\\n'
+        if ethernet_feature_overlay and Path(ethernet_feature_overlay).is_file() else ""
+    )
+    connectivity_overlay = os.environ.get("AAAS_CONNECTIVITY_OVERLAY")
+    connectivity_overlay_bind = (
+        f'  --ro-bind "{connectivity_overlay}" '
+        '/vendor/overlay/goldfish_overlay_connectivity_gsi.apk \\\n'
+        if connectivity_overlay and Path(connectivity_overlay).is_file() else ""
+    )
+    service_connectivity_overlay = os.environ.get("AAAS_SERVICE_CONNECTIVITY_JAR_OVERLAY")
+    service_connectivity_bind = (
+        f'  --ro-bind "{service_connectivity_overlay}" '
+        '/apex/com.android.tethering/javalib/service-connectivity.jar \\\n'
+        if service_connectivity_overlay and Path(service_connectivity_overlay).is_file() else ""
+    )
+    network_stack_overlay = os.environ.get("AAAS_NETWORK_STACK_APK_OVERLAY")
+    network_stack_bind = (
+        f'  --ro-bind "{network_stack_overlay}" '
+        '/system/priv-app/NetworkStack/NetworkStack.apk \\\n'
+        if network_stack_overlay and Path(network_stack_overlay).is_file() else ""
+    )
     services_jar_overlay = os.environ.get("AAAS_SERVICES_JAR_OVERLAY")
     services_jar_bind = (
         f'  --ro-bind "{services_jar_overlay}" /system/framework/services.jar \\\n'
@@ -322,7 +348,7 @@ for name in ["binder", "hwbinder", "vndbinder", "binder-control"]:
   --unshare-pid \\
   --bind "{rootfs}" / \\
 {mnt_tmpfs}\\
-{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}{libvulkan_bind}{angle_bind}{probe_bind}{egl_test_bind}{host_debug_bind}{bootanim_debug_bind}{apex_info_bind}{ranging_jar_bind}{networkstats_lib_bind}{meminfo_lib_bind}{wifi_feature_bind}{services_jar_bind}{keystore_sid_bind}{hwsm_sid_bind}{keystore_trace_bind}  --proc /proc \\
+{mapper_bind}{allocator_bind}{composer_bind}{vulkan_bind}{libvulkan_bind}{angle_bind}{probe_bind}{egl_test_bind}{host_debug_bind}{bootanim_debug_bind}{apex_info_bind}{ranging_jar_bind}{networkstats_lib_bind}{meminfo_lib_bind}{connectivity_overlay_bind}{service_connectivity_bind}{network_stack_bind}{wifi_feature_bind}{ethernet_feature_bind}{services_jar_bind}{keystore_sid_bind}{hwsm_sid_bind}{keystore_trace_bind}  --proc /proc \\
   --bind "{fake_cmdline}" /proc/cmdline \\
   --dev /dev \\
 {tun_bind}{fuse_bind}{drm_bind}{network_namespace} \\
@@ -631,6 +657,54 @@ runner_status=$?
     subprocess.run(uid_map, check=True)
     subprocess.run(gid_map, check=True)
 
+    network_process = None
+    if dev_compat:
+        configured_slirp = os.environ.get('AAAS_SLIRP4NETS')
+        runtime_root = Path(__file__).resolve().parent.parent
+        bundled_slirp = runtime_root / 'bin/slirp4netns'
+        install_artifact = runtime_root.parent / 'workspace-artifacts/tmp/slirp4netns'
+        workspace_artifact = (Path(os.environ['AAAS_WORKSPACE']) / 'tmp/slirp4netns'
+                              if os.environ.get('AAAS_WORKSPACE') else Path('/nonexistent'))
+        slirp_tool = (Path(configured_slirp).expanduser() if configured_slirp else
+                      next((candidate for candidate in
+                            (bundled_slirp, install_artifact, workspace_artifact)
+                            if candidate.is_file()),
+                           Path(shutil.which('slirp4netns') or '/nonexistent')))
+        if not slirp_tool.is_file() or not os.access(slirp_tool, os.X_OK):
+            p.terminate()
+            p.wait(timeout=5)
+            raise RuntimeError('Android networking requires executable slirp4netns; '
+                               'install it in runtime/bin or set AAAS_SLIRP4NETS')
+        ready_read, ready_write = os.pipe()
+        network_log_path = tmp_dir / f'aaas_slirp4netns_{p.pid}.log'
+        network_log = network_log_path.open('wb')
+        try:
+            network_process = subprocess.Popen(
+                [str(slirp_tool), '--userns-path',
+                 f'/proc/{p.pid}/ns/user', f'--ready-fd={ready_write}',
+                 str(p.pid), 'eth0'], pass_fds=(ready_write,),
+                stdout=network_log, stderr=subprocess.STDOUT,
+                start_new_session=True)
+        finally:
+            os.close(ready_write)
+            network_log.close()
+        ready = b''
+        if select.select([ready_read], [], [], 5)[0]:
+            ready = os.read(ready_read, 64)
+        os.close(ready_read)
+        if ready != b'1':
+            network_process.terminate()
+            try:
+                network_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                network_process.kill()
+                network_process.wait(timeout=2)
+            p.terminate()
+            p.wait(timeout=5)
+            detail = network_log_path.read_text(errors='replace')[-400:]
+            raise RuntimeError('slirp4netns failed to configure Android eth0: '
+                               + (detail.strip() or 'configuration timed out'))
+
     with open(fifo_path, "w") as f:
         f.write("go\n")
 
@@ -648,6 +722,13 @@ runner_status=$?
 
     fifo_path.unlink(missing_ok=True)
     runner_script.unlink(missing_ok=True)
+    if network_process is not None:
+        network_process.terminate()
+        try:
+            network_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            network_process.kill()
+            network_process.wait(timeout=3)
 
     print("STDOUT:")
     print(out.decode('utf-8', errors='replace'))
