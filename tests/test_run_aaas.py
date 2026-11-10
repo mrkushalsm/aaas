@@ -1071,6 +1071,19 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertLess(generated.index(bind), generated.index('{shared_storage_bind}'))
         self.assertIn(media_bind, generated)
 
+    def test_fresh_userdata_is_initialized_before_android_init(self):
+        with tempfile.TemporaryDirectory(prefix='aaas first boot ') as directory:
+            session = Path(directory)
+            generated = SESSION.make_session_runner(session).read_text()
+        data_setup = generated.index('mkdir -p /data/user/0')
+        cache_setup = generated.index('/data/dalvik-cache')
+        cache_mode = generated.index('chmod 0771 /data/dalvik-cache || exit 70')
+        init_start = generated.index('exec /system/bin/init second_stage')
+        self.assertLess(data_setup, init_start)
+        self.assertLess(cache_setup, init_start)
+        self.assertLess(cache_mode, init_start)
+        self.assertIn('mkdir -p /data/data || exit 70', generated)
+
     def test_runner_mounts_verified_bluetooth_unavailable_policy_before_init(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

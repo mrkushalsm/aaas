@@ -384,10 +384,6 @@ for name in ["binder", "hwbinder", "vndbinder", "binder-control"]:
   --setenv LD_PRELOAD /system/lib64/libselinux_shim.so \\
   sh -c '
     sleep() {{ /system/bin/toybox sleep "$@"; }}
-    /system/bin/init second_stage &
-    INIT_PID=$!
-    sleep 1.0
-{keystore_trace_start}
     /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true
 
     echo "=== STEP 0: PREPARING USER 0 AND APP DATA STORAGE ==="
@@ -402,26 +398,33 @@ for name in ["binder", "hwbinder", "vndbinder", "binder-control"]:
              /data/misc/gatekeeper \
              /data/misc/profiles/cur/0 \
              /data/misc/profiles/ref \
+             /data/dalvik-cache \
              /data/system/users/0 \
              /data/system/dropbox \
              /data/user_de/0/com.android.providers.settings/databases \
              /data_mirror/data_ce/null/0 \
              /data_mirror/data_de/null/0 \
              /data_mirror/misc_ce/null/0 \
-             /data_mirror/misc_de/null/0
-    mkdir -p /data/data
+             /data_mirror/misc_de/null/0 || exit 70
+    mkdir -p /data/data || exit 70
     chown 1000:1000 /data/data /data/user/0 /data/user_de/0
     chown 1000:1000 /data/system_de/0 /data/system_de/0/powerstats
     chown 1000:1000 /data/system /data/system/users /data/system/users/0
     chmod 0775 /data/system /data/system/users
     chmod 0770 /data/system/users/0
     chmod 0771 /data /data/data /data/user/0 /data/user_de/0
+    chmod 0771 /data/dalvik-cache || exit 70
     chmod 0700 /data/system_de/0 /data/system_de/0/powerstats
     chmod 0511 /data/user /data/user_de
     chown 1017:1017 /data/misc/keystore
     chmod 0700 /data/misc/keystore
     chown 1000:1000 /data/misc/gatekeeper
     chmod 0700 /data/misc/gatekeeper
+
+    /system/bin/init second_stage &
+    INIT_PID=$!
+    sleep 1.0
+{keystore_trace_start}
 
     echo "=== STEP 1: SETTING APEX & KEYSTORE PROPS ==="
     /system/bin/setprop sys.use_memfd true

@@ -82,7 +82,7 @@ STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
-RUNNER_SHA256 = 'a558b0c0c96dab96c692fbc094c37eae723ef40f8bd7127b276edbf7c674b1fb'
+RUNNER_SHA256 = 'ac8d38fe9b08bd7eb8f85a4208f55d4120a5fb7e9968a2705950d13c56b13537'
 ETHERNET_FEATURE_OVERLAY = TMP / 'android.hardware.ethernet.xml'
 ETHERNET_OVERLAY_DIR = TMP / 'aaas-ethernet-compat'
 ETHERNET_CONNECTIVITY_OVERLAY = ETHERNET_OVERLAY_DIR / 'aaas_ethernet_connectivity_overlay.apk'
@@ -1628,9 +1628,11 @@ def make_session_runner(session, desktop_ime=True, app_package=DEFAULT_APP_PACKA
     )
     source = replace_once(
         source,
-        "  sh -c '\n    sleep() {{ /system/bin/toybox sleep \"$@\"; }}\n"
-        "    /system/bin/init second_stage &\n    INIT_PID=$!\n",
-        "  sh -c '\n    (\n    sleep() {{ /system/bin/toybox sleep \"$@\"; }}\n",
+        "    /system/bin/init second_stage &\n    INIT_PID=$!\n"
+        "    sleep 1.0\n{keystore_trace_start}\n\n"
+        "    echo \"=== STEP 1: SETTING APEX & KEYSTORE PROPS ===\"",
+        "    (\n    sleep 1.0\n{keystore_trace_start}\n\n"
+        "    echo \"=== STEP 1: SETTING APEX & KEYSTORE PROPS ===\"",
     )
     source = replace_once(
         source,
