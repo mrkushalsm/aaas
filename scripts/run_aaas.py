@@ -707,25 +707,44 @@ def presenter_geometry_args(window_size, display_size):
 
 def emulated_storage_mount_script(sm='/system/bin/sm', toybox='/system/bin/toybox',
                                   log_path='/aaas_session_commands',
-                                  escape_fstring=True):
-    """Mount Android emulated storage only when framework startup has not done so."""
+                                  escape_fstring=True, wait_seconds=30):
+    """Wait for Android's emulated volume and request one mount when present.
+
+    StorageManager can publish the emulated volume after the framework's first
+    readiness signal, especially on a fresh userdata directory. Do not issue
+    `sm mount emulated;0` while there is no volume record: that is not a valid
+    mount target and turns a startup race into a whole-runtime failure.
+    """
     sm_cmd = shlex.quote(str(sm))
     toybox_cmd = shlex.quote(str(toybox))
     log_file = shlex.quote(str(log_path))
+    attempts = max(1, int(wait_seconds) // 2 + 1)
     # Parse the fixed three-column `sm list-volumes` format with toybox
     # grep/cut. This avoids nested awk quoting through the generated `sh -c`
     # wrapper and preserves the state as emitted by Android.
     volume_filter = '"^emulated;0 "'
     return (
-        '    AAAS_EMULATED_STATE=$(' + sm_cmd + ' list-volumes all | ' +
+        '    AAAS_EMULATED_STATE=\n'
+        '    AAAS_EMULATED_MOUNT_REQUESTED=0\n'
+        '    AAAS_STORAGE_WAIT=0\n'
+        f'    while [ "$AAAS_STORAGE_WAIT" -lt {attempts} ]; do\n'
+        '      AAAS_VOLUME_LIST=$(' + sm_cmd + ' list-volumes all 2>> ' + log_file + ')\n'
+        '      printf "%s\\n" "$AAAS_VOLUME_LIST" >> ' + log_file + '\n'
+        '      AAAS_EMULATED_STATE=$(printf "%s\\n" "$AAAS_VOLUME_LIST" | ' +
         toybox_cmd + ' grep ' + volume_filter + ' | ' + toybox_cmd +
         ' cut -d " " -f 2)\n'
-        '    if [ "$AAAS_EMULATED_STATE" != mounted ]; then\n'
-        '      ' + sm_cmd + ' mount "emulated;0" >> ' + log_file + ' 2>&1\n'
-        '    else\n'
+        '      [ "$AAAS_EMULATED_STATE" = mounted ] && break\n'
+        '      if [ -n "$AAAS_EMULATED_STATE" ] && '
+        '[ "$AAAS_EMULATED_MOUNT_REQUESTED" -eq 0 ]; then\n'
+        '        ' + sm_cmd + ' mount "emulated;0" >> ' + log_file + ' 2>&1\n'
+        '        AAAS_EMULATED_MOUNT_REQUESTED=1\n'
+        '      fi\n'
+        '      ' + toybox_cmd + ' sleep 2\n'
+        '      AAAS_STORAGE_WAIT=$((AAAS_STORAGE_WAIT + 1))\n'
+        '    done\n'
+        '    if [ "$AAAS_EMULATED_STATE" = mounted ]; then\n'
         '      echo AAAS_EMULATED_STORAGE_ALREADY_MOUNTED >> ' + log_file + '\n'
         '    fi\n'
-        '    ' + toybox_cmd + ' sleep 2\n'
         '    AAAS_EMULATED_STATE=$(' + sm_cmd + ' list-volumes all | ' +
         toybox_cmd + ' tee -a ' + log_file + ' | ' +
         toybox_cmd + ' grep ' + volume_filter + ' | ' + toybox_cmd +

@@ -869,7 +869,7 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertNotIn('/system/bin/init second_stage &', generated)
         self.assertIn('    echo RUNNING > /aaas_session_status', generated)
 
-    def test_emulated_storage_mount_is_idempotent_and_fails_closed(self):
+    def test_emulated_storage_mount_waits_for_framework_volume_and_fails_closed(self):
         import os
         import subprocess
 
@@ -885,7 +885,9 @@ class ForegroundRunnerTests(unittest.TestCase):
                 f'state={shlex.quote(str(state))}\n'
                 f'calls={shlex.quote(str(calls))}\n'
                 'case "$1" in\n'
-                '  list-volumes) printf "emulated;0 %s null\\n" "$(cat "$state")" ;;\n'
+                '  list-volumes) if [ "$(cat "$state")" = missing ]; then '
+                'printf "private mounted null\\n"; else '
+                'printf "emulated;0 %s null\\n" "$(cat "$state")"; fi ;;\n'
                 '  mount) echo "$*" >> "$calls"; '
                 '[ "${FAIL_MOUNT:-0}" = 1 ] || echo mounted > "$state" ;;\n'
                 '  *) exit 2 ;;\n'
@@ -902,7 +904,8 @@ class ForegroundRunnerTests(unittest.TestCase):
             sm.chmod(0o755)
             toybox.chmod(0o755)
             script = SESSION.emulated_storage_mount_script(
-                sm=sm, toybox=toybox, log_path=log, escape_fstring=False)
+                sm=sm, toybox=toybox, log_path=log, escape_fstring=False,
+                wait_seconds=2)
             # The production Android command is itself nested in a single
             # quoted `sh -c` argument. Exercise that additional shell parse.
             nested_command = "sh -c '" + script.rstrip() + "'"
@@ -933,6 +936,15 @@ class ForegroundRunnerTests(unittest.TestCase):
             self.assertIn('AAAS_EMULATED_STORAGE_NOT_MOUNTED state=unmounted',
                           log.read_text())
 
+            calls.unlink(missing_ok=True)
+            log.unlink(missing_ok=True)
+            state.write_text('missing\n')
+            result = subprocess.run(['/bin/sh', '-c', nested_command],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 75)
+            self.assertFalse(calls.exists(), 'do not mount an unpublished volume ID')
+            self.assertIn('AAAS_EMULATED_STORAGE_NOT_MOUNTED state=', log.read_text())
+
     def test_runner_binds_persistent_shared_storage_and_starts_storaged(self):
         with tempfile.TemporaryDirectory(prefix='aaas storage ') as directory:
             root = Path(directory)
@@ -950,12 +962,12 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('{tun_bind}{fuse_bind}{drm_bind}{network_namespace}', generated)
         self.assertLess(generated.index('/system/bin/start storaged'),
                         generated.index('/system/bin/start vold'))
-        self.assertIn('if [ "$AAAS_EMULATED_STATE" != mounted ]; then', generated)
+        self.assertIn('while [ "$AAAS_STORAGE_WAIT" -lt', generated)
         self.assertIn('AAAS_EMULATED_STORAGE_ALREADY_MOUNTED', generated)
         self.assertIn('/system/bin/sm mount "emulated;0"', generated)
         self.assertIn('AAAS_EMULATED_STORAGE_NOT_MOUNTED', generated)
         self.assertIn('exit 75', generated)
-        self.assertLess(generated.index('if [ "$AAAS_EMULATED_STATE" != mounted ]; then'),
+        self.assertLess(generated.index('[ -n "$AAAS_EMULATED_STATE" ]'),
                         generated.index('/system/bin/sm mount "emulated;0"'))
         self.assertNotIn('aaas-storage-android-to-host.txt', generated)
         self.assertNotIn('aaas-storage-host-to-android.txt', generated)
