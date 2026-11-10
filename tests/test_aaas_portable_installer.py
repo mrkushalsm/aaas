@@ -11,7 +11,7 @@ import aaas_portable_installer
 
 
 class PortableInstallerCleanupTests(unittest.TestCase):
-    def test_uninstall_cleans_subordinate_owned_rootfs_cache(self):
+    def test_uninstall_cleans_subordinate_owned_rootfs(self):
         unshare = shutil.which('unshare')
         if not unshare:
             self.skipTest('unshare is unavailable')
@@ -20,17 +20,22 @@ class PortableInstallerCleanupTests(unittest.TestCase):
             root.chmod(0o755)
             (root / 'rootfs').mkdir()
             (root / 'rootfs').chmod(0o755)
+            (root / 'rootfs' / 'metadata').mkdir()
             parent_fd = os.open(root / 'rootfs', os.O_RDONLY | os.O_DIRECTORY)
             create = (
                 'import os; os.mkdir("cache", 0o770); '
                 'os.chown("cache", 100999, 102000); '
                 'os.mkdir("cache/backup", 0o700); '
                 'open("cache/backup/marker", "w").write("cache"); '
-                'os.chown("cache/backup", 100999, 102000)')
+                'os.chown("cache/backup", 100999, 102000); '
+                'os.mkdir("metadata/bootstat", 0o750); '
+                'open("metadata/bootstat/marker", "w").write("bootstat"); '
+                'os.chown("metadata/bootstat", 100999, 101006)')
             maps = ['--map-users=0:' + str(os.getuid()) + ':1',
                     '--map-users=100999:100999:1',
                     '--map-groups=0:' + str(os.getgid()) + ':1',
-                    '--map-groups=102000:102000:1']
+                    '--map-groups=102000:102000:1',
+                    '--map-groups=101006:101006:1']
             try:
                 result = subprocess.run(
                     [unshare, '--user', *maps, '--setgroups', 'allow',
@@ -43,8 +48,9 @@ class PortableInstallerCleanupTests(unittest.TestCase):
             if result.returncode:
                 self.skipTest('host does not permit subordinate user namespace test')
             self.assertTrue((root / 'rootfs/cache').exists())
-            self.assertTrue(aaas_portable_installer.clear_rootfs_cache_for_uninstall(root))
-            self.assertFalse((root / 'rootfs/cache').exists())
+            self.assertTrue((root / 'rootfs/metadata/bootstat').exists())
+            self.assertTrue(aaas_portable_installer.clear_android_rootfs_for_uninstall(root))
+            self.assertEqual(list((root / 'rootfs').iterdir()), [])
 
 
 if __name__ == '__main__':

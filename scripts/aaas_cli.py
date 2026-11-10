@@ -664,8 +664,8 @@ def main(argv=None):
                 except Exception as error:
                     raise CliError(
                         f'refusing to remove unverified previous release {candidate}: {error}')
-                aaas_portable_installer.clear_rootfs_cache_for_uninstall(candidate)
-            aaas_portable_installer.clear_rootfs_cache_for_uninstall(root)
+                aaas_portable_installer.clear_android_rootfs_for_uninstall(candidate)
+            aaas_portable_installer.clear_android_rootfs_for_uninstall(root)
             if service_unit.exists():
                 contents = service_unit.read_text(encoding='utf-8', errors='replace')
                 if ('Description=AaaS persistent Android runtime' not in contents or

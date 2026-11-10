@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import pwd
 import shutil
 import subprocess
 import sys
@@ -15,68 +16,82 @@ import aaas_bundle
 import aaas_config
 
 
-def clear_rootfs_cache_for_uninstall(installation):
-    """Remove Android's subordinate-owned ephemeral /cache before uninstall.
+def clear_android_rootfs_for_uninstall(installation):
+    """Remove subordinate-owned Android files from the immutable rootfs only.
 
-    Rootless Android can change the installed rootfs cache directory's owner
-    to a subordinate UID. The user still owns the rootfs parent, but cannot
-    traverse that directory with ordinary permissions. Use a short-lived
-    user namespace mapping only for this exact disposable cache directory;
-    never apply it to userdata or arbitrary install paths.
+    The Android rootfs is an installed artifact and may contain files owned by
+    the rootless container's subordinate IDs. Userdata is a sibling workspace
+    and is never opened by this helper. A short-lived user namespace maps the
+    caller plus its configured subordinate ID ranges, then makes directories
+    traversable and removes only children of the verified installation rootfs.
     """
     root = Path(installation).resolve(strict=True)
-    cache = root / 'rootfs' / 'cache'
-    try:
-        metadata = cache.lstat()
-    except FileNotFoundError:
+    rootfs = root / 'rootfs'
+    if not rootfs.exists():
         return False
-    if not cache.is_dir() or cache.is_symlink():
-        raise aaas_bundle.BundleError('refusing unexpected Android rootfs cache object')
-    if os.access(cache, os.R_OK | os.W_OK | os.X_OK):
-        shutil.rmtree(cache)
-        return True
-
-    uid, gid = metadata.st_uid, metadata.st_gid
-    if uid == 0 or uid == 65534 or gid in (0, 65534):
-        raise aaas_bundle.BundleError(
-            'rootfs cache has unmapped ownership; preserve it and use an administrator cleanup')
+    if not rootfs.is_dir() or rootfs.is_symlink():
+        raise aaas_bundle.BundleError('refusing unexpected Android rootfs object')
+    try:
+        with os.scandir(rootfs) as entries:
+            next(entries)
+    except StopIteration:
+        return False
+    except PermissionError:
+        pass
     unshare = shutil.which('unshare')
     if not unshare:
         raise aaas_bundle.BundleError(
-            'rootless user namespaces are unavailable to clean Android rootfs cache')
-    user_maps = [f'--map-users=0:{os.getuid()}:1']
-    if uid != os.getuid():
-        user_maps.append(f'--map-users={uid}:{uid}:1')
-    group_maps = [f'--map-groups=0:{os.getgid()}:1']
-    if gid != os.getgid():
-        group_maps.append(f'--map-groups={gid}:{gid}:1')
-    parent_fd = os.open(cache.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
-    script = (
-        'import os, shutil, stat; fd=int(os.environ["AAAS_CACHE_PARENT_FD"]); '
-        f'uid={uid}; gid={gid}; os.setgroups(sorted(set((0, gid)))); '
-        'os.setgid(gid); os.setuid(uid); os.fchdir(fd); '
-        '[(shutil.rmtree("cache/"+e.name) if e.is_dir(follow_symlinks=False) '
-        'else os.unlink("cache/"+e.name)) for e in os.scandir("cache")]')
-    env = dict(os.environ, AAAS_CACHE_PARENT_FD=str(parent_fd))
+            'rootless user namespaces are unavailable to clean Android rootfs')
+    username = pwd.getpwuid(os.getuid()).pw_name
+
+    def subordinate_map(filename, option):
+        try:
+            rows = Path(filename).read_text(encoding='ascii').splitlines()
+        except OSError:
+            rows = []
+        for row in rows:
+            fields = row.split(':')
+            if len(fields) != 3 or fields[0] not in (username, str(os.getuid())):
+                continue
+            start, count = int(fields[1]), int(fields[2])
+            if count > 0:
+                return [f'{option}=0:{os.getuid()}:1',
+                        f'{option}=1:{start}:{min(count, 65536)}']
+        raise aaas_bundle.BundleError(
+            f'{filename} has no subordinate ID range; Android rootfs preserved')
+
+    maps = (subordinate_map('/etc/subuid', '--map-users') +
+            subordinate_map('/etc/subgid', '--map-groups'))
+    parent_fd = os.open(rootfs, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    script = r'''import os, stat
+fd=int(os.environ['AAAS_ROOTFS_FD']); os.fchdir(fd)
+def remove_dir(path):
+    os.chmod(path, 0o700, follow_symlinks=False)
+    for entry in os.scandir(path):
+        child=os.path.join(path, entry.name)
+        if entry.is_dir(follow_symlinks=False): remove_dir(child)
+        else: os.unlink(child)
+    os.rmdir(path)
+for entry in os.scandir('.'):
+    if entry.is_dir(follow_symlinks=False): remove_dir(entry.name)
+    else: os.unlink(entry.name)
+'''
+    env = dict(os.environ, AAAS_ROOTFS_FD=str(parent_fd))
     try:
         result = subprocess.run(
-            [unshare, '--user', *user_maps, *group_maps, '--setgroups', 'allow',
-             sys.executable, '-c', script], env=env, pass_fds=(parent_fd,),
-            capture_output=True, text=True, timeout=30)
+            [unshare, '--user', *maps, '--setgroups', 'allow',
+             sys.executable, '-c', script],
+            env=env, pass_fds=(parent_fd,), capture_output=True, text=True,
+            timeout=120)
     except (OSError, subprocess.SubprocessError) as error:
         raise aaas_bundle.BundleError(
-            f'cannot safely map Android cache ownership for uninstall: {error}') from error
+            f'cannot safely map Android rootfs ownership for uninstall: {error}') from error
     finally:
         os.close(parent_fd)
     if result.returncode:
-        detail = (result.stderr or result.stdout).strip()[-400:]
+        detail = (result.stderr or result.stdout).strip()[-500:]
         raise aaas_bundle.BundleError(
-            f'cannot safely clean Android rootfs cache; preserved installation: {detail}')
-    try:
-        cache.rmdir()
-    except OSError as error:
-        raise aaas_bundle.BundleError(
-            f'Android rootfs cache remains after cleanup; preserved installation: {error}') from error
+            f'cannot safely clean Android rootfs; installation preserved: {detail}')
     return True
 
 
