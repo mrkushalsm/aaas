@@ -22,6 +22,7 @@ import aaas_profiles
 import aaas_bundle
 import aaas_graphics
 import aaas_dev
+import aaas_portable_installer
 
 
 class CliError(RuntimeError):
@@ -655,6 +656,16 @@ def main(argv=None):
                 workspace_removal = True
             service_unit = _runtime_unit_path(config)
             _runtime_systemctl('stop', service_unit.name, check=False)
+            backups = (*root.parent.glob(f'.{root.name}.previous-*'),
+                       *root.parent.glob(f'.{root.name}.rolled-back-*'))
+            for candidate in backups:
+                try:
+                    aaas_bundle.verify_installation(candidate)
+                except Exception as error:
+                    raise CliError(
+                        f'refusing to remove unverified previous release {candidate}: {error}')
+                aaas_portable_installer.clear_rootfs_cache_for_uninstall(candidate)
+            aaas_portable_installer.clear_rootfs_cache_for_uninstall(root)
             if service_unit.exists():
                 contents = service_unit.read_text(encoding='utf-8', errors='replace')
                 if ('Description=AaaS persistent Android runtime' not in contents or
@@ -682,13 +693,7 @@ def main(argv=None):
                     continue
                 if 'X-AaaS-Package=' in content and 'Exec=' in content:
                     entry.unlink()
-            backups = (*root.parent.glob(f'.{root.name}.previous-*'),
-                       *root.parent.glob(f'.{root.name}.rolled-back-*'))
             for backup in backups:
-                try:
-                    aaas_bundle.verify_installation(backup)
-                except Exception as error:
-                    raise CliError(f'refusing to remove unverified previous release {backup}: {error}')
                 shutil.rmtree(backup)
             shutil.rmtree(root)
             config.installation_manifest.unlink(missing_ok=True)
