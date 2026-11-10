@@ -3836,11 +3836,30 @@ def main():
             os.close(descriptor)
         slot_endpoint_registrations[slot] = registration
 
+    def prepare_presenter_sockets(slot):
+        """Use short host socket names; Android keeps its stable IPC aliases.
+
+        A portable workspace may live under a deeply nested mount path. Linux
+        AF_UNIX socket paths are limited to sizeof(sockaddr_un.sun_path), so
+        the historic descriptive socket names can silently truncate/fail.
+        The short targets stay in the same bind-mounted IPC directory while
+        Android-side adapter names remain compatible via relative symlinks.
+        """
+        wayland_name = f'w{slot}.sock'
+        input_name = f'i{slot}.sock'
+        socket_path = ipc / wayland_name
+        input_path = ipc / input_name
+        android_input_name = ('input-vdisplay.sock' if slot == 1 else
+                              f'input-vdisplay-{slot}.sock')
+        android_input_path = ipc / android_input_name
+        socket_path.unlink(missing_ok=True)
+        input_path.unlink(missing_ok=True)
+        android_input_path.unlink(missing_ok=True)
+        android_input_path.symlink_to(input_name)
+        return socket_path, input_path
+
     def start_dynamic_presenter(slot, package):
-        socket_path = ipc / ('wayland-vdisplay.sock' if slot == 1
-                             else f'wayland-vdisplay.sock-{slot}')
-        input_path = ipc / ('input-vdisplay.sock' if slot == 1
-                            else f'input-vdisplay-{slot}.sock')
+        socket_path, input_path = prepare_presenter_sockets(slot)
         display_path = ipc / ('vdisplay_id' if slot == 1 else f'vdisplay{slot}_id')
         resize_path = ipc / f'vdisplay_resize_{slot}'
         identity_request_path = ipc / f'window_identity_{slot}_request'
@@ -3852,7 +3871,6 @@ def main():
         # Android display starts at presenter_size, so never replay the old
         # lifecycle's request into its new VirtualDisplay.
         resize_path.write_text('')
-        socket_path.unlink(missing_ok=True)
         with log_path.open('ab') as presenter_log:
             process = subprocess.Popen(
                 [str(PRESENTER), '--socket', str(socket_path), '--node', paths['AAAS_DRM_RENDER_NODE'],
@@ -4451,14 +4469,15 @@ def main():
                 primary_title, primary_app_id = window_identity_for_package(args.app)
                 primary_identity_request = ipc / 'window_identity_1_request'
                 primary_identity_ack = ipc / 'window_identity_1_ack'
+                primary_socket_path, primary_input_path = prepare_presenter_sockets(1)
                 virtual_log_path = session / 'virtual-presenter.log'
                 with virtual_log_path.open('wb') as virtual_log:
                     virtual_presenter = subprocess.Popen(
-                        [str(PRESENTER), '--socket', str(ipc / 'wayland-vdisplay.sock'),
+                        [str(PRESENTER), '--socket', str(primary_socket_path),
                          '--node', paths['AAAS_DRM_RENDER_NODE'],
                          *presenter_trace_args,
                          *presenter_geometry_args(presenter_size, display_size),
-                         '--input-socket', str(ipc / 'input-vdisplay.sock'),
+                         '--input-socket', str(primary_input_path),
                          '--input-session', f'0x{input_session:016x}',
                          '--input-display-id-file', str(ipc / 'vdisplay_id'),
                          '--resize-request', str(ipc / 'vdisplay_resize_1'),
@@ -4469,21 +4488,22 @@ def main():
                         start_new_session=True,
                     )
                 deadline = time.monotonic() + 10
-                while not (ipc / 'wayland-vdisplay.sock').exists():
+                while not primary_socket_path.exists():
                     if virtual_presenter.poll() is not None or time.monotonic() >= deadline:
                         raise RuntimeError('virtual display presenter did not start')
                     time.sleep(.1)
-                register_presenter_endpoint(1, ipc / 'wayland-vdisplay.sock')
+                register_presenter_endpoint(1, primary_socket_path)
                 if args.app2:
                     second_title, second_app_id = window_identity_for_package(args.app2)
+                    second_socket_path, second_input_path = prepare_presenter_sockets(2)
                     virtual2_log_path = session / 'virtual-presenter2.log'
                     with virtual2_log_path.open('wb') as virtual2_log:
                         virtual_presenter2 = subprocess.Popen(
                             [str(PRESENTER), '--socket',
-                             str(ipc / 'wayland-vdisplay.sock-2'), '--node',
+                             str(second_socket_path), '--node',
                              paths['AAAS_DRM_RENDER_NODE'], *presenter_trace_args,
                              *presenter_geometry_args(presenter_size, display_size),
-                             '--input-socket', str(ipc / 'input-vdisplay-2.sock'),
+                             '--input-socket', str(second_input_path),
                              '--input-session', f'0x{input_session:016x}',
                              '--input-display-id-file', str(ipc / 'vdisplay2_id'),
                             '--resize-request', str(ipc / 'vdisplay_resize_2'),
@@ -4494,11 +4514,11 @@ def main():
                             start_new_session=True,
                         )
                     deadline = time.monotonic() + 10
-                    while not (ipc / 'wayland-vdisplay.sock-2').exists():
+                    while not second_socket_path.exists():
                         if virtual_presenter2.poll() is not None or time.monotonic() >= deadline:
                             raise RuntimeError('second virtual display presenter did not start')
                         time.sleep(.1)
-                    register_presenter_endpoint(2, ipc / 'wayland-vdisplay.sock-2')
+                    register_presenter_endpoint(2, second_socket_path)
                 slot_presenters[1] = virtual_presenter
                 if virtual_presenter2 is not None:
                     slot_presenters[2] = virtual_presenter2

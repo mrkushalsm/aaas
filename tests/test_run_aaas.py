@@ -1611,7 +1611,10 @@ class ForegroundRunnerTests(unittest.TestCase):
         self.assertIn('!= released', generated)
         self.assertIn('!= "STOPPING"', generated)
         self.assertIn("'--input-display-id-file', str(ipc / 'vdisplay_id')", launcher)
-        self.assertIn("'--input-socket', str(ipc / 'input-vdisplay.sock')", launcher)
+        self.assertIn("primary_socket_path, primary_input_path = prepare_presenter_sockets(1)", launcher)
+        self.assertIn("android_input_path.symlink_to(input_name)", launcher)
+        self.assertIn("f'w{slot}.sock'", launcher)
+        self.assertIn("f'i{slot}.sock'", launcher)
         self.assertIn("write_status_sentinel(status, 'STOPPING')", launcher)
 
     def test_virtual_display_keyboard_focus_activates_its_android_task(self):
