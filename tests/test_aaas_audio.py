@@ -323,6 +323,11 @@ class AudioBridgeTests(unittest.TestCase):
         self.assertIn("parser.add_argument('--capture-duration-seconds'", builder)
         self.assertIn("1 <= args.capture_duration_seconds <= 60", builder)
         self.assertIn("'AaaS Audio Capture Probe' if args.capture", builder)
+        self.assertIn("parser.add_argument('--package-name'", builder)
+        self.assertIn("parser.add_argument('--playback-music-volume'", builder)
+        self.assertIn('manager.setStreamVolume(AudioManager.STREAM_MUSIC, testMusicVolume, 0)', builder)
+        self.assertIn('manager.setStreamVolume(AudioManager.STREAM_MUSIC, previousMusicVolume, 0)', builder)
+        self.assertIn('TEST_MUSIC_VOLUME_RESTORED', builder)
 
 
 if __name__ == '__main__':

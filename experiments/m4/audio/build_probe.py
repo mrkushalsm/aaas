@@ -25,9 +25,18 @@ def main() -> int:
                         help='build a distinct package that requests RECORD_AUDIO on launch')
     parser.add_argument('--capture-duration-seconds', type=int, default=3,
                         help='bounded AudioRecord probe duration (1-60 seconds)')
+    parser.add_argument('--package-name', default=None,
+                        help='override the probe package name for isolated test installs')
+    parser.add_argument('--playback-music-volume', type=int, default=None,
+                        help='temporarily set STREAM_MUSIC to this index during playback (0-15)')
     args = parser.parse_args()
     if not 1 <= args.capture_duration_seconds <= 60:
         parser.error('--capture-duration-seconds must be between 1 and 60')
+    if args.playback_music_volume is not None and not 0 <= args.playback_music_volume <= 15:
+        parser.error('--playback-music-volume must be between 0 and 15')
+    if args.package_name and (not args.package_name.count('.') >= 1
+                              or not all(part.isidentifier() for part in args.package_name.split('.'))):
+        parser.error('--package-name must be a dotted Android package name')
     for name in ('apktool', 'framework-res', 'apksig', 'dx', 'zipalign', 'keystore'):
         value = getattr(args, name.replace('-', '_')).resolve(strict=True)
         setattr(args, name.replace('-', '_'), value)
@@ -44,7 +53,7 @@ def main() -> int:
             'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} public static int e(String t,String m){return 0;} public static int e(String t,String m,Throwable x){return 0;} }''',
             'android/view/View.java': '''package android.view; public class View { public interface OnClickListener { void onClick(View v); } public void setOnClickListener(OnClickListener l){} }''',
             'android/widget/TextView.java': '''package android.widget; public class TextView extends android.view.View { public TextView(android.content.Context c){} public void setText(CharSequence s){} }''',
-            'android/media/AudioManager.java': '''package android.media; public class AudioManager { public static final int STREAM_MUSIC=3; }''',
+            'android/media/AudioManager.java': '''package android.media; public class AudioManager { public static final int STREAM_MUSIC=3; public int getStreamVolume(int s){return 0;} public int getStreamMaxVolume(int s){return 15;} public void setStreamVolume(int s,int i,int f){} }''',
             'android/media/AudioFormat.java': '''package android.media; public class AudioFormat { public static final int CHANNEL_OUT_MONO=4, CHANNEL_OUT_STEREO=12, CHANNEL_IN_MONO=16, ENCODING_PCM_16BIT=2; }''',
             'android/media/AudioTrack.java': '''package android.media; public class AudioTrack { public static final int MODE_STREAM=1; public AudioTrack(int s,int r,int c,int f,int b,int m){} public static int getMinBufferSize(int r,int c,int f){return 4096;} public void play(){} public void pause(){} public int write(short[] a,int o,int n){return n;} public int setVolume(float v){return 0;} public int getPlaybackHeadPosition(){return 0;} public void stop(){} public void release(){} }''',
             'android/media/MediaRecorder.java': '''package android.media; public class MediaRecorder { public static class AudioSource { public static final int MIC=1; } }''',
@@ -61,17 +70,32 @@ def main() -> int:
         classes = work / 'classes'; classes.mkdir()
         source = Path(__file__).resolve().parent / 'src-probe/org/aaas/audioprobe/MainActivity.java'
         source_text = source.read_text()
-        package = 'org.aaas.audiocaptureprobe' if args.capture else 'org.aaas.audioprobe'
+        package = args.package_name or ('org.aaas.audiocaptureprobe' if args.capture else 'org.aaas.audioprobe')
         label = 'AaaS Audio Capture Probe' if args.capture else 'AaaS Audio Probe'
         default_record = 'true' if args.capture else 'false'
         source_copy = work / 'MainActivity.java'
-        source_copy.write_text(source_text.replace('package org.aaas.audioprobe;',
-                                                   f'package {package};')
-                               .replace('getBooleanExtra("record", false)',
-                                        f'getBooleanExtra("record", {default_record})')
-                               .replace('AaaS Audio Probe', label)
-                               .replace('rate * 3',
-                                        f'rate * {args.capture_duration_seconds}'))
+        source_text = (source_text.replace('package org.aaas.audioprobe;',
+                                           f'package {package};')
+                       .replace('getBooleanExtra("record", false)',
+                                f'getBooleanExtra("record", {default_record})')
+                       .replace('AaaS Audio Probe', label)
+                       .replace('rate * 3', f'rate * {args.capture_duration_seconds}'))
+        if args.playback_music_volume is not None and not args.capture:
+            source_text = source_text.replace(
+                '                AudioTrack track = null;\n                try {\n                    int rate = 48000;',
+                '                AudioManager manager = (AudioManager)getSystemService(android.content.Context.AUDIO_SERVICE);\n'
+                '                int previousMusicVolume = manager.getStreamVolume(AudioManager.STREAM_MUSIC);\n'
+                f'                int testMusicVolume = Math.min({args.playback_music_volume}, manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));\n'
+                '                manager.setStreamVolume(AudioManager.STREAM_MUSIC, testMusicVolume, 0);\n'
+                '                Log.i(TAG, "TEST_MUSIC_VOLUME_SET value=" + testMusicVolume + " previous=" + previousMusicVolume);\n'
+                '                AudioTrack track = null;\n                try {\n                    int rate = 48000;')
+            source_text = source_text.replace(
+                '                startMonoPlayback();\n            }',
+                '                startMonoPlayback();\n'
+                '                manager.setStreamVolume(AudioManager.STREAM_MUSIC, previousMusicVolume, 0);\n'
+                '                Log.i(TAG, "TEST_MUSIC_VOLUME_RESTORED value=" + previousMusicVolume);\n'
+                '            }')
+        source_copy.write_text(source_text)
         subprocess.run(['javac', '--release', '8', '-cp', str(stubclasses),
                         '-d', str(classes), str(source_copy)], check=True)
         dex = work / 'classes.dex'
@@ -80,7 +104,7 @@ def main() -> int:
         (decoded / 'AndroidManifest.xml').write_text(f'''<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}" android:versionCode="1" android:versionName="1.0">
 <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35"/>
-<uses-permission android:name="android.permission.RECORD_AUDIO"/>
+<uses-permission android:name="android.permission.RECORD_AUDIO"/><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
 <application android:label="{label}" android:allowBackup="false" android:hasCode="true"><activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>''')
         (decoded / 'apktool.yml').write_text('''version: 3.0.3
 apkFileName: AaasAudioProbe.apk

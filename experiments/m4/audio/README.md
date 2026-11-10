@@ -273,3 +273,43 @@ The bridge is bounded to four concurrent direct transport clients. A fifth is re
 - `python3 -m compileall -q scripts tests experiments/m4/audio experiments/m4/clipboard`, JSON validation, and `git diff --check` passed.
 
 This closes the prior capture-outage blocker for M4's bounded failure and clean-recovery contract. It does not claim gapless playback/capture or automatic continuation of an active AudioRecord through a PipeWire daemon restart.
+
+### Human listening follow-up (2026-11-10)
+
+The user could not hear the earlier listening replay. The active Android
+`STREAM_MUSIC` level was 5, while the host's default built-in Speaker sink was
+already at 100% / 0 dB. The fixture tone is deliberately bounded at a PCM peak
+of 3000/32767. A preceding monitor capture at the low Android level measured
+peak 71 and RMS 27.11. These observations point to Android stream volume plus
+the quiet diagnostic fixture, rather than a host sink setting or HAL sample
+conversion fault.
+
+The probe builder now accepts `--package-name` for isolated probe installs and
+`--playback-music-volume N` (0–15). In that mode the app saves the existing
+Android Music index, sets the requested index only during its short stereo and
+mono playback sequence, then restores the saved index. No host sink or HAL gain
+was changed. The isolated package `org.aaas.audiolisteningprobe` was built with
+the existing development keystore (APK SHA-256
+`dff6cb7b05e03300e844ea48b29aa398939b05c378605e054ce98930604ae2d4`), installed
+through the active AaaS service, and launched on Android display 6/7. Android
+logged:
+
+```
+TEST_MUSIC_VOLUME_SET value=15 previous=5
+PLAYBACK_PAUSE_OK frames=48000
+PLAYBACK_RESUME_OK
+PLAYBACK_OK rate=48000 channels=2 frames=192000 pause_resume=ok mute=ok
+MONO_PLAYBACK_OK rate=44100 channels=1 frames=44100
+TEST_MUSIC_VOLUME_RESTORED value=5
+```
+
+An independent 48 kHz stereo capture from the default Speaker sink monitor
+recorded 1,977,600 bytes over 10.3 seconds, with peak 3000 and RMS 660.84 over
+the full capture. The two seconds containing the active test had RMS 1641.21
+and 1343.34 because playback deliberately includes pause and mute intervals.
+The user confirmed the replay was audible and clear. The test restored the
+previous Android media volume (5), then the probe window was closed; the
+persistent runtime remained active. This verifies human audibility for the
+bounded test sequence. It does not change the saved volume preference in the
+existing userdata; users can raise Android's media volume for ordinary app
+playback.
