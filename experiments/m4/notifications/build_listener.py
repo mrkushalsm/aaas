@@ -10,8 +10,11 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+import sys
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+from experiments.m4.shared_storage_probe.deterministic_apk import normalize_zip_timestamps
 PACKAGE = 'org.aaas.notifications'
 ZIPALIGN_SHA256 = '915f3f9d6f726ba7c0b48475b79c8cf9b7caaeb20f2d7de002ccdc616b2c43c3'
 
@@ -30,6 +33,7 @@ def source_hash():
         if path.is_file() and 'build' not in path.parts and path.suffix not in ('.pyc', '.class', '.dex', '.apk'):
             digest.update(path.relative_to(Path(__file__).resolve().parent).as_posix().encode())
             digest.update(path.read_bytes())
+    digest.update((ROOT / 'experiments/m4/shared_storage_probe/deterministic_apk.py').read_bytes())
     return digest.hexdigest()
 
 
@@ -103,7 +107,8 @@ def main():
                 info.compress_type=zipfile.ZIP_STORED if item.filename=='resources.arsc' else item.compress_type
                 out.writestr(info,src.read(item.filename))
             out.write(dex,'classes.dex')
-        aligned=work/'aligned.apk'; subprocess.run([str(args.zipalign),'-f','4',str(unsigned),str(aligned)],check=True); subprocess.run([str(args.zipalign),'-c','4',str(aligned)],check=True)
+        normalized=work/'normalized.apk'; normalize_zip_timestamps(unsigned,normalized)
+        aligned=work/'aligned.apk'; subprocess.run([str(args.zipalign),'-f','4',str(normalized),str(aligned)],check=True); subprocess.run([str(args.zipalign),'-c','4',str(aligned)],check=True)
         signer=ROOT/'experiments/m4/shared_storage_probe/ApkSign.java'; subprocess.run(['javac','-cp',str(args.apksig),'-d',str(work),str(signer)],check=True)
         signed=work/'signed.apk'; subprocess.run(['java','-cp',f'{work}:{args.apksig}','ApkSign',str(args.keystore),'android','storage-probe',str(aligned),str(signed)],check=True)
         temporary=Path(str(args.output)+'.tmp'); shutil.copy2(signed,temporary); temporary.replace(args.output)

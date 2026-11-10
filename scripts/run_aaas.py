@@ -71,7 +71,9 @@ APKTOOL = TMP / 'apktool_3.0.3.jar'
 APKSIG = TMP / 'apksig-8.9.1.jar'
 ANDROID_DX = WORKSPACE / 'sources/prebuilts-build-tools-qpr2/common/bin/dx'
 ANDROID_ZIPALIGN = WORKSPACE / 'sources/prebuilts-build-tools-qpr2/linux-x86/bin/zipalign'
-STORAGE_SCAN_KEYSTORE = TMP / 'm4-storage-probe/storage-probe.keystore'
+STORAGE_SCAN_KEYSTORE = Path(os.environ.get(
+    'AAAS_HELPER_KEYSTORE',
+    str(TMP / 'm4-storage-probe/storage-probe.keystore'))).expanduser()
 STORAGE_SCAN_APK = TMP / 'storage-scan-helper/AaaSStorageScan.apk'
 CLIPBOARD_APK = TMP / 'clipboard-ime/AaasClipboard.apk'
 NOTIFICATION_APK = TMP / 'm4-notifications/AaasNotifications.apk'

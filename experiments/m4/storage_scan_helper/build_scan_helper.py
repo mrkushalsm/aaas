@@ -15,6 +15,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 from experiments.perf.input_latency_probe.build_probe import binary_manifest
+from experiments.m4.shared_storage_probe.deterministic_apk import normalize_zip_timestamps
 
 PACKAGE = 'org.aaas.storagescan'
 
@@ -34,6 +35,7 @@ def source_hash() -> str:
             digest.update(path.relative_to(Path(__file__).parent).as_posix().encode())
             digest.update(path.read_bytes())
     digest.update(Path(ROOT / 'experiments/perf/input_latency_probe/build_probe.py').read_bytes())
+    digest.update(Path(ROOT / 'experiments/m4/shared_storage_probe/deterministic_apk.py').read_bytes())
     return digest.hexdigest()
 
 
@@ -127,13 +129,15 @@ def main() -> int:
             apk.write(work / 'AndroidManifest.xml', 'AndroidManifest.xml')
             apk.write(dex, 'classes.dex')
             apk.write(catalog_dex, 'classes2.dex')
+        normalized = work / 'normalized.apk'
+        normalize_zip_timestamps(unsigned, normalized)
         signer = source.parent / 'shared_storage_probe' / 'ApkSign.java'
         subprocess.run(['javac', '-cp', str(args.apksig), '-d', str(work), str(signer)],
                        check=True)
         built = work / 'signed.apk'
         subprocess.run(['java', '-cp', f'{work}:{args.apksig}', 'ApkSign',
                         str(args.keystore), 'android', 'storage-probe',
-                        str(unsigned), str(built)], check=True)
+                        str(normalized), str(built)], check=True)
         temporary_output = args.output.with_suffix('.apk.tmp')
         shutil.copy2(built, temporary_output)
         temporary_output.replace(args.output)

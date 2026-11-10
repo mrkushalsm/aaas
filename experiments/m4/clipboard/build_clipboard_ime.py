@@ -10,8 +10,11 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+import sys
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+from experiments.m4.shared_storage_probe.deterministic_apk import normalize_zip_timestamps
 PACKAGE = 'org.aaas.clipboard'
 ZIPALIGN_SHA256 = '915f3f9d6f726ba7c0b48475b79c8cf9b7caaeb20f2d7de002ccdc616b2c43c3'
 
@@ -34,6 +37,7 @@ def source_hash() -> str:
             continue
         digest.update(path.relative_to(base).as_posix().encode())
         digest.update(path.read_bytes())
+    digest.update((ROOT / 'experiments/m4/shared_storage_probe/deterministic_apk.py').read_bytes())
     return digest.hexdigest()
 
 
@@ -177,8 +181,10 @@ def main() -> int:
                     else item.compress_type)
                 apk.writestr(info, source_apk.read(item.filename))
             apk.write(dex, 'classes.dex')
+        normalized = work / 'normalized.apk'
+        normalize_zip_timestamps(unsigned, normalized)
         aligned = work / 'aligned.apk'
-        subprocess.run([str(args.zipalign), '-f', '4', str(unsigned), str(aligned)],
+        subprocess.run([str(args.zipalign), '-f', '4', str(normalized), str(aligned)],
                        check=True)
         subprocess.run([str(args.zipalign), '-c', '4', str(aligned)], check=True)
         signer_source = ROOT / 'experiments/m4/shared_storage_probe/ApkSign.java'

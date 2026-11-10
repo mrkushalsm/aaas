@@ -41,6 +41,7 @@ def _run_script(script, *args, config=None, check=True, env_extra=None):
     env = dict(os.environ)
     env.update(AAAS_WORKSPACE=str(config.workspace), AAAS_ROOTFS=str(config.rootfs),
                AAAS_PROFILE=config.profile,
+               AAAS_HELPER_KEYSTORE=str(config.state / 'signing/storage-probe.keystore'),
                AAAS_IDLE_TIMEOUT_SECONDS=str(config.idle_timeout_seconds),
                AAAS_AUDIO='1' if config.audio else '0',
                PYTHONPATH=str(ROOT / 'scripts') + os.pathsep + env.get('PYTHONPATH', ''))
@@ -490,6 +491,7 @@ def _install_runtime_service(config):
                f'Environment=AAAS_WORKSPACE={quote(config.workspace)}\n'
                f'Environment=AAAS_ROOTFS={quote(config.rootfs)}\n'
                f'Environment=AAAS_RUNTIME_ROOT={quote(ROOT)}\n'
+               f'Environment=AAAS_HELPER_KEYSTORE={quote(config.state / "signing/storage-probe.keystore")}\n'
                f'Environment=XDG_CONFIG_HOME={quote(xdg["config_home"])}\n'
                f'Environment=XDG_DATA_HOME={quote(xdg["data_home"])}\n'
                f'Environment=XDG_CACHE_HOME={quote(xdg["cache_home"].parent)}\n'
@@ -754,7 +756,8 @@ def main(argv=None):
                                'AAAS_RUNTIME_ROOT': str(aaas_dev.runtime_root(config))})
             if args.dev_command == 'setup':
                 enrolled = aaas_dev.enroll_owned_installation(config)
-                key = aaas_dev.ensure_signing_key(config.workspace)
+                key = aaas_dev.ensure_signing_key(
+                    config.state, config.workspace / 'tmp/m4-storage-probe/storage-probe.keystore')
                 _emit({'development_profile': 'DIAGNOSTIC_LEGACY',
                        'workspace_enrollment': enrolled,
                        'signing_key': str(key),

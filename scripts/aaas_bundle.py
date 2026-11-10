@@ -250,6 +250,61 @@ def _inventory(root: Path):
     return records
 
 
+def _runtime_closure_report(root: Path):
+    """Check the packaged inputs used to regenerate runtime helper artifacts.
+
+    Host interfaces and the per-install signer are intentionally external:
+    the former are capability-checked on the target host, and the latter is
+    created in private XDG state by the installed CLI.
+    """
+    required = (
+        'runtime/scripts/run_aaas.py',
+        'runtime/scripts/aaas_dev.py',
+        'runtime/scripts/build_m4_audio_overlays.py',
+        'runtime/experiments/m4/audio/build_audio_hal.py',
+        'runtime/experiments/m4/audio/build_ashmem_compat.py',
+        'runtime/experiments/m4/audio/build_factory_compat.py',
+        'runtime/experiments/m4/storage_scan_helper/build_scan_helper.py',
+        'runtime/experiments/m4/clipboard/build_clipboard_ime.py',
+        'runtime/experiments/m4/notifications/build_listener.py',
+        'workspace-artifacts/tmp/apktool_3.0.3.jar',
+        'workspace-artifacts/tmp/apksig-8.9.1.jar',
+        'workspace-artifacts/sources/prebuilts-build-tools-qpr2/common/bin/dx',
+        'workspace-artifacts/sources/prebuilts-build-tools-qpr2/linux-x86/bin/zipalign',
+        'workspace-artifacts/tmp/partitions/system.raw.img',
+        'rootfs/system/framework/framework-res.apk',
+        'workspace-artifacts/tmp/m4-audio/audio.primary.aaas.so',
+        'workspace-artifacts/tmp/m4-audio/libaaas-audio-ashmem.so',
+        'workspace-artifacts/tmp/m4-audio/libaaas-audio-factory-compat.so',
+    )
+    missing = [relative for relative in required
+               if not (root / relative).is_file()]
+    dev_source = root / 'runtime/scripts/aaas_dev.py'
+    cli_source = root / 'runtime/scripts/aaas_cli.py'
+    runner_source = root / 'runtime/scripts/run_aaas.py'
+    signing_ready = all(path.is_file() and token in path.read_text(errors='replace')
+                        for path, token in (
+                            (dev_source, 'ensure_signing_key'),
+                            (cli_source, 'AAAS_HELPER_KEYSTORE'),
+                            (runner_source, 'AAAS_HELPER_KEYSTORE')))
+    if not signing_ready:
+        missing.append('per-install helper signing flow (XDG state provisioning)')
+    return {
+        'status': 'PASS' if not missing else 'PARTIAL',
+        'checked_inputs': len(required),
+        'missing_inputs': missing,
+        'helper_apk_builds': 'rebuildable from packaged source and pinned tools',
+        'audio_overlay': 're-extracted from packaged Android system image by declared script',
+        'signing': 'per-install identity generated in private XDG state; key excluded from bundle',
+        'external_capabilities': [
+            'Java/Javac/keytool, readelf, guestmount, Wayland, Binder, DRM and PipeWire are host-provided and preflight-checked',
+        ],
+        'reproducibility_limitations': [
+            'Android base/diagnostic rootfs is a recorded historical image input, not rebuilt from AOSP source',
+        ],
+    }
+
+
 def _filesystem_probe(parent: Path):
     parent.mkdir(parents=True, exist_ok=True)
     if not os.access(parent, os.W_OK | os.X_OK):
@@ -439,15 +494,10 @@ def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
                 ],
             },
             'runtime_closure': {
-                'status': 'PARTIAL',
+                **_runtime_closure_report(stage),
+                'checker': 'aaas-runtime-inputs-v1',
                 'packaged_workspace_artifacts': sum(
                     entry['path'].startswith('workspace-artifacts/') for entry in inventory),
-                'unresolved': [
-                    'Storage-scan APK signing keystore is intentionally excluded; runtime helper rebuild requires a fresh signing flow.',
-                    'The current runner rebuilds helper APKs and audio overlays at startup; the bundle stages verified inputs but does not currently provide a clean unsigned/re-signing path.',
-                    'Host Wayland, PipeWire, Binder, graphics, namespace, and cgroup interfaces are discovered at install time.',
-                    'Private signing keys and Android userdata are deliberately excluded.',
-                ],
             },
             'metadata_capabilities': {
                 'file_modes': 'preserved', 'symlinks': 'preserved',
@@ -529,6 +579,12 @@ def verify_bundle(bundle: Path):
     if actual != seen:
         extras = sorted(actual - seen)
         raise BundleError(f'unmanifested bundle entries present: {extras[:5]}')
+    closure = manifest.get('runtime_closure', {})
+    if closure.get('checker') == 'aaas-runtime-inputs-v1':
+        checked_closure = _runtime_closure_report(bundle)
+        if checked_closure['status'] != closure.get('status') or \
+                checked_closure['missing_inputs'] != closure.get('missing_inputs'):
+            raise BundleError('runtime closure report does not match packaged build inputs')
     return {'bundle': str(bundle), 'bundle_id': manifest['bundle_id'],
             'integrity': 'PASS', 'artifact_count': len(expected),
             'installation_integrity': 'PASS', 'runtime_closure': manifest['runtime_closure'],

@@ -61,19 +61,41 @@ def enroll_owned_installation(config):
     return result
 
 
-def ensure_signing_key(workspace: Path):
-    key = workspace / 'tmp/m4-storage-probe/storage-probe.keystore'
+def ensure_signing_key(location: Path, legacy_key: Path | None = None):
+    """Create or verify the per-install helper signer outside the release bundle.
+
+    ``location`` is the installation's persistent XDG state directory.  Keeping
+    this identity there preserves APK update compatibility across immutable
+    runtime updates while keeping private material out of workspace artifacts.
+    """
+    key = location / 'signing/storage-probe.keystore'
     key.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    def validate(candidate):
+        if candidate.is_symlink():
+            raise DeveloperRuntimeError('refusing symlinked development signing keystore')
+        if candidate.exists():
+            if (not candidate.is_file() or candidate.stat().st_uid != os.getuid()
+                    or candidate.stat().st_mode & 0o077):
+                raise DeveloperRuntimeError(
+                    'development signing keystore has unsafe ownership or mode')
+            check = subprocess.run(
+                ['keytool', '-list', '-keystore', str(candidate), '-storepass', 'android',
+                 '-alias', 'storage-probe'], capture_output=True, text=True, timeout=10)
+            if check.returncode:
+                raise DeveloperRuntimeError('existing development signing keystore is invalid')
+
+    if not key.exists() and legacy_key is not None and Path(legacy_key).exists():
+        legacy_key = Path(legacy_key)
+        validate(legacy_key)
+        temporary_copy = key.with_name(f'.{key.name}.{os.getpid()}.migrate')
+        shutil.copy2(legacy_key, temporary_copy)
+        os.chmod(temporary_copy, 0o600)
+        os.replace(temporary_copy, key)
     if key.is_symlink():
         raise DeveloperRuntimeError('refusing symlinked development signing keystore')
     if key.exists():
-        if not key.is_file() or key.stat().st_uid != os.getuid() or key.stat().st_mode & 0o077:
-            raise DeveloperRuntimeError('development signing keystore has unsafe ownership or mode')
-        check = subprocess.run(
-            ['keytool', '-list', '-keystore', str(key), '-storepass', 'android',
-             '-alias', 'storage-probe'], capture_output=True, text=True, timeout=10)
-        if check.returncode:
-            raise DeveloperRuntimeError('existing development signing keystore is invalid')
+        validate(key)
         return key
     temporary = key.with_name(f'.{key.name}.{os.getpid()}.tmp')
     try:
