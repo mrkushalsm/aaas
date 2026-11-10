@@ -277,6 +277,12 @@ def _parser():
     help_command = commands.add_parser('help', help='show command help')
     help_command.add_argument('topic', nargs='?')
     json_flag(commands.add_parser('doctor', help='diagnose host compatibility without downloads'))
+    update = commands.add_parser('update', help='stage and verify a portable runtime update')
+    update.add_argument('bundle', type=Path)
+    rollback = commands.add_parser('rollback', help='restore the previous verified runtime bundle')
+    uninstall = commands.add_parser('uninstall', help='remove AaaS binaries while preserving user data')
+    uninstall.add_argument('--remove-user-data', action='store_true',
+                           help='also remove the enrolled workspace and Android userdata')
     setup = commands.add_parser('setup', help='configure a workspace and inspect provisioning prerequisites')
     setup.add_argument('--workspace', type=Path)
     setup.add_argument('--adopt-existing', action='store_true')
@@ -384,7 +390,11 @@ def _runtime_unit_path(config=None):
         config_home = None
     if not config_home or not config_home.is_absolute():
         config_home = Path.home() / '.config'
-    return config_home / 'systemd/user/aaas-runtime.service'
+    service_name = os.environ.get('AAAS_RUNTIME_SERVICE', 'aaas-runtime.service')
+    if (not service_name.endswith('.service') or '/' in service_name or
+            not all(character.isalnum() or character in '_.@-' for character in service_name)):
+        raise CliError('AAAS_RUNTIME_SERVICE must be a valid user service unit name')
+    return config_home / 'systemd/user' / service_name
 
 
 def _runtime_systemctl(*args, check=True):
@@ -394,6 +404,50 @@ def _runtime_systemctl(*args, check=True):
         detail = (result.stderr or result.stdout).strip()
         raise CliError(f"systemctl --user {' '.join(args)} failed: {detail}")
     return result
+
+
+def _installed_root(config):
+    root = config.rootfs.parent
+    if root.is_symlink() or not (root / 'installation.json').is_file():
+        raise CliError('this command requires a verified portable bundle installation')
+    try:
+        report = aaas_bundle.verify_installation(root)
+    except Exception as error:
+        raise CliError(f'installed runtime integrity verification failed: {error}') from error
+    if report.get('integrity') != 'PASS':
+        raise CliError('installed runtime integrity verification failed')
+    return root
+
+
+def _release_state_path(config):
+    return config.state / 'release-lifecycle.json'
+
+
+def _write_installation_record(config, root, *, bundle_id=None):
+    path = config.installation_manifest
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = json.loads((root / 'installation.json').read_text(encoding='utf-8'))
+    record['paths'] = dict(record.get('paths', {}))
+    record['paths'].update({'rootfs': str(root / 'rootfs'),
+                            'runtime': str(root / 'runtime'),
+                            'workspace': str(config.workspace),
+                            'workspace_artifacts': str(root / 'workspace-artifacts')})
+    if bundle_id:
+        record['bundle_id'] = bundle_id
+    temporary = path.with_name(path.name + f'.{os.getpid()}.tmp')
+    temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
+def _save_release_state(config, previous):
+    path = _release_state_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + f'.{os.getpid()}.tmp')
+    temporary.write_text(json.dumps({'schema': 1, 'previous': str(previous)},
+                                    sort_keys=True) + '\n', encoding='utf-8')
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
 
 
 def _runtime_import_desktop_environment():
@@ -415,7 +469,7 @@ def _install_runtime_service(config):
     unit = _runtime_unit_path(config)
     unit.parent.mkdir(parents=True, exist_ok=True)
     if unit.exists() and not unit.is_symlink():
-        backup = unit.with_name('aaas-runtime.service.aaas-backup')
+        backup = unit.with_name(unit.name + '.aaas-backup')
         if not backup.exists():
             shutil.copy2(unit, backup)
     script = ROOT / 'scripts/aaas_runtime_service.py'
@@ -464,10 +518,11 @@ def _install_runtime_service(config):
 
 
 def _runtime_start(config):
+    service_name = _runtime_unit_path(config).name
     if not _runtime_unit_path(config).is_file():
         _install_runtime_service(config)
     _runtime_import_desktop_environment()
-    _runtime_systemctl('start', 'aaas-runtime.service')
+    _runtime_systemctl('start', service_name)
     deadline = time.monotonic() + 250
     while time.monotonic() < deadline:
         if _status(config)['runtime']['state'] == 'RUNNING':
@@ -484,10 +539,10 @@ def _runtime_start(config):
                         return parsed
             except (OSError, subprocess.SubprocessError, ValueError):
                 pass
-        active = _runtime_systemctl('is-active', 'aaas-runtime.service', check=False)
+        active = _runtime_systemctl('is-active', service_name, check=False)
         if active.returncode:
             raise CliError('AaaS service stopped before Android became ready; inspect '
-                           '`journalctl --user -u aaas-runtime.service`')
+                           f'`journalctl --user -u {service_name}`')
         time.sleep(.5)
     raise CliError('AaaS user service did not report readiness within 250 seconds')
 
@@ -523,6 +578,126 @@ def main(argv=None):
             cli['workspace'] = str(args.workspace.expanduser().absolute())
         config = aaas_config.resolve_config(repository=ROOT, cli=cli)
         json_output = getattr(args, 'json', False) or getattr(args, 'json_local', False)
+        if args.command == 'update':
+            root = _installed_root(config)
+            candidate = aaas_bundle.verify_bundle(args.bundle)
+            stage = aaas_bundle.stage_installation_update(
+                bundle=args.bundle, installation=root)
+            try:
+                _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
+                previous = aaas_bundle.activate_staged_update(stage=stage,
+                                                              installation=root)
+                _write_installation_record(config, root, bundle_id=candidate['bundle_id'])
+                try:
+                    ready = _runtime_start(config)
+                except Exception:
+                    _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
+                    failed = aaas_bundle.restore_previous_installation(
+                        installation=root, previous=previous)
+                    _write_installation_record(config, root)
+                    _save_release_state(config, failed)
+                    try:
+                        _runtime_start(config)
+                    except Exception as recovery_error:
+                        raise CliError('update failed and previous release was restored, '
+                                       f'but its service did not recover: {recovery_error}')
+                    raise
+                _save_release_state(config, previous)
+                _refresh_installed_catalog(config)
+                _emit({'updated': True, 'bundle_id': candidate['bundle_id'],
+                       'installation': str(root), 'previous_release': str(previous),
+                       'runtime': ready.get('state', 'RUNNING')}, json_output)
+                return 0
+            finally:
+                if stage.exists():
+                    shutil.rmtree(stage)
+        if args.command == 'rollback':
+            root = _installed_root(config)
+            state_path = _release_state_path(config)
+            try:
+                previous = Path(json.loads(state_path.read_text(encoding='utf-8'))['previous'])
+            except (OSError, KeyError, json.JSONDecodeError) as error:
+                raise CliError('no recorded previous release is available for rollback') from error
+            if previous.parent.resolve() != root.parent.resolve() or not previous.name.startswith(
+                    f'.{root.name}.'):
+                raise CliError('rollback metadata points outside the installation release family')
+            _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
+            failed = aaas_bundle.restore_previous_installation(
+                installation=root, previous=previous)
+            _write_installation_record(config, root)
+            _save_release_state(config, failed)
+            try:
+                ready = _runtime_start(config)
+            except Exception as error:
+                _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
+                restored = aaas_bundle.restore_previous_installation(
+                    installation=root, previous=failed)
+                _write_installation_record(config, root)
+                _save_release_state(config, restored)
+                raise CliError(f'rollback failed to start; the prior running release was '
+                               f'restored: {error}') from error
+            _refresh_installed_catalog(config)
+            _emit({'rolled_back': True, 'installation': str(root),
+                   'retained_release': str(failed), 'runtime': ready.get('state', 'RUNNING')},
+                  json_output)
+            return 0
+        if args.command == 'uninstall':
+            root = _installed_root(config)
+            workspace_removal = False
+            if args.remove_user_data:
+                import android_workspace
+                import aaas_userdata
+                check = android_workspace.check(config.workspace)
+                if check.get('health') not in ('HEALTHY', 'HEALTHY_FOR_CONTROLLED_TESTING'):
+                    raise CliError('preserving the workspace: enrolled health check failed')
+                aaas_userdata.prepare_userdata_directory(config.workspace)
+                workspace_removal = True
+            service_unit = _runtime_unit_path(config)
+            _runtime_systemctl('stop', service_unit.name, check=False)
+            if service_unit.exists():
+                contents = service_unit.read_text(encoding='utf-8', errors='replace')
+                if ('Description=AaaS persistent Android runtime' not in contents or
+                        f'Environment=AAAS_WORKSPACE="{config.workspace}"' not in contents or
+                        f'Environment=AAAS_ROOTFS="{config.rootfs}"' not in contents):
+                    raise CliError(f'refusing to remove unowned service unit: {service_unit}')
+                service_unit.unlink()
+                backup = service_unit.with_name(service_unit.name + '.aaas-backup')
+                if backup.is_file():
+                    os.replace(backup, service_unit)
+                _runtime_systemctl('daemon-reload')
+            alias = Path.home() / '.local/bin/aaas-portable'
+            if alias.is_symlink():
+                try:
+                    alias.resolve(strict=False).relative_to(root)
+                except ValueError:
+                    pass
+                else:
+                    alias.unlink()
+            app_dir = config.runtime_data.parent / 'applications'
+            for entry in app_dir.glob('aaas-*.desktop') if app_dir.is_dir() else ():
+                try:
+                    content = entry.read_text(encoding='utf-8')
+                except OSError:
+                    continue
+                if 'X-AaaS-Package=' in content and 'Exec=' in content:
+                    entry.unlink()
+            backups = (*root.parent.glob(f'.{root.name}.previous-*'),
+                       *root.parent.glob(f'.{root.name}.rolled-back-*'))
+            for backup in backups:
+                try:
+                    aaas_bundle.verify_installation(backup)
+                except Exception as error:
+                    raise CliError(f'refusing to remove unverified previous release {backup}: {error}')
+                shutil.rmtree(backup)
+            shutil.rmtree(root)
+            config.installation_manifest.unlink(missing_ok=True)
+            _release_state_path(config).unlink(missing_ok=True)
+            if workspace_removal:
+                shutil.rmtree(config.workspace / 'android-userdata')
+            _emit({'uninstalled': True, 'installation_removed': str(root),
+                   'workspace_preserved': True,
+                   'userdata_removed': workspace_removal}, json_output)
+            return 0
         if args.command == 'runtime':
             if args.runtime_command == 'install-service':
                 path = _install_runtime_service(config)
@@ -533,18 +708,18 @@ def main(argv=None):
             if args.runtime_command == 'start':
                 result = _runtime_start(config)
                 _refresh_installed_catalog(config)
-                _emit({'service': 'aaas-runtime.service', 'state': 'RUNNING',
+                _emit({'service': _runtime_unit_path(config).name, 'state': 'RUNNING',
                        'windows': result.get('windows', [])}, json_output)
                 return 0
             if args.runtime_command == 'status':
-                service = _runtime_systemctl('show', 'aaas-runtime.service',
+                service = _runtime_systemctl('show', _runtime_unit_path(config).name,
                                              '--property=ActiveState,SubState,MainPID',
                                              check=False)
                 _emit({'service': service.stdout.strip() if service.returncode == 0 else 'not-installed',
                        **_status(config)}, json_output)
                 return 0
             if _runtime_unit_path(config).is_file():
-                _runtime_systemctl('stop', 'aaas-runtime.service', check=False)
+                _runtime_systemctl('stop', _runtime_unit_path(config).name, check=False)
             else:
                 _run_script('aaasctl.py', 'stop', config=config, check=False)
             return 0

@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -40,6 +42,14 @@ class BundleTests(unittest.TestCase):
         rootfs = workspace / 'rootfs_m1b1'
         (repo / 'scripts').mkdir(parents=True)
         (repo / 'scripts/aaas_cli.py').write_text('print("bundle cli")\n')
+        (repo / 'scripts/aaas_portable_installer.py').write_text(
+            'import argparse\n'
+            'def main():\n'
+            '    p=argparse.ArgumentParser()\n'
+            '    p.add_argument("--workspace")\n'
+            '    p.parse_args()\n')
+        (repo / 'scripts/aaas_bundle.py').write_text('')
+        (repo / 'scripts/aaas_config.py').write_text('')
         (repo / 'manifests').mkdir()
         (repo / 'manifests/android-profiles.json').write_text('{}\n')
         (repo / 'experiments/m1a').mkdir(parents=True)
@@ -72,6 +82,12 @@ class BundleTests(unittest.TestCase):
                                                output=output, workspace=workspace)
             self.assertEqual(result['integrity'], 'PASS')
             self.assertEqual(result['runtime_security'], 'NOT_APPROVED')
+            self.assertTrue((output / 'install').stat().st_mode & 0o111)
+            self.assertTrue((output / 'install.py').stat().st_mode & 0o111)
+            installer_help = subprocess.run([sys.executable, str(output / 'install.py'),
+                                             '--help'], capture_output=True, text=True)
+            self.assertEqual(installer_help.returncode, 0, installer_help.stderr)
+            self.assertIn('--workspace', installer_help.stdout)
             self.assertFalse((output / 'rootfs/data/private.db').exists())
             self.assertFalse((output / 'rootfs/tmp/old.log').exists())
             self.assertTrue((output / 'rootfs/init').is_symlink())
@@ -135,6 +151,72 @@ class BundleTests(unittest.TestCase):
             self.assertEqual(installed['workspace_enrollment'], 'PASS')
             self.assertEqual(installed['userdata'], 'fresh installation-local backing initialized')
             self.assertIn('linkerconfig', installed['generated_rootfs_mountpoints'])
+
+    def test_update_and_rollback_preserve_workspace_and_userdata(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            repo, source_workspace, _ = self.fixture(base)
+            first_bundle = base / 'bundle-first'
+            aaas_bundle.create_bundle(repo=repo, rootfs=source_workspace / 'rootfs_m1b1',
+                                      output=first_bundle, workspace=source_workspace)
+            install = base / 'install'
+            workspace = base / 'runtime-workspace'
+            with patch.object(aaas_bundle.shutil, 'disk_usage',
+                              return_value=SimpleNamespace(free=64 << 30)):
+                install_fixture(bundle=first_bundle, workspace=workspace,
+                                install_root=install, config_home=base / 'config',
+                                data_home=base / 'data')
+            userdata = workspace / 'android-userdata/data/keep.txt'
+            userdata.write_text('persistent app data')
+            (repo / 'scripts/aaas_cli.py').write_text('print("updated CLI")\n')
+            second_bundle = base / 'bundle-second'
+            aaas_bundle.create_bundle(repo=repo, rootfs=source_workspace / 'rootfs_m1b1',
+                                      output=second_bundle, workspace=source_workspace)
+            stage = aaas_bundle.stage_installation_update(bundle=second_bundle,
+                                                           installation=install)
+            previous = aaas_bundle.activate_staged_update(stage=stage,
+                                                            installation=install)
+            self.assertEqual(aaas_bundle.verify_installation(install)['integrity'], 'PASS')
+            self.assertEqual((install / 'runtime/scripts/aaas_cli.py').read_text(),
+                             'print("updated CLI")\n')
+            self.assertEqual(userdata.read_text(), 'persistent app data')
+            failed = aaas_bundle.restore_previous_installation(installation=install,
+                                                                 previous=previous)
+            self.assertEqual(aaas_bundle.verify_installation(install)['integrity'], 'PASS')
+            self.assertEqual((install / 'runtime/scripts/aaas_cli.py').read_text(),
+                             'print("bundle cli")\n')
+            self.assertEqual(userdata.read_text(), 'persistent app data')
+            self.assertEqual(aaas_bundle.verify_installation(failed)['integrity'], 'PASS')
+
+    def test_reinstall_preserves_enrolled_workspace_and_existing_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            repo, source_workspace, _ = self.fixture(base)
+            bundle = base / 'bundle'
+            aaas_bundle.create_bundle(repo=repo, rootfs=source_workspace / 'rootfs_m1b1',
+                                      output=bundle, workspace=source_workspace)
+            install = base / 'install'
+            workspace = base / 'runtime-workspace'
+            config = base / 'config'
+            data = base / 'data'
+            with patch.object(aaas_bundle.shutil, 'disk_usage',
+                              return_value=SimpleNamespace(free=64 << 30)):
+                install_fixture(bundle=bundle, workspace=workspace, install_root=install,
+                                config_home=config, data_home=data)
+            marker = workspace / 'android-userdata/data/keep.txt'
+            marker.write_text('do not replace')
+            config_file = config / 'aaas/config.toml'
+            config_file.write_text(config_file.read_text() + '\n# user setting preserved\n')
+            shutil.rmtree(install)
+            with patch.object(aaas_bundle.shutil, 'disk_usage',
+                              return_value=SimpleNamespace(free=64 << 30)):
+                result = install_fixture(bundle=bundle, workspace=workspace,
+                                         install_root=install, config_home=config,
+                                         data_home=data)
+            self.assertTrue(result['workspace_reused'])
+            self.assertTrue(result['configuration_preserved'])
+            self.assertEqual(marker.read_text(), 'do not replace')
+            self.assertIn('# user setting preserved', config_file.read_text())
 
     def test_installer_owned_workspace_migration_rejects_unrecognized_files(self):
         with tempfile.TemporaryDirectory() as td:

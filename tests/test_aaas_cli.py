@@ -1,4 +1,5 @@
 import fcntl
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -76,6 +77,23 @@ class AaasCliTests(unittest.TestCase):
                 unit = aaas_cli._install_runtime_service(config)
             contents = unit.read_text()
         self.assertIn(f'AAAS_NATIVE_BRIDGE_BUNDLE="{bundle}"', contents)
+
+    def test_runtime_service_name_can_be_isolated_for_profile_tests(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            with mock.patch.dict(os.environ,
+                                 {'AAAS_RUNTIME_SERVICE': 'aaas-isolated-check.service'}), \
+                    mock.patch('subprocess.run') as run:
+                run.return_value = mock.Mock(returncode=0, stdout='/tmp/user-config\n')
+                path = aaas_cli._runtime_unit_path(config)
+            self.assertEqual(path, Path('/tmp/user-config/systemd/user/aaas-isolated-check.service'))
+
+    def test_release_lifecycle_commands_are_available(self):
+        parser = aaas_cli._parser()
+        self.assertEqual(parser.parse_args(['update', '/tmp/release']).command, 'update')
+        self.assertEqual(parser.parse_args(['rollback']).command, 'rollback')
+        self.assertFalse(parser.parse_args(['uninstall']).remove_user_data)
+        self.assertTrue(parser.parse_args(['uninstall', '--remove-user-data']).remove_user_data)
 
     def test_images_build_dispatches_to_source_assembler(self):
         with tempfile.TemporaryDirectory() as temporary:

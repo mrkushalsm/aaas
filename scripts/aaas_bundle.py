@@ -77,6 +77,7 @@ EXTRA_BINARIES = {
 }
 RUNTIME_FILES = (
     'experiments/perf/input_latency_probe/build_probe.py',
+    'scripts/aaas_portable_installer.py',
     # The enrolled external workspace policy hashes this recovery record. Keep
     # the evidence beside the installed runtime so checkout-free verification
     # can validate the same attestation without relaxing the health guard.
@@ -334,7 +335,28 @@ def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
         # Top-level rootfs symlinks are included by _copy_tree; excluded mutable
         # directories remain absent until installation creates fresh ones.
         _copy_selected_runtime(repo, workspace, stage / 'runtime')
+        installer = stage / 'install.py'
+        installer.write_text(
+            '#!/usr/bin/env python3\n'
+            'import os, sys\n'
+            'from pathlib import Path\n'
+            'sys.dont_write_bytecode = True\n'
+            'bundle = Path(__file__).resolve().parent\n'
+            'os.environ["AAAS_BUNDLE_PATH"] = str(bundle)\n'
+            'sys.path.insert(0, str(bundle / "runtime/scripts"))\n'
+            'from aaas_portable_installer import main\n'
+            'raise SystemExit(main())\n', encoding='utf-8')
+        installer.chmod(0o755)
+        install_shell = stage / 'install'
+        install_shell.write_text(
+            '#!/bin/sh\nset -eu\n'
+            'SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n'
+            'exec python3 "$SELF/install.py" "$@"\n', encoding='utf-8')
+        install_shell.chmod(0o755)
         inventory = _inventory(stage)
+        for record in inventory:
+            if record['path'] in ('install', 'install.py'):
+                record['scope'] = 'bundle-installer'
         try:
             source_revision = subprocess.run(
                 ['git', '-C', str(repo), 'rev-parse', 'HEAD'], capture_output=True,
@@ -521,6 +543,8 @@ def verify_installation(installation: Path):
         raise BundleError(f'installation bundle manifest is invalid: {error}') from error
     checked = 0
     for record in manifest.get('artifacts', []):
+        if record.get('scope') == 'bundle-installer':
+            continue
         rel = _safe_relative(record['path'])
         path = installation / rel
         parent = installation
@@ -716,14 +740,49 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
         raise BundleError(f'refusing to replace existing installation: {install_root}')
     if install_root == bundle or bundle in install_root.parents:
         raise BundleError('installation destination must be separate from bundle')
-    if workspace.exists() and any(workspace.iterdir()):
-        raise BundleError('workspace must be empty; refusing to adopt or alter existing data')
+    reuse_workspace = workspace.exists() and any(workspace.iterdir())
+    if reuse_workspace:
+        marker = workspace / android_workspace.MARKER
+        if not marker.is_file():
+            raise BundleError('workspace must be empty or an enrolled AaaS workspace; '
+                              'refusing to adopt or alter existing data')
+        try:
+            android_workspace.check(workspace)
+            import aaas_userdata
+            aaas_userdata.prepare_userdata_directory(workspace)
+        except Exception as error:
+            raise BundleError(f'existing AaaS workspace failed preservation checks: {error}') from error
     cfg = config_home / 'aaas' / 'config.toml'
     installed_data_manifest = data_home / 'aaas' / 'installation.json'
-    if cfg.exists() or cfg.is_symlink():
-        raise BundleError(f'refusing to overwrite existing config: {cfg}')
-    if installed_data_manifest.exists() or installed_data_manifest.is_symlink():
-        raise BundleError(f'refusing to overwrite existing installation manifest: {installed_data_manifest}')
+    reuse_config = cfg.exists() and not cfg.is_symlink()
+    if cfg.is_symlink():
+        raise BundleError(f'refusing symlinked config: {cfg}')
+    if reuse_config:
+        try:
+            import tomllib
+            existing_config = tomllib.loads(cfg.read_text(encoding='utf-8'))
+            paths = existing_config.get('paths', {})
+            if (Path(paths.get('workspace', '')).expanduser().absolute() != workspace or
+                    Path(paths.get('rootfs', '')).expanduser().absolute() != install_root / 'rootfs'):
+                raise BundleError('existing user config targets different AaaS data; preserve it and choose new XDG paths')
+        except (OSError, ValueError) as error:
+            if isinstance(error, BundleError):
+                raise
+            raise BundleError(f'existing AaaS config is not reusable: {error}') from error
+    reuse_data_manifest = installed_data_manifest.exists() and not installed_data_manifest.is_symlink()
+    if installed_data_manifest.is_symlink():
+        raise BundleError('refusing symlinked installation metadata')
+    old_data_manifest = None
+    old_data_manifest_bytes = None
+    if reuse_data_manifest:
+        try:
+            old_data_manifest_bytes = installed_data_manifest.read_bytes()
+            old_data_manifest = json.loads(old_data_manifest_bytes)
+            if (old_data_manifest.get('classification') != 'LOCAL_DEVELOPMENT_DIAGNOSTIC' or
+                    Path(old_data_manifest.get('paths', {}).get('workspace', '')).absolute() != workspace):
+                raise BundleError('existing installation metadata belongs to different user data')
+        except (OSError, json.JSONDecodeError) as error:
+            raise BundleError(f'existing installation metadata is not reusable: {error}') from error
     install_root.parent.mkdir(parents=True, exist_ok=True)
     install_probe = _filesystem_probe(install_root.parent)
     workspace_probe = _filesystem_probe(workspace.parent)
@@ -813,14 +872,15 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
         # Keep configuration under the selected config root. No original path is
         # embedded in the runtime tree; all locations are installation-specific.
         cfg.parent.mkdir(parents=True, exist_ok=True)
-        cfg_temp = cfg.with_name(cfg.name + f'.{os.getpid()}.tmp')
-        cfg_temp.write_text(
-            '[paths]\nworkspace = ' + json.dumps(str(workspace)) + '\nrootfs = ' +
-            json.dumps(str(install_root / 'rootfs')) + '\n\n[installation]\nprofile = ' +
-            json.dumps(PROFILE) + '\n', encoding='utf-8')
-        cfg_temp.chmod(0o600)
-        os.replace(cfg_temp, cfg)
-        config_written = True
+        if not reuse_config:
+            cfg_temp = cfg.with_name(cfg.name + f'.{os.getpid()}.tmp')
+            cfg_temp.write_text(
+                '[paths]\nworkspace = ' + json.dumps(str(workspace)) + '\nrootfs = ' +
+                json.dumps(str(install_root / 'rootfs')) + '\n\n[installation]\nprofile = ' +
+                json.dumps(PROFILE) + '\n', encoding='utf-8')
+            cfg_temp.chmod(0o600)
+            os.replace(cfg_temp, cfg)
+            config_written = True
         installed_data_manifest.parent.mkdir(parents=True, exist_ok=True)
         data_temp = installed_data_manifest.with_name(
             installed_data_manifest.name + f'.{os.getpid()}.tmp')
@@ -833,13 +893,14 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
         data_written = True
         # The destination was verified absent or empty before staging; from
         # this point onward this installation transaction owns its contents.
-        workspace_created = True
+        workspace_created = not reuse_workspace
         workspace.mkdir(parents=True, exist_ok=True)
-        for base in ('tmp', 'sources'):
-            staged_artifacts = install_root / 'workspace-artifacts' / base
-            if staged_artifacts.is_dir():
-                shutil.copytree(staged_artifacts, workspace / base, dirs_exist_ok=True,
-                                symlinks=True, copy_function=shutil.copy2)
+        if not reuse_workspace:
+            for base in ('tmp', 'sources'):
+                staged_artifacts = install_root / 'workspace-artifacts' / base
+                if staged_artifacts.is_dir():
+                    shutil.copytree(staged_artifacts, workspace / base, dirs_exist_ok=True,
+                                    symlinks=True, copy_function=shutil.copy2)
         workspace_enrollment = enroll_installer_workspace(install_root, workspace)
         install_manifest['workspace_enrollment'] = 'PASS'
         install_manifest['workspace_id'] = workspace_enrollment['workspace_id']
@@ -858,7 +919,10 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
                 'verified_artifacts': install_integrity['artifact_count'],
                 'runtime_security': 'NOT_APPROVED', 'general_runtime_start': 'BLOCKED',
                 'runtime_closure': 'PARTIAL', 'userdata': workspace_enrollment['userdata_state'],
-                'workspace_enrollment': workspace_enrollment}
+                'workspace_enrollment': workspace_enrollment,
+                'workspace_reused': reuse_workspace,
+                'configuration_preserved': reuse_config,
+                'installation_metadata_reused': reuse_data_manifest}
     except Exception:
         if stage.exists():
             shutil.rmtree(stage)
@@ -869,7 +933,10 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
         if config_written:
             cfg.unlink(missing_ok=True)
         if data_written:
-            installed_data_manifest.unlink(missing_ok=True)
+            if reuse_data_manifest and old_data_manifest_bytes is not None:
+                installed_data_manifest.write_bytes(old_data_manifest_bytes)
+            else:
+                installed_data_manifest.unlink(missing_ok=True)
         if installed and install_root.exists():
             shutil.rmtree(install_root)
         if workspace_created and workspace.exists():
@@ -883,6 +950,113 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
             except (OSError, NameError):
                 pass
         raise
+
+
+def stage_installation_update(*, bundle: Path, installation: Path) -> Path:
+    """Build a verified replacement beside an installation, preserving its data paths."""
+    bundle = Path(bundle).expanduser().resolve(strict=True)
+    installation = Path(installation).expanduser().resolve(strict=True)
+    current = verify_installation(installation)
+    incoming = verify_bundle(bundle)
+    new_manifest = inspect_bundle(bundle)
+    old_bundle_manifest = json.loads(
+        (installation / 'bundle-manifest.json').read_text(encoding='utf-8'))
+    old_manifest = json.loads((installation / 'installation.json').read_text(encoding='utf-8'))
+    if new_manifest.get('profile') != old_manifest.get('profile'):
+        raise BundleError('update Android profile is incompatible with this installation')
+    old_build = old_bundle_manifest.get('android', {}).get('build_id')
+    new_build = new_manifest.get('android', {}).get('build_id')
+    if old_build and new_build and old_build != new_build:
+        raise BundleError('update Android build differs; userdata compatibility is unverified')
+    if current.get('bundle_id') != old_manifest.get('bundle_id'):
+        raise BundleError('installation manifest and installed bundle identity differ')
+    stage = installation.with_name(f'.{installation.name}.update-{uuid.uuid4().hex}')
+    try:
+        shutil.copytree(bundle / 'runtime', stage / 'runtime', symlinks=True,
+                        copy_function=shutil.copy2)
+        shutil.copytree(bundle / 'workspace-artifacts', stage / 'workspace-artifacts',
+                        symlinks=True, copy_function=shutil.copy2)
+        shutil.copytree(bundle / 'rootfs', stage / 'rootfs', symlinks=True,
+                        copy_function=shutil.copy2)
+        shutil.copy2(bundle / 'manifest.json', stage / 'bundle-manifest.json')
+        shutil.copytree(installation / 'bin', stage / 'bin', symlinks=True,
+                        copy_function=shutil.copy2)
+        for name in INSTALL_ROOTFS_MOUNTPOINTS:
+            (stage / 'rootfs' / name).mkdir(exist_ok=True)
+        updated = dict(old_manifest)
+        updated.update({'bundle_id': incoming['bundle_id'],
+                        'installation_integrity': 'PASS',
+                        'update_from': current.get('bundle_id')})
+        updated['paths'] = dict(old_manifest.get('paths', {}))
+        updated['paths'].update({'rootfs': str(installation / 'rootfs'),
+                                 'runtime': str(installation / 'runtime'),
+                                 'workspace_artifacts': str(installation / 'workspace-artifacts')})
+        (stage / 'installation.json').write_text(
+            json.dumps(updated, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+        report = verify_installation(stage)
+        if report.get('integrity') != 'PASS':
+            raise BundleError('staged update failed installation integrity verification')
+        return stage
+    except Exception:
+        if stage.exists():
+            shutil.rmtree(stage)
+        raise
+
+
+def activate_staged_update(*, stage: Path, installation: Path) -> Path:
+    """Swap immutable installation trees and retain the previous tree for rollback."""
+    stage = Path(stage).resolve(strict=True)
+    installation = Path(installation).resolve(strict=True)
+    if stage.parent != installation.parent or stage == installation:
+        raise BundleError('staged update must be a sibling of its installation')
+    if verify_installation(stage).get('integrity') != 'PASS':
+        raise BundleError('refusing to activate an unverified staged update')
+    old = verify_installation(installation)
+    previous = installation.with_name(f'.{installation.name}.previous-{old["bundle_id"]}')
+    if previous.exists():
+        raise BundleError(f'previous release already exists; preserve it before updating: {previous}')
+    installation.rename(previous)
+    try:
+        stage.rename(installation)
+        if verify_installation(installation).get('integrity') != 'PASS':
+            raise BundleError('activated update failed integrity verification')
+    except Exception:
+        if installation.exists():
+            failed = installation.with_name(f'.{installation.name}.failed-{uuid.uuid4().hex}')
+            installation.rename(failed)
+        previous.rename(installation)
+        raise
+    return previous
+
+
+def restore_previous_installation(*, installation: Path, previous: Path) -> Path:
+    """Restore a verified prior release without touching workspace userdata."""
+    installation = Path(installation).resolve(strict=True)
+    previous = Path(previous).resolve(strict=True)
+    if previous.parent != installation.parent or previous == installation:
+        raise BundleError('rollback tree must be a sibling of the current installation')
+    current = verify_installation(installation)
+    prior = verify_installation(previous)
+    current_manifest = json.loads((installation / 'bundle-manifest.json').read_text())
+    prior_bundle = json.loads((previous / 'bundle-manifest.json').read_text())
+    current_build = current_manifest.get('android', {}).get('build_id')
+    prior_build = prior_bundle.get('android', {}).get('build_id')
+    if current_build and prior_build and current_build != prior_build:
+        raise BundleError('rollback Android build is incompatible with current userdata')
+    failed = installation.with_name(f'.{installation.name}.rolled-back-{current["bundle_id"]}')
+    if failed.exists():
+        failed = installation.with_name(failed.name + '-' + uuid.uuid4().hex)
+    installation.rename(failed)
+    try:
+        previous.rename(installation)
+        if verify_installation(installation).get('integrity') != 'PASS':
+            raise BundleError('restored release failed integrity verification')
+    except Exception:
+        if installation.exists():
+            installation.rename(previous)
+        failed.rename(installation)
+        raise
+    return failed
 
 
 if __name__ == '__main__' and len(sys.argv) == 4 and sys.argv[1] == '--copy-rootfs':
