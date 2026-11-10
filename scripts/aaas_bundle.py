@@ -84,6 +84,10 @@ RUNTIME_FILES = (
     'docs/storage/ext4-controlled-recovery-followup-2026-11-10.md',
 )
 WORKSPACE_FILES = (
+    'tmp/aaas-ethernet-compat/aaas_ethernet_connectivity_overlay.apk',
+    'tmp/aaas-ethernet-compat/aaas_service-connectivity.jar',
+    'tmp/aaas-ethernet-compat/aaas_NetworkStack.apk',
+    'tmp/aaas-ethernet-compat/aaas_ethernet_connectivity_overlay.json',
     'tmp/m1b84_composer_portrait_720x1280',
     'tmp/android.hardware.graphics.composer3-service.aaas',
     'tmp/android.hardware.graphics.allocator-service.aaas',
@@ -280,6 +284,8 @@ def _runtime_closure_report(root: Path):
         'workspace-artifacts/tmp/slirp4netns',
         'workspace-artifacts/tmp/slirp4netns.build.json',
     )
+    required += tuple('workspace-artifacts/' + path for path in WORKSPACE_FILES
+                      if path.startswith('tmp/aaas-ethernet-compat/'))
     missing = [relative for relative in required
                if not (root / relative).is_file()]
     slirp_binary = root / 'workspace-artifacts/tmp/slirp4netns'

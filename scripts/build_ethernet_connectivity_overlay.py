@@ -114,7 +114,42 @@ def patch_tcp_socket_tracker(smali: Path) -> None:
     smali.write_text(patched, encoding='utf-8')
 
 
+def verified_packaged_overlay(workspace: Path, rootfs: Path, output_dir: Path):
+    """Reuse manifest-carried signed overlays without distributing signing keys.
+
+    The receipt must match every consumed Android image input and every output.
+    Bundle integrity authenticates these bytes only to the supplied manifest;
+    this does not establish publisher authenticity or production trust.
+    """
+    receipt_path = output_dir / 'aaas_ethernet_connectivity_overlay.json'
+    try:
+        receipt = json.loads(receipt_path.read_text())
+        if receipt.get('schema_version') != 3:
+            return None
+        inputs = receipt['inputs']
+        for relative in ('system/framework/framework-res.apk',
+                         'vendor/overlay/goldfish_overlay_connectivity_gsi.apk',
+                         'apex/com.android.tethering/javalib/service-connectivity.jar',
+                         'system/priv-app/NetworkStack/NetworkStack.apk'):
+            matches = [v for k, v in inputs.items() if k.endswith('/' + relative)]
+            if len(matches) != 1 or matches[0] != sha256(rootfs / relative):
+                return None
+        for key, name in {
+            'connectivity_overlay': 'aaas_ethernet_connectivity_overlay.apk',
+            'service_connectivity_jar': 'aaas_service-connectivity.jar',
+            'network_stack_apk': 'aaas_NetworkStack.apk',
+        }.items():
+            if receipt['outputs'][key] != sha256(output_dir / name):
+                return None
+        return receipt
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def build(workspace: Path, rootfs: Path, output_dir: Path) -> dict:
+    cached = verified_packaged_overlay(workspace, rootfs, output_dir)
+    if cached is not None:
+        return cached
     tmp = workspace / 'tmp'
     apktool = tmp / 'apktool_3.0.3.jar'
     apksig = tmp / 'apksig-8.9.1.jar'
