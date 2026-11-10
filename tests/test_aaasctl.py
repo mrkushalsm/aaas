@@ -22,6 +22,15 @@ class AaasControlClientTests(unittest.TestCase):
         self.assertLess(len(os.fsencode(path)), 108)
         self.assertTrue(str(path).startswith('/run/user/1000/aaas/'))
 
+    def test_finds_ipc_directory_for_short_runtime_socket(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ipc = root / 'm1b84_session_abcdefgh' / 'ipc'
+            ipc.mkdir(parents=True)
+            endpoint = Path('/run/user/1000/aaas/1234567890/session.sock')
+            (ipc / 'aaas-control.path').write_text(str(endpoint) + '\n')
+            self.assertEqual(aaas_control.session_ipc_dir(root, endpoint), ipc)
+
     def test_storage_scan_sends_a_relative_shared_path_to_the_active_session(self):
         class Connection:
             def __enter__(self):

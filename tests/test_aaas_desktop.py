@@ -29,6 +29,21 @@ class DesktopLauncherTests(unittest.TestCase):
                                  SimpleNamespace(returncode=3, stdout='inactive\n')):
                 self.assertFalse(aaas_desktop._persistent_service_active())
 
+    def test_custom_installed_service_name_is_detected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_home = Path(directory)
+            unit = config_home / 'systemd/user/aaas-runtime-test.service'
+            unit.parent.mkdir(parents=True)
+            unit.write_text('[Service]\n')
+            with patch.dict('os.environ', {'AAAS_RUNTIME_SERVICE':
+                                           'aaas-runtime-test.service'}), \
+                    patch.object(aaas_desktop.aaas_config, 'xdg_paths',
+                                 return_value={'config_home': config_home}), \
+                    patch.object(aaas_desktop.subprocess, 'run', return_value=
+                                 SimpleNamespace(returncode=0, stdout='active\n')):
+                self.assertEqual(aaas_desktop._persistent_service_unit_path(), unit)
+                self.assertTrue(aaas_desktop._persistent_service_active())
+
     def test_package_identity_is_validated(self):
         with self.assertRaises(ValueError):
             aaas_desktop.render_launcher("com.example;touch /tmp/pwn", "App")
@@ -266,6 +281,8 @@ class DesktopLauncherTests(unittest.TestCase):
                     patch.object(aaas_desktop, "launch_application") as launch, \
                     patch.object(aaas_desktop, "request_package_catalog",
                                  return_value=snapshot), \
+                    patch.object(aaas_desktop.aaas_control, "session_ipc_dir",
+                                 return_value=endpoint.parent), \
                     patch.object(aaas_desktop, "sync_package_catalog",
                                  return_value={"count": 0, "collisions": [], "catalog": "x"}), \
                     patch.object(aaas_desktop, "_control_request",

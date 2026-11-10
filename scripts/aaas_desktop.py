@@ -316,7 +316,7 @@ def request_package_catalog(timeout=30):
     if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
         raise RuntimeError("AaaS session returned an invalid catalog request identity")
     output = Path(result.get("catalog_path", ""))
-    ipc = endpoint.parent
+    ipc = aaas_control.session_ipc_dir(WORKSPACE_TMP, endpoint)
     expected = ipc / f"catalog-{request_id}.tsv"
     try:
         if output.resolve(strict=True) != expected.resolve(strict=False):
@@ -352,7 +352,7 @@ def refresh_package_catalog(*, env=None):
         # A service-owned runtime is persistent even if catalog refresh had to
         # start it. Only a foreground temporary session is stopped here.
         if not persistent_service:
-            session_dir = endpoint.parent.parent
+            session_dir = aaas_control.session_ipc_dir(WORKSPACE_TMP, endpoint).parent
     try:
         snapshot = request_package_catalog()
         synchronized = sync_package_catalog(
@@ -489,6 +489,7 @@ def _newest_session_after(started_at):
 
 
 def _persistent_service_unit_path():
+    service_name = _runtime_service_name()
     try:
         manager = subprocess.run(['systemctl', '--user', 'show-environment'],
                                  capture_output=True, text=True, timeout=3)
@@ -508,7 +509,14 @@ def _persistent_service_unit_path():
         root = None
     if not root or not root.is_absolute():
         root = aaas_config.xdg_paths()['config_home']
-    return root / 'systemd/user/aaas-runtime.service'
+    return root / 'systemd/user' / service_name
+
+
+def _runtime_service_name():
+    name = os.environ.get('AAAS_RUNTIME_SERVICE', 'aaas-runtime.service')
+    if not re.fullmatch(r'[A-Za-z0-9_.@-]+\.service', name):
+        raise RuntimeError('AAAS_RUNTIME_SERVICE must be a valid user service unit name')
+    return name
 
 
 def _persistent_service_active():
@@ -518,7 +526,7 @@ def _persistent_service_active():
         if not unit.is_file():
             return False
         result = subprocess.run(['systemctl', '--user', 'is-active',
-                                 'aaas-runtime.service'], capture_output=True,
+                                 _runtime_service_name()], capture_output=True,
                                 text=True, timeout=3)
         return result.returncode == 0 and result.stdout.strip() == 'active'
     except (OSError, subprocess.SubprocessError, ValueError):
@@ -538,7 +546,8 @@ def _start_persistent_service():
         if imported.returncode:
             raise RuntimeError('cannot import the active desktop session into systemd: ' +
                                (imported.stderr or imported.stdout).strip())
-    started = subprocess.run(['systemctl', '--user', 'start', 'aaas-runtime.service'],
+    service_name = _runtime_service_name()
+    started = subprocess.run(['systemctl', '--user', 'start', service_name],
                              capture_output=True, text=True, timeout=270)
     if started.returncode:
         raise RuntimeError('cannot start the AaaS user service: ' +
@@ -553,7 +562,7 @@ def _start_persistent_service():
         except RuntimeError as error:
             last_error = error
         active = subprocess.run(['systemctl', '--user', 'is-active',
-                                 'aaas-runtime.service'], capture_output=True,
+                                 service_name], capture_output=True,
                                 text=True, timeout=3)
         if active.returncode:
             break

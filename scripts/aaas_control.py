@@ -39,3 +39,26 @@ def socket_candidates(workspace_tmp):
         if len(str(legacy).encode()) < 108 and str(legacy) not in seen:
             seen.add(str(legacy))
             yield legacy
+
+
+def session_ipc_dir(workspace_tmp, socket_path):
+    """Find the session IPC directory advertising a short control socket."""
+    target = Path(socket_path)
+    root = Path(workspace_tmp)
+    for session in root.glob('m1b84_session_*'):
+        if session.is_symlink() or not session.is_dir():
+            continue
+        ipc = session / 'ipc'
+        try:
+            advertised = (ipc / 'aaas-control.path').read_text(
+                encoding='utf-8').strip()
+        except (OSError, UnicodeError):
+            continue
+        if advertised == str(target):
+            return ipc
+    # Legacy sessions kept the control socket directly in their IPC directory.
+    parent = target.parent
+    if parent.name == 'ipc' and (parent.parent.parent == root
+                                or root in parent.parents):
+        return parent
+    raise FileNotFoundError('control socket has no matching AaaS session')
