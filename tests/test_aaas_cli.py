@@ -180,6 +180,7 @@ class AaasCliTests(unittest.TestCase):
         self.assertIn('StartLimitIntervalSec=60', contents)
         self.assertIn('StartLimitBurst=3', contents)
         self.assertIn('RestartSec=10s', contents)
+        self.assertIn('CLANGXX XDG_CONFIG_HOME', contents)
 
     def test_runtime_service_enables_verified_workspace_native_bridge_bundle(self):
         with tempfile.TemporaryDirectory() as temporary:

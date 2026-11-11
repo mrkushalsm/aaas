@@ -723,7 +723,7 @@ def _install_runtime_service(config):
                f'Environment=AAAS_LAUNCHER_PATH={quote(str(ROOT.parent / "bin/aaas"))}\n'
                'Environment=AAAS_AUDIO=' + ('1' if config.audio else '0') + '\n'
                'PassEnvironment=WAYLAND_DISPLAY DISPLAY XDG_RUNTIME_DIR '
-               'DBUS_SESSION_BUS_ADDRESS XDG_CONFIG_HOME XDG_DATA_HOME '
+               'DBUS_SESSION_BUS_ADDRESS CLANGXX XDG_CONFIG_HOME XDG_DATA_HOME '
                'XDG_CACHE_HOME XDG_STATE_HOME\n'
                'Restart=on-failure\nRestartSec=10s\nTimeoutStartSec=250s\n'
                'TimeoutStopSec=45s\nKillMode=mixed\n\n'
