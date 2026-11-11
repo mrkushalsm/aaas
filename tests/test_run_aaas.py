@@ -43,6 +43,17 @@ class HeadlessControlStateTests(unittest.TestCase):
             self.assertEqual(SESSION.read_presenter_slot_state(temporary, 2), 'READY')
 
 
+class SELinuxXattrCompatibilityTests(unittest.TestCase):
+    def test_runner_preloads_the_fedora_android_label_compatibility_library(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory) / 'session'
+            session.mkdir()
+            generated = SESSION.make_session_runner(session).read_text()
+        self.assertIn(
+            '--setenv LD_PRELOAD /system/lib64/libaaas-selinux-xattr-compat.so:'
+            '/system/lib64/libselinux_shim.so', generated)
+
+
 class DiagnosticOverlayManifestTests(unittest.TestCase):
     def _overlay_with_manifest(self, directory):
         import hashlib

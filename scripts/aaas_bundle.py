@@ -76,7 +76,9 @@ EXTRA_BINARIES = {
     'experiments/m4/clipboard/build/aaas-wayland-clipboard',
 }
 RUNTIME_FILES = (
+    'experiments/m1b/selinux_xattr_compat.c',
     'experiments/perf/input_latency_probe/build_probe.py',
+    'scripts/build_android_selinux_xattr_compat.py',
     'scripts/aaas_portable_installer.py',
     # The enrolled external workspace policy hashes this recovery record. Keep
     # the evidence beside the installed runtime so checkout-free verification
@@ -398,6 +400,8 @@ def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
     try:
         (stage / 'rootfs').mkdir(parents=True)
         _copy_rootfs_mapped(rootfs, stage / 'rootfs')
+        if not (stage / 'rootfs/system/lib64/libaaas-selinux-xattr-compat.so').is_file():
+            raise BundleError('diagnostic runtime is missing its Android SELinux xattr compatibility preload')
         for relative in ('system/lib64/libselinux_shim.so',
                          'vendor/lib64/libselinux_shim.so'):
             if not (stage / 'rootfs' / relative).is_file():
@@ -472,6 +476,11 @@ def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
                 provenance = 'EXTRACTED_FROM_RECORDED_ANDROID_SDK_IMAGE'
                 source = 'Android SDK system partition, Android 16 BE2A.250530.026.D1'
                 role = 'audio compatibility overlay input'
+            elif path == 'rootfs/system/lib64/libaaas-selinux-xattr-compat.so':
+                provenance = 'GENERATED_FROM_AAAS_SOURCE'
+                source = ('experiments/m1b/selinux_xattr_compat.c via '
+                          'scripts/build_android_selinux_xattr_compat.py')
+                role = 'Android x86_64 diagnostic SELinux label compatibility preload'
             elif path.startswith('workspace-artifacts/'):
                 provenance = 'UNVERIFIED_PROVENANCE'
                 source = 'retained historical M4 generated workspace artifact'

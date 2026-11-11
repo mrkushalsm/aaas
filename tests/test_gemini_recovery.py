@@ -4,6 +4,10 @@
 import hashlib
 import json
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -50,12 +54,38 @@ class GeminiBootRecoveryTest(unittest.TestCase):
             "setsockopt",
             "mount",
             "setpriority",
-            "ioctl"
+            "ioctl",
         ]
 
         for sym in required_symbols:
             pattern = rf"\b{sym}\b"
             self.assertTrue(re.search(pattern, content) is not None, f"Symbol {sym} must be implemented in shim")
+
+    @unittest.skipUnless(shutil.which("cc"), "a C compiler is required for the shim behavior test")
+    def test_selinux_xattr_fallback_is_narrow(self):
+        source = self.repo_root / "tests" / "test_selinux_xattr_compat.c"
+        compat_source = self.repo_root / "experiments" / "m1b" / "selinux_xattr_compat.c"
+        self.assertTrue(compat_source.is_file())
+        self.assertIn("int fsetxattr(", compat_source.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="aaas-selinux-xattr-") as temp:
+            binary = Path(temp) / "test-selinux-xattr"
+            subprocess.run(["cc", "-std=gnu11", str(source), "-o", str(binary)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+
+    @unittest.skipUnless(shutil.which("clang"), "Clang is required for Android preload build test")
+    def test_android_xattr_preload_builds_as_x86_64_shared_object(self):
+        builder = self.repo_root / "scripts" / "build_android_selinux_xattr_compat.py"
+        with tempfile.TemporaryDirectory(prefix="aaas-android-xattr-build-") as temp:
+            output = Path(temp) / "libaaas-selinux-xattr-compat.so"
+            subprocess.run([sys.executable, str(builder), str(output)], check=True,
+                           capture_output=True, text=True)
+            payload = output.read_bytes()
+            self.assertEqual(payload[:4], b"\x7fELF")
+            self.assertEqual(payload[4], 2)
+            self.assertEqual(payload[5], 1)
+            self.assertEqual(int.from_bytes(payload[18:20], "little"), 62)
+            self.assertGreater(len(payload), 1000)
 
     def test_binder_service_list_parser(self):
         """Verify parsing of service list output demonstrating multi-service Binder registration."""

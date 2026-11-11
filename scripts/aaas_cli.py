@@ -24,6 +24,7 @@ import aaas_bundle
 import aaas_graphics
 import aaas_dev
 import aaas_portable_installer
+import build_android_selinux_xattr_compat
 
 
 class CliError(RuntimeError):
@@ -1104,6 +1105,12 @@ def main(argv=None):
                     raise CliError('bundle output must remain inside the enrolled workspace') from error
                 if _status(config)['runtime']['state'] != 'STOPPED':
                     raise CliError('bundle creation requires all AaaS sessions to be stopped')
+                xattr_shim = config.workspace / 'rootfs_m1b1' / 'system/lib64' / \
+                    'libaaas-selinux-xattr-compat.so'
+                try:
+                    build_android_selinux_xattr_compat.build(xattr_shim)
+                except RuntimeError as error:
+                    raise CliError(str(error)) from error
                 result = aaas_bundle.create_bundle(
                     repo=ROOT, rootfs=config.workspace / 'rootfs_m1b1', output=output,
                     workspace=config.workspace,

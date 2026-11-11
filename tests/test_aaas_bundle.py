@@ -66,6 +66,8 @@ class BundleTests(unittest.TestCase):
         (rootfs / 'vendor/build.prop').write_text('ro.test=true\n')
         (rootfs / 'system/lib64/libselinux_shim.so').write_bytes(b'known legacy shim')
         (rootfs / 'vendor/lib64/libselinux_shim.so').write_bytes(b'known legacy shim')
+        (rootfs / 'system/lib64/libaaas-selinux-xattr-compat.so').write_bytes(
+            b'xattr compatibility fixture')
         (rootfs / 'system/etc/init/servicemanager.rc').write_text(
             'setenv LD_PRELOAD /system/lib64/libselinux_shim.so\n')
         (rootfs / 'data/private.db').write_bytes(b'private userdata')
@@ -107,6 +109,8 @@ class BundleTests(unittest.TestCase):
             self.assertTrue((output / 'workspace-artifacts/tmp/m1e_composer_two_output.json').is_file())
             self.assertTrue((output / 'workspace-artifacts/toolchain/libc++/usr/include/c++/v1/vector').is_file())
             self.assertTrue((output / 'rootfs/init').is_symlink())
+            self.assertTrue((output / 'rootfs/system/lib64/'
+                             'libaaas-selinux-xattr-compat.so').is_file())
             self.assertEqual(
                 (output / 'runtime/experiments/perf/input_latency_probe/build_probe.py').read_bytes(),
                 (repo / 'experiments/perf/input_latency_probe/build_probe.py').read_bytes())
@@ -114,6 +118,16 @@ class BundleTests(unittest.TestCase):
             moved.parent.mkdir()
             output.rename(moved)
             self.assertEqual(aaas_bundle.verify_bundle(moved)['integrity'], 'PASS')
+
+    def test_bundle_creation_requires_the_selinux_xattr_compatibility_preload(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            repo, workspace, rootfs = self.fixture(base)
+            (rootfs / 'system/lib64/libaaas-selinux-xattr-compat.so').unlink()
+            with self.assertRaisesRegex(aaas_bundle.BundleError,
+                                        'missing its Android SELinux xattr compatibility preload'):
+                aaas_bundle.create_bundle(repo=repo, rootfs=workspace / 'rootfs_m1b1',
+                                          output=base / 'bundle', workspace=workspace)
 
     def test_manifest_detects_tampering_and_unmanifested_files(self):
         with tempfile.TemporaryDirectory() as td:

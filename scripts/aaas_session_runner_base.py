@@ -381,7 +381,7 @@ for name in ["binder", "hwbinder", "vndbinder", "binder-control"]:
   --setenv ANDROID_ART_ROOT /apex/com.android.art \\
   --setenv ANDROID_I18N_ROOT /apex/com.android.i18n \\
   --setenv ANDROID_TZDATA_ROOT /apex/com.android.tzdata \\
-  --setenv LD_PRELOAD /system/lib64/libselinux_shim.so \\
+  --setenv LD_PRELOAD /system/lib64/libaaas-selinux-xattr-compat.so:/system/lib64/libselinux_shim.so \\
   sh -c '
     sleep() {{ /system/bin/toybox sleep "$@"; }}
     /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true
