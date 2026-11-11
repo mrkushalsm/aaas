@@ -844,6 +844,32 @@ class ForegroundRunnerTests(unittest.TestCase):
             self.assertIn('AAAS_VIRTUAL_DISPLAY_MAX_COUNT=64', command)
             self.assertIn(f'BIN={output}', command)
 
+    def test_multi_app_mode_reuses_composer_with_larger_verified_capacity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'composer-two-output'
+            libcxx = Path(directory) / 'libc++'
+            headers = libcxx / 'usr/include/c++/v1'
+            headers.mkdir(parents=True)
+            (headers / 'vector').write_text('fixture')
+
+            def create_output(command, check):
+                self.assertTrue(check)
+                output.write_bytes(b'verified composer')
+
+            with patch.dict(os.environ, {'AAAS_TOOLCHAIN_LIBCXX': str(libcxx)}), \
+                    patch.object(SESSION, 'COMPOSER_MULTI_OUTPUT', output), \
+                    patch.object(SESSION.subprocess, 'run', side_effect=create_output) as run:
+                SESSION.build_multi_output_composer(max_count=64)
+                receipt = output.with_suffix('.json')
+                recorded = json.loads(receipt.read_text())
+                recorded['max_count'] = 64
+                receipt.write_text(json.dumps(recorded))
+                run.reset_mock()
+
+                self.assertEqual(SESSION.build_multi_output_composer(max_count=16), output)
+
+            run.assert_not_called()
+
     def test_app_mode_hides_primary_diagnostic_unless_explicitly_requested(self):
         from types import SimpleNamespace
         self.assertFalse(SESSION.show_primary_diagnostic(SimpleNamespace(
