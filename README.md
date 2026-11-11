@@ -94,7 +94,7 @@ Run the Python suite with:
 python3 -m unittest discover -s tests -q
 ```
 
-The Python suite passed 554 tests on 2026-11-11 in the current source worktree; unit tests do not establish live graphical, audio, or network acceptance. See the [release readiness record](docs/release-readiness-2026-11-11.md) for candidate-specific results and remaining gates.
+The Python suite ran 554 tests on 2026-11-11: 548 passed and 6 were skipped in the current source worktree; unit tests do not establish live graphical, audio, or network acceptance. See the [release readiness record](docs/release-readiness-2026-11-11.md) for candidate-specific results and remaining gates.
 
 The [image assembly guide](docs/android-rootfs-reconstruction.md) describes the separate, incomplete upstream-image reconstruction path.
 
@@ -133,6 +133,8 @@ binary redistribution therefore remain unapproved.
 - [Security boundaries](docs/security/rootless-android-architecture.md)
 - [Dependency and license inventory](docs/dependencies-and-licenses.md)
 - [Local release readiness and candidate evidence](docs/release-readiness-2026-11-11.md)
+- [Candidate acceptance record](docs/release/local-prepublication-acceptance-52926e6-2026-11-11.json)
+- [Candidate bundle inventory](docs/release/sbom-engineering-52926e6.json)
 - [Security review](docs/release/security-review-2026-11-11.md)
 
 Historical milestone documents retain their dated findings. Machine-specific mount paths, device identifiers, UUIDs, and temporary paths in those records have been normalized to placeholders such as `$AAAS_WORKSPACE`, `$AAAS_WORKSPACE_DEVICE`, and temporary paths; those variables may need to be set before adapting old commands. The repository does not include a project-level license grant, and no project-wide license should be inferred from upstream component licenses. Source publication and binary redistribution are not approved; the [dependency inventory](docs/dependencies-and-licenses.md) records the unresolved rights and provenance gaps. No GitHub repository or public release has been configured.

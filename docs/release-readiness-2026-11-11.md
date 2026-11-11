@@ -1,149 +1,81 @@
-# AaaS local release readiness — 2026-11-11
+# Local publication readiness — 2026-11-11
 
-This report covers the latest locally built bundle and a disposable update/
-rollback run. Source commit `cc2dffbffc22c720d231e760c99d472a5f325242` adds an
-uninstall cleanup fix after the bundle build; the bundle does not include that
-fix. An update is not equivalent to a clean fresh install.
+This report describes the current source tree and the existing local engineering
+bundle separately. It is not approval to publish either one.
 
-## Release identity
+## Current source checks
 
-- Bundle source revision: `7226838e908e071d971d37e5a9989f111c72d47d`.
-- Runtime source revision tested: `cc2dffbffc22c720d231e760c99d472a5f325242` (uninstall-only runtime fix after bundle build; subsequent commit is documentation/evidence only).
-- Bundle: `engineering-7226838`, ID `fd386b95a7a949de9da3bb18c88e5c64`.
-- Bundle location: `$XDG_DATA_HOME/aaas-release-artifacts/engineering-7226838`.
-- Manifest SHA-256: `1d743363858b5836f7364d7d6b67c22cfb190c4eda10dfa6b58e0805f774faa2`.
-- Integrity: **PASS**, 6,999 manifest entries.
-- Runtime closure: **PASS**, 24 inputs checked, no missing inputs.
-- Candidate metadata records `source_tree_dirty_at_capture=true`; this bundle is tied to the commit but was assembled while documentation changes were uncommitted.
+- Repository branch: `master`; source changes are committed through `e6998d3`; current release documentation is being finalized on that source revision.
+- Python regression suite: **554 tests run: 548 passed, 6 skipped** on the current worktree.
+- Focused bundle-provenance tests: **11 passed** after correcting how future manifests classify generated installer wrappers.
+- M1A native presenter rebuild/test, Python compileall, shell syntax, and `git diff --check` passed. The M1A build used the render node selected by the host capability probe.
+- Documentation inventory covers **98 Markdown/license-named files**. The audit records **42 corrected files**, 12 current operational/release documents reconciled against code/tests/evidence, and 354 local Markdown links checked with zero broken links. Historical records remain labeled as historical.
+- All tracked JSON/JSONL evidence files parse successfully (271 checked). Tracked documentation and result records now use generic placeholders for local home/workspace paths and host storage identifiers; the Git history is unchanged and still contains historical host-specific values. The original `aaas-runtime.service` is active; `aaas-portable status` reports Android `RUNNING` from installation `$AAAS_INSTALLATION/rootfs`.
 
-## Capacity override used for disposable update/rollback
+Evidence: [`documentation audit`](release/documentation-audit-2026-11-11.json),
+[`candidate SBOM`](release/sbom-engineering-52926e6.json), and the
+[machine-readable local acceptance record](release/local-prepublication-acceptance-52926e6-2026-11-11.json).
 
-The host had 6,088,290,304 bytes free before the update and the staged update
-needed about 3,491,054,905 bytes. At the user's explicit one-time direction,
-only the disposable `aaas-m5-final-test.service` and its CLI invocation received
-`AAAS_ROOT_FREE_RESERVE_GIB=1`. The original `aaas-runtime.service` and global
-systemd environment were not changed. The override drop-in was removed and
-`systemd --user daemon-reload` completed after rollback. No reserve guard or
-security check was changed in source. The candidate test service was then
-stopped; the 10 GiB workspace marker remains intact.
+## Existing engineering bundle
 
-## Exact-candidate update and rollback
+- Name: `engineering-42ae1e4`
+- Bundle ID: `52926e6cb5e54766918af1a4dd7b0ec7`
+- Path: `$XDG_DATA_HOME/aaas-release-artifacts/engineering-42ae1e4`
+- Source revision recorded by the bundle: `42ae1e4932f828d75f7c50d21c999d9d82300eb7`
+- Manifest SHA-256: `dc181f591a4a54316fe733853d61b200937a3708681aaab691d580a4a0326834`
+- Integrity: **PASS**, 6,991 manifest entries.
+- Declared runtime closure: **PASS**, 24 inputs checked, no missing inputs.
+- The bundle verifier also reports `general_runtime_start: BLOCKED` and `runtime_security: NOT_APPROVED`.
+- Bundle contents do not include source changes committed after `42ae1e4`; they have not been rebuilt in this publication-preparation pass.
 
-- Starting installation C used previous bundle `52926e6cb5e54766918af1a4dd7b0ec7` and a separate userdata/workspace.
-- Supported `aaas update` to `fd386b95a7a949de9da3bb18c88e5c64` completed, reinstalled the user service, and reported Android runtime `RUNNING`.
-- Android catalog had 15 applications after update, including Apotris, VLC, Audio Probe, and Network Probe; these also remained present after rollback.
-- After update, Apotris launched on display 3 and reported `RUNNING`; presenter log contained 1,109 `frame_presented` events in that session at the check. VLC launched on display 7 and the presenter log count reached 671. VLC's Android ARM translation library load was directly established on the prior candidate in earlier evidence; this pass confirms VLC app/window execution on this candidate, but does not independently recapture the `libvlcjni.so` load.
-- Network Probe was launched from Android. Its live app view reported `network=100`, `INTERNET=true`, `VALIDATED=true`, `iface=eth0`, DNS `10.0.2.3`, default gateway `10.0.2.2`, successful lookup `142.251.150.120`, HTTPS 204, and TLS 1.3 (`TLS_AES_128_GCM_SHA256`). Screenshot: [`installed candidate network result`](release/network-probe-engineering-fd386b95.png), SHA-256 `9f009184a50bda9210c81b1af06f30fe5041e5ed948988caa03ebb126a37e040`. Optional MediaStore export reported an `InvocationTargetException`; the visible app result passed.
-- Android Audio Probe launched from this candidate. The AaaS bridge opened and closed a 48 kHz stereo S16 playback stream with 2,223,360 bytes. A 12-second independent PipeWire Headphones monitor capture recorded 4,521,984 raw S32 bytes / 1,130,496 samples, 372,284 nonzero samples, peak 4,653,056 (about 71 in S16-equivalent units), RMS 1,716,638 (about 26.2 S16-equivalent over signal plus silence), no clipping, SHA-256 `6260bf8c8772dd7ecb93e7867036f8e305f91d7ba1b10b2b2588c3388eccf63b`. The Android stream was released. This is objective transport evidence; no new human listening confirmation was requested for this candidate. Historical audible-and-clear confirmation is in `results/audio/human-listening-2026-11-10.json`.
-- Supported `aaas rollback` restored `52926e6cb5e54766918af1a4dd7b0ec7`, restarted Android to `RUNNING`, retained the failed/new generation separately, and launched Settings on display 3. Its presenter log contained 151 `frame_presented` events at the check.
-- The candidate test installation was then uninstalled with userdata preservation. The workspace/userdata markers were unchanged, but uninstall restored the test profile's own backup unit; the now-stale unit was manually removed after ownership checks. The current source fix prevents restoring that same-profile unit, with a regression test for preserving a different profile's unit. This fix is not included in bundle `fd386b95`.
-- The original installation and userdata were not modified.
+The candidate-specific SBOM hashes all 5,293 regular files, but does not establish
+redistribution rights. Its provenance records remain incomplete: 1,965 of 1,982
+executable/library rows have unverified provenance, all 1,982 license reviews
+are unreviewed, and 3,311 other regular files are `NOASSERTION`.
 
-Update and rollback are **PASS for this isolated lifecycle**, with a temporary explicit 1 GiB root reserve for the test only. Live uninstall is **FAIL on the bundle as built; source fix verified by tests but not yet rebuilt/retested**. The normal 10 GiB capacity check remains in place outside the temporary candidate service override.
+## Candidate runtime evidence and open acceptance
 
-## Fresh installation and reliability
+The evidence available for this bundle includes a pristine first boot and
+subsequent restart for isolated installation C, and earlier application-window
+and ARM-translation observations. Installation B had an intermittent
+SurfaceFlinger failure during pristine first boot. Its cause remains unknown;
+the successful C run does not establish reliable first boot across installations.
 
-- A pristine first-boot test of this exact new bundle was **NOT RUN**; the earlier pristine C test belongs to bundle `52926e6cb5e54766918af1a4dd7b0ec7`.
-- An earlier failed update attempt to this bundle was automatically rolled back when the normal 10 GiB free-space reserve rejected startup. That failure and rollback state were preserved. The later authorized, narrowly scoped acceptance run above completed update and rollback.
-- Historical installation B had an intermittent SurfaceFlinger first-boot crash; other pristine runs succeeded. Reliability across multiple fresh installations remains unestablished.
-- Five start/readiness/Apotris frame/close/stop cycles were completed against the previous bundle after temporarily applying the committed desktop launcher fix. They are not five-cycle acceptance of `fd386b95a7a949de9da3bb18c88e5c64`. Evidence remains local at `[lifecycle-cycle record](release/lifecycle-five-cycles-2026-11-11.json)`.
-- The exact candidate was started once by update and stopped after rollback validation. A five-cycle run against it is not complete.
+The following are **not verified for this exact bundle** in the available
+candidate-specific evidence: fresh-install repetition, exact-candidate update
+and rollback, five lifecycle cycles, installed-candidate Android audio, and
+installed-candidate Android DNS/HTTPS. Prior audio/network tests and update/
+rollback evidence belong to a different candidate (`engineering-7226838`, ID
+`fd386b95a7a949de9da3bb18c88e5c64`) and must not be attributed to this bundle.
 
-## Automated tests and documentation
-
-- `python3 -m unittest discover -s tests -q`: 549 passed, zero failures/errors (15.732 s) on runtime source revision `cc2dffb`. The focused CLI suite passed 21 tests, including two uninstall-backup regressions.
-- Focused desktop tests: 18 passed. Previously built native regression binaries: 17 passed; no native code changed in this pass.
-- Documentation audit: 89 Markdown/license-named files inventoried, all read/hashed, local links checked; zero broken local links. The audit distinguishes current operational docs reviewed against the implementation from historical records whose old experiments were not rerun.
-- Audit inventory: [`documentation audit`](release/documentation-audit-2026-11-11.json).
-- Bundle SBOM/path inventory: [`SBOM`](release/sbom-engineering-fd386b95.json).
+Other historical candidate evidence is indexed in
+[`acceptance-2026-11-11.json`](release/acceptance-2026-11-11.json); that record
+explicitly concerns the older `fd386b95` bundle and is not acceptance evidence
+for `52926e6c`.
 
 ## Security and redistribution
 
-The bundle is diagnostic-only and has runtime security `NOT_APPROVED`: it
-contains SELinux authorization shims, Android enforcement is unverified, and
-untrusted APKs are unsupported. Publisher authenticity is not established.
-The SBOM records `NOASSERTION`/`NOT_CLEARED` where source or license evidence is
-absent. There is no project-level license file. **Public source and binary
-publication remain blocked** until licensing/provenance and security issues
-are resolved. A checksum establishes byte integrity, not rights or publisher
-identity.
+- Runtime security: **NOT APPROVED**. The bundle uses Android SELinux
+  compatibility shims; enforcement and untrusted-APK isolation are not approved.
+- AaaS source license: **absent**. No project-level `LICENSE` grants rights to
+  publish AaaS-authored source.
+- Binary redistribution: **NOT CLEARED**. Android image and third-party
+  provenance/license obligations are unresolved. The candidate SBOM marks no
+  files cleared for redistribution.
+- Git history contains historical host paths and hardware identifiers. History
+  was not rewritten; no full-history sanitization has been performed.
+- No Git remote is configured, and no push or release upload was attempted.
+
+The component inventory in [`dependencies-and-licenses.md`](dependencies-and-licenses.md)
+and the SBOM are technical tracking artifacts, not legal approval. Do not publish
+the source or binary bundle until the project license is authorized and the
+binary rights/provenance review is complete.
 
 ## Decision
 
-**AAAS NOT YET READY.** Update/rollback, live audio transport, Android
-application networking, and app windows passed on the exact candidate in an
-isolated profile. The live uninstall exposed a defect fixed in source but not
-rebuilt into the candidate. Fresh installation, five lifecycle cycles against
-this exact bundle, direct ARM library-load evidence on this exact bundle,
-production security approval, and public redistribution clearance remain open.
-The one-time capacity exception has been used and removed. At this final check,
-the root filesystem had 12,690,132,992 bytes free and the external workspace
-had 3,342,888,960 bytes free. These amounts do not establish enough space for a
-complete staged candidate rebuild/update while preserving the configured
-reserve. The original service was explicitly restarted after disposable-test
-teardown and the installed CLI reports Android `RUNNING`; the disposable test
-unit is absent and its temporary override is removed.
-
-## Subsequent source work: resize window persistence
-
-After the candidate run above, source commit `2a9d97431e051fd2c6c91907133293996d91d719`
-fixed the Wayland window close/reopen behavior during Android resize. The
-installed development runtime was exercised with Settings through four
-Composer disconnect/reconnect cycles. The presenter PID remained `3674714`,
-KWin retained the same toplevel identity, and the trace contained one initial
-window identity and one decoration-context creation. Evidence is in
-[`dynamic resize acceptance`](../results/m1a/dynamic-resize-acceptance-2026-11-11.json).
-The full Python suite then passed 551 tests, and the M1A native presenter suite
-passed. This source fix has **not** been built into candidate
-`engineering-7226838`; the installed presenter was updated in place for this
-local regression test. Candidate identity and all other gates above remain as
-recorded. This does not change the security or redistribution decision.
-
-
-## Local publication-preparation continuation
-
-After source revision `2a9d974`, presenter and diagnostic build defaults were made
-host-independent: DRM-backed presenter entry points require a capability-selected
-`AAAS_DRM_RENDER_NODE` or explicit node argument, the Wayland socket default is
-under `XDG_RUNTIME_DIR`, and M1B Makefiles use an XDG workspace default. Legacy
-M1B diagnostic scripts now resolve `AAAS_WORKSPACE` or the XDG data default.
-Workspace health records moved to the user-local XDG state override; the committed
-manifest is an empty template so host filesystem identifiers are not published.
-The local health record was copied to `$XDG_STATE_HOME/aaas/workspace-health.json`
-with mode 0600 before replacing the repository copy.
-
-Validation on the modified source worktree: full Python suite **554 passed, 6
-skipped**; M1A native rebuild and test targets passed; Python compileall and shell
-syntax checks passed; 347 Markdown local links passed with zero broken references.
-The original `aaas-runtime.service` remained active and the installed CLI reported
-Android `RUNNING`. The engineering bundle was not rebuilt, so these source changes
-are not part of the previously identified bundle.
-
-This work does not resolve the publication blockers: there is no AaaS project
-license grant, binary provenance and redistribution are not cleared, runtime
-security approval remains open, and the known SurfaceFlinger first-boot incident
-remains a reliability risk. No GitHub remote or publication was attempted.
-
-## Final local GitHub-preparation checks
-
-The existing engineering bundle was reverified without modification (with
-`AAAS_RELEASE_ARTIFACTS` set to the local release-artifacts directory):
-`./aaas bundle verify --json "$AAAS_RELEASE_ARTIFACTS/engineering-42ae1e4"` reported 6,991
-artifacts, integrity PASS, and runtime closure PASS (24 inputs). The same report
-still says `general_runtime_start: BLOCKED` and `runtime_security: NOT_APPROVED`;
-this is a local diagnostic candidate, not a public release. The original
-`aaas-runtime.service` remained active and the installed CLI reported Android
-`RUNNING`.
-
-The final source worktree run reported 554 Python tests passed and 6 skipped.
-M1A was force-rebuilt with the selected DRM node and all native test targets
-passed. Python compileall, shell syntax checks, JSON parsing (255 tracked JSON
-files), and Markdown link validation (347 links, zero broken) passed. The current
-tracked worktree contains no detected local home/workspace path or credential
-pattern. Existing Git history still contains old host paths and hardware IDs;
-it has not been rewritten. No bundle was rebuilt, no remote was configured, and
-no source or binary was published.
-
-Source publication remains blocked by the missing AaaS project license grant and
-personal identifiers in Git history. Binary distribution remains blocked by the
-unresolved provenance/license inventory and the candidate's security status.
+**AAAS NOT YET READY TO PUBLISH.** Source-level tests and documentation checks
+pass, and the local bundle passes integrity and declared dependency closure.
+The bundle's runtime-start and security gates are not approved; several
+candidate-specific live gates remain unverified; the bundle predates current
+source changes; and source/binary publication rights are unresolved. The
+original installation remains active and reports Android `RUNNING`.
