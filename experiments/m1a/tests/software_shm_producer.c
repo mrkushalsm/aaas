@@ -93,14 +93,20 @@ static int send_frame(int sock, test_buffer *buffer, uint32_t generation,
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s IPC_SOCKET FRAME_COUNT\n", argv[0]);
+    bool disconnect_after_send = argc == 4 &&
+        strcmp(argv[3], "--disconnect-after-send") == 0;
+    if ((argc != 3 && argc != 4) || (argc == 4 && !disconnect_after_send)) {
+        fprintf(stderr, "usage: %s IPC_SOCKET FRAME_COUNT [--disconnect-after-send]\n", argv[0]);
         return 2;
     }
     char *end = NULL;
     unsigned long requested = strtoul(argv[2], &end, 10);
     if (!end || *end || requested == 0 || requested > 100000) return 2;
     const uint32_t frame_limit = (uint32_t)requested;
+    if (disconnect_after_send && frame_limit > BUFFER_COUNT) {
+        fprintf(stderr, "disconnect mode supports at most %u frames\n", BUFFER_COUNT);
+        return 2;
+    }
 
     int sock = connect_retry(argv[1]);
     if (sock < 0) {
@@ -150,6 +156,17 @@ int main(int argc, char **argv) {
         }
         sent++;
         if (busy_count(buffers) > max_in_flight) max_in_flight = busy_count(buffers);
+    }
+
+    if (disconnect_after_send) {
+        printf("frames_sent=%u producer_disconnected=true generation=%u\n",
+               sent, reply.generation);
+        for (uint32_t i = 0; i < BUFFER_COUNT; i++) {
+            munmap(buffers[i].pixels, (size_t)STRIDE * HEIGHT);
+            close(buffers[i].fd);
+        }
+        close(sock);
+        return sent == frame_limit ? 0 : 15;
     }
 
     bool producer_done = false, peer_closed = false;

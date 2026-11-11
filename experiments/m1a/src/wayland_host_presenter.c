@@ -32,6 +32,7 @@ static void print_usage(const char *prog) {
             "  --node <path>       DRM render node path (default: /dev/dri/renderD129)\n"
             "  --implicit-sync     Force implicit synchronization\n"
             "  --software-shm-test  Test-only wl_shm backend; requires memfd frame inputs\n"
+            "  --test-reconnect-on-producer-close  Test persistent toplevel recovery\n"
             "  --frames <N>        Exit after presenting N frames (default: 0 = infinite)\n"
             "  --exit-on-close     Exit after the first client window closes\n"
             "  --input-socket <p>  Private pointer input socket (SEQPACKET)\n"
@@ -63,6 +64,7 @@ int main(int argc, char **argv) {
     const char *drm_node = "/dev/dri/renderD129";
     bool force_implicit = false;
     bool software_shm_test = false;
+    bool test_reconnect_on_producer_close = false;
     bool trace_buffer_identities = false;
     bool trace_staging_stages = false;
     bool trace_input_roi = false;
@@ -99,6 +101,8 @@ int main(int argc, char **argv) {
             force_implicit = true;
         } else if (strcmp(argv[i], "--software-shm-test") == 0) {
             software_shm_test = true;
+        } else if (strcmp(argv[i], "--test-reconnect-on-producer-close") == 0) {
+            test_reconnect_on_producer_close = true;
         } else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             max_frames = (uint32_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--exit-on-close") == 0) {
@@ -236,6 +240,7 @@ int main(int argc, char **argv) {
             aaas_read_resize_resume_state(resize_request_path);
         aaas_presenter_config cfg = {
             .sock = client_sock,
+            .producer_listen_fd = server_sock,
             .initial_generation = resume.generation,
             .title = title,
             .app_id = app_id,
@@ -246,6 +251,8 @@ int main(int argc, char **argv) {
             .initial_display_height = display_height,
             .drm_node = drm_node,
             .software_shm_test = software_shm_test,
+            .test_reconnect_on_producer_close =
+                test_reconnect_on_producer_close,
             .force_implicit_sync = force_implicit,
             .trace_buffer_identities = trace_buffer_identities,
             .trace_staging_stages = trace_staging_stages,

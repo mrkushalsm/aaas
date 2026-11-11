@@ -85,6 +85,7 @@ int main(int argc, char **argv) {
     close(socks[1]);
     aaas_presenter_config pres_cfg = {
         .sock = socks[0],
+        .producer_listen_fd = -1,
         .title = cpu_fallback ? "AaaS M1A.1 CPU Fallback Baseline" :
                                 "AaaS M1A.1 Explicit Sync GPU Presenter",
         .initial_width = 640,

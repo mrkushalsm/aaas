@@ -96,7 +96,7 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         hello = self.source.index("if (m.type == AAAS_V2_HELLO)")
         hello_end = self.source.index("if (m.type != AAAS_V2_BUFFER)", hello)
         self.assertIn("a->producer_hello_received = true;", self.source[hello:hello_end])
-        poll_start = self.source.index("struct pollfd p[4] = {")
+        poll_start = self.source.index("struct pollfd p[5] = {")
         poll_end = self.source.index("};", poll_start)
         poll_fds = self.source[poll_start:poll_end]
         self.assertIn("(!app.producer_hello_received || app.configured)", poll_fds)
@@ -230,6 +230,38 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         self.assertIn("symlink(path, link_path)", native_test)
         self.assertIn("uint32_t initial_generation;", gpu)
         self.assertIn(".gen = config->initial_generation", self.source)
+
+    def test_composer_resize_reconnect_keeps_existing_wayland_toplevel(self):
+        host = (ROOT / "experiments/m1a/src/wayland_host_presenter.c").read_text()
+        header = (ROOT / "experiments/m1a/src/gpu_presenter.h").read_text()
+        self.assertIn(".producer_listen_fd = server_sock", host)
+        self.assertIn("int producer_listen_fd;", header)
+        reconnect_start = self.source.index(
+            "static void producer_disconnected(presenter_app *a) {")
+        reconnect_end = self.source.index("static void handle_incoming_buffer(", reconnect_start)
+        reconnect = self.source[reconnect_start:reconnect_end]
+        self.assertIn("a->awaiting_resize_reconnect", reconnect)
+        self.assertIn("producer_disconnected_waiting_for_resize_reconnect", reconnect)
+        self.assertNotIn("drain_wayland_buffers", reconnect)
+        self.assertIn("producer_reconnected_same_wayland_window", reconnect)
+        self.assertIn(".fd = app.producer_listen_fd", self.source)
+        self.assertIn("producer_accept_reconnect(&app)", self.source)
+        self.assertIn("s->producer_epoch == a->producer_epoch", self.source)
+        receive_start = self.source.index("static void handle_incoming_buffer(")
+        receive_end = self.source.index("static void ", receive_start + 1)
+        receive = self.source[receive_start:receive_end]
+        for reset_errno in ("ECONNRESET", "ENOTCONN", "EPIPE"):
+            self.assertIn(reset_errno, receive)
+        self.assertIn('"invalid_message"', receive)
+        self.assertIn("--test-reconnect-on-producer-close", host)
+
+    def test_software_harness_exercises_two_producer_generations_one_window(self):
+        harness = (ROOT / "scripts/test_software_presenter.py").read_text()
+        producer = (ROOT / "experiments/m1a/tests/software_shm_producer.c").read_text()
+        self.assertIn("--resize-reconnect", harness)
+        self.assertIn("same_wayland_toplevel", harness)
+        self.assertIn("producer_generations", harness)
+        self.assertIn("--disconnect-after-send", producer)
 
 
 if __name__ == "__main__":

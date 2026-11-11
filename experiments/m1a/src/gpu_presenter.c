@@ -68,6 +68,7 @@ typedef struct {
     presenter_app *app;
     uint32_t id;
     uint32_t gen;
+    uint64_t producer_epoch;
     int active;
 
     /* DRM syncobj per-slot release timeline */
@@ -114,11 +115,15 @@ typedef struct {
 
 struct presenter_app {
     int sock;
+    int producer_listen_fd;
+    uint64_t producer_epoch;
+    bool awaiting_resize_reconnect;
     const volatile sig_atomic_t *running;
     bool trace_buffer_identities;
     bool trace_staging_stages;
     bool trace_input_roi;
     bool software_shm_test;
+    bool test_reconnect_on_producer_close;
     uint32_t input_roi_x, input_roi_y, input_roi_width, input_roi_height;
     uint64_t last_input_roi_hash;
     bool last_input_roi_hash_valid;
@@ -1597,9 +1602,17 @@ static void request_android_resize(presenter_app *a, uint32_t prev_w,
             .width = a->w,
             .height = a->h,
         };
-        if (aaas_v2_send(a->sock, &m, NULL, 0) != 0) {
-            fprintf(stderr, "[AaaS Presenter] aaas_v2_send RESIZE failed: %s (errno=%d)\n", strerror(errno), errno);
-            a->closed = 1;
+        if (a->sock >= 0) {
+            if (aaas_v2_send(a->sock, &m, NULL, 0) != 0) {
+                fprintf(stderr, "[AaaS Presenter] aaas_v2_send RESIZE failed: %s (errno=%d)\n", strerror(errno), errno);
+                a->closed = 1;
+            } else {
+                a->awaiting_resize_reconnect = true;
+            }
+        } else {
+            a->awaiting_resize_reconnect = true;
+            log_presenter_event("resize_geometry_deferred_until_producer_reconnect",
+                                a->gen, 0, NULL);
         }
         a->resize_waiting_frame = true;
         if (a->w != prev_w || a->h != prev_h ||
@@ -1639,6 +1652,8 @@ static void schedule_android_resize(presenter_app *a, uint32_t prev_w,
             fprintf(stderr, "[AaaS Presenter] initial source geometry send failed: %s\n",
                     strerror(errno));
             a->closed = 1;
+        } else {
+            a->awaiting_resize_reconnect = true;
         }
         a->resize_waiting_frame = true;
         char extra[80];
@@ -1802,6 +1817,8 @@ static struct libdecor_interface decor_iface = {
     .error = decor_error,
 };
 
+static void producer_disconnected(presenter_app *a);
+
 static void finalize_buffer_release(presenter_slot *s, bool release_point_signaled) {
     presenter_app *a = s->app;
 
@@ -1818,12 +1835,14 @@ static void finalize_buffer_release(presenter_slot *s, bool release_point_signal
                 .generation = s->gen,
                 .id = s->id,
             };
-            if (aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
-                a->closed = 1;
+            if (a->sock >= 0 && s->producer_epoch == a->producer_epoch &&
+                aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
+                producer_disconnected(a);
                 log_presenter_event("deferred_copy_complete_send_failed",
                                     s->gen, s->id, NULL);
-            } else if (aaas_staging_mark_deferred_copy_complete_sent(
-                           &a->staging, s->staging_token, false) != AAAS_STAGING_OK) {
+            }
+            if (aaas_staging_mark_deferred_copy_complete_sent(
+                    &a->staging, s->staging_token, false) != AAAS_STAGING_OK) {
                 a->closed = 1;
                 log_presenter_event("deferred_copy_complete_state_error",
                                     s->gen, s->id, NULL);
@@ -1862,13 +1881,14 @@ static void finalize_buffer_release(presenter_slot *s, bool release_point_signal
                         .generation = deferred->generation,
                         .id = deferred->id,
                     };
-                    if (aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
-                        a->closed = 1;
+                    if (a->sock >= 0 && s->producer_epoch == a->producer_epoch &&
+                        aaas_v2_send(a->sock, &copied_msg, NULL, 0) != 0) {
+                        producer_disconnected(a);
                         log_presenter_event("deferred_copy_complete_send_failed",
                                             deferred->generation, deferred->id, NULL);
-                    } else if (aaas_staging_mark_deferred_copy_complete_sent(
-                                   &a->staging, deferred_token, true) !=
-                               AAAS_STAGING_OK) {
+                    }
+                    if (aaas_staging_mark_deferred_copy_complete_sent(
+                            &a->staging, deferred_token, true) != AAAS_STAGING_OK) {
                         a->closed = 1;
                         log_presenter_event("deferred_copy_complete_state_error",
                                             deferred->generation, deferred->id, NULL);
@@ -1908,8 +1928,9 @@ static void finalize_buffer_release(presenter_slot *s, bool release_point_signal
 
     int send_fds[1] = { release_fence_fd };
     unsigned nfds = (release_fence_fd >= 0) ? 1 : 0;
-    if (aaas_v2_send(a->sock, &m, send_fds, nfds) != 0) {
-        a->closed = 1;
+    if (a->sock >= 0 && s->producer_epoch == a->producer_epoch &&
+        aaas_v2_send(a->sock, &m, send_fds, nfds) != 0) {
+        producer_disconnected(a);
     }
     if (release_fence_fd >= 0) {
         close(release_fence_fd);
@@ -2371,14 +2392,73 @@ static void reject_unimported_staged_buffer(presenter_app *a,
     reject_unimported_buffer(a, m, fds, nfds, event);
 }
 
+/* A resize replaces Android's Composer transport, not the desktop window.
+ * Retain the Wayland connection, surface, and last committed buffer while the
+ * broker recreates its VirtualDisplay. A normal app exit still tears down the
+ * presenter unless a resize transaction was actually in flight. */
+static void producer_disconnected(presenter_app *a) {
+    if (a->producer_listen_fd >= 0 &&
+        (a->awaiting_resize_reconnect || a->test_reconnect_on_producer_close)) {
+        if (a->sock >= 0) {
+            close(a->sock);
+            a->sock = -1;
+        }
+        a->producer_hello_received = false;
+        a->copy_complete_enabled = false;
+        log_presenter_event("producer_disconnected_waiting_for_resize_reconnect",
+                            a->gen, 0, NULL);
+        return;
+    }
+    log_presenter_event("producer_disconnect", a->gen, 0, NULL);
+    /* Preserve the half-closed socket during ordinary shutdown so buffer
+     * releases and the CLOSE acknowledgement can still reach the producer. */
+    a->closed = 1;
+}
+
+static void producer_accept_reconnect(presenter_app *a) {
+    int sock = accept(a->producer_listen_fd, NULL, NULL);
+    if (sock < 0) {
+        if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+            log_presenter_event("producer_reconnect_accept_failed", a->gen, 0,
+                                NULL);
+        }
+        return;
+    }
+    a->sock = sock;
+    a->producer_epoch++;
+    if (a->producer_epoch == 0) a->producer_epoch = 1;
+    if (a->test_reconnect_on_producer_close) {
+        a->gen++;
+        if (a->gen == 0) a->gen = 1;
+        a->resize_waiting_frame = true;
+        a->awaiting_resize_reconnect = true;
+    }
+    a->producer_hello_received = false;
+    a->copy_complete_enabled = false;
+    a->last_source_frame_w = 0;
+    a->last_source_frame_h = 0;
+    a->last_source_frame_gen = 0;
+    a->last_source_frame_config_gen = 0;
+    char extra[64];
+    snprintf(extra, sizeof(extra), "\"producer_epoch\":%llu",
+             (unsigned long long)a->producer_epoch);
+    log_presenter_event("producer_reconnected_same_wayland_window", a->gen,
+                        0, extra);
+}
+
 static void handle_incoming_buffer(presenter_app *a) {
     aaas_v2_msg m;
     int fds[AAAS_V2_MAX_FDS];
     unsigned nfds = 0;
     int r = aaas_v2_recv(a->sock, &m, fds, &nfds);
     if (r <= 0) {
-        a->closed = 1;
-        log_presenter_event(r < 0 ? "invalid_message" : "producer_disconnect", a->gen, 0, NULL);
+        if (r == 0 || errno == ECONNRESET || errno == ENOTCONN ||
+            errno == EPIPE) {
+            producer_disconnected(a);
+        } else {
+            log_presenter_event("invalid_message", a->gen, 0, NULL);
+            a->closed = 1;
+        }
         return;
     }
 
@@ -2470,6 +2550,7 @@ static void handle_incoming_buffer(presenter_app *a) {
     if (m.generation == a->gen && m.width == a->expected_display_w &&
         m.height == a->expected_display_h) {
         a->resize_waiting_frame = false;
+        a->awaiting_resize_reconnect = false;
     }
 
     // Find available slot
@@ -3055,6 +3136,7 @@ static void handle_incoming_buffer(presenter_app *a) {
     s->app = a;
     s->id = m.id;
     s->gen = m.generation;
+    s->producer_epoch = a->producer_epoch;
     s->active = 1;
     s->explicit_sync_used = false;
     s->staging_bo = stage_bo;
@@ -3292,9 +3374,13 @@ static void input_teardown(presenter_app *a) {
 int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     presenter_app app = {
         .sock = config->sock,
+        .producer_listen_fd = config->producer_listen_fd,
+        .producer_epoch = 1,
         .gen = config->initial_generation,
         .running = config->running,
         .software_shm_test = config->software_shm_test,
+        .test_reconnect_on_producer_close =
+            config->test_reconnect_on_producer_close,
         .trace_buffer_identities = config->trace_buffer_identities,
         .trace_staging_stages = config->trace_staging_stages,
         .trace_input_roi = config->trace_input_roi,
@@ -3446,6 +3532,8 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     while (!app.closed && (!config->running || *config->running)) {
         apply_window_identity_request(&app);
         if (config->max_frames > 0 && app.submitted >= config->max_frames) {
+            log_presenter_event("presenter_max_frames_reached", app.gen, 0,
+                                NULL);
             break;
         }
 
@@ -3454,17 +3542,21 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
             break;
         }
 
-        struct pollfd p[4] = {
+        struct pollfd p[5] = {
             { .fd = libdecor_get_fd(app.decor_context), .events = POLLIN },
             /* Composer sends HELLO before it receives the initial RESIZE.
              * That response can arrive before libdecor's initial configure.
              * Keep the Wayland event loop live but leave subsequent frames
              * queued until xdg_surface has a valid configure/ack cycle. */
             { .fd = app.sock,
-              .events = (!app.producer_hello_received || app.configured)
+              .events = (app.sock >= 0 &&
+                         (!app.producer_hello_received || app.configured))
+                            ? POLLIN : 0 },
+            { .fd = app.producer_listen_fd,
+              .events = (app.sock < 0 && app.producer_listen_fd >= 0)
                             ? POLLIN : 0 },
         };
-        nfds_t nfds = 2;
+        nfds_t nfds = 3;
         int input_listen_idx = -1;
         int input_idx = -1;
         if (app.input_listen_fd >= 0) {
@@ -3486,6 +3578,9 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         int r = poll(p, nfds, presenter_poll_timeout_ms(&app));
         if (r < 0) {
             if (errno == EINTR) continue;
+            char extra[64];
+            snprintf(extra, sizeof(extra), "\"errno\":%d", errno);
+            log_presenter_event("presenter_poll_failed", app.gen, 0, extra);
             break;
         }
 
@@ -3528,11 +3623,19 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
         if (p[1].revents & POLLIN) {
             handle_incoming_buffer(&app);
         }
-        if (p[1].revents & (POLLHUP | POLLERR)) {
-            log_presenter_event("producer_disconnect", app.gen, 0, NULL);
-            break;
+        if (app.sock >= 0 && p[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            producer_disconnected(&app);
+        }
+        if (p[2].revents & POLLIN) {
+            producer_accept_reconnect(&app);
         }
         flush_scheduled_android_resize(&app);
+    }
+
+    if (app.closed) {
+        log_presenter_event("presenter_loop_exited_closed", app.gen, 0, NULL);
+    } else if (config->running && !*config->running) {
+        log_presenter_event("presenter_loop_exited_signal", app.gen, 0, NULL);
     }
 
     input_teardown(&app);

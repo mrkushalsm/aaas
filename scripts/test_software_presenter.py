@@ -82,7 +82,8 @@ def read_json_events(path: Path) -> list[dict]:
 
 def run_session(*, index: int, frames: int, presenter: Path, producer: Path,
                 socket_name: str, run_dir: Path,
-                display_name: str, bwrap: str, inside_root: str) -> dict:
+                display_name: str, bwrap: str, inside_root: str,
+                resize_reconnect: bool = False) -> dict:
     ipc = run_dir / f"presenter-{index}.sock"
     presenter_log = run_dir / f"presenter-{index}.jsonl"
     producer_log = run_dir / f"producer-{index}.log"
@@ -124,6 +125,8 @@ def run_session(*, index: int, frames: int, presenter: Path, producer: Path,
             "--app-id", f"org.aaas.softwaretest.{display_name}",
             "--trace-buffer-identities",
         ]
+        if resize_reconnect:
+            command += ["--test-reconnect-on-producer-close", "--frames", "4"]
         presenter_proc = subprocess.Popen(
             command, stdout=p_log, stderr=subprocess.STDOUT,
             preexec_fn=disable_core_dumps)
@@ -143,30 +146,60 @@ def run_session(*, index: int, frames: int, presenter: Path, producer: Path,
                 "HOME": str(run_dir / "home"),
                 "LC_ALL": "C.UTF-8",
             }
+            producer_args = [str(producer), str(ipc), str(frames)]
+            if resize_reconnect:
+                producer_args = [str(producer), str(ipc), "2",
+                                 "--disconnect-after-send"]
             producer_proc = subprocess.Popen(
-                [str(producer), str(ipc), str(frames)],
+                producer_args,
                 stdout=c_log, stderr=subprocess.STDOUT,
                 preexec_fn=disable_core_dumps, env=producer_env)
-            deadline = time.monotonic() + 90
-            saw_presenter = False
-            while time.monotonic() < deadline:
+            if resize_reconnect:
+                try:
+                    producer_proc.wait(timeout=15)
+                except subprocess.TimeoutExpired as exc:
+                    raise TestFailure("first resize-generation producer timed out") from exc
+                if producer_proc.returncode != 0 or presenter_proc.poll() is not None:
+                    raise TestFailure("presenter did not survive the first producer disconnect")
+                first_events = read_json_events(presenter_log)
+                if sum(e.get("event") == "decoration_context_ready" for e in first_events) != 1:
+                    raise TestFailure("Wayland decoration was recreated after producer disconnect")
+                producer_proc = subprocess.Popen(
+                    producer_args, stdout=c_log, stderr=subprocess.STDOUT,
+                    preexec_fn=disable_core_dumps, env=producer_env)
+                try:
+                    producer_proc.wait(timeout=15)
+                except subprocess.TimeoutExpired as exc:
+                    raise TestFailure("replacement resize-generation producer timed out") from exc
+                if producer_proc.returncode != 0:
+                    raise TestFailure("replacement producer failed")
+                try:
+                    presenter_proc.wait(timeout=15)
+                except subprocess.TimeoutExpired as exc:
+                    raise TestFailure("presenter did not complete the four-frame reconnect test") from exc
+                if presenter_proc.returncode != 0:
+                    raise TestFailure(f"reconnect presenter failed ({presenter_proc.returncode})")
+            else:
+                deadline = time.monotonic() + 90
+                saw_presenter = False
+                while time.monotonic() < deadline:
+                    if presenter_proc.poll() is None:
+                        saw_presenter = True
+                    if producer_proc.poll() is not None and presenter_proc.poll() is not None:
+                        break
+                    time.sleep(0.02)
+                if producer_proc.poll() is None:
+                    raise TestFailure(f"producer {index} exceeded the 90 second bound")
                 if presenter_proc.poll() is None:
-                    saw_presenter = True
-                if producer_proc.poll() is not None and presenter_proc.poll() is not None:
-                    break
-                time.sleep(0.02)
-            if producer_proc.poll() is None:
-                raise TestFailure(f"producer {index} exceeded the 90 second bound")
-            if presenter_proc.poll() is None:
-                raise TestFailure(f"presenter {index} exceeded the 90 second bound")
-            if producer_proc.returncode != 0:
-                raise TestFailure(
-                    f"producer {index} failed ({producer_proc.returncode}); see {producer_log}")
-            if presenter_proc.returncode != 0:
-                raise TestFailure(
-                    f"presenter {index} failed ({presenter_proc.returncode}); see {presenter_log}")
-            if not saw_presenter:
-                raise TestFailure(f"presenter {index} lifetime was not observed")
+                    raise TestFailure(f"presenter {index} exceeded the 90 second bound")
+                if producer_proc.returncode != 0:
+                    raise TestFailure(
+                        f"producer {index} failed ({producer_proc.returncode}); see {producer_log}")
+                if presenter_proc.returncode != 0:
+                    raise TestFailure(
+                        f"presenter {index} failed ({presenter_proc.returncode}); see {presenter_log}")
+                if not saw_presenter:
+                    raise TestFailure(f"presenter {index} lifetime was not observed")
 
         finally:
             terminate_owned(producer_proc)
@@ -178,6 +211,31 @@ def run_session(*, index: int, frames: int, presenter: Path, producer: Path,
     if len(summaries) != 1:
         raise TestFailure(f"presenter {index} did not emit exactly one summary")
     summary = summaries[0]
+    if resize_reconnect:
+        reconnects = [e for e in events if
+                      e.get("event") == "producer_reconnected_same_wayland_window"]
+        decorations = [e for e in events if e.get("event") == "decoration_context_ready"]
+        identities = [e for e in events if e.get("event") == "window_identity_initial"]
+        if len(reconnects) != 1 or len(decorations) != 1 or len(identities) != 1:
+            raise TestFailure("producer reconnect recreated the Wayland window")
+        if summary.get("imports") != 4 or summary.get("submissions") != 4:
+            raise TestFailure(f"reconnect frames were not all presented: {summary}")
+        return {
+            "session_index": index,
+            "resize_reconnect": True,
+            "producer_generations": 2,
+            "same_presenter_process": True,
+            "same_wayland_toplevel": True,
+            "decoration_contexts": len(decorations),
+            "window_identity_events": len(identities),
+            "reconnect_events": len(reconnects),
+            "summary": summary,
+            "presenter_namespace_dev_dri_exposed": False,
+            "presenter_log": str(presenter_log),
+            "presenter_log_sha256": sha256(presenter_log),
+            "producer_log": str(producer_log),
+            "producer_log_sha256": sha256(producer_log),
+        }
     producer_text = producer_log.read_text(encoding="utf-8", errors="replace")
     producer_summary = re.search(
         r"frames_sent=(\d+) actual_wayland_releases=(\d+) outstanding=(\d+) "
@@ -223,12 +281,16 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=256)
     parser.add_argument("--sessions", type=int, choices=(1, 2), default=1,
                         help="independent sequential presenter sessions")
+    parser.add_argument("--resize-reconnect", action="store_true",
+                        help="verify a Wayland toplevel persists across Composer reconnect")
     args = parser.parse_args()
 
     workspace = args.workspace.resolve(strict=True)
     presenter = args.presenter.resolve(strict=True)
     producer = args.producer.resolve(strict=True)
     prefix = args.weston_prefix.resolve(strict=True)
+    if args.resize_reconnect:
+        args.frames = 2
     if args.frames < 2 or args.frames > 4096:
         parser.error("--frames must be between 2 and 4096")
     if not os.access(presenter, os.X_OK) or not os.access(producer, os.X_OK):
@@ -322,7 +384,8 @@ def main() -> int:
                 presenter=presenter, producer=producer,
                 socket_name=socket_name,
                 run_dir=root, display_name=f"window{index + 1}",
-                bwrap=bwrap, inside_root=weston_inside))
+                bwrap=bwrap, inside_root=weston_inside,
+                resize_reconnect=args.resize_reconnect))
     finally:
         terminate_owned(weston_proc)
 

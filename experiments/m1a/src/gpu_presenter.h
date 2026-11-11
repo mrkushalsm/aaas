@@ -7,6 +7,9 @@
 
 typedef struct {
     int sock;
+    /* Optional listener used to accept a replacement Composer transport while
+     * keeping this presenter's Wayland toplevel alive across Android resizes. */
+    int producer_listen_fd;
     const char *title;
     const char *app_id;
     bool defer_map;
@@ -17,6 +20,7 @@ typedef struct {
     uint32_t initial_generation;
     const char *drm_node;
     bool software_shm_test;
+    bool test_reconnect_on_producer_close;
     bool force_implicit_sync;
     bool trace_buffer_identities;
     bool trace_staging_stages;
