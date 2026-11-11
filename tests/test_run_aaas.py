@@ -275,6 +275,11 @@ class NativeBridgeOverlayTests(unittest.TestCase):
             source_file.chmod(0o640)
             os.utime(source_file, ns=(1_700_000_000_123_456_789,
                                       1_700_000_000_123_456_789))
+            try:
+                os.setxattr(source_file, 'user.aaas.test', b'preserved')
+            except OSError:
+                pass
+            (base / 'bin/base-link').symlink_to('base-file')
             (base / 'build.prop').write_text('ro.product.cpu.abi=x86_64\n')
             session = root / 'session'
             session.mkdir()
@@ -291,6 +296,13 @@ class NativeBridgeOverlayTests(unittest.TestCase):
             self.assertEqual(copied.stat().st_mode & 0o777, 0o640)
             self.assertEqual(copied.stat().st_mtime_ns,
                              source_file.stat().st_mtime_ns)
+            copied_link = overlay / 'system/bin/base-link'
+            self.assertTrue(copied_link.is_symlink())
+            self.assertEqual(copied_link.read_text(), 'base')
+            try:
+                self.assertEqual(os.getxattr(copied, 'user.aaas.test'), b'preserved')
+            except OSError:
+                pass
             self.assertTrue((overlay / 'system/lib64/libberberis_arm64.so').is_file())
 
     def test_native_bridge_overlay_does_not_mask_other_link_errors(self):
