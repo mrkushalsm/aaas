@@ -1,63 +1,46 @@
-# AaaS diagnostic release security review — 2026-11-11
+# Diagnostic candidate security review — 2026-11-11
 
 **Result: NOT APPROVED for untrusted APKs or public binary release.** This is a
-bounded engineering review of candidate `fd386b95a7a949de9da3bb18c88e5c64`,
-not a penetration test or production security certification.
+bounded engineering review of bundle `engineering-42ae1e4`
+(`52926e6cb5e54766918af1a4dd7b0ec7`), not a penetration test or production
+security certification.
 
 ## Findings
 
-| Finding | Severity in intended public/untrusted use | Evidence | Disposition |
+| Finding | Severity | Evidence | Disposition |
 |---|---|---|---|
-| Android SELinux authorization shim is present | High / release blocker | Bundle manifest lists `rootfs/system/lib64/libselinux_shim.so` and `rootfs/vendor/lib64/libselinux_shim.so`; runtime security is `NOT_APPROVED`. The diagnostic shim substitutes authorization behavior. | Do not run untrusted APKs. Rebuild a supported image with verified SELinux policy enforcement before public/untrusted use. |
-| Android SELinux enforcement is not verified | High / release blocker | Candidate manifest says host policy enforcement unavailable/unverified. Static image inspection cannot prove kernel policy load/enforcement. | Requires a SELinux-capable, correctly integrated runtime and live enforcement evidence. |
-| Android rootfs and third-party binary provenance/license chain is incomplete | High for redistribution | SBOM covers 5,296 regular bundle files and manifest contains 1,982 executable/library provenance rows; 1,965 provenance rows are unverified and all 1,982 license states are `NOT_REVIEWED_FOR_DISTRIBUTION`. | Public binary redistribution blocked. Obtain authoritative source/build/license records or use a lawful tested acquisition workflow. |
-| Bundle publisher authenticity is not established | High for downloaded updates | Bundle manifest hash verifies integrity relative to the manifest, but no publisher signature/verified trust anchor is present. | Do not treat a checksum as publisher authentication. A signed release/update trust chain remains required. |
-| Project source has no root license grant | Release blocker for source publication | No root `LICENSE` exists; third-party licenses do not license AaaS-authored files. | Project owner must select/authorize a license before public source publication. |
-| Runtime exposes user-session integration endpoints | Medium, trust-boundary limitation | The runtime binds Wayland/PipeWire/user-session interfaces to integrate windows/audio; this is not isolation from a malicious host-session workload. | Treat installed apps as trusted. No claim of a hostile-app sandbox. |
+| Android SELinux enforcement is unavailable/unverified in the diagnostic runtime; SELinux authorization compatibility shims are present. | High for untrusted workloads | Candidate manifest reports `runtime_security=NOT_APPROVED`; the bundle includes `rootfs/system/lib64/libselinux_shim.so` and `rootfs/vendor/lib64/libselinux_shim.so`. | Do not use untrusted APKs. A supported enforcing image and live policy-enforcement evidence are required. |
+| Bundle publisher authenticity is not established. | High for remote update use | Manifest/hash verification checks integrity relative to supplied metadata; no signed publisher trust chain is established. | Do not treat a checksum as publisher authentication. |
+| Runtime start approval is blocked. | Release blocker | Exact candidate verification reports `general_runtime_start=BLOCKED`, despite isolated installation evidence of Android reaching RUNNING. | Resolve the supported startup/health gate before calling the candidate release-ready. |
+| Android image and third-party provenance/license chain is incomplete. | High for redistribution | Candidate SBOM covers 5,293 regular files; 1,965 of 1,982 executable/library rows have unverified provenance, all those license reviews are unreviewed, and 3,311 other files are `NOASSERTION`. | Public binary redistribution is not cleared. Establish authoritative source, build and license records or a lawful tested acquisition path. |
+| AaaS-authored source has no project license grant. | Blocker for source publication | No root project `LICENSE` exists. | Project owner must authorize a license before source publication. |
+| Historical Git history contains host-specific paths and hardware identifiers. | Privacy concern for source publication | Current working files were scrubbed; historical commits were not rewritten or fully sanitized. | Review history before publishing; do not rewrite it without authorization. |
+| Host session integration is exposed to the trusted runtime. | Medium trust-boundary limitation | The runtime uses user-session Wayland/PipeWire and other integration endpoints. | Treat installed apps as trusted; this is not a hostile-app sandbox. |
 
-## Controls observed
+## Controls observed in source and candidate
 
-- Android runs through rootless user/mount/PID/network namespace setup with
+- The runtime uses rootless user, mount, PID, and network namespace setup with
   Bubblewrap and a per-user systemd service.
-- Network forwarding uses rootless virtual Ethernet/slirp4netns; physical host
-  Wi-Fi remains host-managed.
-- Per-install helper signing material is stored outside the bundle in private
-  XDG state; the distributable bundle excludes private signing keys.
-- Bundle/update code verifies manifests and immutable installation hashes and
-  retains a previous installation for rollback. Unsigned bundle metadata still
-  does not authenticate the publisher.
-- The one-time 1 GiB reserve exception used for this user's disposable update/
-  rollback test was scoped to `aaas-m5-final-test.service`, removed afterward,
-  and did not change source or global systemd environment.
+- Network forwarding uses rootless virtual Ethernet/slirp4netns; the physical
+  Wi-Fi device remains host-managed.
+- Per-install helper signing material is stored in private XDG state and is
+  excluded from the bundle.
+- Bundle/update code validates manifests and immutable installation hashes and
+  retains a prior generation. Hash verification does not establish publisher
+  identity.
 
-## Verification and residual risk
+These are source and artifact observations, not a substitute for adversarial
+security testing. Update/rollback evidence for the older `engineering-7226838`
+candidate must not be attributed to this candidate.
 
-The final candidate manifest reports `DIAGNOSTIC_ONLY`,
-`general_runtime_start=BLOCKED`, `runtime_security=NOT_APPROVED`, and
-`untrusted_apks=NOT_APPROVED`. The candidate did start and run trusted test apps
-under the explicit local diagnostic service during update acceptance. That
-functional result does not approve the security boundary. Do not publish or
-recommend this image for untrusted APKs, multi-user isolation, or production.
+## Decision
 
-## Later source change
+The exact candidate verifier reports `general_runtime_start=BLOCKED` and
+`runtime_security=NOT_APPROVED`. The bundle is suitable only for local trusted
+development under its documented limitations. Do not publish it as a public
+binary or recommend it for untrusted APKs, multi-user isolation, or production.
 
-Source commit `2a9d97431e051fd2c6c91907133293996d91d719` modifies presenter
-behavior across Android resize reconnects. It retains the existing Wayland
-surface and protects buffer acknowledgements with producer epochs. The change
-was functionally tested, but does not alter the Android SELinux, namespace,
-image provenance, or publisher-authenticity findings above. This report remains
-a candidate-specific review, not approval of the later source tree or any
-future bundle. See
-[`resize acceptance`](../../results/m1a/dynamic-resize-acceptance-2026-11-11.json).
-
-
-## Local source publication preparation
-
-The current unbundled source work moves the UUID-scoped workspace health policy
-to `$XDG_STATE_HOME/aaas/workspace-health.json` (defaulting to
-`~/.local/state/aaas/workspace-health.json`), with an explicit
-`AAAS_WORKSPACE_HEALTH_POLICY` override. The local host policy was copied to that
-location with mode 0600 before the repository manifest was replaced by an empty
-template. Regression tests cover XDG selection and explicit override. This is a
-privacy improvement for source publication; it does not change the installed
-engineering candidate and does not grant production security approval.
+Current source changes after this bundle include portability and resize work;
+they have not been rebuilt into this candidate. See the
+[release-readiness record](../release-readiness-2026-11-11.md) and
+[candidate SBOM](sbom-engineering-52926e6.json).
