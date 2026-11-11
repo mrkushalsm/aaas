@@ -35,7 +35,7 @@ flowchart LR
   Slirp --> Uplink[Host-managed network uplink]
 ```
 
-**Publication status:** A public source or binary release is not available yet. The current engineering bundle `engineering-830eef7` contains an Android diagnostic image with SELinux authorization shims; its manifest ID is `d3d7278094324b93be4f3ad57ae5883d`; it is not approved for untrusted APKs or public binary redistribution. See [current release readiness](docs/release-readiness-2026-11-11.md) and the [dependency/license review](docs/dependencies-and-licenses.md).
+**Publication status:** A public source or binary release is not available yet. The latest locally verified bundle artifact is `engineering-3668fcd` (ID `385a08cf0cef4b6fbef8c62df57c8a76`, integrity PASS, 25 runtime inputs). It has not passed a fresh installed-runtime acceptance on the exact candidate. The candidate includes an Android diagnostic image with SELinux authorization shims and is not approved for untrusted APKs or public binary redistribution. Debian 12 portability remains unverified; see the [portability acceptance record](docs/release/debian12-portability-2026-11-12.md), [release readiness](docs/release-readiness-2026-11-11.md), and [dependency/license review](docs/dependencies-and-licenses.md).
 
 ## Installation and use
 
@@ -67,9 +67,9 @@ The generated user service is `aaas-runtime.service`. Use `apps close SLOT` to c
 
 ## Implemented capabilities and boundaries
 
-- Persistent Android with zero-window idle; independent windows, input, focus and Android framebuffer resizing. The source fix that keeps a Wayland toplevel alive across Composer reconnects during resize is included in candidate `engineering-830eef7`; automated source coverage and earlier live evidence exist, but interactive resize was not repeated on this exact fresh installation ([evidence](results/m1a/dynamic-resize-acceptance-2026-11-11.json)). Android may retain its previous frame briefly while rebuilding the resized display.
+- Persistent Android with zero-window idle; independent windows, input, focus and Android framebuffer resizing. The source fix that keeps a Wayland toplevel alive across Composer reconnects during resize is present in the latest candidate; its fresh installed-runtime behavior has not been revalidated. Earlier live evidence is in [the resize acceptance record](results/m1a/dynamic-resize-acceptance-2026-11-11.json). Android may retain its previous frame briefly while rebuilding the resized display.
 - Historical nine-application simultaneous-window acceptance on KWin.
-- ARM translation through the existing Native Bridge has been demonstrated historically, but direct translation execution was not independently captured on this exact fresh candidate; tested apps do not establish universal ARM compatibility.
+- ARM translation through the Native Bridge was demonstrated on the earlier `engineering-830eef7` candidate (VLC ARM64 JNI through Berberis). It was not revalidated on `engineering-3668fcd`; this evidence does not establish universal ARM compatibility.
 - PipeWire audio, microphone, clipboard and Plasma notifications. [Human listening evidence](results/audio/human-listening-2026-11-10.json) records audible playback on the development laptop.
 - [Android networking](docs/android-networking.md) uses rootless slirp4netns and validated virtual Ethernet over the host connection. Android Wi-Fi hardware/SSIDs are unsupported.
 - Scoped shared storage is implemented. Gallery external-cache/project-quota compatibility remains limited.
@@ -94,7 +94,7 @@ Run the Python suite with:
 python3 -m unittest discover -s tests -q
 ```
 
-The Python suite ran 557 tests on 2026-11-11: 551 passed and 6 were skipped in the corrected source worktree; unit tests do not establish live graphical, audio, or network acceptance. See the [release readiness record](docs/release-readiness-2026-11-11.md) for exact-candidate results and remaining gates. Five service cycles, Android-to-PipeWire transport, and an Android ConnectivityManager/DNS/TLS-HTTPS probe passed on that candidate. Uninstall/reinstall passed; update/rollback remains unverified.
+The full Python suite ran 576 tests on the runtime-source revision: 570 passed and 6 were skipped. After the EXDEV metadata regression assertions were added, the focused runtime suite passed 109 tests. Unit results do not establish live acceptance of the latest installed bundle. The prior `engineering-830eef7` candidate passed host lifecycle, Android-to-PipeWire transport, and Android ConnectivityManager/DNS/TLS-HTTPS checks; those results do not transfer to `engineering-3668fcd`. The EXDEV fix and current Debian VM findings are documented in the [portability acceptance record](docs/release/debian12-portability-2026-11-12.md).
 
 The [image assembly guide](docs/android-rootfs-reconstruction.md) describes the separate, incomplete upstream-image reconstruction path.
 
@@ -133,6 +133,7 @@ binary redistribution therefore remain unapproved.
 - [Security boundaries](docs/security/rootless-android-architecture.md)
 - [Dependency and license inventory](docs/dependencies-and-licenses.md)
 - [Local release readiness and candidate evidence](docs/release-readiness-2026-11-11.md)
+- [Cross-filesystem and Debian 12 portability acceptance](docs/release/debian12-portability-2026-11-12.md)
 - [Exact-candidate acceptance record](results/release/candidate-acceptance-engineering-830eef7-2026-11-11.json)
 - [Exact-candidate file-level SBOM](results/release/sbom-engineering-d3d72780.json)
 - [Security review](docs/release/security-review-2026-11-11.md)
