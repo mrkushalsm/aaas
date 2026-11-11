@@ -31,7 +31,7 @@ Machine-readable exact-candidate evidence: [candidate acceptance record](../resu
 
 ## Storage and host state
 
-AaaS-only cleanup removed verified obsolete bundles, old installations and disposable test workspaces. Root filesystem free space at the latest measurement was 24,421,007,360 bytes; the external workspace filesystem reported 37,149,773,824 bytes free. The external ext4 volume has a recorded suspected device/I/O fault; further writes to it are suspended. Protected untracked build directories remain untouched. Cleanup details and preserved evidence archives are in [cleanup inventory](../results/release/host-cleanup-bundle-inventory-2026-11-11.json).
+AaaS-only cleanup removed verified obsolete bundles, old installations and disposable test workspaces. Root filesystem free space at the latest measurement was 24,381,992,960 bytes; the external workspace filesystem reported 37,149,773,824 bytes free. The external ext4 volume has a recorded suspected device/I/O fault; further writes to it are suspended. Protected untracked build directories remain untouched. Cleanup details and preserved evidence archives are in [cleanup inventory](../results/release/host-cleanup-bundle-inventory-2026-11-11.json).
 
 The fresh isolated candidate service is active. The old original installation was removed as part of the authorized cleanup; it is not claimed to be running. Do not reuse writable userdata across installations.
 
