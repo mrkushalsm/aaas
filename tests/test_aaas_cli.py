@@ -2,6 +2,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,6 +25,89 @@ class AaasCliTests(unittest.TestCase):
             'XDG_STATE_HOME': str(Path(root) / 'state'),
             'XDG_RUNTIME_DIR': str(Path(root) / 'run'),
         })
+
+    def test_composer_toolchain_rejects_clang_19(self):
+        lookup = {'clang++': '/usr/bin/clang++', 'ld.lld': None,
+                  'ld.lld-19': '/usr/bin/ld.lld-19'}
+        with mock.patch.object(aaas_cli.shutil, 'which', side_effect=lookup.get), \
+                mock.patch.object(aaas_cli.subprocess, 'run', return_value=
+                                  subprocess.CompletedProcess(
+                                      ['clang++', '--version'], 0,
+                                      'Debian clang version 19.1.7', '')):
+            supported, detail = aaas_cli._composer_toolchain_check()
+        self.assertFalse(supported)
+        self.assertIn('requires 21.1+', detail)
+
+    def test_composer_toolchain_accepts_clang_21_1_with_versioned_lld(self):
+        lookup = {'clang++': '/usr/bin/clang++', 'ld.lld': None,
+                  'ld.lld-21': '/usr/bin/ld.lld-21'}
+        with mock.patch.object(aaas_cli.shutil, 'which', side_effect=lookup.get), \
+                mock.patch.object(aaas_cli.subprocess, 'run', return_value=
+                                  subprocess.CompletedProcess(
+                                      ['clang++', '--version'], 0,
+                                      'Debian clang version 21.1.8', '')):
+            supported, detail = aaas_cli._composer_toolchain_check()
+        self.assertTrue(supported)
+        self.assertIn('LLD available', detail)
+
+    def test_composer_toolchain_requires_matching_lld(self):
+        lookup = {'clang++': '/usr/bin/clang++', 'ld.lld': None,
+                  'ld.lld-21': None}
+        with mock.patch.object(aaas_cli.shutil, 'which', side_effect=lookup.get), \
+                mock.patch.object(aaas_cli.subprocess, 'run', return_value=
+                                  subprocess.CompletedProcess(
+                                      ['clang++', '--version'], 0,
+                                      'clang version 21.1.0', '')):
+            supported, detail = aaas_cli._composer_toolchain_check()
+        self.assertFalse(supported)
+        self.assertIn('matching LLD is missing', detail)
+
+    def test_verified_prebuilt_composer_removes_host_compiler_requirement(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'runtime'
+            workspace = Path(directory) / 'workspace'
+            source = root / 'experiments/m1b/composer_aaas'
+            source.mkdir(parents=True)
+            (root / 'experiments/m1a/src').mkdir(parents=True)
+            names = ('composer_service.cpp', 'aaas_transport.cpp', 'aaas_transport.h',
+                     'virtual_transport_pool.h', 'linear_copy.h', 'mixed_compose.h',
+                     'Makefile')
+            paths = [source / name for name in names]
+            paths.append(root / 'experiments/m1a/src/wire_v2.c')
+            digest = hashlib.sha256()
+            for path in paths:
+                path.write_text(path.name)
+                digest.update(path.name.encode() + b'\0')
+                digest.update(path.read_bytes())
+            composer = workspace / 'tmp/m1e_composer_two_output'
+            composer.parent.mkdir(parents=True)
+            composer.write_bytes(b'Android Composer fixture')
+            receipt = {'endpoint_mode': 'on-demand', 'max_count': 64,
+                       'source_sha256': digest.hexdigest(),
+                       'sha256': hashlib.sha256(composer.read_bytes()).hexdigest()}
+            composer.with_suffix('.json').write_text(json.dumps(receipt))
+            ready, detail = aaas_cli._composer_prebuilt_check(root, workspace)
+            self.assertTrue(ready)
+            self.assertIn('Clang is not required', detail)
+            receipt['source_sha256'] = '0' * 64
+            composer.with_suffix('.json').write_text(json.dumps(receipt))
+            ready, detail = aaas_cli._composer_prebuilt_check(root, workspace)
+            self.assertFalse(ready)
+            self.assertIn('does not match', detail)
+
+    def test_network_preflight_reports_missing_tun_device(self):
+        available, detail = aaas_cli._tun_device_check('/no/such/aaas-test-tun')
+        self.assertFalse(available)
+        self.assertIn('enable the kernel TUN driver', detail)
+
+    def test_network_preflight_rejects_regular_file_as_tun(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_tun = Path(directory) / 'tun'
+            fake_tun.touch()
+            available, detail = aaas_cli._tun_device_check(fake_tun)
+        self.assertFalse(available)
+        self.assertIn('not the Linux TUN character device', detail)
 
     def test_public_command_shapes_accept_json_after_command(self):
         parser = aaas_cli._parser()

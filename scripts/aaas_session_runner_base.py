@@ -36,6 +36,93 @@ def developer_network_configuration(enabled, ip_tool='ip', sysfs_root='/tmp/aaas
     return setup, mounts, ''
 
 
+def resolve_slirp_tool(runtime_root, workspace, configured=None, path_lookup=None,
+                       run=subprocess.run):
+    """Select a loadable slirp4netns with namespace and ready-fd options."""
+    if path_lookup is None:
+        path_lookup = shutil.which
+    runtime_root = Path(runtime_root)
+    workspace = Path(workspace)
+    if configured:
+        candidates = [Path(configured).expanduser()]
+        explicit = True
+    else:
+        candidates = [runtime_root / 'bin/slirp4netns',
+                      runtime_root.parent / 'workspace-artifacts/tmp/slirp4netns',
+                      workspace / 'tmp/slirp4netns']
+        system_tool = path_lookup('slirp4netns')
+        if system_tool:
+            candidates.append(Path(system_tool))
+        explicit = False
+    failures = []
+    seen = set()
+    for candidate in candidates:
+        candidate = candidate.expanduser()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if not candidate.is_file() or not os.access(candidate, os.X_OK):
+            failures.append(f'{candidate}: missing or not executable')
+            continue
+        try:
+            result = run([str(candidate), '--help'], capture_output=True, text=True,
+                         timeout=5)
+        except (OSError, subprocess.SubprocessError) as error:
+            failures.append(f'{candidate}: {error}')
+            continue
+        output = (result.stdout or '') + '\n' + (result.stderr or '')
+        missing = [option for option in ('--userns-path', '--ready-fd')
+                   if option not in output]
+        if result.returncode == 0 and not missing:
+            return candidate
+        detail = ('missing supported options ' + ', '.join(missing)
+                  if missing else f'--help exited {result.returncode}')
+        failures.append(f'{candidate}: {detail}')
+    description = 'configured' if explicit else 'available'
+    raise RuntimeError(f'no loadable {description} slirp4netns supports --userns-path '
+                       'and --ready-fd; ' + '; '.join(failures))
+
+
+def verify_tun_device(path='/dev/net/tun'):
+    """Fail before Android startup if the host cannot provide slirp's TUN fd."""
+    import stat as stat_module
+    tun = Path(path)
+    try:
+        metadata = tun.stat()
+    except OSError as error:
+        raise RuntimeError(f'{tun} is unavailable; enable Linux TUN support and '
+                           'provide /dev/net/tun before starting AaaS') from error
+    if (not stat_module.S_ISCHR(metadata.st_mode)
+            or os.major(metadata.st_rdev) != 10 or os.minor(metadata.st_rdev) != 200):
+        raise RuntimeError(f'{tun} is not the Linux TUN character device (10:200)')
+    if not os.access(tun, os.R_OK | os.W_OK):
+        raise RuntimeError(f'{tun} is not readable and writable by the AaaS user')
+    try:
+        descriptor = os.open(tun, os.O_RDWR | os.O_CLOEXEC)
+    except OSError as error:
+        raise RuntimeError(f'{tun} cannot be opened by the AaaS user: {error}; '
+                           'enable the kernel TUN driver and device access') from error
+    else:
+        os.close(descriptor)
+    return tun
+
+
+def terminate_process_group(process, timeout=5):
+    """Stop a session-owned namespace launcher and all its descendants."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=timeout)
+
+
 def _aaas_cgroup_directory():
     """Use the current user's delegated service cgroup, never a fixed UID path."""
     try:
@@ -288,6 +375,8 @@ def main():
     boot_wait = os.environ.get("AAAS_BOOT_WAIT", "60.0")
     boot_wait_int = int(float(boot_wait))
     dev_compat = os.environ.get('AAAS_DEV_COMPAT') == '1'
+    if dev_compat:
+        verify_tun_device()
     network_sysfs_root = tmp_dir / f'aaas_net_sysfs_{os.getpid()}'
     network_setup, network_class_bind, network_namespace = developer_network_configuration(
         dev_compat, os.environ.get('AAAS_IP', 'ip'), network_sysfs_root)
@@ -664,20 +753,13 @@ runner_status=$?
     if dev_compat:
         configured_slirp = os.environ.get('AAAS_SLIRP4NETS')
         runtime_root = Path(__file__).resolve().parent.parent
-        bundled_slirp = runtime_root / 'bin/slirp4netns'
-        install_artifact = runtime_root.parent / 'workspace-artifacts/tmp/slirp4netns'
-        workspace_artifact = (Path(os.environ['AAAS_WORKSPACE']) / 'tmp/slirp4netns'
-                              if os.environ.get('AAAS_WORKSPACE') else Path('/nonexistent'))
-        slirp_tool = (Path(configured_slirp).expanduser() if configured_slirp else
-                      next((candidate for candidate in
-                            (bundled_slirp, install_artifact, workspace_artifact)
-                            if candidate.is_file()),
-                           Path(shutil.which('slirp4netns') or '/nonexistent')))
-        if not slirp_tool.is_file() or not os.access(slirp_tool, os.X_OK):
-            p.terminate()
-            p.wait(timeout=5)
-            raise RuntimeError('Android networking requires executable slirp4netns; '
-                               'install it in runtime/bin or set AAAS_SLIRP4NETS')
+        workspace = (Path(os.environ['AAAS_WORKSPACE'])
+                     if os.environ.get('AAAS_WORKSPACE') else Path('/nonexistent'))
+        try:
+            slirp_tool = resolve_slirp_tool(runtime_root, workspace, configured_slirp)
+        except RuntimeError:
+            terminate_process_group(p)
+            raise
         ready_read, ready_write = os.pipe()
         network_log_path = tmp_dir / f'aaas_slirp4netns_{p.pid}.log'
         network_log = network_log_path.open('wb')
@@ -702,9 +784,8 @@ runner_status=$?
             except subprocess.TimeoutExpired:
                 network_process.kill()
                 network_process.wait(timeout=2)
-            p.terminate()
-            p.wait(timeout=5)
             detail = network_log_path.read_text(errors='replace')[-400:]
+            terminate_process_group(p)
             raise RuntimeError('slirp4netns failed to configure Android eth0: '
                                + (detail.strip() or 'configuration timed out'))
 

@@ -1,7 +1,9 @@
 CC ?= cc
 CFLAGS += -std=c11 -O2 -g -Wall -Wextra -Werror -D_GNU_SOURCE
-BUILD = build
-XML = /usr/share/qt6/wayland/protocols
+BUILD ?= build
+XML ?= $(shell protocols=$$(pkg-config --variable=pkgdatadir wayland-protocols 2>/dev/null); \
+	if test -n "$$protocols" && test -d "$$protocols"; then echo "$$protocols"; \
+	elif test -d /usr/share/qt6/wayland/protocols; then echo /usr/share/qt6/wayland/protocols; fi)
 LOCAL_XML = protocols
 PKGS = wayland-client gbm libdrm egl glesv2 xkbcommon
 PRESENTER_PKGS = $(PKGS) libdecor-0
@@ -29,22 +31,34 @@ all: $(BUILD)/aaas-m1a $(BUILD)/aaas-m1a1 $(BUILD)/wayland-host-presenter
 $(BUILD):
 	mkdir -p $@
 
-$(BUILD)/xdg-shell-client-protocol.h: $(XML)/xdg-shell/xdg-shell.xml | $(BUILD)
+define protocol_xml
+$(firstword $(wildcard $(XML)/$(1)/$(2)) \
+	$(wildcard $(XML)/stable/$(1)/$(2)) \
+	$(wildcard $(XML)/unstable/$(1)/$(2)) \
+	$(wildcard $(XML)/staging/$(1)/$(2)))
+endef
+
+XDG_SHELL_XML := $(call protocol_xml,xdg-shell,xdg-shell.xml)
+LINUX_DMABUF_XML := $(call protocol_xml,linux-dmabuf,linux-dmabuf-unstable-v1.xml)
+PRESENTATION_TIME_XML := $(call protocol_xml,presentation-time,presentation-time.xml)
+XDG_ACTIVATION_XML := $(call protocol_xml,xdg-activation,xdg-activation-v1.xml)
+
+$(BUILD)/xdg-shell-client-protocol.h: $(XDG_SHELL_XML) | $(BUILD)
 	wayland-scanner client-header $< $@
 
-$(BUILD)/xdg-shell-protocol.c: $(XML)/xdg-shell/xdg-shell.xml | $(BUILD)
+$(BUILD)/xdg-shell-protocol.c: $(XDG_SHELL_XML) | $(BUILD)
 	wayland-scanner private-code $< $@
 
-$(BUILD)/linux-dmabuf-client-protocol.h: $(XML)/linux-dmabuf/linux-dmabuf-unstable-v1.xml | $(BUILD)
+$(BUILD)/linux-dmabuf-client-protocol.h: $(LINUX_DMABUF_XML) | $(BUILD)
 	wayland-scanner client-header $< $@
 
-$(BUILD)/linux-dmabuf-protocol.c: $(XML)/linux-dmabuf/linux-dmabuf-unstable-v1.xml | $(BUILD)
+$(BUILD)/linux-dmabuf-protocol.c: $(LINUX_DMABUF_XML) | $(BUILD)
 	wayland-scanner private-code $< $@
 
-$(BUILD)/presentation-time-client-protocol.h: $(XML)/presentation-time/presentation-time.xml | $(BUILD)
+$(BUILD)/presentation-time-client-protocol.h: $(PRESENTATION_TIME_XML) | $(BUILD)
 	wayland-scanner client-header $< $@
 
-$(BUILD)/presentation-time-protocol.c: $(XML)/presentation-time/presentation-time.xml | $(BUILD)
+$(BUILD)/presentation-time-protocol.c: $(PRESENTATION_TIME_XML) | $(BUILD)
 	wayland-scanner private-code $< $@
 
 $(BUILD)/linux-drm-syncobj-client-protocol.h: $(LOCAL_XML)/linux-drm-syncobj-v1.xml | $(BUILD)
@@ -59,10 +73,10 @@ $(BUILD)/viewporter-client-protocol.h: $(LOCAL_XML)/viewporter.xml | $(BUILD)
 $(BUILD)/viewporter-protocol.c: $(LOCAL_XML)/viewporter.xml | $(BUILD)
 	wayland-scanner private-code $< $@
 
-$(BUILD)/xdg-activation-v1-client-protocol.h: $(XML)/xdg-activation/xdg-activation-v1.xml | $(BUILD)
+$(BUILD)/xdg-activation-v1-client-protocol.h: $(XDG_ACTIVATION_XML) | $(BUILD)
 	wayland-scanner client-header $< $@
 
-$(BUILD)/xdg-activation-v1-protocol.c: $(XML)/xdg-activation/xdg-activation-v1.xml | $(BUILD)
+$(BUILD)/xdg-activation-v1-protocol.c: $(XDG_ACTIVATION_XML) | $(BUILD)
 	wayland-scanner private-code $< $@
 
 # Original M1A baseline (v1)

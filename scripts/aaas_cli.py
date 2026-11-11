@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import re
 import signal
 import shlex
 import shutil
@@ -101,6 +103,88 @@ def _status(config):
     return {'runtime': active or {'state': 'STOPPED'},
             'profile': config.profile, 'workspace': str(config.workspace),
             'rootfs': str(config.rootfs)}
+
+
+def _composer_toolchain_check():
+    """Check the minimum compiler and linker required by bundled libc++."""
+    compiler_name = os.environ.get('CLANGXX', 'clang++')
+    compiler = shutil.which(compiler_name)
+    if not compiler:
+        return False, (f'{compiler_name} 21.1+ is required to build the Android Composer; '
+                       'set CLANGXX to the compiler executable')
+    try:
+        result = subprocess.run([compiler, '--version'], capture_output=True,
+                                text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f'cannot query clang++ version: {error}'
+    output = (result.stdout or '') + '\n' + (result.stderr or '')
+    match = re.search(r'clang version\s+(\d+)\.(\d+)(?:\.(\d+))?', output,
+                      re.IGNORECASE)
+    if result.returncode or not match:
+        return False, f'cannot parse clang++ version output: {output.strip()[:180]}'
+    version = tuple(int(value or 0) for value in match.groups())
+    version_text = '.'.join(str(value) for value in version)
+    if version[:2] < (21, 1):
+        return False, f'clang++ {version_text} is too old; bundled libc++ requires 21.1+'
+    linker = shutil.which('ld.lld') or shutil.which(f'ld.lld-{version[0]}')
+    if not linker:
+        return False, (f'clang++ {version_text} found, but matching LLD is missing; '
+                       f'install ld.lld or ld.lld-{version[0]}')
+    return True, f'clang++ {version_text}; LLD available at {linker}'
+
+
+def _composer_prebuilt_check(root=ROOT, workspace=None):
+    """Accept a prebuilt Composer only when its source and binary receipt match."""
+    root = Path(root)
+    if workspace is None:
+        return False, 'workspace is not configured'
+    workspace = Path(workspace)
+    source = root / 'experiments/m1b/composer_aaas'
+    source_paths = [source / name for name in
+                    ('composer_service.cpp', 'aaas_transport.cpp', 'aaas_transport.h',
+                     'virtual_transport_pool.h', 'linear_copy.h', 'mixed_compose.h',
+                     'Makefile')]
+    source_paths.append(root / 'experiments/m1a/src/wire_v2.c')
+    try:
+        digest = hashlib.sha256()
+        for path in source_paths:
+            digest.update(path.name.encode('utf-8') + b'\0')
+            digest.update(path.read_bytes())
+        expected_source = digest.hexdigest()
+        binary = workspace / 'tmp/m1e_composer_two_output'
+        receipt_path = binary.with_suffix('.json')
+        receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+        binary_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
+    except (OSError, ValueError, TypeError) as error:
+        return False, f'prebuilt Composer or receipt is unavailable: {error}'
+    if (receipt.get('endpoint_mode') != 'on-demand' or
+            receipt.get('max_count') != 64 or
+            receipt.get('source_sha256') != expected_source or
+            receipt.get('sha256') != binary_hash):
+        return False, 'prebuilt Composer receipt does not match current source and binary'
+    return True, f'prebuilt Composer verified at {binary}; build-time Clang is not required'
+
+
+def _tun_device_check(path='/dev/net/tun'):
+    """Check the Linux TUN device that slirp4netns uses for Android networking."""
+    import stat
+    device = Path(path)
+    try:
+        metadata = device.stat()
+    except OSError as error:
+        return False, (f'{device} is unavailable ({error}); enable the kernel TUN driver '
+                       'and provide the Linux 10:200 TUN device')
+    if (not stat.S_ISCHR(metadata.st_mode)
+            or os.major(metadata.st_rdev) != 10 or os.minor(metadata.st_rdev) != 200):
+        return False, f'{device} is not the Linux TUN character device (10:200)'
+    if not os.access(device, os.R_OK | os.W_OK):
+        return False, f'{device} is not readable and writable by the AaaS user'
+    try:
+        descriptor = os.open(device, os.O_RDWR | os.O_CLOEXEC)
+    except OSError as error:
+        return False, f'{device} cannot be opened ({error}); enable the kernel TUN driver'
+    os.close(descriptor)
+    return True, f'{device} is accessible'
 
 
 def _doctor(config):
@@ -201,6 +285,22 @@ def _doctor(config):
     add('build_tools', 'SUPPORTED' if all(shutil.which(tool) for tool in ('make', 'cc'))
         else 'MISSING_DEPENDENCY', 'make and C compiler required by native artifact builders',
         mandatory=False)
+    composer_ready, composer_detail = _composer_prebuilt_check(ROOT, config.workspace)
+    if composer_ready:
+        add('composer_prebuilt', 'SUPPORTED', composer_detail)
+        add('composer_toolchain', 'SUPPORTED', 'not required; matching prebuilt Composer is bundled')
+    else:
+        add('composer_prebuilt', 'MISSING_DEPENDENCY', composer_detail, mandatory=False)
+        composer_ok, composer_detail = _composer_toolchain_check()
+        add('composer_toolchain', 'SUPPORTED' if composer_ok else 'MISSING_DEPENDENCY',
+            composer_detail)
+    runtime_tools = ('javac', 'keytool', 'newuidmap', 'newgidmap')
+    missing_runtime_tools = [tool for tool in runtime_tools if not shutil.which(tool)]
+    add('developer_runtime_tools', 'MISSING_DEPENDENCY' if missing_runtime_tools else 'SUPPORTED',
+        ('missing ' + ', '.join(missing_runtime_tools) if missing_runtime_tools else
+         'javac, keytool, newuidmap, and newgidmap are available'))
+    tun_ok, tun_detail = _tun_device_check()
+    add('network_tun_device', 'SUPPORTED' if tun_ok else 'MISSING_DEPENDENCY', tun_detail)
     add('memory', 'SUPPORTED' if _available_memory_bytes() >= 4 * (1 << 30) else 'UNVERIFIED_CONFIGURATION',
         f'{_available_memory_bytes() // (1 << 30)} GiB available', mandatory=False)
     add('rootfs', 'SUPPORTED' if config.rootfs.is_dir() else 'MISSING_DEPENDENCY',

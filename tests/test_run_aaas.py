@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import tempfile
 import threading
 import time
@@ -20,6 +21,54 @@ SESSION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SESSION)
 sys.path.insert(0, str(SCRIPT.parent))
 import aaas_session_runner_base
+
+
+class SlirpToolResolutionTests(unittest.TestCase):
+    def test_unloadable_bundled_helper_falls_back_to_compatible_host_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / 'installation/runtime'
+            workspace = root / 'workspace'
+            bundled = runtime / 'bin/slirp4netns'
+            system = root / 'usr/bin/slirp4netns'
+            bundled.parent.mkdir(parents=True)
+            system.parent.mkdir(parents=True)
+            bundled.touch(); bundled.chmod(0o755)
+            system.touch(); system.chmod(0o755)
+
+            def run(command, **_kwargs):
+                if command[0] == str(bundled):
+                    raise OSError('GLIBC_2.38 not found')
+                return subprocess.CompletedProcess(
+                    command, 0, '--userns-path PATH --ready-fd=FD', '')
+
+            selected = aaas_session_runner_base.resolve_slirp_tool(
+                runtime, workspace, path_lookup=lambda _: str(system), run=run)
+            self.assertEqual(selected, system)
+
+    def test_rejects_host_helper_without_required_namespace_options(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            tool = Path(temporary) / 'slirp4netns'
+            tool.touch(); tool.chmod(0o755)
+            result = subprocess.CompletedProcess([str(tool), '--help'], 0,
+                                                 '--ready-fd=FD', '')
+            with self.assertRaisesRegex(RuntimeError, 'missing supported options --userns-path'):
+                aaas_session_runner_base.resolve_slirp_tool(
+                    Path(temporary) / 'runtime', Path(temporary) / 'workspace',
+                    configured=str(tool), run=lambda *_args, **_kwargs: result)
+
+
+class TunDevicePreflightTests(unittest.TestCase):
+    def test_missing_tun_device_has_actionable_error(self):
+        with self.assertRaisesRegex(RuntimeError, 'enable Linux TUN support'):
+            aaas_session_runner_base.verify_tun_device('/missing/test/tun')
+
+    def test_regular_file_is_not_accepted_as_tun_device(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fake_tun = Path(temporary) / 'tun'
+            fake_tun.touch()
+            with self.assertRaisesRegex(RuntimeError, 'not the Linux TUN character device'):
+                aaas_session_runner_base.verify_tun_device(fake_tun)
 
 
 class AudioSeccompPolicyTests(unittest.TestCase):

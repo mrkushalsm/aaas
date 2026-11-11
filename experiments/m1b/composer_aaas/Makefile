@@ -1,5 +1,10 @@
-CXX := clang++
+CLANGXX ?= clang++
+CXX := $(CLANGXX)
 HOST_CXX ?= c++
+HOST_MULTIARCH := $(shell $(HOST_CXX) -print-multiarch 2>/dev/null)
+CLANG_MAJOR := $(shell $(CXX) -dumpversion 2>/dev/null | cut -d. -f1)
+LLD_PATH := $(shell command -v ld.lld 2>/dev/null || \
+	command -v ld.lld-$(CLANG_MAJOR) 2>/dev/null)
 TARGET ?= x86_64-linux-android
 XDG_DATA_HOME ?= $(HOME)/.local/share
 WORKSPACE_ROOT ?= $(XDG_DATA_HOME)/aaas/workspace
@@ -24,6 +29,12 @@ CXXFLAGS := -target $(TARGET) -std=c++17 -nostdlib -nostdinc++ -fno-rtti \
   -I include \
   -I include/aidl \
   -I ../../m1a/src
+ifneq ($(strip $(HOST_MULTIARCH)),)
+ifneq ($(wildcard /usr/include/$(HOST_MULTIARCH)),)
+CXXFLAGS += -isystem /usr/include/$(HOST_MULTIARCH)
+endif
+endif
+CXXFLAGS += -B$(BUILD_DIR)
 
 ifeq ($(AAAS_ENABLE_VIRTUAL_DISPLAY),1)
 CXXFLAGS += -DAAAS_ENABLE_VIRTUAL_DISPLAY=1 \
@@ -67,7 +78,9 @@ test: $(BUILD_DIR)/test-linear-copy $(BUILD_DIR)/test-virtual-transport-pool $(B
 	$(BUILD_DIR)/test-mixed-compose
 
 $(BIN): FORCE $(SRCS) $(HEADERS) Makefile
-	@mkdir -p $(OUT_DIR)
+	@mkdir -p $(OUT_DIR) $(BUILD_DIR)
+	@test -n "$(LLD_PATH)" || { echo "missing ld.lld (install LLD matching Clang $(CLANG_MAJOR))" >&2; exit 1; }
+	@ln -sf "$(LLD_PATH)" "$(BUILD_DIR)/ld.lld"
 	$(CXX) $(CXXFLAGS) $(SRCS) $(LDFLAGS) -o $@
 
 FORCE:

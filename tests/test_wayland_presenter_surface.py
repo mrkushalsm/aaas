@@ -112,6 +112,12 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         self.assertIn("actual_wayland_releases", producer)
         self.assertIn("gbm-staging-producer", makefile)
 
+    def test_protocol_discovery_prefers_packaged_protocols_over_partial_qt_tree(self):
+        makefile = (ROOT / "experiments/m1a/Makefile").read_text()
+        self.assertLess(makefile.index("pkg-config --variable=pkgdatadir wayland-protocols"),
+                        makefile.index("/usr/share/qt6/wayland/protocols"))
+        self.assertIn("$(wildcard $(XML)/staging/$(1)/$(2))", makefile)
+
     def test_acquire_fence_wait_pumps_wayland_and_input_events(self):
         start = self.source.index("static int wait_for_acquire_fence(")
         end = self.source.index("static void check_release_timelines(", start)
