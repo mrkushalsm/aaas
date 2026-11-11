@@ -25,6 +25,9 @@ import android_workspace
 
 GIB = 1 << 30
 MIN_FREE_RESERVE = 20 * GIB
+BUNDLE_CREATE_FREE_RESERVE = 2 * GIB
+MAX_RETAINED_BUNDLES_PER_DIRECTORY = 2
+BUNDLE_METADATA_BUDGET = 64 * 1024 * 1024
 INSTALL_ROOTFS_MOUNTPOINTS = ('data', 'metadata', 'cache', 'storage', 'mnt', 'dev',
                               'proc', 'sys', 'tmp', 'linkerconfig', 'debug_ramdisk')
 
@@ -378,6 +381,99 @@ def _filesystem_available_bytes(path: Path) -> int:
     return value.f_bavail * (value.f_frsize or value.f_bsize)
 
 
+def _tree_payload_bytes(source: Path, *, exclude_rootfs_state=False) -> int:
+    """Estimate copied regular-file bytes without reading file contents."""
+    if not source.is_dir() or source.is_symlink():
+        return 0
+    total = 0
+    for current, dirs, files in os.walk(source, topdown=True, followlinks=False):
+        current_path = Path(current)
+        relative = current_path.relative_to(source)
+        dirs[:] = sorted(name for name in dirs if name != '__pycache__')
+        files = [name for name in files if not name.endswith('.pyc')]
+        if exclude_rootfs_state and relative == Path('.'):
+            dirs[:] = [name for name in dirs
+                       if name in ROOTFS_TOP and name not in EXCLUDED_TOP]
+            files = [name for name in files
+                     if name in ROOTFS_TOP and name not in EXCLUDED_TOP]
+        for name in files:
+            path = current_path / name
+            if path.is_symlink():
+                continue
+            try:
+                if path.is_file():
+                    total += path.stat().st_size
+            except OSError as error:
+                raise BundleError(f'cannot estimate bundle input size for {path}: {error}') from error
+    return total
+
+
+def _planned_bundle_bytes(repo: Path, rootfs: Path, workspace: Path) -> int:
+    total = _tree_payload_bytes(rootfs, exclude_rootfs_state=True)
+    for relative in RUNTIME_DIRS:
+        total += _tree_payload_bytes(repo / relative)
+    for relative in EXTRA_BINARIES | set(RUNTIME_FILES) | {'manifests/android-profiles.json'}:
+        path = repo / relative
+        if path.is_file() and not path.is_symlink():
+            total += path.stat().st_size
+    for relative in WORKSPACE_FILES + BUILD_TOOLS:
+        path = workspace / relative
+        if path.is_file() and not path.is_symlink():
+            total += path.stat().st_size
+    for relative in WORKSPACE_TREES:
+        total += _tree_payload_bytes(workspace / relative)
+    return total + BUNDLE_METADATA_BUDGET
+
+
+def _check_bundle_retention(output: Path) -> None:
+    """Refuse unbounded candidate accumulation and stale large staging trees."""
+    parent = output.parent
+    if not parent.is_dir():
+        return
+    stages = []
+    candidates = []
+    for child in parent.iterdir():
+        if child.name.startswith('.') and '.staging-' in child.name:
+            stages.append(child)
+            continue
+        if child == output:
+            continue
+        if child.is_symlink():
+            raise BundleError(f'refusing bundle output beside symlinked artifact: {child}')
+        manifest_path = child / 'manifest.json' if child.is_dir() else None
+        if manifest_path is None or not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as error:
+            raise BundleError(f'cannot classify existing bundle candidate {child}: {error}') from error
+        if not isinstance(manifest, dict) or manifest.get('profile') != PROFILE:
+            continue
+        candidates.append(child)
+    if stages:
+        names = ', '.join(str(path) for path in sorted(stages))
+        raise BundleError('incomplete bundle staging exists; inspect before removal: ' + names)
+    if len(candidates) >= MAX_RETAINED_BUNDLES_PER_DIRECTORY:
+        names = ', '.join(str(path) for path in sorted(candidates))
+        raise BundleError(
+            f'bundle retention limit ({MAX_RETAINED_BUNDLES_PER_DIRECTORY}) reached in '
+            f'{parent}; retain one known-good bundle and one current candidate; found: {names}')
+
+
+def _check_bundle_create_capacity(output: Path, predicted_bytes: int) -> None:
+    parent = output.parent
+    while not parent.exists() and parent != parent.parent:
+        parent = parent.parent
+    if not parent.is_dir():
+        raise BundleError(f'cannot find target filesystem for bundle output: {output}')
+    available = _filesystem_available_bytes(parent)
+    if available - predicted_bytes < BUNDLE_CREATE_FREE_RESERVE:
+        raise BundleError(
+            'bundle output filesystem lacks payload plus 2 GiB reserve: '
+            f'available={available} predicted={predicted_bytes} '
+            f'reserve={BUNDLE_CREATE_FREE_RESERVE}')
+
+
 def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
                   preflight=None):
     repo = repo.resolve(strict=True)
@@ -390,6 +486,8 @@ def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
         raise BundleError(f'refusing to replace existing bundle path: {output}')
     if output == rootfs or rootfs in output.parents:
         raise BundleError('bundle output cannot be inside the protected diagnostic rootfs')
+    _check_bundle_retention(output)
+    _check_bundle_create_capacity(output, _planned_bundle_bytes(repo, rootfs, workspace))
     if preflight:
         preflight()
     output.parent.mkdir(parents=True, exist_ok=True)

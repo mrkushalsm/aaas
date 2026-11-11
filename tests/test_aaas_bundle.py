@@ -29,6 +29,51 @@ def install_fixture(**kwargs):
 
 
 class BundleTests(unittest.TestCase):
+    def test_bundle_creation_limits_retained_candidate_count(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            repo, workspace, _ = self.fixture(base)
+            for name in ('engineering-known-good', 'engineering-current'):
+                candidate = base / name
+                candidate.mkdir()
+                (candidate / 'manifest.json').write_text(json.dumps({
+                    'profile': aaas_bundle.PROFILE,
+                    'classification': 'LOCAL_DEVELOPMENT_DIAGNOSTIC',
+                }))
+            output = base / 'engineering-next'
+            with self.assertRaisesRegex(aaas_bundle.BundleError, 'retention limit'):
+                aaas_bundle.create_bundle(repo=repo,
+                                          rootfs=workspace / 'rootfs_m1b1',
+                                          output=output, workspace=workspace)
+            self.assertFalse(output.exists())
+
+    def test_bundle_creation_refuses_abandoned_staging(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            repo, workspace, _ = self.fixture(base)
+            (base / '.older-candidate.staging-interrupted').mkdir()
+            output = base / 'next-candidate'
+            with self.assertRaisesRegex(aaas_bundle.BundleError,
+                                        'incomplete bundle staging'):
+                aaas_bundle.create_bundle(repo=repo,
+                                          rootfs=workspace / 'rootfs_m1b1',
+                                          output=output, workspace=workspace)
+            self.assertFalse(output.exists())
+
+    def test_bundle_creation_checks_free_space_before_copying(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            repo, workspace, _ = self.fixture(base)
+            with patch.object(aaas_bundle, '_filesystem_available_bytes',
+                              return_value=1):
+                with self.assertRaisesRegex(aaas_bundle.BundleError,
+                                            'lacks payload plus 2 GiB reserve'):
+                    aaas_bundle.create_bundle(repo=repo,
+                                              rootfs=workspace / 'rootfs_m1b1',
+                                              output=base / 'bundle',
+                                              workspace=workspace)
+            self.assertFalse((base / 'bundle').exists())
+
     def test_bundle_capacity_uses_user_available_blocks_not_privileged_free_blocks(self):
         stat = SimpleNamespace(f_bavail=7, f_bfree=99, f_blocks=100,
                                f_frsize=4096, f_bsize=4096)
