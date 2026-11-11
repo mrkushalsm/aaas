@@ -19,7 +19,7 @@ The release bundle is pinned and acquired reproducibly using its exact Refract G
 
 ## Integration
 
-Android Native Bridge is enabled only with the opt-in `--diagnostic-native-bridge-overlay` runner option and the experimental virtual-display path. The runner rejects bundles outside workspace `tmp`, verifies all 74 checksums and safe paths, constructs a temporary merged system view using hard links, and removes it after process teardown. Init sees these session-only properties before Zygote:
+Android Native Bridge is enabled only with the opt-in `--diagnostic-native-bridge-overlay` runner option and the experimental virtual-display path. The runner rejects bundles outside workspace `tmp`, verifies all 74 checksums and safe paths, constructs a temporary merged system view using hard links when the rootfs and session workspace share a filesystem, and copies only files for which the filesystem returns `EXDEV`. Other hard-link failures remain fatal. It removes the view after process teardown. Init sees these session-only properties before Zygote:
 
 - `ro.dalvik.vm.native.bridge=libberberis_arm64.so`
 - `ro.dalvik.vm.isa.arm64=x86_64`

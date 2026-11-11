@@ -1,6 +1,7 @@
 """Guard the diagnostic session's generated runner and mount isolation."""
 
 import importlib.util
+import errno
 import json
 import os
 from pathlib import Path
@@ -252,6 +253,8 @@ class NativeBridgeOverlayTests(unittest.TestCase):
             self.assertIn('ro.enable.native.bridge.exec=0', props)
             self.assertIn(f'--ro-bind "{overlay / "system/lib64"}" /system/lib64', generated)
             self.assertTrue((overlay / 'system/lib64/libberberis_arm64.so').is_file())
+            self.assertTrue(os.path.samefile(
+                base / 'bin/base-file', overlay / 'system/bin/base-file'))
             runner = overlay / 'system/bin/berberis_program_runner_binfmt_misc_arm64'
             self.assertEqual(runner.stat().st_mode & 0o777, 0o755)
             provenance = json.loads((session / 'native-bridge-config.json').read_text())
@@ -259,6 +262,59 @@ class NativeBridgeOverlayTests(unittest.TestCase):
                              '0o755')
             self.assertEqual((base / 'build.prop').read_text(),
                              'ro.dalvik.vm.native.bridge=0\nro.product.cpu.abi=x86_64\n')
+
+    def test_native_bridge_overlay_copies_on_cross_device_link(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = self._bundle(root)
+            base = root / 'rootfs/rootfs_m1b1/system'
+            for subtree in ('bin', 'etc', 'lib64'):
+                (base / subtree).mkdir(parents=True)
+            source_file = base / 'bin/base-file'
+            source_file.write_text('base')
+            source_file.chmod(0o640)
+            os.utime(source_file, ns=(1_700_000_000_123_456_789,
+                                      1_700_000_000_123_456_789))
+            (base / 'build.prop').write_text('ro.product.cpu.abi=x86_64\n')
+            session = root / 'session'
+            session.mkdir()
+            with patch.object(SESSION, 'TMP', root), \
+                    patch.object(SESSION, 'WORKSPACE', root / 'rootfs'), \
+                    patch.object(SESSION.os, 'link',
+                                 side_effect=OSError(errno.EXDEV, 'cross-device')):
+                verified, entries = SESSION.validate_native_bridge_bundle(bundle)
+                overlay = SESSION.prepare_native_bridge_overlay(
+                    verified, entries, session)
+            copied = overlay / 'system/bin/base-file'
+            self.assertEqual(copied.read_text(), 'base')
+            self.assertFalse(os.path.samefile(source_file, copied))
+            self.assertEqual(copied.stat().st_mode & 0o777, 0o640)
+            self.assertEqual(copied.stat().st_mtime_ns,
+                             source_file.stat().st_mtime_ns)
+            self.assertTrue((overlay / 'system/lib64/libberberis_arm64.so').is_file())
+
+    def test_native_bridge_overlay_does_not_mask_other_link_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = self._bundle(root)
+            base = root / 'rootfs/rootfs_m1b1/system'
+            for subtree in ('bin', 'etc', 'lib64'):
+                (base / subtree).mkdir(parents=True)
+            (base / 'bin/base-file').write_text('base')
+            (base / 'build.prop').write_text('ro.product.cpu.abi=x86_64\n')
+            session = root / 'session'
+            session.mkdir()
+            with patch.object(SESSION, 'TMP', root), \
+                    patch.object(SESSION, 'WORKSPACE', root / 'rootfs'), \
+                    patch.object(SESSION.os, 'link',
+                                 side_effect=OSError(errno.EPERM, 'permission denied')), \
+                    patch.object(SESSION.shutil, 'copy2') as copy2:
+                verified, entries = SESSION.validate_native_bridge_bundle(bundle)
+                with self.assertRaises(SESSION.shutil.Error) as raised:
+                    SESSION.prepare_native_bridge_overlay(
+                        verified, entries, session)
+            self.assertIn('permission denied', str(raised.exception))
+            copy2.assert_not_called()
 
     def test_arm64_first_abi_order_is_opt_in_and_session_local(self):
         with tempfile.TemporaryDirectory() as directory:

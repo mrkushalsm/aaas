@@ -7,6 +7,7 @@ launcher transforms a hash-checked copy rather than editing that runner.
 
 import argparse
 import base64
+import errno
 import fcntl
 import hashlib
 import json
@@ -169,13 +170,26 @@ def validate_native_bridge_bundle(path):
     return bundle, entries
 
 
+def _hardlink_or_copy(source, destination):
+    """Hard-link rootfs files when possible; copy only across filesystems."""
+    try:
+        os.link(source, destination)
+    except OSError as error:
+        if error.errno != errno.EXDEV:
+            raise
+        # The overlay is session-local.  copy2 preserves file mode, timestamps,
+        # and available extended attributes when a hard link cannot cross
+        # filesystem boundaries.
+        shutil.copy2(source, destination)
+
+
 def prepare_native_bridge_overlay(bundle, entries, session, arm64_first=False,
                                   native_exec=False, native_exec_library_apk=None):
     rootfs_system = configured_rootfs() / 'system'
     overlay_system = session / 'native_bridge_overlay/system'
     for subtree in ('bin', 'etc', 'lib64'):
         shutil.copytree(rootfs_system / subtree, overlay_system / subtree,
-                        symlinks=True, copy_function=os.link)
+                        symlinks=True, copy_function=_hardlink_or_copy)
     for relative, source in entries:
         parts = relative.parts
         target = overlay_system.joinpath(*parts[1:])
