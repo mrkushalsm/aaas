@@ -3133,11 +3133,8 @@ def build_multi_output_composer(max_count=64):
     if COMPOSER_MULTI_OUTPUT.is_file() and receipt.is_file():
         try:
             recorded = json.loads(receipt.read_text())
-            recorded_max_count = recorded.get('max_count')
             if (recorded.get('endpoint_mode') == 'on-demand' and
-                    isinstance(recorded_max_count, int) and
-                    not isinstance(recorded_max_count, bool) and
-                    recorded_max_count >= max_count and
+                    recorded.get('max_count') == max_count and
                     recorded.get('source_sha256') == source_sha256 and
                     recorded.get('sha256') == sha256(COMPOSER_MULTI_OUTPUT)):
                 return COMPOSER_MULTI_OUTPUT
