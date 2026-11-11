@@ -4,7 +4,7 @@
 
 ## Preservation and starting state
 
-Initial branch `master`, HEAD `963a606`, no Git remote. The inherited M1B.8 worktree files listed in `results/m1b85/preservation_manifest.json` were not staged or rewritten. The external workspace remained `/dev/sda2` on NTFS3 (`A2ACEDF2ACEDC0C1`). The existing diagnostic LMKD overlay remained SHA-256 `9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd`; the SwiftShader overlay remained SHA-256 `1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`. No Android image or inherited diagnostic binary was overwritten.
+Initial branch `master`, HEAD `963a606`, no Git remote. The inherited M1B.8 worktree files listed in `results/m1b85/preservation_manifest.json` were not staged or rewritten. The external workspace remained `$AAAS_WORKSPACE_DEVICE` on NTFS3 (`$AAAS_NTFS_WORKSPACE_UUID`). The existing diagnostic LMKD overlay remained SHA-256 `9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd`; the SwiftShader overlay remained SHA-256 `1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`. No Android image or inherited diagnostic binary was overwritten.
 
 ## Reproducible LMKD build and provenance
 
@@ -110,7 +110,7 @@ This demonstrates ordering and containment, not production pressure fidelity: th
 
 ```sh
 # Rebuild and verify pinned sources; writes a receipt.
-python3 scripts/build_lmkd.py --output /run/media/mrkus/Homework/aaas-workspace/tmp/m1b85_lmkd_source_built \
+python3 scripts/build_lmkd.py --output $AAAS_WORKSPACE/tmp/m1b85_lmkd_source_built \
   --receipt results/m1b85/lmkd_build_receipt.json
 
 # Rootless OOM permission matrix (host, then inside bubblewrap).

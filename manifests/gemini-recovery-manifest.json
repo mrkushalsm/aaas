@@ -49,11 +49,11 @@
     }
   ],
   "workspace_artifacts": {
-    "rootfs": "/run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1",
-    "libselinux_shim_so": "/run/media/mrkus/Homework/aaas-workspace/tmp/libselinux_shim.so",
-    "test_zygote_out": "/run/media/mrkus/Homework/aaas-workspace/tmp/test_zygote_out.txt",
-    "test_zygote_kmsg": "/run/media/mrkus/Homework/aaas-workspace/tmp/test_zygote_kmsg.txt",
-    "full_logcat": "/run/media/mrkus/Homework/aaas-workspace/tmp/full_logcat.log",
-    "sf_strace": "/run/media/mrkus/Homework/aaas-workspace/tmp/sf_strace.log"
+    "rootfs": "$AAAS_WORKSPACE/rootfs_m1b1",
+    "libselinux_shim_so": "$AAAS_WORKSPACE/tmp/libselinux_shim.so",
+    "test_zygote_out": "$AAAS_WORKSPACE/tmp/test_zygote_out.txt",
+    "test_zygote_kmsg": "$AAAS_WORKSPACE/tmp/test_zygote_kmsg.txt",
+    "full_logcat": "$AAAS_WORKSPACE/tmp/full_logcat.log",
+    "sf_strace": "$AAAS_WORKSPACE/tmp/sf_strace.log"
   }
 }

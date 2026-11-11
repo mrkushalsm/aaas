@@ -14,15 +14,15 @@ remount, filesystem write, userdata mutation, or workspace-backed test occurred.
 
 ## Correlated evidence
 
-The current mount is `/dev/sda2` at `/run/media/mrkus/Homework`, filesystem
-`ntfs3`, UUID `A2ACEDF2ACEDC0C1`. The parent device is the USB-attached
-`CT500BX500SSD1`, serial `2421E8B20AE0`, reached through UAS at USB 2-3. The
+The current mount is `$AAAS_WORKSPACE_DEVICE` at `$AAAS_WORKSPACE_PARENT`, filesystem
+`ntfs3`, UUID `$AAAS_NTFS_WORKSPACE_UUID`. The parent device is the USB-attached
+`local USB SSD`, serial `REDACTED_LOCAL_SERIAL`, reached through UAS at USB 2-3. The
 kernel reports Linux `7.2.9-arch1-1`; the NTFS3 module vermagic matches that
 kernel. `lsblk` reports `ROTA=1` despite the SSD model, so that field is not
 treated as evidence of a rotating disk.
 
 All four `mi_enum_attr` messages have kernel priority 3 (error), source
-`ntfs3(sda2)`, and boot ID `70f8e0d326cf4da08dbd862256b1391a`. Journal JSON
+`ntfs3(sda2)`, and boot ID `REDACTED_LOCAL_BOOT_ID`. Journal JSON
 preserves both realtime and monotonic timestamps:
 
 | Realtime (+05:30) | Monotonic | MFT inode | Name |
@@ -162,11 +162,11 @@ exported Windows event, command flags, completion result, repair summary, or
 bad-cluster report. The user reports running CHKDSK, but execution, completion,
 repair, and clean status remain unverified.
 
-After boot `c0a7b7de-753c-4c02-9042-2103818b72ef` started at
+After boot `$HOST_BOOT_ID` started at
 2026-11-07 09:08:05 +05:30, the drive reappeared as `/dev/sda`, and `lsblk`
-reported `/dev/sda2`, NTFS, UUID `A2ACEDF2ACEDC0C1`, 465.7 GiB, and no
+reported `$AAAS_WORKSPACE_DEVICE`, NTFS, UUID `$AAAS_NTFS_WORKSPACE_UUID`, 465.7 GiB, and no
 mountpoint. Udev identified the same Crucial BX500 SSD (revision M6CR072,
-serial `2421E8B20AE0`) behind a USB 3.0 bridge, VID:PID `152d:0578`, UAS driver,
+serial `REDACTED_LOCAL_SERIAL`) behind a USB 3.0 bridge, VID:PID `152d:0578`, UAS driver,
 USB path 2-3. The reported `ROTA=1` conflicts with the SSD model and udev's ATA
 rotation rate 0, so it is not used to infer a mechanical disk.
 
@@ -201,9 +201,9 @@ and `git diff --check` passed. No test started Android or accessed userdata.
 
 ## Workspace migration to ext4 (2026-11-07)
 
-The user created ext4 partition `/dev/sda3`, UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1`, mounted at
-`/run/media/mrkus/Aaas`. The workspace copy was made with rsync preserving POSIX
+The user created ext4 partition `$AAAS_WORKSPACE_DEVICE`, UUID
+`$AAAS_WORKSPACE_UUID`, mounted at
+`$AAAS_MOUNT`. The workspace copy was made with rsync preserving POSIX
 ACLs, hardlinks, mode and numeric ownership while omitting NTFS3-private
 `$LX*` extended attributes. The source NTFS workspace remains intact.
 

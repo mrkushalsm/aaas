@@ -46,7 +46,7 @@ systemctl --user status aaas-runtime.service
 aaas apps list
 aaas apps launch com.android.settings
 aaas apps install /path/to/trusted.apk
-aaas apps close INSTANCE_ID
+aaas apps close SLOT
 aaas runtime stop
 ```
 

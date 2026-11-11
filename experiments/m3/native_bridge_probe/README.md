@@ -7,13 +7,13 @@ and ABI inventory. The AOSP `jni.h` header is pinned in `include/` from
 `platform/libnativehelper` revision
 `2d584ec2da2c5271ed1576593c6590d652806f0d` (Apache-2.0).
 
-Example build in the project workspace:
+Example build in the project workspace (set `AAAS_WORKSPACE` to its root first):
 
 ```sh
 python3 experiments/m3/native_bridge_probe/build_probe.py \
-  --apktool /run/media/mrkus/Homework/aaas-workspace/tmp/apktool_3.0.3.jar \
-  --output /run/media/mrkus/Homework/aaas-workspace/tmp/m3_native_bridge/AaasM3NativeBridge.apk \
-  --keystore /run/media/mrkus/Homework/aaas-workspace/tmp/m3_native_bridge/m3-debug.keystore
+  --apktool $AAAS_WORKSPACE/tmp/apktool_3.0.3.jar \
+  --output $AAAS_WORKSPACE/tmp/m3_native_bridge/AaasM3NativeBridge.apk \
+  --keystore $AAAS_WORKSPACE/tmp/m3_native_bridge/m3-debug.keystore
 ```
 
 The tested tool versions were Clang 23.1.1, Apktool 3.0.3 (SHA-256

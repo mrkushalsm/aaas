@@ -5,7 +5,7 @@
 ## Preservation and baseline
 
 - Branch `master`, initial HEAD `db43230`; no remote. Inherited changes in `experiments/m1b/shim_selinux.c` and `scripts/test_zygote_startup.py`, and inherited untracked M1B.8 files, were left intact. Their hashes and Git state are in `results/m1b82/preservation_manifest.json`. Copies and pre-edit diffs are under the external workspace `tmp/m1b82_preedit/`.
-- External workspace was verified as mounted NTFS3 at `/run/media/mrkus/Homework/aaas-workspace` before the live runs. No original image or historical overlay was changed.
+- External workspace was verified as mounted NTFS3 at `$AAAS_WORKSPACE` before the live runs. No original image or historical overlay was changed.
 - The loaded SwiftShader overlay is `tmp/vulkan.pastel.so`, SHA-256 `4e9e89c1b534f05daf773516de599a6b525c875e49f3de1c5406ce1110e1a5a3`, ELF build ID `6954e2fbdddce3e33971d6c9e6bd70ad47b9ac4d`. The external SwiftShader source is at `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5` with the retained Gemini/Codex working patches. The overlay retains local `__libc_single_threaded` storage set to zero.
 - Before changes, 73 Python unit tests, `make -C experiments/m1a test`, and `android_workspace.py check` passed. This does not prove Settings rendering.
 
@@ -32,7 +32,7 @@ The source assigns `draw->batchDataPool = &Renderer::batchDataPool` before `Draw
 
 A temporary trace patch is retained at `experiments/m1b/swiftshader/renderer_lifetime_trace.patch`. It logs Renderer construction/destruction and the batch pool pointer used by the first 128 draws per process to Android logcat. The diagnostic overlay `tmp/m1b82_lifetime_logcat_vulkan.so` has SHA-256 `3ab49761ec2ca0dc2634d099e55c1d52e765e3a3baa7be6414b2e3edff2ffea2` and build ID `9027acad8ae8467a035e2b98cc096529675eb00d`. Raw logs use prefix `m1b82_lifetime2_`; counts are in `results/m1b82/lifetime_diagnostic.json`. This is a probe, not a corrective patch.
 
-The diagnostic was built by applying the retained patch in `sources/swiftshader`, running `ninja -C sources/swiftshader/build src/Device/libvk_device.a`, and invoking `python3 scripts/build_android_swiftshader_overlay.py --workspace /run/media/mrkus/Homework/aaas-workspace --output /run/media/mrkus/Homework/aaas-workspace/tmp/m1b82_lifetime_logcat_vulkan.so`. The runner selected it with `AAAS_VULKAN_OVERLAY` and used the same M1B.8.1 diagnostic overlays as the baseline. The patch is validated with `git apply --check` against the restored external SwiftShader source.
+The diagnostic was built by applying the retained patch in `sources/swiftshader`, running `ninja -C sources/swiftshader/build src/Device/libvk_device.a`, and invoking `python3 scripts/build_android_swiftshader_overlay.py --workspace $AAAS_WORKSPACE --output $AAAS_WORKSPACE/tmp/m1b82_lifetime_logcat_vulkan.so`. The runner selected it with `AAAS_VULKAN_OVERLAY` and used the same M1B.8.1 diagnostic overlays as the baseline. The patch is validated with `git apply --check` against the restored external SwiftShader source.
 
 In that run, Settings PID 651 constructed a Renderer and logged 128 draws using a consistent batch-pool storage pointer. It did not reproduce the invalid-mutex crash. At `12:37:15.112`, `lmkd`'s watchdog explicitly killed PID 651 with `oom_score_adj 0`; Android then launched PID 1172 for FallbackHome. This establishes a separate cause of Settings process loss and explains why a later host frame can show FallbackHome. It does not explain the earlier blocked dequeue.
 

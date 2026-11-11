@@ -51,12 +51,12 @@ touchscreen path.
 - Android base image fingerprint, unchanged: `Android/sdk_phone64_x86_64/emu64x:16/BE2A.250530.026.D1/13818094:userdebug/test-keys` (preservation manifest).
 - SwiftShader runtime overlay: SHA-256 `e42a0bd8dfe3e0eea6c3d6753f9f9fa254d348366847241ca3c7e4b9ac9affee`.
 - Current Composer diagnostic overlay: SHA-256 `668bfd8198d5457d50a17b53c0ee37d5693b7ea34133e90441c2903c61a55f3d`.
-- Current presenter log: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_7n1k5nlw/virtual-presenter.log`, SHA-256 `1d47b97105ef0fc6b40926162a09954d42362155c3e447ce9296d9f991f764c2`.
-- Current second presenter log: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_7n1k5nlw/virtual-presenter2.log`, SHA-256 `0a7a4bf14593b70e9ceb68772cf7fc8d8bd9ad55b7e22f695e7377a7f4cde244`.
-- Current display-broker log: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_7n1k5nlw/ipc/display_broker.log`, SHA-256 `7b617d279c4a9a3ea392869baef6073bb0b2d62279d338877f2201692f9f3ec0`.
-- Current session state: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_7n1k5nlw/state.jsonl`, SHA-256 `0f8cd0f30e6cf93ca35bfb83e321526a3d5fda795d69da0b41cee4db9825ed1a`.
-- Current runtime graphics provenance: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_7n1k5nlw/runtime-graphics-provenance.json`, SHA-256 `ff36cbfb7ebdd6697480fcc4ff61e23aa43cc8ccf47050e7c8f33105349ad863`.
-- KWin native window listing: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_7n1k5nlw/kwin-window-identities.txt`, SHA-256 `d1de15cb28d4e18050148283edeb5b3218bdf8aee84140e4dec088194e3b78fa`.
+- Current presenter log: `$AAAS_WORKSPACE/tmp/m1b84_session_7n1k5nlw/virtual-presenter.log`, SHA-256 `1d47b97105ef0fc6b40926162a09954d42362155c3e447ce9296d9f991f764c2`.
+- Current second presenter log: `$AAAS_WORKSPACE/tmp/m1b84_session_7n1k5nlw/virtual-presenter2.log`, SHA-256 `0a7a4bf14593b70e9ceb68772cf7fc8d8bd9ad55b7e22f695e7377a7f4cde244`.
+- Current display-broker log: `$AAAS_WORKSPACE/tmp/m1b84_session_7n1k5nlw/ipc/display_broker.log`, SHA-256 `7b617d279c4a9a3ea392869baef6073bb0b2d62279d338877f2201692f9f3ec0`.
+- Current session state: `$AAAS_WORKSPACE/tmp/m1b84_session_7n1k5nlw/state.jsonl`, SHA-256 `0f8cd0f30e6cf93ca35bfb83e321526a3d5fda795d69da0b41cee4db9825ed1a`.
+- Current runtime graphics provenance: `$AAAS_WORKSPACE/tmp/m1b84_session_7n1k5nlw/runtime-graphics-provenance.json`, SHA-256 `ff36cbfb7ebdd6697480fcc4ff61e23aa43cc8ccf47050e7c8f33105349ad863`.
+- KWin native window listing: `$AAAS_WORKSPACE/tmp/m1b84_session_7n1k5nlw/kwin-window-identities.txt`, SHA-256 `d1de15cb28d4e18050148283edeb5b3218bdf8aee84140e4dec088194e3b78fa`.
 
 The full 243-test Python suite, M1A tests, Composer tests in an isolated `/tmp`
 build directory, and workspace guard passed during this audit. Full gate

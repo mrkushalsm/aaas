@@ -17,14 +17,14 @@ HAL and Gralloc integration work.
 
 | Property | Value |
 |---|---|
-| Mount point | `/run/media/mrkus/Homework/` |
-| Block device | `/dev/sda2` |
+| Mount point | `$AAAS_WORKSPACE_PARENT/` |
+| Block device | `$AAAS_WORKSPACE_DEVICE` |
 | Filesystem | `ntfs3` |
-| UUID | `A2ACEDF2ACEDC0C1` |
+| UUID | `$AAAS_NTFS_WORKSPACE_UUID` |
 | Available disk capacity | 466 GiB (346 GiB free at start) |
 | Working ceiling | 80 GiB (strictly enforced by `scripts/android_workspace.py`) |
 | Safety reserve | 20 GiB |
-| Workspace root | `/run/media/mrkus/Homework/aaas-workspace/` |
+| Workspace root | `$AAAS_WORKSPACE/` |
 
 ### Filesystem Capabilities & Constraints (Probed)
 

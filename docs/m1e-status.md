@@ -314,10 +314,10 @@ The final automated runs for this continuation passed:
 - `make -C experiments/m1c/input_adapter -B all`.
 - `make -C experiments/m1b/composer_aaas test`.
 - `make -C experiments/m1e/display_broker -B all`.
-- `python3 scripts/android_workspace.py --workspace /run/media/mrkus/Homework/aaas-workspace check`.
+- `python3 scripts/android_workspace.py --workspace $AAAS_WORKSPACE check`.
 
-The external workspace remained on `/dev/sda2` (NTFS3, UUID
-`A2ACEDF2ACEDC0C1`) at 22.9 GB used, under its 80 GiB ceiling with the
+The external workspace remained on `$AAAS_WORKSPACE_DEVICE` (NTFS3, UUID
+`$AAAS_NTFS_WORKSPACE_UUID`) at 22.9 GB used, under its 80 GiB ceiling with the
 20 GiB safety reserve. Build hashes and IDs are in
 [`window_resize_lifecycle_20261030.json`](../results/m1e/build_receipts/window_resize_lifecycle_20261030.json).
 
@@ -1467,7 +1467,7 @@ or enhanced mode. Evidence:
 The coherent SwiftShader source snapshot was rebuilt with Android support enabled
 and diagnostic tracing disabled, using the same complete source/object/archive
 graph as the tracing build. The no-tracing library is external to Git at
-`/run/media/mrkus/Homework/aaas-workspace/tmp/m1e_swiftshader_fixed_notrace_vulkan.so`
+`$AAAS_WORKSPACE/tmp/m1e_swiftshader_fixed_notrace_vulkan.so`
 (SHA-256 `386bd8cf7857adfb598212aafae73c82e9dfea2b0ea76f0a14aa45aae8a883cb`,
 Build ID `b364161b9af0fd1841bb7b7045f77e2a7f5fb543`). The original production
 overlay remains unchanged at SHA-256

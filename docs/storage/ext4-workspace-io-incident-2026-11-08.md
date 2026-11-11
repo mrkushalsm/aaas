@@ -4,23 +4,23 @@
 
 `DEVICE_FAILURE_SUSPECTED`. AaaS startup and workspace-backed tests are
 blocked by the UUID-scoped guard entry for ext4 UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1`. The filesystem is currently visible as
+`$AAAS_WORKSPACE_UUID`. The filesystem is currently visible as
 read/write, but that does not clear the incident.
 
 ## Device and mount
 
-The workspace is `/run/media/mrkus/Aaas/aaas-workspace`, on `/dev/sda3`, ext4,
-UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, mounted at `/run/media/mrkus/Aaas`.
-Its parent is USB/UAS SSD `/dev/sda`, model `CT500BX500SSD1`, serial
-`2421E8B20AE0`. At observation, kernel boot ID was
-`019bfef2-ef76-45a4-971b-9612ccf7a155`.
+The workspace is `$AAAS_WORKSPACE`, on `$AAAS_WORKSPACE_DEVICE`, ext4,
+UUID `$AAAS_WORKSPACE_UUID`, mounted at `$AAAS_MOUNT`.
+Its parent is USB/UAS SSD `/dev/sda`, model `local USB SSD`, serial
+`REDACTED_LOCAL_SERIAL`. At observation, kernel boot ID was
+`$HOST_BOOT_ID`.
 
 ## Kernel evidence
 
 The current-boot kernel journal reports UAS aborts and read I/O failures on
 `/dev/sda` around 21:20 on November 7, followed by a UAS host reset and a
 SuperSpeed USB reset around 21:21. At 23:08:11, while ext4 UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1` was mounted, the kernel reported:
+`$AAAS_WORKSPACE_UUID` was mounted, the kernel reported:
 
 - `Buffer I/O error on dev sda3, logical block 15761408, lost sync page write`
 - `JBD2: I/O error when updating journal superblock for sda3-8.`

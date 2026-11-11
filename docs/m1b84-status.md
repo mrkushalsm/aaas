@@ -4,7 +4,7 @@
 
 ## Starting state and preservation
 
-Initial branch `master`, HEAD `b06deca`, no Git remote. The five inherited M1B.8 worktree files listed in `results/m1b83/preservation_manifest.json` retained their exact SHA-256 hashes and were not staged. The external workspace remained `/dev/sda2` on NTFS3; its last check used 17,956,427,776 bytes, below the 80 GiB ceiling with the 20 GiB reserve intact. The M1B.8.3 SwiftShader overlay remained SHA-256 `1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`, build ID `48176d3bf7c52ad4a2e1c8445fac8d52b83864ba`. The LMKD diagnostic overlay remained SHA-256 `9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd`. Neither the original Android image nor these binaries was overwritten.
+Initial branch `master`, HEAD `b06deca`, no Git remote. The five inherited M1B.8 worktree files listed in `results/m1b83/preservation_manifest.json` retained their exact SHA-256 hashes and were not staged. The external workspace remained `$AAAS_WORKSPACE_DEVICE` on NTFS3; its last check used 17,956,427,776 bytes, below the 80 GiB ceiling with the 20 GiB reserve intact. The M1B.8.3 SwiftShader overlay remained SHA-256 `1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`, build ID `48176d3bf7c52ad4a2e1c8445fac8d52b83864ba`. The LMKD diagnostic overlay remained SHA-256 `9780759ba36e50d061064f05c77520809f3291edad6a43a1495e9d91f21d54bd`. Neither the original Android image nor these binaries was overwritten.
 
 ## Settings baseline and visual result
 
@@ -72,7 +72,7 @@ Audit of the Wayland and Android input pipelines for Phase G:
 
 - `python3 -m unittest discover -s tests -v`: 77 tests passed (including new single-instance locking and timeout validation tests).
 - `make -C experiments/m1a test`: wire v1/v2, sync, and stress tests passed.
-- `python3 scripts/android_workspace.py --workspace /run/media/mrkus/Homework/aaas-workspace check`: passed (17.97 GiB used of 80 GiB ceiling, 352.9 GiB free).
+- `python3 scripts/android_workspace.py --workspace $AAAS_WORKSPACE check`: passed (17.97 GiB used of 80 GiB ceiling, 352.9 GiB free).
 - Live Ctrl+C, SIGTERM, presenter exit, single-instance rejection (exit code 2), and invalid-Wayland-startup cleanup verified.
 
 ## Acceptance gates

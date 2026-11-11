@@ -3,7 +3,7 @@
 Status: **PASS**  
 Date: 2026-10-28  
 Baseline: `39c6f1040cfb972adedd79c59c281948187c2164` (M1B.8.6)  
-Final run: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_5lvw_x0t`  
+Final run: `$AAAS_WORKSPACE/tmp/m1b84_session_5lvw_x0t`
 Evidence: `results/m1c0/`
 
 ## 1. Result
@@ -317,7 +317,7 @@ command.
 ### Workspace check
 
 ```text
-AAAS_WORKSPACE=/run/media/mrkus/Homework/aaas-workspace \
+AAAS_WORKSPACE=$AAAS_WORKSPACE \
   python3 scripts/android_workspace.py check
 ```
 

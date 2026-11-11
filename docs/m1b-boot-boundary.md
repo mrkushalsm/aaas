@@ -16,7 +16,7 @@ mounted read-only with libguestfs. No extracted rootfs copy, binary edit,
 `LD_PRELOAD`, fake Binder driver, or host security change was involved.
 
 ```sh
-export AAAS_WORKSPACE=/run/media/mrkus/Homework/aaas-workspace
+export AAAS_WORKSPACE=$AAAS_WORKSPACE
 python3 scripts/probe_clean_bionic.py --workspace "$AAAS_WORKSPACE"
 AAAS_WORKSPACE="$AAAS_WORKSPACE" scripts/probe_clean_servicemanager.sh
 ```

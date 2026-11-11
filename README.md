@@ -2,13 +2,44 @@
 
 AaaS runs Android 16 applications in individual Wayland windows on x86_64 Linux. A persistent Android runtime owns shared desktop bridges; launching an application creates its display endpoint and presenter, and closing it releases those resources.
 
-This is an experimental **trusted development runtime**. Live acceptance currently covers one Arch Linux/KWin host. It is not a production security sandbox or a certified cross-distribution release.
+This is an experimental **trusted development runtime**. Live acceptance covers one Arch Linux/KWin host; other distributions and compositors have not been certified. It is not a production security sandbox.
+
+## Host requirements
+
+The verified host is Arch Linux x86_64 with KDE Plasma/KWin on Wayland and a
+systemd user session. AaaS also needs unprivileged user namespaces, binderfs,
+`/dev/fuse`, unified cgroup v2, and a DRM render node for the accelerated
+presenter. Run `./aaas doctor` to check the host capabilities and report missing
+requirements; only Arch/KWin has been exercised end to end. A compatible Android
+16 diagnostic image and runtime dependencies are supplied separately from this
+source checkout.
+
+## Architecture
+
+Android 16 userspace runs in Linux namespaces as a persistent user service.
+The AaaS broker maps Android virtual displays to per-application Wayland
+presenters; the physical Wi-Fi device stays under the host network manager.
+
+```mermaid
+flowchart LR
+  CLI[AaaS CLI and desktop launchers] --> Broker[AaaS runtime broker]
+  Service[systemd user service] --> Android[Android 16 in Linux namespaces]
+  Broker --> Android
+  Android --> Composer[Composer virtual-display transport]
+  Composer --> Presenter[Per-app Wayland presenter]
+  Presenter --> KWin[KWin / Wayland desktop]
+  Android --> Audio[AaaS audio bridge]
+  Audio --> PipeWire[PipeWire host audio]
+  Android --> Net[Virtual Ethernet]
+  Net --> Slirp[slirp4netns]
+  Slirp --> Uplink[Host-managed network uplink]
+```
 
 **Publication status:** A public source or binary release is not available yet. The current engineering bundle contains an Android diagnostic image with SELinux authorization shims; it is not approved for untrusted APKs or public binary redistribution. See [current release readiness](docs/release-readiness-2026-11-11.md) and the [dependency/license review](docs/dependencies-and-licenses.md).
 
 ## Installation and use
 
-Use a complete portable development bundle containing `install`, the Android rootfs, runtime components and integrity metadata. A source checkout alone does not provision the prepared Android image. From an extracted bundle:
+There is currently **no public installable release**. The local engineering bundle is diagnostic-only and is not cleared for redistribution. If you have an authorized local bundle, it must contain `install`, the Android rootfs, runtime components and integrity metadata; a source checkout alone does not provision the prepared Android image. From the extracted bundle root:
 
 ```sh
 ./install --workspace "$HOME/.local/share/aaas/workspaces/android16" \
@@ -32,11 +63,11 @@ AAAS="$HOME/.local/share/aaas/installations/android16/bin/aaas"
 "$AAAS" runtime stop
 ```
 
-The generated user service is `aaas-runtime.service`. Use `apps close INSTANCE_ID` to close one window. Updates use `update /path/to/bundle`; `rollback` restores the retained prior runtime. `uninstall` preserves userdata by default. See the [installation guide](docs/portable-development-release.md); dated acceptance sections there describe earlier candidates, not automatic acceptance of every new bundle.
+The generated user service is `aaas-runtime.service`. Use `apps close SLOT` to close one window. Updates use `update /path/to/bundle`; `rollback` restores the retained prior runtime. `uninstall` preserves userdata by default. See the [installation guide](docs/portable-development-release.md); dated acceptance sections there describe earlier candidates, not automatic acceptance of every new bundle.
 
 ## Implemented capabilities and boundaries
 
-- Persistent Android with zero-window idle; dynamic independent windows, input, focus and Android framebuffer resizing.
+- Persistent Android with zero-window idle; independent windows, input, focus and Android framebuffer resizing. The current source fix keeps a Wayland toplevel alive across Composer reconnects during resize; it has been exercised on the installed development runtime, but is not yet included in a newly built release bundle ([evidence](results/m1a/dynamic-resize-acceptance-2026-11-11.json)). Android may retain its previous frame briefly while rebuilding the resized display.
 - Historical nine-application simultaneous-window acceptance on KWin.
 - ARM translation through the existing Native Bridge; tested applications do not establish universal ARM compatibility.
 - PipeWire audio, microphone, clipboard and Plasma notifications. [Human listening evidence](results/audio/human-listening-2026-11-10.json) records audible playback on the development laptop.
@@ -48,17 +79,46 @@ Android SELinux enforcement is unavailable in the diagnostic profile. Use only t
 
 ## Development and testing
 
+A source checkout does not include or provision the prepared Android image. See
+the [developer runtime guide](docs/developer-runtime.md) for dependencies,
+workspace preparation, image inputs, and component builds. The [M5 build-input
+guide](docs/m5-portable-development-release.md) documents the declared helper
+APK, signing, and audio-overlay inputs. The Android platform image is still a
+prepared diagnostic input rather than a complete reproducible AOSP build.
+
+Run the Python suite with:
+
 ```sh
 ./aaas doctor
 ./aaas help
 python3 -m unittest discover -s tests -q
 ```
 
-The Python suite passed 549 tests on 2026-11-11; unit tests do not establish live graphical, audio, or network acceptance. See the current [release readiness record](docs/release-readiness-2026-11-11.md) for the exact tested source revision and candidate.
+The Python suite passed 554 tests on 2026-11-11 in the current source worktree; unit tests do not establish live graphical, audio, or network acceptance. See the [release readiness record](docs/release-readiness-2026-11-11.md) for candidate-specific results and remaining gates.
 
-The [M5 build-input guide](docs/m5-portable-development-release.md) describes reproducible helper APKs, per-install signing and audio overlays. The Android platform itself consumes a prepared diagnostic image; it is not currently reproduced entirely from AOSP source. The [image assembly guide](docs/android-rootfs-reconstruction.md) describes the separate incomplete upstream-image reconstruction path.
+The [image assembly guide](docs/android-rootfs-reconstruction.md) describes the separate, incomplete upstream-image reconstruction path.
 
 Do not commit userdata, private keys or generated binaries. Preserve existing work and use focused Conventional Commits with relevant regression evidence.
+
+## Update, removal, and troubleshooting
+
+On an installed local bundle, `aaas update /path/to/bundle` stages an update,
+`aaas rollback` restores the retained prior bundle, and `aaas uninstall` removes
+the installed runtime while preserving user data by default. These commands are
+documented in the [portable installation guide](docs/portable-development-release.md);
+they are not available as a public download while the bundle remains uncleared.
+For host and runtime diagnostics, run `aaas doctor`, `aaas runtime status`, and
+`aaas logs`. See [runtime troubleshooting](docs/developer-runtime.md) and the
+[candidate acceptance record](docs/release-readiness-2026-11-11.md).
+
+## Security and licensing
+
+The current profile is intended for trusted local development. SELinux enforcement
+is unavailable, APKs are not isolated to production standards, and bundle hashes
+provide integrity checks rather than publisher authentication. The repository
+has no AaaS project license grant. Upstream licenses for components do not grant
+rights to the AaaS source or to the diagnostic Android image. Public source and
+binary redistribution therefore remain unapproved.
 
 ## Documentation
 
@@ -75,4 +135,4 @@ Do not commit userdata, private keys or generated binaries. Preserve existing wo
 - [Local release readiness and candidate evidence](docs/release-readiness-2026-11-11.md)
 - [Security review](docs/release/security-review-2026-11-11.md)
 
-Historical milestone documents retain their dated findings. The repository does not currently include a project-level license grant, and no project-wide license should be inferred from upstream component licenses. Source licensing and binary redistribution clearance remain open.
+Historical milestone documents retain their dated findings. Machine-specific mount paths, device identifiers, UUIDs, and temporary paths in those records have been normalized to placeholders such as `$AAAS_WORKSPACE`, `$AAAS_WORKSPACE_DEVICE`, and temporary paths; those variables may need to be set before adapting old commands. The repository does not include a project-level license grant, and no project-wide license should be inferred from upstream component licenses. Source publication and binary redistribution are not approved; the [dependency inventory](docs/dependencies-and-licenses.md) records the unresolved rights and provenance gaps. No GitHub repository or public release has been configured.

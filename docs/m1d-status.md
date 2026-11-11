@@ -173,7 +173,7 @@ process-placement read-back mismatches; other failures remain visible.
 
 Verification after these changes: 125 Python tests, M1A tests, presenter
 build/tests, Android input-adapter rebuild, and workspace budget check all
-passed. The workspace was mounted from `/dev/sda2` as NTFS3 with 21.41 GB used,
+passed. The workspace was mounted from `$AAAS_WORKSPACE_DEVICE` as NTFS3 with 21.41 GB used,
 below the 80 GiB ceiling and preserving the 20 GiB reserve.
 
 At this intermediate checkpoint M1D remained **PARTIAL**; later user manual
@@ -231,7 +231,7 @@ make -C experiments/m1a build/wayland-host-presenter test       PASS
 make -C experiments/m1c/input_adapter -B all                    PASS
 python3 -m unittest discover -s tests -v                         PASS (123 tests)
 make -C experiments/m1a test                                    PASS
-python3 scripts/android_workspace.py --workspace /run/media/mrkus/Homework/aaas-workspace check  PASS
+python3 scripts/android_workspace.py --workspace $AAAS_WORKSPACE check  PASS
 ```
 
 Focused keyboard tests cover protocol version separation, packet validation,

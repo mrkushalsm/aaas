@@ -8,7 +8,7 @@
 - Gemini transcript: 5,841 JSONL records inspected by schema and targeted chronological search. See `docs/m1b7-gemini-codex-handoff.md` for recovered decisions and preserved architecture.
 - SwiftShader upstream base `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5`, with nine modified tracked files in the external workspace. Source SHA256: `libVulkan.cpp` `abe35432a4a4ec003aee264f71d9e03ee7bdc9225b0bad55be7118357128ecaa`; `VkImage.cpp` `a849faed633b23d90c86a06b820ed0b30ddacbefe22b05ba353aa7ebabbc8d22`. Do not treat the base revision as including the working patch.
 - Binary SHA256: Mapper `9471065827bd95a35e1da7a20fa93ecba179b414c7359e410651e44b747aadf2`; Allocator `7fbba21442c5688e0c45557f5fadf51d463b1722f25c1e3d0a67c838a67a9197`; Composer3 `55b96dead82d6c5fa20f2292bc2552d0d100e0380ae0dd9593b2b1c3e5ed5196`; Vulkan overlay `4e9e89c1b534f05daf773516de599a6b525c875e49f3de1c5406ce1110e1a5a3`; presenter `80ccdddb5a95622fde1f77f2febde9b1a060340129e43a14ef77ad7d77af4a61`.
-- Workspace `/run/media/mrkus/Homework/aaas-workspace` was mounted as NTFS3 `/dev/sda2`; budget check reported 14,557,457,408 used bytes and 356,345,339,904 free bytes with 80 GiB ceiling and 20 GiB reserve. Render node `/dev/dri/renderD129`; Wayland session `wayland-0`, KWin capabilities logged `explicit_sync_capable=true`, 18 modifiers.
+- Workspace `$AAAS_WORKSPACE` was mounted as NTFS3 `$AAAS_WORKSPACE_DEVICE`; budget check reported 14,557,457,408 used bytes and 356,345,339,904 free bytes with 80 GiB ceiling and 20 GiB reserve. Render node `/dev/dri/renderD129`; Wayland session `wayland-0`, KWin capabilities logged `explicit_sync_capable=true`, 18 modifiers.
 
 ## Reproduction
 
@@ -32,7 +32,7 @@ Proposed required state transition: allocated → Android rendering → client-t
 
 - `python3 -m unittest discover -s tests -v`: 72 passed.
 - `make -C experiments/m1a test`: wire v1/v2, sync utility and stress tests passed.
-- `python3 scripts/android_workspace.py --workspace /run/media/mrkus/Homework/aaas-workspace check`: passed.
+- `python3 scripts/android_workspace.py --workspace $AAAS_WORKSPACE check`: passed.
 - Live baseline2: six imports/submissions and six presentation feedback events, five release messages. No current 150-frame test, bounded long run, clean repeat, lifecycle suite, per-FD accounting, frame latency/copy timing, or new synchronization regression suite.
 
 | Gate | Result | Evidence / boundary |

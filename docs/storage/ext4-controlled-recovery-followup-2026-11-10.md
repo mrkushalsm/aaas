@@ -30,11 +30,11 @@ reliability. No SMART test or scan was run.
 
 ## Re-mount and metadata checks
 
-At evidence capture `2026-11-10T01:33:57+05:30`, `/dev/sda3` was mounted read-write at
-`/run/media/mrkus/Aaas` as ext4 UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1` (mount ID `246`), with
-`errors=remount-ro`. Parent device serial: `CT500BX500SSD1_2421E8B20AE0`; current boot ID: `019bfef2-ef76-45a4-971b-9612ccf7a155`.
+At evidence capture `2026-11-10T01:33:57+05:30`, `$AAAS_WORKSPACE_DEVICE` was mounted read-write at
+`$AAAS_MOUNT` as ext4 UUID `$AAAS_WORKSPACE_UUID` (mount ID `246`), with
+`errors=remount-ro`. Parent device serial: `$WORKSPACE_DEVICE_SERIAL`; current boot ID: `$HOST_BOOT_ID`.
 The workspace marker matches the UUID and mount target. The runtime rootfs exists.
-The private userdata manifest matches workspace `/run/media/mrkus/Aaas/aaas-workspace` and backing `data`;
+The private userdata manifest matches workspace `$AAAS_WORKSPACE` and backing `data`;
 its data directory is on the same filesystem and the userdata control directory
 remains owned by the user with mode 0700. No userdata was reset or modified.
 Available space at observation: workspace filesystem 32727060480 bytes; host root

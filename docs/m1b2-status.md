@@ -120,7 +120,7 @@ remains unverified. No Composer3 implementation was begun for M1B.2.
 ## Reproduction and next experiment
 
 ```sh
-export AAAS_WORKSPACE=/run/media/mrkus/Homework/aaas-workspace
+export AAAS_WORKSPACE=$AAAS_WORKSPACE
 python3 scripts/android_workspace.py --workspace "$AAAS_WORKSPACE" check
 python3 scripts/probe_clean_bionic.py --workspace "$AAAS_WORKSPACE"
 AAAS_WORKSPACE="$AAAS_WORKSPACE" scripts/probe_clean_servicemanager.sh

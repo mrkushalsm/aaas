@@ -4,7 +4,7 @@
 
 Milestone **M1B.1** investigated whether the verified Android 16 (API 36, userdebug) x86_64 SDK image can serve as the foundation for a shared-kernel Android-as-a-Service (AaaS) container runtime, and audited the AIDL Composer3 v4 integration boundary.
 
-All investigations were conducted strictly without building full AOSP, without virtual machines (direct namespaces/containers), without destructive host modifications, and respecting the external workspace budget at `/run/media/mrkus/Homework/aaas-workspace`.
+All investigations were conducted strictly without building full AOSP, without virtual machines (direct namespaces/containers), without destructive host modifications, and respecting the external workspace budget at `$AAAS_WORKSPACE`.
 
 ### Key Outcomes
 1. **Dynamic Partition Extraction**: Developed `scripts/extract_super_partitions.py` to carve out raw ext4 partitions (`system`, `vendor`, `product`, `system_ext`) and erofs (`system_dlkm`) from the LP super image without native Android tools or root privileges.
@@ -183,4 +183,4 @@ This isolates the graphics transport from the rest of AOSP, allowing the contain
   - `python3 -m unittest discover -s tests -v`: **34/34 passing**.
   - `make -C experiments/m1a test`: **100% passing** (`test-wire`, `test-wire-v2`, `test-sync-util`, `test-stress`).
 - Zero tracking of generated results or benchmark traces in git.
-- Full workspace isolation on `/run/media/mrkus/Homework/aaas-workspace`.
+- Full workspace isolation on `$AAAS_WORKSPACE`.

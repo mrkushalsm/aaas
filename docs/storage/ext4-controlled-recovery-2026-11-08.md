@@ -4,7 +4,7 @@
 
 The UUID-scoped `DEVICE_FAILURE_SUSPECTED` incident remains in the policy
 history. Its recovery evidence permits **`HEALTHY_FOR_CONTROLLED_TESTING`** for
-the ext4 workspace UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`. This is a
+the ext4 workspace UUID `$AAAS_WORKSPACE_UUID`. This is a
 bounded testing classification, not a declaration that the SSD or USB path is
 fault-free. Any new device-correlated I/O, UAS, USB, JBD2, or ext4 error after
 the recovery checkpoint returns the workspace to quarantine.
@@ -14,7 +14,7 @@ the recovery checkpoint returns the workspace to quarantine.
 The user ran the following with the filesystem unmounted:
 
 ```text
-sudo e2fsck -fn /dev/disk/by-uuid/094120c3-e1f8-4a61-a95a-c347ecb711d1
+sudo e2fsck -fn /dev/disk/by-uuid/$AAAS_WORKSPACE_UUID
 e2fsck 1.47.4 (6-Mar-2025)
 Pass 1: Checking inodes, blocks, and sizes
 Pass 2: Checking directory structure
@@ -32,7 +32,7 @@ is recorded at evidence capture time below.
 ## Device evidence and limitation
 
 The user supplied passive SMART output for parent device
-`CT500BX500SSD1_2421E8B20AE0`, captured at 2026-11-07 19:27:51 IST. Overall
+`$WORKSPACE_DEVICE_SERIAL`, captured at 2026-11-07 19:27:51 IST. Overall
 SMART self-assessment was `PASSED`; reallocated, pending, offline-uncorrectable,
 reported-uncorrectable, and end-to-end error counts were zero. Interface history
 was nonzero: UDMA CRC count 717, SATA PHY ICRC 3, data FIS R_ERR 3, and COMRESET
@@ -44,11 +44,11 @@ limitation.
 
 ## Post-check observation
 
-At evidence capture, the workspace was mounted from `/dev/sda3` as ext4 with
-UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, mount ID `246`, and options
+At evidence capture, the workspace was mounted from `$AAAS_WORKSPACE_DEVICE` as ext4 with
+UUID `$AAAS_WORKSPACE_UUID`, mount ID `246`, and options
 `rw,nosuid,nodev,relatime,errors=remount-ro`. Parent identity resolved to model
-`CT500BX500SSD1`, ATA serial `2421E8B20AE0` (`udev ID_SERIAL`
-`CT500BX500SSD1_2421E8B20AE0`). The workspace marker and persistent
+`local USB SSD`, ATA serial `REDACTED_LOCAL_SERIAL` (`udev ID_SERIAL`
+`$WORKSPACE_DEVICE_SERIAL`). The workspace marker and persistent
 userdata manifest parsed and matched the workspace UUID/path; the userdata
 backing directory was present. `df` reported 75 GiB used, 39 GiB available on a
 120 GiB filesystem, satisfying the 20 GiB reserve and 80 GiB workspace ceiling.

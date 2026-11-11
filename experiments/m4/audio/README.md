@@ -128,8 +128,7 @@ M4 remains **PARTIAL/OPEN**.
 ## Runtime audio continuation (2026-11-08)
 
 The 2026-11-07 limitations above are historical. On the ext4 workspace
-(`/run/media/mrkus/Aaas`, UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1`), the workspace guard returned
+(`$AAAS_WORKSPACE`; filesystem UUID omitted from this public-facing copy), the workspace guard returned
 `HEALTHY_FOR_CONTROLLED_TESTING`. The prior USB/JBD2 incident remains in the
 health record; the controlled sessions produced no later matching kernel
 storage errors. SMART was not queried during these sessions.

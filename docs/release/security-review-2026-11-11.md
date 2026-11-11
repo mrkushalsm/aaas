@@ -38,3 +38,26 @@ The final candidate manifest reports `DIAGNOSTIC_ONLY`,
 under the explicit local diagnostic service during update acceptance. That
 functional result does not approve the security boundary. Do not publish or
 recommend this image for untrusted APKs, multi-user isolation, or production.
+
+## Later source change
+
+Source commit `2a9d97431e051fd2c6c91907133293996d91d719` modifies presenter
+behavior across Android resize reconnects. It retains the existing Wayland
+surface and protects buffer acknowledgements with producer epochs. The change
+was functionally tested, but does not alter the Android SELinux, namespace,
+image provenance, or publisher-authenticity findings above. This report remains
+a candidate-specific review, not approval of the later source tree or any
+future bundle. See
+[`resize acceptance`](../../results/m1a/dynamic-resize-acceptance-2026-11-11.json).
+
+
+## Local source publication preparation
+
+The current unbundled source work moves the UUID-scoped workspace health policy
+to `$XDG_STATE_HOME/aaas/workspace-health.json` (defaulting to
+`~/.local/state/aaas/workspace-health.json`), with an explicit
+`AAAS_WORKSPACE_HEALTH_POLICY` override. The local host policy was copied to that
+location with mode 0600 before the repository manifest was replaced by an empty
+template. Regression tests cover XDG selection and explicit override. This is a
+privacy improvement for source publication; it does not change the installed
+engineering candidate and does not grant production security approval.

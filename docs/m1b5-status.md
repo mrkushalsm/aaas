@@ -97,11 +97,11 @@ The library is compiled with host `clang++` targeting `x86_64-linux-android` aga
 clang++ -target x86_64-linux-android \
   -shared -fPIC -O2 -nostdlib \
   -I experiments/m1b/mapper_drm/include \
-  -I /run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1/system/include \
+  -I $AAAS_WORKSPACE/rootfs_m1b1/system/include \
   experiments/m1b/mapper_drm/mapper_drm.cpp \
-  /run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1/system/lib64/libc.so \
-  /run/media/mrkus/Homework/aaas-workspace/rootfs_m1b1/system/lib64/libcutils.so \
-  -o /run/media/mrkus/Homework/aaas-workspace/tmp/mapper.drm.so
+  $AAAS_WORKSPACE/rootfs_m1b1/system/lib64/libc.so \
+  $AAAS_WORKSPACE/rootfs_m1b1/system/lib64/libcutils.so \
+  -o $AAAS_WORKSPACE/tmp/mapper.drm.so
 ```
 
 ---
@@ -153,7 +153,7 @@ bwrap --ro-bind "$ROOTFS" / \
 Using [`scripts/test_zygote_startup.py`](../scripts/test_zygote_startup.py) with `mapper.drm.so` mounted over `/vendor/lib64/hw/mapper.ranchu.so`, the container booted under full Zygote, `system_server`, and SurfaceFlinger supervision.
 
 ### 6.2 Breakthrough in RenderEngine Initialization
-The historical live logcat at `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b5_primary_full_logcat.log` was reported to confirm that SurfaceFlinger loaded the native DRM mapper. That external log is not included in this checkout:
+The historical live logcat at `$AAAS_WORKSPACE/tmp/m1b5_primary_full_logcat.log` was reported to confirm that SurfaceFlinger loaded the native DRM mapper. That external log is not included in this checkout:
 ```
 I mapper.drm: [MAPPER.DRM] AIMapper_loadIMapper called! Native DRM Mapper 5 loaded.
 ```

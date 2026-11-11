@@ -83,3 +83,67 @@ complete staged candidate rebuild/update while preserving the configured
 reserve. The original service was explicitly restarted after disposable-test
 teardown and the installed CLI reports Android `RUNNING`; the disposable test
 unit is absent and its temporary override is removed.
+
+## Subsequent source work: resize window persistence
+
+After the candidate run above, source commit `2a9d97431e051fd2c6c91907133293996d91d719`
+fixed the Wayland window close/reopen behavior during Android resize. The
+installed development runtime was exercised with Settings through four
+Composer disconnect/reconnect cycles. The presenter PID remained `3674714`,
+KWin retained the same toplevel identity, and the trace contained one initial
+window identity and one decoration-context creation. Evidence is in
+[`dynamic resize acceptance`](../results/m1a/dynamic-resize-acceptance-2026-11-11.json).
+The full Python suite then passed 551 tests, and the M1A native presenter suite
+passed. This source fix has **not** been built into candidate
+`engineering-7226838`; the installed presenter was updated in place for this
+local regression test. Candidate identity and all other gates above remain as
+recorded. This does not change the security or redistribution decision.
+
+
+## Local publication-preparation continuation
+
+After source revision `2a9d974`, presenter and diagnostic build defaults were made
+host-independent: DRM-backed presenter entry points require a capability-selected
+`AAAS_DRM_RENDER_NODE` or explicit node argument, the Wayland socket default is
+under `XDG_RUNTIME_DIR`, and M1B Makefiles use an XDG workspace default. Legacy
+M1B diagnostic scripts now resolve `AAAS_WORKSPACE` or the XDG data default.
+Workspace health records moved to the user-local XDG state override; the committed
+manifest is an empty template so host filesystem identifiers are not published.
+The local health record was copied to `$XDG_STATE_HOME/aaas/workspace-health.json`
+with mode 0600 before replacing the repository copy.
+
+Validation on the modified source worktree: full Python suite **554 passed, 6
+skipped**; M1A native rebuild and test targets passed; Python compileall and shell
+syntax checks passed; 347 Markdown local links passed with zero broken references.
+The original `aaas-runtime.service` remained active and the installed CLI reported
+Android `RUNNING`. The engineering bundle was not rebuilt, so these source changes
+are not part of the previously identified bundle.
+
+This work does not resolve the publication blockers: there is no AaaS project
+license grant, binary provenance and redistribution are not cleared, runtime
+security approval remains open, and the known SurfaceFlinger first-boot incident
+remains a reliability risk. No GitHub remote or publication was attempted.
+
+## Final local GitHub-preparation checks
+
+The existing engineering bundle was reverified without modification (with
+`AAAS_RELEASE_ARTIFACTS` set to the local release-artifacts directory):
+`./aaas bundle verify --json "$AAAS_RELEASE_ARTIFACTS/engineering-42ae1e4"` reported 6,991
+artifacts, integrity PASS, and runtime closure PASS (24 inputs). The same report
+still says `general_runtime_start: BLOCKED` and `runtime_security: NOT_APPROVED`;
+this is a local diagnostic candidate, not a public release. The original
+`aaas-runtime.service` remained active and the installed CLI reported Android
+`RUNNING`.
+
+The final source worktree run reported 554 Python tests passed and 6 skipped.
+M1A was force-rebuilt with the selected DRM node and all native test targets
+passed. Python compileall, shell syntax checks, JSON parsing (255 tracked JSON
+files), and Markdown link validation (347 links, zero broken) passed. The current
+tracked worktree contains no detected local home/workspace path or credential
+pattern. Existing Git history still contains old host paths and hardware IDs;
+it has not been rewritten. No bundle was rebuilt, no remote was configured, and
+no source or binary was published.
+
+Source publication remains blocked by the missing AaaS project license grant and
+personal identifiers in Git history. Binary distribution remains blocked by the
+unresolved provenance/license inventory and the candidate's security status.

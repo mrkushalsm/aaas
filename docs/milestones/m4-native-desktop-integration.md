@@ -22,7 +22,7 @@ The supported baseline is the rootless Android 16 x86_64 runtime under KWin on W
 [`docs/storage/android-shared-storage.md`](../storage/android-shared-storage.md)
 documents the selected direct-directory architecture and live tests. The stable
 host path is
-`/run/media/mrkus/Homework/aaas-workspace/shared-storage/android-media/0`,
+`$AAAS_WORKSPACE/shared-storage/android-media/0`,
 reported by `python3 scripts/aaasctl.py storage path`. The rootless session
 binds its parent to Android `/data/media`; vold mounts the Android emulated
 storage FUSE view at `/storage/emulated`. Host-created text and binary fixtures
@@ -124,7 +124,7 @@ At the time of this historical baseline, application discovery/catalog generatio
 - M3 regression session `m1b84_session_kx_r4eqw`: existing ARM64-only diagnostic launched with the pinned overlay; Android log contains Berberis JIT translation and a successful load of `/product/app/AaasLatencyProbe/lib/arm64/libm3probe.so`. The session stopped cleanly and reported removal of the session-local Native Bridge overlay and diagnostic APK libraries. Logcat SHA-256 `4827168befbb38843ecb60811bedac373701c59eb8c77e699950b61defbebb4d`; commands SHA-256 `d78f38cb8800906ae95622d5aea565e3bc6db044d6bc5cfefea1230a0b5a2c0a`; presenter SHA-256 `de62f09b84f1a212a031d25467e6f7b2d6cdc6d5fc8985065ba4a54e60ec3597`.
 - User-level Settings and Contacts `.desktop` entries passed `desktop-file-validate`; KDE application cache was refreshed. The repository includes focused tests for package validation, Exec quoting, atomic launcher creation, and stop request generation.
 
-Raw sessions are retained under `/run/media/mrkus/Homework/aaas-workspace/tmp/`; original session logs are not copied into Git.
+Raw sessions are retained under `$AAAS_WORKSPACE/tmp/`; original session logs are not copied into Git.
 
 ## Host capability audit and remaining gates
 
@@ -212,7 +212,7 @@ were zero, and closing Contacts left Settings running. M3 returned
 `PASS mask=255` in `m1b84_session_cuspcn5l`, with a clean overlay removal. A
 bounded normal-session MediaStore/ACL regression passed in
 `m1b84_session_0ee286he`. The workspace guard passed on NTFS3 UUID
-`A2ACEDF2ACEDC0C1`: 73,241,320,448 bytes allocated (below the 80 GiB ceiling)
+`$AAAS_NTFS_WORKSPACE_UUID`: 73,241,320,448 bytes allocated (below the 80 GiB ceiling)
 and 297,532,612,608 bytes available (above the 20 GiB reserve). Sessions
 reached `STOPPED`; temporary PipeWire source/sink modules, FIFO, audio bridge,
 session sockets, and test captures were cleaned from their active locations.
@@ -226,7 +226,7 @@ under the workspace temporary directory. The dated machine-readable record is
 ## External-workspace integrity pause (2026-11-07)
 
 Final host-kernel inspection found four NTFS3 `mi_enum_attr` warnings on
-`/dev/sda2` for `install_sessions.xml.new`, most recently at 2026-11-07
+`$AAAS_WORKSPACE_DEVICE` for `install_sessions.xml.new`, most recently at 2026-11-07
 03:12:11 +05:30 (inode `cb85d`). Linux 7.2's NTFS3 implementation marks the
 inode bad when its MFT attribute enumeration detects invalid structure. The
 logs do not establish the underlying cause, and the warnings predate the
@@ -572,7 +572,7 @@ Fresh regressions: M2 Settings/Contacts separate displays and independent
 close passed; presenters reported 86/86 and 60/60 imports/releases with zero
 outstanding buffers. M3 emitted `PASS mask=255`; its session overlay and
 diagnostic libraries were removed at shutdown. The full Python suite passed
-294 tests, zero skips. Workspace UUID `A2ACEDF2ACEDC0C1` remained mounted
+294 tests, zero skips. Workspace UUID `$AAAS_NTFS_WORKSPACE_UUID` remained mounted
 read/write; the final guard observed 61,176,305,152 bytes used against 80 GiB,
 with 309,597,638,656 bytes free against the 20 GiB reserve. No AaaS session
 socket or runner/presenter/Native Bridge processes remained after cleanup.
@@ -644,7 +644,7 @@ session-only overlay and host transport tests. Focused tests passed 77 tests.
 A fresh M2 Settings/Contacts smoke passed with independent closure and balanced
 presenter buffers. M3 was not rerun in this continuation; its prior accepted
 `PASS mask=255` evidence remains the latest M3 result. The workspace guard
-passed on NTFS3 UUID `A2ACEDF2ACEDC0C1` at 62,052,111,872 bytes allocated
+passed on NTFS3 UUID `$AAAS_NTFS_WORKSPACE_UUID` at 62,052,111,872 bytes allocated
 against the 80 GiB ceiling, with 308,721,827,840 bytes free against the 20 GiB
 reserve. The experimental Android session reached `STOPPED`; its host bridge
 was terminated. These results do not close the canonical milestone, which
@@ -653,8 +653,8 @@ remains **PARTIAL/OPEN** for playback and microphone.
 ## 2026-11-08 audio and ext4 workspace continuation
 
 The workspace has moved from the affected NTFS volume to the ext4 partition
-mounted at `/run/media/mrkus/Aaas` (UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1`). The workspace guard reports
+mounted at `$AAAS_MOUNT` (UUID
+`$AAAS_WORKSPACE_UUID`). The workspace guard reports
 `HEALTHY_FOR_CONTROLLED_TESTING` based on the ext4 recovery evidence and the
 UUID-scoped policy transition. Earlier USB/UAS and JBD2 errors remain in the
 incident record and are not represented as erased. The current post-test
@@ -762,7 +762,7 @@ be completed. The session evidence hashes are retained in
 ## Permission revocation and PipeWire service-loss follow-up (2026-11-08)
 
 Workspace preflight before live testing passed on ext4 UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1`. The guard classified it
+`$AAAS_WORKSPACE_UUID`. The guard classified it
 `HEALTHY_FOR_CONTROLLED_TESTING` with 76,737,261,568 bytes used and
 41,433,526,272 bytes free, above the configured 20 GiB reserve. The guard
 continues to report the historical same-boot USB/UAS, block-I/O and JBD2/ext4
@@ -903,7 +903,7 @@ Current integration evidence includes:
 
 One initial clipboard probe crashed on a null clipboard label; the probe was fixed and rebuilt, and the successful transfers above followed. A native Wayland Qt clipboard-set attempt did not transfer Linux-originated data; acceptance used the already supported Qt XCB source method. The accepted target/receiver digest equality confirms byte-exact text. These failures are retained in session logs and are not counted as passes.
 
-Final workspace was `/run/media/mrkus/Aaas/aaas-workspace`, ext4 UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`; guard state was `HEALTHY_FOR_CONTROLLED_TESTING`. Latest usage was 80,603,353,088 bytes against an 85,899,345,920-byte ceiling; free space was 41,240,518,656 bytes against a 21,474,836,480-byte reserve. The historical USB/UAS, block I/O and JBD2 incident remains recorded. No new matching kernel messages were observed since the final test window began. The non-root SMART query remains permission-limited; no disk repair, remount, or destructive test was performed.
+Final workspace was `$AAAS_WORKSPACE`, ext4 UUID `$AAAS_WORKSPACE_UUID`; guard state was `HEALTHY_FOR_CONTROLLED_TESTING`. Latest usage was 80,603,353,088 bytes against an 85,899,345,920-byte ceiling; free space was 41,240,518,656 bytes against a 21,474,836,480-byte reserve. The historical USB/UAS, block I/O and JBD2 incident remains recorded. No new matching kernel messages were observed since the final test window began. The non-root SMART query remains permission-limited; no disk repair, remount, or destructive test was performed.
 
 The full Python suite passed 400 tests with no failures, errors, or skips. HAL, memfd ashmem shim, and HIDL factory artifacts rebuilt with `-Wall -Wextra -Werror`; artifact hashes are in `results/m4/acceptance.json`. Python compilation, JSON parsing and `git diff --check` passed. All current sessions reached `STOPPED`; `aaasctl` found no active control socket and process/listener audits found no live runner, presenter, audio/clipboard/notification bridge, or AaaS-specific PipeWire node. I removed 115 stale Unix socket filesystem entries from the workspace temporary session tree while preserving logs and directories; none remained. No raw audio was committed.
 
@@ -919,8 +919,8 @@ The active workspace guard no longer applies the historical 80 GiB allocated
 workspace ceiling. It checks actual unprivileged available blocks on the
 enrolled ext4 partition, with a configurable 2 GiB default partition reserve,
 while retaining the UUID/mount/health checks and the separate 20 GiB host-root
-reserve. The final check identified `/dev/sda3`, UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1`, with 36,056,395,776 available bytes;
+reserve. The final check identified `$AAAS_WORKSPACE_DEVICE`, UUID
+`$AAAS_WORKSPACE_UUID`, with 36,056,395,776 available bytes;
 the workspace used 82,114,392,064 allocated bytes. Host root retained
 23,000,379,392 available bytes. The incident history remains enrolled.
 
@@ -1178,7 +1178,7 @@ mounted and MediaProvider reported it mounted. On Gallery launch, `vold` logged
 `ContextImpl` failing to create Gallery's app-specific external `cache`
 directory. Gallery therefore cannot obtain its external cache directory; this
 is narrower than a missing emulated volume and is not explained by available
-space (Settings showed about 32.93 GB free). The observed `/dev/sda3` ext4 mount
+space (Settings showed about 32.93 GB free). The observed `$AAAS_WORKSPACE_DEVICE` ext4 mount
 did not include `prjquota`. No filesystem options, userdata, or host graphics
 configuration were changed to work around it.
 

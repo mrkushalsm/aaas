@@ -25,8 +25,8 @@ dedicated partition, it is not incorrectly charged to host root capacity.
 Bundle installation preflight uses unprivileged available blocks for both
 filesystems.
 
-The current enrolled partition is `/dev/sda3`, ext4 UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1`, mounted at `/run/media/mrkus/Aaas`.
+The current enrolled partition is `$AAAS_WORKSPACE_DEVICE`, ext4 UUID
+`$AAAS_WORKSPACE_UUID`, mounted at `$AAAS_MOUNT`.
 The current read-only capacity snapshot reports 128,414,248,960 total bytes,
 85,787,475,968 filesystem-used bytes, and 36,056,395,776 bytes available to the
 user. The workspace itself accounts 82,114,392,064 allocated bytes. These

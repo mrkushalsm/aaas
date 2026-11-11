@@ -123,8 +123,10 @@ that installation. A different UUID at the same path is rejected. Enrollment
 probes ownership, modes, hard links, symlinks, atomic rename, user xattrs, ACLs,
 and SQLite behavior in a disposable child directory. It checks `ro` and `noexec`
 mount flags, filesystem `f_bavail`, a 2 GiB default free-space reserve, the
-separate 20 GiB host-root reserve, and the storage health policy. The former
-fixed 80 GiB workspace ceiling is no longer enforced. No permissions are
+separate 20 GiB host-root reserve, and a user-local storage health policy. The
+policy lives under XDG state, supports an explicit `AAAS_WORKSPACE_HEALTH_POLICY`
+override, and is separate from the empty repository template. The former fixed
+80 GiB workspace ceiling is no longer enforced. No permissions are
 rewritten. A clean current-boot journal observation
 does not certify device hardware health, and existing incident records remain
 blocking until the policy is legitimately reconciled.
@@ -157,6 +159,14 @@ installation. `verify`, `start`, and package-management operations fail closed
 when provenance or required runtime artifacts are absent. This is the remaining
 release blocker for the portable developer runtime, not a change to M4's
 accepted installed-runtime evidence.
+
+The M1B native allocator and Composer Makefiles default `WORKSPACE_ROOT` to
+`$XDG_DATA_HOME/aaas/workspace` (or `$HOME/.local/share/aaas/workspace` when
+`XDG_DATA_HOME` is unset). That directory must already contain the selected
+Android rootfs and libc++ toolchain; the Makefiles do not fetch or provision
+them. When using a separately prepared workspace, pass the same
+`WORKSPACE_ROOT=/path/to/workspace` to the relevant `make` command. Build output
+defaults to that workspace's `tmp` directory.
 
 ## Host diagnosis
 

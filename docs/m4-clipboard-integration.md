@@ -40,7 +40,7 @@ installed.
 - Live session `m1b84_session_hm8w8zeh`: selected IME state was observed;
   session bridge logged `AaaS clipboard bridge ready`; changing away from the
   IME stopped the bridge; the runtime then reached `STOPPED` cleanly.
-- Workspace guard passed on NTFS3 UUID `A2ACEDF2ACEDC0C1`, with 61,689,398,784
+- Workspace guard passed on NTFS3 UUID `$AAAS_NTFS_WORKSPACE_UUID`, with 61,689,398,784
   bytes accounted against an 85,899,345,920-byte ceiling and 309,084,545,024
   bytes free against the 21,474,836,480-byte reserve.
 - No AaaS runner or clipboard bridge process remained after shutdown. The
@@ -108,7 +108,7 @@ no-follow regular file descriptor and restores only when a non-empty prior-IME
 record exists. Focused regression tests cover empty placeholders, saved state,
 and symlinks.
 
-The current workspace guard passed on NTFS3 UUID `A2ACEDF2ACEDC0C1`; the final
+The current workspace guard passed on NTFS3 UUID `$AAAS_NTFS_WORKSPACE_UUID`; the final
 post-session sample recorded 61,822,830,080 bytes used against an 80 GiB
 ceiling and 308,951,113,728 bytes free against a 20 GiB reserve. Fresh M2
 Settings/Contacts session `m1b84_session_9nut5798` verified separate windows,

@@ -3,7 +3,7 @@
 Status: **PASS / CLOSED**
 Date: 2026-10-29
 Implementation commits: `556d3d0`, `d25a142`, `e32185f`, `de4dc98`, `7c6e897`, `73e3f80`, and `6513f5e`.
-Live session: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_yert8z49`
+Live session: `$AAAS_WORKSPACE/tmp/m1b84_session_yert8z49`
 Evidence: `results/m1c1/live/`
 
 ## Acceptance results
@@ -181,7 +181,7 @@ activity launch request; its HELLO is reported as “AaaS input bridge ready”
 without waiting for the later process-ready message.
 
 The final portrait smoke session was
-`/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_hb9g11y9`. Its
+`$AAAS_WORKSPACE/tmp/m1b84_session_hb9g11y9`. Its
 presenter recorded 468 submissions, 451 presentation-feedback events, 467
 transport releases, 17 discarded presentation-feedback events, zero rejected
 buffers, and zero dropped input packets. The session entered RUNNING, then the

@@ -77,7 +77,7 @@ framework boot was attempted. G1–G7 remain failed; no APK was run.
 ## Reproduction
 
 ```sh
-export AAAS_WORKSPACE=/run/media/mrkus/Homework/aaas-workspace
+export AAAS_WORKSPACE=$AAAS_WORKSPACE
 python3 scripts/android_workspace.py --workspace "$AAAS_WORKSPACE" check
 python3 scripts/audit_m1b3_apex.py \
   --rootfs "$AAAS_WORKSPACE/rootfs_m1b1" \

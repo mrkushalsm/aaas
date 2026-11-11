@@ -36,6 +36,29 @@ complete, or that redistribution is permitted. The local engineering bundle
 also contains SELinux compatibility shims and is not approved for untrusted
 APKs.
 
+### Component-group disposition
+
+The SBOM is a path/hash inventory, not a legally complete SBOM. Its 6,999
+manifest entries comprise 5,296 regular files and 1,703 directories or
+symlinks. The generated records group the known gaps as follows:
+
+| Group | Count | Recorded identity | Distribution decision |
+|---|---:|---|---|
+| Android runtime image files | 1,846 | Modified Android 16/API 36 M4 diagnostic rootfs, build `BE2A.250530.026.D1`, local source root `rootfs_m1b1` | Not cleared; SDK package/source URL and per-component license/notice chain are not established. |
+| Retained generated workspace artifacts | 94 | Historical M4 runtime/workspace artifacts | Not cleared; generating source inputs and licenses are not recorded. |
+| Local runtime binaries | 25 | Local M4 runtime closure | Not cleared; exact upstream origin, source revision, and licenses are missing. |
+| AaaS source files in the bundle | 17 | Revision `7226838e908e071d971d37e5a9989f111c72d47d` | Not cleared; there is no AaaS project license grant. |
+| Unclassified image/resource files | 3,314 | `NOT_ESTABLISHED` / `NOASSERTION` | Not cleared; no reliable component/source identity is attached. |
+
+The first four groups are the 1,982 executable/library provenance records. All
+1,982 have license review `NOT_REVIEWED_FOR_DISTRIBUTION`; the other 3,314
+regular-file records have `NOASSERTION`. **Zero of the 6,999 bundle entries
+have been approved for redistribution.** The image's Android build ID does not
+identify all constituent upstream projects or their applicable terms. Names
+such as Berberis, ANGLE, SwiftShader, Mesa, and PipeWire in architecture/build
+notes are not evidence that the particular bundled binaries were built from a
+known revision or can be redistributed.
+
 ## Distribution decisions
 
 | Distribution form | Status | Reason |
@@ -51,6 +74,17 @@ Android image provenance, and any proprietary terms from authoritative source
 records before publication. If the image cannot be redistributed, a lawful
 user-side acquisition/build path must be implemented and tested before it can
 replace the image in a public installation workflow.
+
+## Source changes after this candidate
+
+The repository source now includes commit
+`2a9d97431e051fd2c6c91907133293996d91d719`, which changes the AaaS Wayland
+presenter and its tests to retain a window through Android Composer resize
+reconnects. The engineering bundle above predates that change and is not the
+same artifact as the current source tree. The presenter change does not resolve
+the Android-image provenance or third-party redistribution findings. The
+resize acceptance record is
+[`dynamic-resize-acceptance-2026-11-11.json`](../results/m1a/dynamic-resize-acceptance-2026-11-11.json).
 
 The repository itself has no project-level license file. Do not infer a license
 for AaaS code from licenses of upstream dependencies.

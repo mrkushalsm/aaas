@@ -15,7 +15,7 @@ application-specific compatibility limitation.
 The current primary persistent backing directory is:
 
 ```text
-/run/media/mrkus/Aaas/aaas-workspace/shared-storage/android-media/0
+$AAAS_WORKSPACE/shared-storage/android-media/0
 ```
 
 `aaasctl storage path` prints the configured user-0 directory. `aaasctl storage
@@ -35,8 +35,8 @@ provide the parent mount topology vold expects. The live runtime reported
 `/storage/emulated/0` backed by the host directory.
 
 The earlier 2026-11-06 test workspace was on NTFS3. The current enrolled
-primary workspace is ext4 on `/dev/sda3`, UUID
-`094120c3-e1f8-4a61-a95a-c347ecb711d1`. The backing and Android public folders retain
+primary workspace is ext4 on `$AAAS_WORKSPACE_DEVICE`, UUID
+`$AAAS_WORKSPACE_UUID`. The backing and Android public folders retain
 the mapped Android `media_rw` identity (host UID 101022 in this user namespace)
 and have a named ACL for the host UID. AaaS repairs only those ACL entries; it
 does not recursively `chown` or `chmod` user data. `Android/data` and
@@ -104,9 +104,9 @@ When Android is stopped, this backing directory remains available to Linux.
 ## Dedicated-partition and relocated-installation follow-up (2026-11-09)
 
 The primary enrolled workspace is now on the dedicated ext4 partition
-`/dev/sda3`, UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, mounted at
-`/run/media/mrkus/Aaas`. Its Linux-visible shared directory is
-`/run/media/mrkus/Aaas/aaas-workspace/shared-storage/android-media/0`. It is a
+`$AAAS_WORKSPACE_DEVICE`, UUID `$AAAS_WORKSPACE_UUID`, mounted at
+`$AAAS_MOUNT`. Its Linux-visible shared directory is
+`$AAAS_WORKSPACE/shared-storage/android-media/0`. It is a
 normal persistent directory; AaaS creates no Linux FUSE or bind mount for it.
 It remains usable by Linux while Android is stopped. `aaasctl storage path`,
 `status`, `sync` (ACL repair only), and the active-session `scan RELATIVE_PATH`
@@ -125,8 +125,8 @@ health policy, and the retained `usb-workspace-io-2026-11-08` incident remain
 active. See [workspace capacity policy](workspace-capacity-policy.md).
 
 The relocated developer installation under
-`/home/mrkus/.local/share/aaas-portable-installation` deliberately has its own
-workspace at `/home/mrkus/.local/share/aaas-portable-workspace`, on the host
+`$XDG_DATA_HOME/aaas-portable-installation` deliberately has its own
+workspace at `$XDG_DATA_HOME/aaas-portable-workspace`, on the host
 root ext4 filesystem. Its Android `/data` backing is
 `android-userdata/data`; `/data/app`, `/data/user/0`, PackageManager databases,
 and app-private state live there. Its Android shared-media backing is
@@ -530,7 +530,7 @@ fixture test and a live `storage sync` both pass; live `storage status` reports
 for `Android/data` and `Android/obb` remain denied.
 
 The remounted volume is not safe for Android runtime testing: the kernel marks
-NTFS3 volume `/dev/sda2` dirty, recommends `chkdsk`, and logs MFT sequence
+NTFS3 volume `$AAAS_WORKSPACE_DEVICE` dirty, recommends `chkdsk`, and logs MFT sequence
 mismatches (the cause is not independently established). Two disposable files
 from the interrupted test session return `EINVAL` even on `lstat` and cannot
 be unlinked. No filesystem repair or mount-option change was attempted.
@@ -614,7 +614,7 @@ canonical M4 remain `PARTIAL/OPEN`.
 ## Post-Windows-CHKDSK recovery validation (2026-11-05)
 
 The workspace owner reports running Windows `chkdsk` and cleaning the volume.
-Afterward, the mounted filesystem was NTFS3 UUID `A2ACEDF2ACEDC0C1`, read/write
+Afterward, the mounted filesystem was NTFS3 UUID `$AAAS_NTFS_WORKSPACE_UUID`, read/write
 with the expected ACL options. The two known disposable interrupted-run
 entries that previously returned `EINVAL` were absent. Five consecutive full
 workspace checks passed; the latest check measured 60,027,287,040 bytes used
@@ -840,10 +840,10 @@ framework permission/URI grants. These observations do not claim production
 SELinux-equivalent security.
 
 The latest ordinary app log is retained outside Git at
-`/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_hwwubv1c/logcat.log`
+`$AAAS_WORKSPACE/tmp/m1b84_session_hwwubv1c/logcat.log`
 (SHA-256 `df2b195db6027afd6dc5c52619cbb4ecda93ae6598dc96c23ab8f220283181a5`).
 The original BFE failure log is
-`/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_axe48sfq/logcat.log`
+`$AAAS_WORKSPACE/tmp/m1b84_session_axe48sfq/logcat.log`
 (SHA-256 `460557b25cf96ef1b214ccdbca82e761788cf37c285d685b3b3dc18e88cb9318`).
 The corresponding machine-readable gate results and M2/M3/Python/workspace
 regressions are appended as `final_storage_closure_2026_11_06` in
@@ -852,7 +852,7 @@ regressions are appended as `final_storage_closure_2026_11_06` in
 ## NTFS3 health stop (2026-11-07)
 
 During the final kernel-log review, four NTFS3 messages were found for
-`install_sessions.xml.new` on `/dev/sda2` (UUID `A2ACEDF2ACEDC0C1`):
+`install_sessions.xml.new` on `$AAAS_WORKSPACE_DEVICE` (UUID `$AAAS_NTFS_WORKSPACE_UUID`):
 
 | Host time (+05:30) | Inode |
 |---|---|
@@ -884,7 +884,7 @@ the stopped-testing classification are recorded in
 ### Read-only follow-up and enforced workspace pause
 
 The 2026-11-07 investigation correlated all four priority-3 NTFS3 reports with
-`/dev/sda2`, UUID `A2ACEDF2ACEDC0C1`, and the same current boot. The parent USB
+`$AAAS_WORKSPACE_DEVICE`, UUID `$AAAS_NTFS_WORKSPACE_UUID`, and the same current boot. The parent USB
 device also logged UAS aborts/resets and two block read I/O errors. The
 expected `android-userdata/data/system/install_sessions.xml.new` entry is now
 absent. Upstream source describes both persistent malformed MFT records and a

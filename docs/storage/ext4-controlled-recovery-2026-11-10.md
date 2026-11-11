@@ -3,16 +3,16 @@
 ## Scope
 
 This checkpoint follows a later USB-storage interruption on the enrolled AaaS
-workspace UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`. The earlier incident
+workspace UUID `$AAAS_WORKSPACE_UUID`. The earlier incident
 record remains preserved. This enables only guarded controlled testing; it does
 not certify the SSD, USB bridge, cable, port, or power path as fault-free.
 
 ## Offline filesystem check
 
-After `/dev/sda3` was unmounted, the user ran:
+After `$AAAS_WORKSPACE_DEVICE` was unmounted, the user ran:
 
 ```text
-sudo e2fsck -fn /dev/disk/by-uuid/094120c3-e1f8-4a61-a95a-c347ecb711d1
+sudo e2fsck -fn /dev/disk/by-uuid/$AAAS_WORKSPACE_UUID
 e2fsck 1.47.4 (6-Mar-2025)
 Pass 1: Checking inodes, blocks, and sizes
 Inode 4198685 extent tree (at level 2) could be narrower. Optimize? no
@@ -44,9 +44,9 @@ was run. Hardware/transport reliability remains uncertified.
 ## Post-check observation
 
 At checkpoint time 01:07:42 IST, the volume was mounted read-write from
-`/dev/sda3`, ext4 UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, mount ID `246`,
+`$AAAS_WORKSPACE_DEVICE`, ext4 UUID `$AAAS_WORKSPACE_UUID`, mount ID `246`,
 with `errors=remount-ro`. The parent device identity was
-`CT500BX500SSD1_2421E8B20AE0`. The workspace marker matched the mount target,
+`$WORKSPACE_DEVICE_SERIAL`. The workspace marker matched the mount target,
 filesystem, and UUID. The userdata manifest matched the workspace and `data`
 backing; the data directory existed on the workspace filesystem. The current
 filesystem had about 30.5 GiB available; host root had about 20.6 GiB available,

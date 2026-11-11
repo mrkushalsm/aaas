@@ -38,7 +38,7 @@ staged image is modified.
 ## Repeatable integrity check
 
 ```sh
-export AAAS_WORKSPACE=/run/media/mrkus/Homework/aaas-workspace
+export AAAS_WORKSPACE=$AAAS_WORKSPACE
 python3 scripts/android_workspace.py --workspace "$AAAS_WORKSPACE" check
 python3 scripts/audit_android_runtime.py \
   --rootfs "$AAAS_WORKSPACE/rootfs_m1b1" \
@@ -58,8 +58,11 @@ overlay and its license.
 ## Workspace filesystem-health gate
 
 `scripts/android_workspace.py check` validates mount identity and capacity,
-then applies the UUID-scoped policy in
-`manifests/workspace-health.json` before recursive workspace accounting.
+then applies a UUID-scoped health policy before recursive workspace accounting.
+The repository manifest is an empty template; user-specific policy is read from
+`$XDG_STATE_HOME/aaas/workspace-health.json` (or the default
+`~/.local/state/aaas/workspace-health.json`) and can be selected explicitly with
+`AAAS_WORKSPACE_HEALTH_POLICY`. This keeps local device identifiers out of source control.
 `DEVICE_FAILURE_SUSPECTED`, `REPAIR_REQUIRED`, `INTEGRITY_WARNING`, and
 `HEALTH_UNKNOWN` block NTFS3 runtime use. The separate `health` action performs
 bounded, read-only current-boot journal inspection and a passive `smartctl`
@@ -117,7 +120,7 @@ from the pinned hardware/interfaces checkout. Presence of runtime `.so`
 files does not supply matching build headers or prove ABI compatibility.
 
 ```sh
-export AAAS_WORKSPACE=/run/media/mrkus/Homework/aaas-workspace
+export AAAS_WORKSPACE=$AAAS_WORKSPACE
 python3 scripts/probe_android_graphics_build.py \
   --workspace "$AAAS_WORKSPACE" --prepare-only
 python3 scripts/probe_android_graphics_build.py \
@@ -266,7 +269,7 @@ module discovery while keeping large prebuilts linked. Profile tests now
 validate trust-classification values, and the production `verify` readiness
 predicate rejects experimental classifications. No Android session was
 started. Workspace health remains accepted by the existing guard; the current
-mount is ext4 UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`, with 75,820,453,888
+mount is ext4 UUID `$AAAS_WORKSPACE_UUID`, with 75,820,453,888
 bytes accounted against the 85,899,345,920-byte workspace ceiling and
 42,350,333,952 bytes free. No matching new kernel storage errors were observed
 in the post-build journal window. The build output remains a bounded diagnostic

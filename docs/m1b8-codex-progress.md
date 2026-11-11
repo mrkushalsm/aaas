@@ -11,14 +11,14 @@ scripts/patch_uwb_resource_scan.py modifies only this predicate. It retains the 
 Build:
 
     python3 scripts/patch_uwb_resource_scan.py \
-      --original /run/media/mrkus/Homework/aaas-workspace/tmp/m1b8_service-ranging.original.jar \
-      --apktool /run/media/mrkus/Homework/aaas-workspace/tmp/m1b8_apktool_2.9.3.jar \
-      --output /run/media/mrkus/Homework/aaas-workspace/tmp/m1b8_service-ranging.rebuilt2.jar
+      --original $AAAS_WORKSPACE/tmp/m1b8_service-ranging.original.jar \
+      --apktool $AAAS_WORKSPACE/tmp/m1b8_apktool_2.9.3.jar \
+      --output $AAAS_WORKSPACE/tmp/m1b8_service-ranging.rebuilt2.jar
 
 Live diagnostic launch:
 
     AAAS_LOG_PREFIX=m1b8_uwb_rebuilt2_ AAAS_BOOTANIM=0 AAAS_BOOT_WAIT=20 \
-    AAAS_RANGING_JAR_OVERLAY=/run/media/mrkus/Homework/aaas-workspace/tmp/m1b8_service-ranging.rebuilt2.jar \
+    AAAS_RANGING_JAR_OVERLAY=$AAAS_WORKSPACE/tmp/m1b8_service-ranging.rebuilt2.jar \
     python3 scripts/test_zygote_startup.py
 
 The log contains "Found Uwb Resources APK at: com.android.uwb.resources" and "RangingService: Registering Ranging service" on repeated system_server starts. An earlier rebuild failed ART verification due to incorrect smali register use; that failed artifact and log remain under m1b8_uwb_rebuilt1_. The corrected build passed this live check.

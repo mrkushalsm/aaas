@@ -29,7 +29,7 @@ NTFS3 workspace
 ```
 
 The userdata backing is an ordinary dynamically allocated directory at
-`/run/media/mrkus/Homework/aaas-workspace/android-userdata/data`. It is not a
+`$AAAS_WORKSPACE/android-userdata/data`. It is not a
 fixed-size image and contains Android-managed package, user, system, and app
 private state. The user-0 media tree is not copied into it. A schema manifest
 identifies the workspace and backing. Startup refuses symlinked, separately
@@ -210,7 +210,7 @@ After the correction, 10 sequential and 4 concurrent workspace checks passed;
 all 28 mapping-helper invocations succeeded. A further traced sample passed 3
 sequential and 4 concurrent checks and recorded target PID, start ticks, user
 and mount namespace inodes, maps before/after, helper status, and duration in
-`/run/media/mrkus/Homework/aaas-workspace/tmp/userns-accounting-postfix-20261104.jsonl`
+`$AAAS_WORKSPACE/tmp/userns-accounting-postfix-20261104.jsonl`
 (SHA-256 `7a9fce4fcfc1e2c2eab801a3b3c13a1f5acc15a4e1642c53ab46cf4b822e8d80`).
 The isolated `EPERM` has not recurred since the readiness fix; this bounded
 sample does not prove the host helper can never fail.
@@ -237,7 +237,7 @@ The SQLite JSON evidence SHA-256 is
 The workspace owner reports that Windows `chkdsk` repaired the Homework NTFS
 volume. AaaS did not run a filesystem repair utility. After the reported
 repair, Linux observed the expected NTFS3 filesystem UUID
-`A2ACEDF2ACEDC0C1`, mounted read/write at `/run/media/mrkus/Homework`; the
+`$AAAS_NTFS_WORKSPACE_UUID`, mounted read/write at `$AAAS_WORKSPACE_PARENT`; the
 previous two test-fixture paths that had returned `EINVAL` were absent, the
 full workspace guard passed repeatedly, and no new NTFS3 MFT/I/O error was
 observed in the kernel log after the remount. This is sufficient to resume
@@ -348,7 +348,7 @@ launches. Runtime dangerous-permission grant and revocation remain untested.
   process before any manual migration or repair.
 
 Raw logs remain outside Git under
-`/run/media/mrkus/Homework/aaas-workspace/tmp/`; hashes and session references
+`$AAAS_WORKSPACE/tmp/`; hashes and session references
 are in [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
 
 ### External-volume remount follow-up (2026-11-05)
@@ -422,11 +422,11 @@ for audio/microphone, clipboard, notifications, and launcher catalog.
 The current primary workspace and the relocated portable diagnostic
 installation are separate storage trees. The primary workspace's persistent
 Android `/data` backing is
-`/run/media/mrkus/Aaas/aaas-workspace/android-userdata/data` on enrolled ext4
-UUID `094120c3-e1f8-4a61-a95a-c347ecb711d1`. The relocated installation's
+`$AAAS_WORKSPACE/android-userdata/data` on enrolled ext4
+UUID `$AAAS_WORKSPACE_UUID`. The relocated installation's
 fresh `/data` is
-`/home/mrkus/.local/share/aaas-portable-workspace/android-userdata/data` on
-the host root filesystem (UUID `db2996df-91ff-4bed-8e69-2faeb5e81edc`). Its
+`$XDG_DATA_HOME/aaas-portable-workspace/android-userdata/data` on
+the host root filesystem (UUID `$HOST_ROOT_FILESYSTEM_UUID`). Its
 `/data/app`, `/data/user/0`, and test package private files are inside that
 directory backing; the shared-media directory is a sibling, not part of
 `/data`. These paths are ordinary directories, not symlinks or image files.

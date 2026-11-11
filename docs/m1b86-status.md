@@ -90,7 +90,7 @@ Target command:
 python3 scripts/run_aaas.py --use-source-lmkd --memory-policy=cgroup
 ```
 
-Session: `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_a_op34s_`
+Session: `$AAAS_WORKSPACE/tmp/m1b84_session_a_op34s_`
 Cgroup: `/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/aaas/m1b86-625505`
 
 Observed at the snapshot:
@@ -136,7 +136,7 @@ This milestone did not rerun the isolated two-process LMKD victim-selection matr
 
 `python3 scripts/run_aaas.py` with no policy flag:
 
-- Session `/run/media/mrkus/Homework/aaas-workspace/tmp/m1b84_session_76148693`.
+- Session `$AAAS_WORKSPACE/tmp/m1b84_session_76148693`.
 - Reached RUNNING, then clean STOPPED.
 - 259 frames presented, **0 rejected**.
 - No `m1b86-*` cgroup was created.
@@ -199,7 +199,7 @@ Acceptance JSON: `results/m1b86/acceptance.json`.
 python3 -m unittest discover -s tests
 make -C experiments/m1a test
 python3 scripts/android_workspace.py \
-  --workspace /run/media/mrkus/Homework/aaas-workspace check
+  --workspace $AAAS_WORKSPACE check
 python3 scripts/probe_cgroup_protection.py \
   --output results/m1b86/cgroup_protection.json
 python3 scripts/run_aaas.py --use-source-lmkd --memory-policy=cgroup

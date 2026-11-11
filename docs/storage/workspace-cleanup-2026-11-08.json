@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "date": "2026-11-08",
-  "workspace": "/run/media/mrkus/Aaas/aaas-workspace",
+  "workspace": "$AAAS_WORKSPACE",
   "filesystem": {
-    "mountpoint": "/run/media/mrkus/Aaas",
-    "uuid": "094120c3-e1f8-4a61-a95a-c347ecb711d1",
+    "mountpoint": "$AAAS_MOUNT",
+    "uuid": "$AAAS_WORKSPACE_UUID",
     "type": "ext4"
   },
   "health_before": {
@@ -29,42 +29,42 @@
       "allocated_bytes_before": 168767488,
       "allocated_bytes_reclaimed": 168759296,
       "reason": "Go build cache; regenerable and no Go build process was active.",
-      "absolute_path": "/run/media/mrkus/Aaas/aaas-workspace/cache/go-build"
+      "absolute_path": "$AAAS_WORKSPACE/cache/go-build"
     },
     {
       "path": "tmp/super.img",
       "allocated_bytes_before": 1895829504,
       "allocated_bytes_reclaimed": 1895829504,
       "reason": "Byte-identical to the retained super-partition extent in tmp/system.img; reproducible from the verified SDK archive; no runtime or tracked evidence references.",
-      "absolute_path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/super.img"
+      "absolute_path": "$AAAS_WORKSPACE/tmp/super.img"
     },
     {
       "path": "tmp/partitions/product.raw.img",
       "allocated_bytes_before": 385826816,
       "allocated_bytes_reclaimed": 385826816,
       "reason": "Unreferenced extracted product partition; reproducible from retained system.img and scripts/extract_super_partitions.py.",
-      "absolute_path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/partitions/product.raw.img"
+      "absolute_path": "$AAAS_WORKSPACE/tmp/partitions/product.raw.img"
     },
     {
       "path": "tmp/partitions/system_ext.raw.img",
       "allocated_bytes_before": 217108480,
       "allocated_bytes_reclaimed": 217108480,
       "reason": "Unreferenced extracted system_ext partition; reproducible from retained system.img and scripts/extract_super_partitions.py.",
-      "absolute_path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/partitions/system_ext.raw.img"
+      "absolute_path": "$AAAS_WORKSPACE/tmp/partitions/system_ext.raw.img"
     },
     {
       "path": "tmp/partitions/vendor.raw.img",
       "allocated_bytes_before": 101257216,
       "allocated_bytes_reclaimed": 101257216,
       "reason": "Unreferenced extracted vendor partition; reproducible from retained system.img and scripts/extract_super_partitions.py.",
-      "absolute_path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/partitions/vendor.raw.img"
+      "absolute_path": "$AAAS_WORKSPACE/tmp/partitions/vendor.raw.img"
     },
     {
       "path": "tmp/partitions/system_dlkm.raw.img",
       "allocated_bytes_before": 7299072,
       "allocated_bytes_reclaimed": 7299072,
       "reason": "Unreferenced extracted system_dlkm partition; reproducible from retained system.img and scripts/extract_super_partitions.py.",
-      "absolute_path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/partitions/system_dlkm.raw.img"
+      "absolute_path": "$AAAS_WORKSPACE/tmp/partitions/system_dlkm.raw.img"
     }
   ],
   "total_candidate_allocated_bytes_reclaimed": 2776080384,
@@ -94,19 +94,19 @@
   "retained_inventory": [
     {
       "classification": "PROTECTED",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1",
+      "path": "$AAAS_WORKSPACE/rootfs_m1b1",
       "allocated_bytes": 1771241472,
       "reason": "Current diagnostic Android 16 rootfs contains unique modifications; no verified reconstruction recipe yet."
     },
     {
       "classification": "PROTECTED",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/sources",
+      "path": "$AAAS_WORKSPACE/sources",
       "allocated_bytes": 5742678016,
       "reason": "Source inputs required for ongoing reconstruction and builds."
     },
     {
       "classification": "PROTECTED",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/images/x86_64-36_r02.zip",
+      "path": "$AAAS_WORKSPACE/images/x86_64-36_r02.zip",
       "logical_bytes": 844217077,
       "sha1": "829c076e8ff448a336097ae25a355b495ba36e2c",
       "sha256": "e1b9d9fb665001ef27b16e57d8762a2d54aec6bff617e17506edb8676667b9da",
@@ -114,43 +114,43 @@
     },
     {
       "classification": "PROTECTED",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/system.img",
+      "path": "$AAAS_WORKSPACE/tmp/system.img",
       "allocated_bytes": 1898971136,
       "reason": "Retained source-derived system image referenced by M4 evidence and used to re-extract partition inputs."
     },
     {
       "classification": "ACTIVE",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/partitions/system.raw.img",
+      "path": "$AAAS_WORKSPACE/tmp/partitions/system.raw.img",
       "allocated_bytes": 956735488,
       "reason": "Active runtime input referenced by runner and audio overlay preparation."
     },
     {
       "classification": "UNIQUE_EVIDENCE",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/m1e_v4_idtrace_build",
+      "path": "$AAAS_WORKSPACE/tmp/m1e_v4_idtrace_build",
       "allocated_bytes": 2568855552,
       "reason": "Build output/object files referenced by artifact evidence; retained."
     },
     {
       "classification": "UNIQUE_EVIDENCE",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/m1e_swiftshader_diag_build",
+      "path": "$AAAS_WORKSPACE/tmp/m1e_swiftshader_diag_build",
       "allocated_bytes": 2253778944,
       "reason": "Build output/object files referenced by artifact evidence; retained."
     },
     {
       "classification": "UNIQUE_EVIDENCE",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/m1e_swiftshader_prefx_trace_build",
+      "path": "$AAAS_WORKSPACE/tmp/m1e_swiftshader_prefx_trace_build",
       "allocated_bytes": 2253758464,
       "reason": "Build output/object files referenced by artifact evidence; retained."
     },
     {
       "classification": "UNIQUE_EVIDENCE",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/m1e_swiftshader_fixed_notrace_build",
+      "path": "$AAAS_WORKSPACE/tmp/m1e_swiftshader_fixed_notrace_build",
       "allocated_bytes": 2250346496,
       "reason": "Build output/object files referenced by artifact evidence; retained."
     },
     {
       "classification": "UNIQUE_EVIDENCE",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/m1b84_session_*",
+      "path": "$AAAS_WORKSPACE/tmp/m1b84_session_*",
       "count": 1390,
       "logcat_count": 1103,
       "logcat_allocated_bytes": 21738983424,
@@ -158,35 +158,35 @@
     },
     {
       "classification": "UNKNOWN",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/tmp/ext4-probe.img",
+      "path": "$AAAS_WORKSPACE/tmp/ext4-probe.img",
       "allocated_bytes": 67108864,
       "reason": "No reliable provenance/reference found; retained as unknown."
     },
     {
       "classification": "PROTECTED",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/android-userdata",
+      "path": "$AAAS_WORKSPACE/android-userdata",
       "reason": "Persistent Android userdata; untouched."
     },
     {
       "classification": "PROTECTED",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/shared-storage",
+      "path": "$AAAS_WORKSPACE/shared-storage",
       "reason": "User shared media; untouched."
     },
     {
       "classification": "UNIQUE_EVIDENCE",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/results",
+      "path": "$AAAS_WORKSPACE/results",
       "allocated_bytes": 495431680,
       "reason": "Historical acceptance and test evidence; untouched."
     },
     {
       "classification": "UNIQUE_EVIDENCE",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/probes",
+      "path": "$AAAS_WORKSPACE/probes",
       "allocated_bytes": 299741184,
       "reason": "Diagnostic fixtures and evidence; untouched."
     },
     {
       "classification": "UNKNOWN",
-      "path": "/run/media/mrkus/Aaas/aaas-workspace/apks",
+      "path": "$AAAS_WORKSPACE/apks",
       "allocated_bytes": 268308480,
       "reason": "Artifact provenance not fully established; retained."
     },

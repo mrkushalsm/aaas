@@ -4,7 +4,7 @@
 
 ## Preservation and provenance
 
-- Initial branch `master`, HEAD `4a0d285`, no remote. `results/m1b83/preservation_manifest.json` records the inherited worktree files and SHA-256 hashes. Those files were not edited or staged. The external workspace was verified as `/dev/sda2` (`ntfs3`), with 17,509,197,824 bytes used at the final workspace check, below the 80 GiB ceiling and with the 20 GiB reserve intact.
+- Initial branch `master`, HEAD `4a0d285`, no remote. `results/m1b83/preservation_manifest.json` records the inherited worktree files and SHA-256 hashes. Those files were not edited or staged. The external workspace was verified as `$AAAS_WORKSPACE_DEVICE` (`ntfs3`), with 17,509,197,824 bytes used at the final workspace check, below the 80 GiB ceiling and with the 20 GiB reserve intact.
 - The Android image and prior overlays were not replaced. The original SwiftShader overlay remains `tmp/vulkan.pastel.so` (SHA-256 `4e9e89c1b534f05daf773516de599a6b525c875e49f3de1c5406ce1110e1a5a3`, build ID `6954e2fbdddce3e33971d6c9e6bd70ad47b9ac4d`). The SwiftShader source base is `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5`, with the earlier Gemini/Codex Vulkan and Bionic changes retained.
 - Large logs and exact diagnostic binaries are under external `tmp/m1b83_*`. `results/m1b83/live_runs.json` records the per-run commands' prefixes, launch results, compositor counts, binary hashes, and exclusions. The intentionally misconfigured `m1b83_samplinglock3_` run is excluded: its services-JAR overlay accidentally named a `.so`, so it did not reach a comparable framework boot. Shared-socket runs are supporting evidence only; the controlled comparison used `m1b83_isolated_ipc/wayland.sock`.
 
@@ -54,7 +54,7 @@ The presenter reported maximum RSS of approximately 507 MiB in the isolated runs
 
 - `python3 -m unittest discover -s tests -v`: 73 passed.
 - `make -C experiments/m1a test`: wire v1/v2, sync utility, and GPU sync stress tests passed.
-- `python3 scripts/android_workspace.py --workspace /run/media/mrkus/Homework/aaas-workspace check`: passed with the required reserve.
+- `python3 scripts/android_workspace.py --workspace $AAAS_WORKSPACE check`: passed with the required reserve.
 - SwiftShader and LMKD source patch whitespace/reverse-apply checks passed. The SwiftShader patch was built and loaded; the LMKD source patch was not built.
 - Live first-draw evidence is in the raw external logs and the structured result files under `results/m1b83/`. Commits: `e649c07` (SwiftShader cache lock), `e3bf422` (LMKD fallback diagnostic and source candidate), `13b5c29` (queue trace). This report and structured evidence are committed separately.
 

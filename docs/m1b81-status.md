@@ -14,8 +14,8 @@ remain outstanding.
   `experiments/m1b/shim_selinux.c`, plus three untracked M1B.8 files, were
   copied before editing to external `tmp/m1b81_preedit/`. Their inventory and
   original component hashes are in `results/m1b81/experiment_inventory.json`.
-- External workspace was confirmed on `/dev/sda2`, NTFS3, UUID
-  `A2ACEDF2ACEDC0C1`, with the established capacity reserve intact. The
+- External workspace was confirmed on `$AAAS_WORKSPACE_DEVICE`, NTFS3, UUID
+  `$AAAS_NTFS_WORKSPACE_UUID`, with the established capacity reserve intact. The
   original Android image and earlier logs were not changed.
 - The inherited UWB, native NetworkStats, and Java statistics overlays were
   used as diagnostics. The latter two are still binary/DEX experiments, not
@@ -74,7 +74,7 @@ retained. The second probe uses `/data/local/tmp`, an allowed private path.
 The host Binder probe is built with:
 
 ```sh
-cc -Wall -Wextra -Werror -O2 -o /run/media/mrkus/Homework/aaas-workspace/tmp/m1b81_probe_binder_sid experiments/m1b/probe_binder_sid.c
+cc -Wall -Wextra -Werror -O2 -o $AAAS_WORKSPACE/tmp/m1b81_probe_binder_sid experiments/m1b/probe_binder_sid.c
 ```
 
 `python3 scripts/probe_binder_sid.py` mounts binderfs in a disposable

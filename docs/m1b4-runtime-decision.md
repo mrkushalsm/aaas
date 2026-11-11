@@ -133,7 +133,7 @@ run a privileged container, or execute untrusted APKs under a partial policy.
 ## Reproduce this decision's local checks
 
 ```sh
-export AAAS_WORKSPACE=/run/media/mrkus/Homework/aaas-workspace
+export AAAS_WORKSPACE=$AAAS_WORKSPACE
 python3 scripts/android_workspace.py --workspace "$AAAS_WORKSPACE" check
 python3 scripts/lock_android16_subset.py --output manifests/android16-r1-subset.json
 python3 scripts/probe_android16_apex_schema.py \
