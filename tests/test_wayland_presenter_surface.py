@@ -263,6 +263,22 @@ class WaylandPresenterSurfaceTests(unittest.TestCase):
         self.assertIn("producer_generations", harness)
         self.assertIn("--disconnect-after-send", producer)
 
+    def test_runtime_graphics_and_workspace_defaults_do_not_pin_this_host(self):
+        host = (ROOT / "experiments/m1a/src/wayland_host_presenter.c").read_text()
+        producer = (ROOT / "experiments/m1a/src/gpu_producer.c").read_text()
+        main = (ROOT / "experiments/m1a/src/main_v2.c").read_text()
+        presenter = (ROOT / "experiments/m1a/src/gpu_presenter.c").read_text()
+        for source in (host, producer, main, presenter):
+            self.assertNotIn("renderD128", source)
+            self.assertNotIn("renderD129", source)
+            self.assertIn("AAAS_DRM_RENDER_NODE", source)
+        for makefile in ("experiments/m1b/allocator_aaas/Makefile",
+                         "experiments/m1b/composer_aaas/Makefile"):
+            source = (ROOT / makefile).read_text()
+            self.assertNotIn("/run/media/", source)
+            self.assertIn("XDG_DATA_HOME", source)
+            self.assertIn("WORKSPACE_ROOT", source)
+
 
 if __name__ == "__main__":
     unittest.main()

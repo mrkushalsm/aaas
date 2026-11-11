@@ -19,7 +19,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr,
             "Usage: %s [options]\n"
             "Options:\n"
-            "  --node <path>       DRM render node path (default: /dev/dri/renderD129)\n"
+            "  --node <path>       DRM render node selected by Wayland feedback (or AAAS_DRM_RENDER_NODE)\n"
             "  --cpu               Use CPU fallback rendering baseline\n"
             "  --implicit-sync     Force implicit synchronization (disable DRM syncobj)\n"
             "  --frames <N>        Exit after presenting N frames (default: infinite)\n"
@@ -31,7 +31,8 @@ int main(int argc, char **argv) {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    const char *drm_node = "/dev/dri/renderD129";
+    const char *drm_node = getenv("AAAS_DRM_RENDER_NODE");
+    if (drm_node && !*drm_node) drm_node = NULL;
     bool cpu_fallback = false;
     bool force_implicit = false;
     uint32_t max_frames = 0;
@@ -53,6 +54,11 @@ int main(int argc, char **argv) {
             print_usage(argv[0]);
             return 1;
         }
+    }
+
+    if (!drm_node) {
+        fprintf(stderr, "No DRM render node selected; pass --node or set AAAS_DRM_RENDER_NODE from host capability discovery\n");
+        return 1;
     }
 
     int socks[2];

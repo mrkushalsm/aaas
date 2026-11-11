@@ -3450,7 +3450,14 @@ int aaas_run_gpu_presenter(const aaas_presenter_config *config) {
     // Open DRM device for syncobjs if syncobj_mgr is advertised
     app.drm_fd = -1;
     if (!app.software_shm_test) {
-        const char *node = config->drm_node ? config->drm_node : "/dev/dri/renderD129";
+        const char *node = config->drm_node;
+        if (!node || !*node) node = getenv("AAAS_DRM_RENDER_NODE");
+        if (!node || !*node) {
+            fprintf(stderr, "No DRM render node selected; set AAAS_DRM_RENDER_NODE or pass the compositor-selected node\n");
+            libdecor_unref(app.decor_context);
+            wl_display_disconnect(app.display);
+            return 2;
+        }
         app.drm_fd = open(node, O_RDWR | O_CLOEXEC);
         if (app.drm_fd < 0) {
             fprintf(stderr, "Unable to open selected DRM render node %s: %s\n",

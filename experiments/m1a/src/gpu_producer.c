@@ -111,16 +111,16 @@ static GLuint create_program(void) {
 }
 
 int aaas_run_gpu_producer(const aaas_producer_config *config) {
-    const char *node = config->drm_node ? config->drm_node : "/dev/dri/renderD129";
+    const char *node = config->drm_node;
+    if (!node || !*node) node = getenv("AAAS_DRM_RENDER_NODE");
+    if (!node || !*node) {
+        fprintf(stderr, "No DRM render node selected; set AAAS_DRM_RENDER_NODE or provide it in the producer config\n");
+        return 2;
+    }
     int devfd = open(node, O_RDWR | O_CLOEXEC);
     if (devfd < 0) {
-        // Fallback to renderD128 if renderD129 not openable
-        node = "/dev/dri/renderD128";
-        devfd = open(node, O_RDWR | O_CLOEXEC);
-        if (devfd < 0) {
-            perror("open render node");
-            return 2;
-        }
+        perror("open selected render node");
+        return 2;
     }
 
     struct gbm_device *gbm = gbm_create_device(devfd);

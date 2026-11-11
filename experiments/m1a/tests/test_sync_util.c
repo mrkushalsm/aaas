@@ -7,9 +7,12 @@
 #include <errno.h>
 
 static int open_render_node(void) {
-    int fd = open("/dev/dri/renderD129", O_RDWR | O_CLOEXEC);
-    if (fd < 0) fd = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
-    return fd;
+    const char *node = getenv("AAAS_DRM_RENDER_NODE");
+    if (!node || !*node) {
+        fprintf(stderr, "Set AAAS_DRM_RENDER_NODE using host graphics discovery before this DRM-backed test.\n");
+        return -1;
+    }
+    return open(node, O_RDWR | O_CLOEXEC);
 }
 
 static void test_sync_file_validation(void) {

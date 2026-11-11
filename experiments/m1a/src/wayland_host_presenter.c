@@ -21,7 +21,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr,
             "Usage: %s [options]\n"
             "Options:\n"
-            "  --socket <path>     UNIX domain socket path (default: /run/media/mrkus/Aaas/aaas-workspace/tmp/aaas_wayland.sock)\n"
+            "  --socket <path>     UNIX domain socket path (default: $XDG_RUNTIME_DIR/aaas-wayland.sock)\n"
             "  --title <title>     Wayland window title (default: 'AaaS Android 16 Desktop')\n"
             "  --app-id <id>       Wayland toplevel application identity\n"
             "  --defer-map         Keep an unassigned dynamic slot hidden until it receives an app identity\n"
@@ -29,7 +29,7 @@ static void print_usage(const char *prog) {
             "  --height <h>        Initial window height (default: 720)\n"
             "  --display-width <w> Initial Android source width\n"
             "  --display-height <h> Initial Android source height\n"
-            "  --node <path>       DRM render node path (default: /dev/dri/renderD129)\n"
+            "  --node <path>       DRM render node selected by Wayland feedback (or AAAS_DRM_RENDER_NODE)\n"
             "  --implicit-sync     Force implicit synchronization\n"
             "  --software-shm-test  Test-only wl_shm backend; requires memfd frame inputs\n"
             "  --test-reconnect-on-producer-close  Test persistent toplevel recovery\n"
@@ -53,7 +53,8 @@ int main(int argc, char **argv) {
     signal(SIGTERM, handle_signal);
     signal(SIGHUP, SIG_IGN);
 
-    const char *socket_path = "/run/media/mrkus/Aaas/aaas-workspace/tmp/aaas_ipc/wayland.sock";
+    char default_socket_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+    const char *socket_path = NULL;
     const char *title = "AaaS Android 16 Desktop";
     const char *app_id = "org.aaas.android";
     bool defer_map = false;
@@ -61,7 +62,7 @@ int main(int argc, char **argv) {
     uint32_t height = 720;
     uint32_t display_width = 0;
     uint32_t display_height = 0;
-    const char *drm_node = "/dev/dri/renderD129";
+    const char *drm_node = getenv("AAAS_DRM_RENDER_NODE");
     bool force_implicit = false;
     bool software_shm_test = false;
     bool test_reconnect_on_producer_close = false;
@@ -149,6 +150,29 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (!socket_path) {
+        const char *runtime_dir = getenv("XDG_RUNTIME_DIR");
+        if (!runtime_dir || runtime_dir[0] != '/') {
+            fprintf(stderr, "XDG_RUNTIME_DIR must name an absolute user runtime directory, or pass --socket\n");
+            return 1;
+        }
+        int n = snprintf(default_socket_path, sizeof(default_socket_path),
+                         "%s/aaas-wayland.sock", runtime_dir);
+        if (n < 0 || (size_t)n >= sizeof(default_socket_path)) {
+            fprintf(stderr, "default Wayland socket path exceeds the UNIX socket path limit; pass --socket\n");
+            return 1;
+        }
+        socket_path = default_socket_path;
+    }
+    if (!software_shm_test && (!drm_node || !*drm_node)) {
+        fprintf(stderr, "No DRM render node selected; pass --node or set AAAS_DRM_RENDER_NODE from host capability discovery\n");
+        return 1;
+    }
+    if (strlen(socket_path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+        fprintf(stderr, "Frame socket path exceeds the UNIX socket path limit; pass a shorter --socket path\n");
+        return 1;
+    }
+
     int server_sock = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
     if (server_sock < 0) {
         perror("[AaaS Presenter] socket failed");
@@ -160,7 +184,7 @@ int main(int argc, char **argv) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+    memcpy(addr.sun_path, socket_path, strlen(socket_path) + 1);
 
     if (bind(server_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("[AaaS Presenter] bind failed");
