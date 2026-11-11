@@ -472,6 +472,61 @@ def _installed_root(config):
     return root
 
 
+def _uninstallable_root(config):
+    """Resolve an owned installation for removal without trusting runtime health.
+
+    Uninstall must remain possible after an interrupted update or a partially
+    removed rootfs. Runtime operations still use ``_installed_root`` and its
+    full integrity/closure checks. Here, require the install and bundle records
+    to agree on identity and exact paths; the caller separately requires the
+    matching owned service unit before removing anything.
+    """
+    root = config.rootfs.parent.expanduser().absolute()
+    if root.is_symlink() or root.resolve(strict=False) != root:
+        raise CliError('refusing to uninstall through a symlinked installation path')
+    if root == root.parent or root == config.workspace or root in config.workspace.parents or \
+            config.workspace in root.parents:
+        raise CliError('refusing to uninstall an installation overlapping its workspace')
+    if not root.is_dir():
+        raise CliError(f'portable installation is unavailable: {root}')
+    install_path = root / 'installation.json'
+    bundle_path = root / 'bundle-manifest.json'
+    if (install_path.is_symlink() or bundle_path.is_symlink() or
+            not install_path.is_file() or not bundle_path.is_file()):
+        raise CliError('refusing to uninstall an installation without regular ownership manifests')
+    try:
+        installed = json.loads(install_path.read_text(encoding='utf-8'))
+        bundle = json.loads(bundle_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as error:
+        raise CliError(f'refusing to uninstall an installation with invalid ownership metadata: {error}') from error
+    expected_paths = {
+        'rootfs': str(root / 'rootfs'),
+        'runtime': str(root / 'runtime'),
+        'workspace': str(config.workspace),
+        'workspace_artifacts': str(root / 'workspace-artifacts'),
+    }
+    if (installed.get('schema') != 1 or installed.get('profile') != config.profile or
+            installed.get('bundle_id') != bundle.get('bundle_id') or
+            installed.get('paths') != expected_paths or
+            bundle.get('profile') != config.profile or
+            not isinstance(bundle.get('artifacts'), list) or
+            len(bundle['artifacts']) != bundle.get('artifact_count')):
+        raise CliError('refusing to uninstall: installation and bundle ownership records disagree')
+    try:
+        for entry in bundle['artifacts']:
+            aaas_bundle._safe_relative(entry['path'])
+    except (KeyError, TypeError, aaas_bundle.BundleError) as error:
+        raise CliError(f'refusing to uninstall an invalid bundle ownership manifest: {error}') from error
+    mounts = subprocess.run(['findmnt', '-rn', '-o', 'TARGET'], capture_output=True,
+                            text=True, check=False, timeout=5)
+    if mounts.returncode == 0:
+        prefix = str(root) + os.sep
+        if any(target == str(root) or target.startswith(prefix)
+               for target in mounts.stdout.splitlines()):
+            raise CliError(f'refusing to uninstall while the installation contains mounts: {root}')
+    return root
+
+
 def _release_state_path(config):
     return config.state / 'release-lifecycle.json'
 
@@ -747,7 +802,7 @@ def main(argv=None):
                   json_output)
             return 0
         if args.command == 'uninstall':
-            root = _installed_root(config)
+            root = _uninstallable_root(config)
             service_unit = _require_owned_runtime_unit(config)
             workspace_removal = False
             if args.remove_user_data:

@@ -1,9 +1,11 @@
 import fcntl
+import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -194,6 +196,50 @@ class AaasCliTests(unittest.TestCase):
             self.assertEqual(aaas_cli._unit_environment(unit, 'AAAS_WORKSPACE'),
                              '/other/workspace')
             self.assertFalse(backup.exists())
+
+    def test_uninstall_accepts_owned_install_with_incomplete_rootfs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            root = Path(temporary) / 'data/aaas/installations/bundle'
+            root.mkdir(parents=True)
+            config = replace(config, rootfs=root / 'rootfs')
+            paths = {
+                'rootfs': str(root / 'rootfs'),
+                'runtime': str(root / 'runtime'),
+                'workspace': str(config.workspace),
+                'workspace_artifacts': str(root / 'workspace-artifacts'),
+            }
+            (root / 'installation.json').write_text(json.dumps({
+                'schema': 1, 'profile': config.profile, 'bundle_id': 'bundle-id',
+                'paths': paths,
+            }))
+            (root / 'bundle-manifest.json').write_text(json.dumps({
+                'profile': config.profile, 'bundle_id': 'bundle-id',
+                'artifact_count': 0, 'artifacts': [],
+            }))
+            # A failed install may have left an empty rootfs; cleanup must still
+            # be possible without treating it as valid for runtime execution.
+            (root / 'rootfs').mkdir()
+            with mock.patch.object(aaas_cli.subprocess, 'run',
+                                   return_value=mock.Mock(returncode=0, stdout='')):
+                self.assertEqual(aaas_cli._uninstallable_root(config), root)
+
+    def test_uninstall_refuses_ownership_manifest_path_mismatch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self.config(temporary)
+            root = Path(temporary) / 'data/aaas/installations/bundle'
+            root.mkdir(parents=True)
+            config = replace(config, rootfs=root / 'rootfs')
+            (root / 'installation.json').write_text(json.dumps({
+                'schema': 1, 'profile': config.profile, 'bundle_id': 'bundle-id',
+                'paths': {'rootfs': '/tmp/unowned/rootfs'},
+            }))
+            (root / 'bundle-manifest.json').write_text(json.dumps({
+                'profile': config.profile, 'bundle_id': 'bundle-id',
+                'artifact_count': 0, 'artifacts': [],
+            }))
+            with self.assertRaisesRegex(aaas_cli.CliError, 'ownership records disagree'):
+                aaas_cli._uninstallable_root(config)
 
     def test_release_lifecycle_commands_are_available(self):
         parser = aaas_cli._parser()
