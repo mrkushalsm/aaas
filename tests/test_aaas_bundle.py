@@ -88,6 +88,13 @@ class BundleTests(unittest.TestCase):
             self.assertEqual(result['runtime_security'], 'NOT_APPROVED')
             self.assertTrue((output / 'install').stat().st_mode & 0o111)
             self.assertTrue((output / 'install.py').stat().st_mode & 0o111)
+            bundle_manifest = json.loads((output / 'manifest.json').read_text())
+            installer_provenance = {r['path']: r for r in bundle_manifest['provenance']['executable_library_provenance']}
+            for installer_path in ('install', 'install.py'):
+                self.assertEqual(installer_provenance[installer_path]['role'],
+                                 'AaaS portable bundle installer')
+                self.assertIn('scripts/aaas_bundle.py',
+                              installer_provenance[installer_path]['source_identity'])
             installer_help = subprocess.run([sys.executable, str(output / 'install.py'),
                                              '--help'], capture_output=True, text=True)
             self.assertEqual(installer_help.returncode, 0, installer_help.stderr)
