@@ -81,26 +81,28 @@ Nine-window multiwindow operation and M4 desktop bridges were accepted on the
 existing runtime before this packaging pass; they were not all rerun against
 the fresh profile in this acceptance.
 
-## Current release limitations
+## Exact candidate status, 2026-11-11
 
-- The newest bundle's integrity and 24-input runtime closure pass, but it has
-  not completed fresh installed boot acceptance. Its update was automatically
-  rolled back when the host's 10 GiB free-space reserve prevented startup.
-- Runtime security is not approved: the diagnostic image includes SELinux
-  authorization shims, enforcement is unavailable/unverified, and untrusted
-  APKs are outside the supported trust model.
-- Android rootfs and third-party artifact provenance/licensing are not cleared
-  for public redistribution. The repository has no project-level license.
-- A SurfaceFlinger crash occurred in one earlier pristine first-boot run; other
-  first boots succeeded. Reliability is not established from the available
-  sample.
-- Gallery app-specific external-cache/project-quota behavior remains limited on
-  the tested filesystem. Physical Android Wi-Fi and Bluetooth mediation are
-  unsupported; Android internet access uses virtual Ethernet.
-- The strict mount-isolated checkout-independence test was not completed because
-  hiding the checkout prevented `newuidmap` from operating. Installed path
-  checks and runtime dependency closure are evidence, but not equivalent to a
-  full repository-absence test.
+Candidate `engineering-830eef7` (ID `d3d7278094324b93be4f3ad57ae5883d`)
+passed manifest integrity and 25-input dependency closure, installed in a new
+isolated prefix, and reached Android RUNNING on its first boot. Settings frames
+were observed, four apps were launched, Android-to-PipeWire audio transport was
+measured, and five service start/stop cycles passed. See the
+[exact acceptance record](../results/release/candidate-acceptance-engineering-830eef7-2026-11-11.json).
+
+Still open for this exact candidate: Android application DNS/HTTPS result
+retrieval, live update/rollback, uninstall/reinstall, direct ARM Native Bridge
+execution evidence, and interactive resize. An earlier installation B had an
+intermittent SurfaceFlinger first-boot crash; the root cause remains unknown, so
+reliability across fresh installations is not established. Runtime security is
+not approved, and image/third-party redistribution rights are unresolved. The
+bundle is unsigned, is for trusted local development only, and must not be
+publicly redistributed. The old Nov. 10 acceptance above remains historical and
+must not be attributed to this candidate.
+
+The strict mount-isolated checkout-independence test was not completed because
+hiding the checkout prevented `newuidmap` from operating. Installed-path and
+closure checks are useful evidence but do not prove repository absence.
 
 See [current release readiness](release-readiness-2026-11-11.md) and the
 [dependency/licensing inventory](dependencies-and-licenses.md) before using or

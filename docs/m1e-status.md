@@ -364,8 +364,8 @@ Contacts task 9/display 3), controlled `/dev/uinput` text appeared as `alpha`
 in Settings Search and `beta`/`hii` in Contacts. A later focus sequence
 changed each focused app independently, and Ctrl+A replaced the Settings query
 with `beta` while the Contacts fields stayed unchanged. The screenshots are
-[`input_two_apps_alpha_beta_20261031.png`](../results/m1e/live/input_two_apps_alpha_beta_20261031.png),
-[`input_two_way_focus_20261031.png`](../results/m1e/live/input_two_way_focus_20261031.png),
+``input_two_apps_alpha_beta_20261031.png`` (local evidence `../results/m1e/live/input_two_apps_alpha_beta_20261031.png`, not included in the Git source tree),
+``input_two_way_focus_20261031.png`` (local evidence `../results/m1e/live/input_two_way_focus_20261031.png`, not included in the Git source tree),
 and the Ctrl+A capture referenced in the JSON evidence.
 
 KWin minimized and restored the Contacts window using its normal window state.
@@ -777,7 +777,7 @@ imports/submissions/releases, zero outstanding buffers, and zero invalidated
 buffers. The state journal and sentinel matched at STOPPED, and the delegated
 cgroup was removed. This was a short text-entry smoke only; enhanced-mode
 scrolling, minimize, resize, and close/reopen were not repeated. Evidence:
-[`enhanced_keyboard_interaction_20261031.json`](../results/m1e/live/enhanced_keyboard_interaction_20261031.json).
+``enhanced_keyboard_interaction_20261031.json`` (local evidence `../results/m1e/live/enhanced_keyboard_interaction_20261031.json`, not included in the Git source tree).
 
 ### InputDispatcher focus-readiness follow-up (2026-10-31)
 
@@ -1153,7 +1153,7 @@ callback is discarded. Both paths passed in a separate ASan/UBSan build, and
 the full M1A test target passed from `/tmp`. This exercises the proxy/event
 lifetime contract, but is not a forced KWin or Android producer-disconnect
 reproduction. See
-[`presenter_queued_keyboard_teardown_validation_20261031.json`](../results/m1e/live/presenter_queued_keyboard_teardown_validation_20261031.json).
+``presenter_queued_keyboard_teardown_validation_20261031.json`` (local evidence `../results/m1e/live/presenter_queued_keyboard_teardown_validation_20261031.json`, not included in the Git source tree).
 
 A complete tombstone from `m1b84_session_wpoyddeu` decodes the SwiftShader JIT
 instruction as `movq (%rcx,%rax,1),%xmm1`, an 8-byte read. Its effective
@@ -1169,7 +1169,7 @@ allocation or shader was accessed, nor whether resize caused it. Reactor JIT
 debug info was disabled in the Release build. No persistent source-checkout
 change or SwiftShader correction is claimed. Full decoded evidence and exact
 external artifact hashes are in
-[`swiftshader_fault_instruction_analysis_20261031.json`](../results/m1e/live/swiftshader_fault_instruction_analysis_20261031.json).
+``swiftshader_fault_instruction_analysis_20261031.json`` (local evidence `../results/m1e/live/swiftshader_fault_instruction_analysis_20261031.json`, not included in the Git source tree).
 
 The verified baseline overlay was built from SwiftShader revision
 `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5` with the existing sampling-cache
@@ -1183,7 +1183,7 @@ release accounting. These were no-resize instrumentation checks, not crash
 reproductions. The production overlay hash was unchanged. The diagnostic
 stderr path was not captured by session logs, so the trace uses the bound IPC
 directory. See
-[`swiftshader_jit_routine_trace_20261031.json`](../results/m1e/live/swiftshader_jit_routine_trace_20261031.json)
+``swiftshader_jit_routine_trace_20261031.json`` (local evidence `../results/m1e/live/swiftshader_jit_routine_trace_20261031.json`, not included in the Git source tree)
 and the reproducible patch at
 [`swiftshader_subzero_jit_trace.patch`](../experiments/m1e/patches/swiftshader_subzero_jit_trace.patch).
 
@@ -2224,7 +2224,7 @@ imports/submissions/releases, zero outstanding buffers, and no teardown
 invalidations. SurfaceFlinger and system_server remained alive through normal
 shutdown. No AlarmManager null-PendingIntent fatal occurred in this session.
 The full trace hashes, overlay provenance, and screenshots are in
-[`enhanced_activity_resize_text_acceptance_20261101.json`](../results/m1e/live/enhanced_activity_resize_text_acceptance_20261101.json).
+``enhanced_activity_resize_text_acceptance_20261101.json`` (local evidence `../results/m1e/live/enhanced_activity_resize_text_acceptance_20261101.json`, not included in the Git source tree).
 
 This updates the earlier Activity-transition and resize results with one
 additional enhanced run; it does not erase the old failures. The historical
@@ -2243,7 +2243,7 @@ build, Composer component tests, forced display-broker build, and the external
 workspace guard also passed. The inherited Composer build directory remained
 untracked and was not cleaned or rebuilt; the Composer target executed its
 existing component-test binaries. See
-[`regression_suite_current_head_20261101.json`](../results/m1e/live/regression_suite_current_head_20261101.json).
+``regression_suite_current_head_20261101.json`` (local evidence `../results/m1e/live/regression_suite_current_head_20261101.json`, not included in the Git source tree).
 
 The accepted bounded input/resize behavior is stronger than the baseline but
 does not retroactively identify the historical v4 SwiftShader stale mapping
@@ -2272,7 +2272,7 @@ zero outstanding buffers. Optional Bluetooth process failures caused by the
 image's missing `libbluetooth_jni.so` remained visible; SurfaceFlinger,
 `system_server`, Settings and Contacts stayed alive. The enhanced
 source-LMKD/cgroup interaction evidence is separately recorded in
-[`enhanced_activity_resize_text_acceptance_20261101.json`](../results/m1e/live/enhanced_activity_resize_text_acceptance_20261101.json).
+``enhanced_activity_resize_text_acceptance_20261101.json`` (local evidence `../results/m1e/live/enhanced_activity_resize_text_acceptance_20261101.json`, not included in the Git source tree).
 
 #### M1E closure decision
 
