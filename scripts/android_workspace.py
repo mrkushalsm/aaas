@@ -32,8 +32,12 @@ MAX_WORKSPACE_FREE_RESERVE_GIB = 32
 HOST_ROOT_FREE_RESERVE_BYTES = 20 * GIB
 MARKER = '.aaas-workspace.json'
 LAYOUT = ('images', 'sources', 'out', 'cache', 'logs', 'tmp', 'mnt')
-HEALTH_POLICY = Path(__file__).resolve().parents[1] / 'manifests' / 'workspace-health.json'
-REPOSITORY_ROOT = HEALTH_POLICY.parents[1]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+_REPOSITORY_HEALTH_POLICY = REPOSITORY_ROOT / 'manifests' / 'workspace-health.json'
+_LOCAL_HEALTH_POLICY = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'aaas' / 'workspace-health.json'
+HEALTH_POLICY = Path(os.environ.get(
+    'AAAS_WORKSPACE_HEALTH_POLICY',
+    _LOCAL_HEALTH_POLICY if _LOCAL_HEALTH_POLICY.is_file() else _REPOSITORY_HEALTH_POLICY))
 STORAGE_JOURNAL_PATTERN = (
     r'(?i)(ntfs3\(|EXT4-fs\s+\(|JBD2:|I/O error|Buffer I/O error|'
     r'blk_update_request|uas.*(?:abort|reset)|'

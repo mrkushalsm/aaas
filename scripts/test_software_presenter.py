@@ -19,7 +19,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKSPACE_UUID = "094120c3-e1f8-4a61-a95a-c347ecb711d1"
+WORKSPACE_UUID = os.environ.get("AAAS_WORKSPACE_UUID")
 WESTON_REVISION = "de09947fc128d4c7af3d8e292a1044a812aee954"
 
 
@@ -301,9 +301,9 @@ def main() -> int:
         check=True, text=True, capture_output=True)
     guard_report = json.loads(guard.stdout)
     mount = guard_report.get("mount", {})
-    if (mount.get("uuid") != WORKSPACE_UUID or
+    if (not WORKSPACE_UUID or mount.get("uuid") != WORKSPACE_UUID or
             guard_report.get("health", {}).get("state") != "HEALTHY_FOR_CONTROLLED_TESTING"):
-        raise TestFailure("workspace identity or health guard failed")
+        raise TestFailure("workspace identity or health guard failed; set AAAS_WORKSPACE_UUID to the verified test volume UUID")
 
     weston_src = workspace / "tmp/m4-isolated-weston/src"
     revision = subprocess.run(

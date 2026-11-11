@@ -291,25 +291,32 @@ class WorkspaceGuardTest(unittest.TestCase):
         self.assertEqual(result['workspace'], str(self.workspace))
 
     def test_device_matched_integrity_pause_blocks_before_accounting(self):
-        self.marker.update(filesystem='ntfs3', mount_uuid='A2ACEDF2ACEDC0C1')
+        self.marker.update(filesystem='ntfs3', mount_uuid='test-ntfs3-workspace-uuid')
         (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
         identity = {**self.identity, 'filesystem': 'ntfs3',
-                    'uuid': 'A2ACEDF2ACEDC0C1', 'source': '/dev/sda2'}
-        with patch.object(guard, 'HEALTH_POLICY', Path(__file__).parents[1] /
-                          'manifests' / 'workspace-health.json'), \
-             patch.object(guard, 'mount_identity', return_value=identity), \
-             patch.object(guard, 'allocated_bytes', side_effect=AssertionError('must not scan')):
-            with self.assertRaisesRegex(guard.WorkspaceError,
-                                        'DEVICE_FAILURE_SUSPECTED'):
-                guard.check(self.workspace)
+                    'uuid': 'test-ntfs3-workspace-uuid', 'source': '/dev/sda2'}
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp) / 'health.json'
+            policy.write_text(json.dumps({'schema': 1, 'volumes': {
+                identity['uuid']: {'uuid': identity['uuid'],
+                                   'incident_id': 'fixture-ntfs3-incident',
+                                   'state': 'DEVICE_FAILURE_SUSPECTED',
+                                   'reason': 'fixture unresolved I/O incident',
+                                   'recovery': None}}}))
+            with patch.object(guard, 'HEALTH_POLICY', policy), \
+                 patch.object(guard, 'mount_identity', return_value=identity), \
+                 patch.object(guard, 'allocated_bytes', side_effect=AssertionError('must not scan')):
+                with self.assertRaisesRegex(guard.WorkspaceError,
+                                            'DEVICE_FAILURE_SUSPECTED'):
+                    guard.check(self.workspace)
 
     def test_ext4_device_io_pause_blocks_before_accounting(self):
         import json as json_module
         self.marker.update(filesystem='ext4',
-                           mount_uuid='094120c3-e1f8-4a61-a95a-c347ecb711d1')
+                           mount_uuid='test-ext4-workspace-uuid')
         (self.workspace / guard.MARKER).write_text(json.dumps(self.marker))
         identity = {**self.identity, 'filesystem': 'ext4',
-                    'uuid': '094120c3-e1f8-4a61-a95a-c347ecb711d1',
+                    'uuid': 'test-ext4-workspace-uuid',
                     'source': '/dev/sda3'}
         with tempfile.TemporaryDirectory() as tmp:
             policy = Path(tmp) / 'health.json'

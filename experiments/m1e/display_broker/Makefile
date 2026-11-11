@@ -1,4 +1,4 @@
-WORKSPACE ?= /run/media/mrkus/Aaas/aaas-workspace
+WORKSPACE ?= $(XDG_DATA_HOME)/aaas/workspace
 DX ?= $(WORKSPACE)/sources/prebuilts-build-tools-qpr2/common/bin/dx
 JAVAC ?= javac
 BUILD_DIR ?= $(WORKSPACE)/tmp/m1e_display_broker_build

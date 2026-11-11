@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
+import argparse
 import os
 import zipfile
 import math
 import shutil
+import tempfile
 from PIL import Image, ImageDraw
 
 def generate_bootanimation(output_zip: str):
-    tmp_dir = "/tmp/bootanim_gen"
-    if os.path.exists(tmp_dir):
-        shutil.rmtree(tmp_dir)
+    tmp_dir = tempfile.mkdtemp(prefix="aaas-bootanim-")
     os.makedirs(f"{tmp_dir}/part0", exist_ok=True)
 
     w, h = 1280, 720
@@ -69,6 +69,8 @@ def generate_bootanimation(output_zip: str):
     shutil.rmtree(tmp_dir)
 
 if __name__ == "__main__":
-    dst = "/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1/system/media/bootanimation.zip"
-    generate_bootanimation(dst)
-    print("Generated:", dst)
+    parser = argparse.ArgumentParser(description="Generate the AaaS Android boot animation archive")
+    parser.add_argument("--output", required=True, help="destination bootanimation.zip path")
+    args = parser.parse_args()
+    generate_bootanimation(args.output)
+    print("Generated:", args.output)

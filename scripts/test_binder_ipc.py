@@ -10,8 +10,12 @@ from pathlib import Path
 
 
 def main():
-    rootfs = Path("/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1")
-    tmp_dir = Path("/run/media/mrkus/Aaas/aaas-workspace/tmp")
+    workspace = Path(os.environ.get("AAAS_WORKSPACE", Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "aaas/workspace"))
+    rootfs = workspace / "rootfs_m1b1"
+    tmp_dir = workspace / "tmp"
+    if not rootfs.is_dir():
+        raise SystemExit(f"Android rootfs not found: {rootfs}; set AAAS_WORKSPACE")
+    tmp_dir.mkdir(parents=True, exist_ok=True)
     kmsg_log = tmp_dir / "kmsg_binder_test.log"
     kmsg_log.write_text("")
 

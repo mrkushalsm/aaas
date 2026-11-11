@@ -1,6 +1,7 @@
 CXX := clang++
 TARGET ?= x86_64-linux-android
-WORKSPACE_ROOT ?= /run/media/mrkus/Aaas/aaas-workspace
+XDG_DATA_HOME ?= $(HOME)/.local/share
+WORKSPACE_ROOT ?= $(XDG_DATA_HOME)/aaas/workspace
 ROOTFS ?= $(WORKSPACE_ROOT)/rootfs_m1b1
 TOOLCHAIN_LIBCXX ?= $(WORKSPACE_ROOT)/toolchain/libc++
 OUT_DIR ?= $(WORKSPACE_ROOT)/tmp

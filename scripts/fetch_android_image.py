@@ -6,10 +6,10 @@ the workspace budget before starting the download, checks the declared SHA1
 after completion, and writes a receipt to results/m1b0/.  It does not extract
 or mount anything; a separate inspect step does that.
 
-Usage:
+Usage (after setting AAAS_WORKSPACE):
     python3 scripts/fetch_android_image.py \
-        --workspace /run/media/mrkus/Aaas/aaas-workspace \
-        --image system-images;android-36;default;x86_64 \
+        --workspace "$AAAS_WORKSPACE" \
+        --image 'system-images;android-36;default;x86_64' \
         [--dry-run]
 """
 

@@ -19,7 +19,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = Path('/run/media/mrkus/Aaas/aaas-workspace')
+WORKSPACE = Path(os.environ.get("AAAS_WORKSPACE", Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "aaas/workspace"))
 TMP = WORKSPACE / 'tmp'
 SCOPE = Path('/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/aaas')
 LMKD = TMP / 'm1b85_lmkd_source_built'

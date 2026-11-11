@@ -37,8 +37,8 @@ class AaasConfigTests(unittest.TestCase):
         self.assertEqual(config.cache, Path(self.env['XDG_CACHE_HOME']) / 'aaas')
         self.assertEqual(config.state, Path(self.env['XDG_STATE_HOME']) / 'aaas')
         self.assertEqual(config.runtime, Path(self.env['XDG_RUNTIME_DIR']) / 'aaas')
-        self.assertNotIn('/home/mrkus', str(config.workspace))
-        self.assertNotIn('/run/media/mrkus', str(config.workspace))
+        self.assertNotIn(self.env['HOME'], str(config.workspace))
+        self.assertNotIn('/run/media/', str(config.workspace))
 
     def test_precedence_cli_then_environment_then_config_then_installation(self):
         runtime_data = Path(self.env['XDG_DATA_HOME']) / 'aaas'

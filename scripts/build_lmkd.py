@@ -5,12 +5,13 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = Path('/run/media/mrkus/Aaas/aaas-workspace')
+WORKSPACE = Path(os.environ.get("AAAS_WORKSPACE", Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "aaas/workspace"))
 SOURCES = WORKSPACE / 'sources'
 ROOTFS = WORKSPACE / 'rootfs_m1b1'
 TMP = WORKSPACE / 'tmp'

@@ -2,9 +2,12 @@
 import time
 import subprocess
 import os
+from pathlib import Path
 
-ARTIFACT_PATH = "/home/mrkus/Work/personal/projects/aaas/artifacts/m1b7_android_frame.png"
-SCRIPT_JS = "/tmp/kwin_raise_aaas.js"
+ROOT = Path(__file__).resolve().parent.parent
+WORKSPACE = Path(os.environ.get("AAAS_WORKSPACE", Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "aaas/workspace"))
+ARTIFACT_PATH = ROOT / "artifacts/m1b7_android_frame.png"
+SCRIPT_JS = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "kwin_raise_aaas.js"
 
 kwin_js = """
 let wins = workspace.windowList();
@@ -25,7 +28,7 @@ with open(SCRIPT_JS, "w") as f:
 import sys
 
 def try_raise_and_capture(log_name="m1b7_live18_presenter.log"):
-    log_path = f"/run/media/mrkus/Aaas/aaas-workspace/tmp/{log_name}"
+    log_path = WORKSPACE / "tmp" / log_name
     captured = False
     for attempt in range(60):
         time.sleep(0.5)
@@ -40,17 +43,18 @@ def try_raise_and_capture(log_name="m1b7_live18_presenter.log"):
             subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", "aaas_raise"],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-            if os.path.exists(log_path):
+            if log_path.exists():
                 with open(log_path, "r") as lf:
                     content = lf.read()
                     count = content.count("frame_committed")
                     if count >= 3 or (count >= 1 and attempt >= 14):
                         time.sleep(2.0)
                         # Capture active window
+                        ARTIFACT_PATH.parent.mkdir(parents=True, exist_ok=True)
                         subprocess.run(["spectacle", "-a", "-b", "-n", "-o", ARTIFACT_PATH], check=True)
                         print("CAPTURED_ACTIVE_WINDOW")
                         # Also capture full desktop as backup
-                        subprocess.run(["spectacle", "-b", "-n", "-o", "/home/mrkus/Work/personal/projects/aaas/artifacts/m1b7_desktop_frame.png"], check=True)
+                        subprocess.run(["spectacle", "-b", "-n", "-o", str(ROOT / "artifacts/m1b7_desktop_frame.png")], check=True)
                         print("CAPTURED_DESKTOP")
                         captured = True
                         return True

@@ -45,29 +45,17 @@ enum StandardMetadataType : int64_t {
 };
 
 int main(int argc, char** argv) {
-    const char* mapper_path = (argc > 1) ? argv[1] : "/run/media/mrkus/Homework/aaas-workspace/tmp/mapper.drm.so";
+    const char* mapper_path = (argc > 1) ? argv[1] : getenv("AAAS_MAPPER_DRM_SO");
+    const char* render_node = (argc > 2) ? argv[2] : getenv("AAAS_DRM_RENDER_NODE");
+    if (!mapper_path || !render_node || !*mapper_path || !*render_node) {
+        fprintf(stderr, "Usage: %s <mapper.drm.so> <selected-render-node> (or set AAAS_MAPPER_DRM_SO and AAAS_DRM_RENDER_NODE)\n", argv[0]);
+        return 2;
+    }
     printf("=== Testing Mapper 5 with Genuine GPU DMA-BUFs (GBM) ===\n");
 
-    const char* render_nodes[] = {
-        "/dev/dri/renderD129", // Intel
-        "/dev/dri/renderD128", // NVIDIA
-        NULL
-    };
-
-    int drm_fd = -1;
-    struct gbm_device* gbm_dev = NULL;
-    for (int i = 0; render_nodes[i]; i++) {
-        drm_fd = open(render_nodes[i], O_RDWR | O_CLOEXEC);
-        if (drm_fd >= 0) {
-            gbm_dev = gbm_create_device(drm_fd);
-            if (gbm_dev) {
-                printf("[TEST] Using GBM device on: %s\n", render_nodes[i]);
-                break;
-            }
-            close(drm_fd);
-            drm_fd = -1;
-        }
-    }
+    int drm_fd = open(render_node, O_RDWR | O_CLOEXEC);
+    struct gbm_device* gbm_dev = drm_fd >= 0 ? gbm_create_device(drm_fd) : NULL;
+    if (gbm_dev) printf("[TEST] Using GBM device on: %s\n", render_node);
 
     if (!gbm_dev) {
         fprintf(stderr, "[FAIL] Failed to open any GBM device\n");

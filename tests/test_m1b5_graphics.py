@@ -6,9 +6,11 @@ import subprocess
 import unittest
 from pathlib import Path
 
-WORKSPACE_ROOT = Path("/home/mrkus/Work/personal/projects/aaas")
-EXTERNAL_ROOTFS = Path("/run/media/mrkus/Aaas/aaas-workspace/rootfs_m1b1")
-EXTERNAL_TMP = Path("/run/media/mrkus/Aaas/aaas-workspace/tmp")
+ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE_ROOT = ROOT
+WORKSPACE = Path(os.environ.get("AAAS_WORKSPACE", Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "aaas/workspace"))
+EXTERNAL_ROOTFS = WORKSPACE / "rootfs_m1b1"
+EXTERNAL_TMP = WORKSPACE / "tmp"
 
 
 class M1B5GraphicsTest(unittest.TestCase):
