@@ -75,6 +75,9 @@ class BundleTests(unittest.TestCase):
         (workspace / 'tmp/m1e_composer_two_output').write_bytes(b'composer-binary')
         (workspace / 'tmp/m1e_composer_two_output.json').write_text(
             '{"endpoint_mode":"on-demand"}\n')
+        libcxx_header = workspace / 'toolchain/libc++/usr/include/c++/v1/vector'
+        libcxx_header.parent.mkdir(parents=True)
+        libcxx_header.write_text('// fixture libc++ header\n')
         return repo, workspace, rootfs
 
     def test_create_manifest_excludes_user_state_and_verifies_relocated_bundle(self):
@@ -102,6 +105,7 @@ class BundleTests(unittest.TestCase):
             self.assertFalse((output / 'rootfs/data/private.db').exists())
             self.assertFalse((output / 'rootfs/tmp/old.log').exists())
             self.assertTrue((output / 'workspace-artifacts/tmp/m1e_composer_two_output.json').is_file())
+            self.assertTrue((output / 'workspace-artifacts/toolchain/libc++/usr/include/c++/v1/vector').is_file())
             self.assertTrue((output / 'rootfs/init').is_symlink())
             self.assertEqual(
                 (output / 'runtime/experiments/perf/input_latency_probe/build_probe.py').read_bytes(),
@@ -155,6 +159,7 @@ class BundleTests(unittest.TestCase):
                 self.assertFalse((base / f'install-{suffix}/rootfs/data/private.db').exists())
                 self.assertTrue((base / f'workspace-{suffix}/.aaas-workspace.json').is_file())
                 self.assertTrue((base / f'workspace-{suffix}/android-userdata/.aaas-userdata.json').is_file())
+                self.assertTrue((base / f'workspace-{suffix}/toolchain/libc++/usr/include/c++/v1/vector').is_file())
                 self.assertEqual(aaas_bundle.verify_installation(
                     base / f'install-{suffix}')['integrity'], 'PASS')
                 self.assertIn(str(base / f'install-{suffix}/rootfs'),

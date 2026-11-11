@@ -123,7 +123,7 @@ WORKSPACE_FILES = (
     'tmp/partitions/system.raw.img',
     'tmp/m3_native_bridge/AaasM3NativeBridge.apk',
 )
-WORKSPACE_TREES = ('tmp/m3_native_bridge/digitalis',)
+WORKSPACE_TREES = ('tmp/m3_native_bridge/digitalis', 'toolchain/libc++')
 BUILD_TOOLS = ('sources/prebuilts-build-tools-qpr2/common/bin/dx',
                'sources/prebuilts-build-tools-qpr2/common/framework/dx.jar',
                'sources/prebuilts-build-tools-qpr2/linux-x86/bin/zipalign',
@@ -283,6 +283,7 @@ def _runtime_closure_report(root: Path):
         'workspace-artifacts/tmp/m4-audio/libaaas-audio-factory-compat.so',
         'workspace-artifacts/tmp/slirp4netns',
         'workspace-artifacts/tmp/slirp4netns.build.json',
+        'workspace-artifacts/toolchain/libc++/usr/include/c++/v1/vector',
     )
     required += tuple('workspace-artifacts/' + path for path in WORKSPACE_FILES
                       if path.startswith('tmp/aaas-ethernet-compat/'))
@@ -318,7 +319,7 @@ def _runtime_closure_report(root: Path):
         'android_network_helper': 'slirp4netns built from pinned upstream commit and hash-verified',
         'signing': 'per-install identity generated in private XDG state; key excluded from bundle',
         'external_capabilities': [
-            'Java/Javac/keytool, readelf, guestmount, Wayland, Binder, DRM, PipeWire and libslirp runtime libraries are host-provided and preflight-checked',
+            'Java/Javac/keytool, make, clang++, readelf, guestmount, Wayland, Binder, DRM, PipeWire and libslirp runtime libraries are host-provided and preflight-checked',
         ],
         'reproducibility_limitations': [
             'Android base/diagnostic rootfs is a recorded historical image input, not rebuilt from AOSP source',
@@ -792,10 +793,10 @@ def enroll_installer_workspace(installation: Path, workspace: Path):
             raise BundleError('workspace identity does not match installation record')
     else:
         source = installation / 'workspace-artifacts'
-        allowed_top = {'tmp', 'sources'}
+        allowed_top = {'tmp', 'sources', 'toolchain'}
         actual_top = {item.name for item in workspace.iterdir()}
         if not actual_top.issubset(allowed_top):
-            raise BundleError('workspace contains data outside installer-staged tmp/sources')
+            raise BundleError('workspace contains data outside installer-staged artifacts')
         for base in allowed_top:
             expected = source / base
             actual = workspace / base
@@ -987,7 +988,7 @@ def install_bundle(*, bundle: Path, workspace: Path, install_root: Path,
         workspace_created = not reuse_workspace
         workspace.mkdir(parents=True, exist_ok=True)
         if not reuse_workspace:
-            for base in ('tmp', 'sources'):
+            for base in ('tmp', 'sources', 'toolchain'):
                 staged_artifacts = install_root / 'workspace-artifacts' / base
                 if staged_artifacts.is_dir():
                     shutil.copytree(staged_artifacts, workspace / base, dirs_exist_ok=True,

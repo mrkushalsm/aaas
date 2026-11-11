@@ -14,6 +14,8 @@ import aaas_bundle
 import android_workspace
 
 REQUIRED_ROOTFS_MOUNTPOINTS = ('linkerconfig', 'debug_ramdisk')
+REQUIRED_HOST_TOOLS = ('bwrap', 'unshare', 'keytool', 'java', 'javac', 'make',
+                       'clang++', 'setfacl', 'getfacl', 'ip', 'mount')
 
 
 class DeveloperRuntimeError(RuntimeError):
@@ -116,8 +118,7 @@ def ensure_signing_key(location: Path, legacy_key: Path | None = None):
 def _check_host(config, runtime_root):
     checks = {'operating_system': platform.system(),
               'architecture': platform.machine()}
-    for tool in ('bwrap', 'unshare', 'keytool', 'java', 'javac', 'make', 'setfacl',
-                 'getfacl', 'ip', 'mount'):
+    for tool in REQUIRED_HOST_TOOLS:
         checks[tool] = shutil.which(tool)
     checks['wayland_display'] = os.environ.get('WAYLAND_DISPLAY')
     checks['desktop'] = os.environ.get('XDG_CURRENT_DESKTOP', '')
@@ -203,10 +204,8 @@ def verify(config, *, check_runner=True):
         report['checks']['workspace'] = workspace_check
     except Exception as error:
         report['checks']['workspace'] = {'state': 'FAIL', 'detail': str(error)}
-    required_tools = ('bwrap', 'unshare', 'keytool', 'java', 'javac', 'make', 'setfacl',
-                      'getfacl', 'ip', 'mount')
     host = report['checks']['host']
-    missing = [name for name in required_tools if not host.get(name)]
+    missing = [name for name in REQUIRED_HOST_TOOLS if not host.get(name)]
     missing += [name for name in ('wayland_display', 'drm_render_node') if not host.get(name)]
     missing += [name for name in ('kwin', 'user_namespace', 'binderfs',
                                   'network_namespace_support') if not host.get(name)]

@@ -12,6 +12,10 @@ import aaas_dev
 
 
 class DeveloperProfileTests(unittest.TestCase):
+    def test_runtime_host_preflight_requires_presenter_toolchain(self):
+        self.assertIn('clang++', aaas_dev.REQUIRED_HOST_TOOLS)
+        self.assertIn('make', aaas_dev.REQUIRED_HOST_TOOLS)
+
     def test_developer_commands_are_explicit_and_separate_from_production_start(self):
         args = aaas_cli._parser().parse_args(['dev', 'start', '--audio'])
         self.assertEqual(args.command, 'dev')
