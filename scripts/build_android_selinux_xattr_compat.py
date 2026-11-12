@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build AaaS's narrow Android-label xattr compatibility preload."""
+"""Build AaaS's narrow Android xattr and kernel-config compatibility preload."""
 
 from __future__ import annotations
 

@@ -54,6 +54,22 @@ class SELinuxXattrCompatibilityTests(unittest.TestCase):
             '/system/lib64/libselinux_shim.so', generated)
 
 
+class KernelConfigFallbackRunnerTests(unittest.TestCase):
+    def test_kernel_config_fallback_is_read_only_and_namespace_local(self):
+        bind, environment = aaas_session_runner_base.kernel_config_bwrap_configuration(
+            Path('/workspace/tmp/aaas_ipc/kernel-config-123.gz'))
+        self.assertEqual(
+            bind,
+            '  --ro-bind "/workspace/tmp/aaas_ipc/kernel-config-123.gz" '
+            '"/dev/aaas/kernel-config-123.gz" \\\n')
+        self.assertEqual(
+            environment,
+            '  --setenv AAAS_KERNEL_CONFIG_GZ "/dev/aaas/kernel-config-123.gz" '
+            '\\\n')
+        self.assertEqual(aaas_session_runner_base.kernel_config_bwrap_configuration(None),
+                         ('', ''))
+
+
 class DiagnosticOverlayManifestTests(unittest.TestCase):
     def _overlay_with_manifest(self, directory):
         import hashlib

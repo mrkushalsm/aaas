@@ -480,7 +480,8 @@ def create_bundle(*, repo: Path, rootfs: Path, output: Path, workspace: Path,
                 provenance = 'GENERATED_FROM_AAAS_SOURCE'
                 source = ('experiments/m1b/selinux_xattr_compat.c via '
                           'scripts/build_android_selinux_xattr_compat.py')
-                role = 'Android x86_64 diagnostic SELinux label compatibility preload'
+                role = ('Android x86_64 diagnostic SELinux-label and missing-kernel-config '
+                        'compatibility preload')
             elif path.startswith('workspace-artifacts/'):
                 provenance = 'UNVERIFIED_PROVENANCE'
                 source = 'retained historical M4 generated workspace artifact'

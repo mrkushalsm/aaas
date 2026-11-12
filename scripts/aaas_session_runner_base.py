@@ -13,6 +13,7 @@ import threading
 import time
 from pathlib import Path
 import aaas_idmap
+import aaas_kernel_config
 
 
 def developer_network_configuration(enabled, ip_tool='ip', sysfs_root='/tmp/aaas-netns-sysfs'):
@@ -34,6 +35,17 @@ def developer_network_configuration(enabled, ip_tool='ip', sysfs_root='/tmp/aaas
         f'  --ro-bind {sysfs}/class/net /sys/class/net \\\n'
         f'  --ro-bind {sysfs}/devices/virtual/net /sys/devices/virtual/net \\\n')
     return setup, mounts, ''
+
+
+def kernel_config_bwrap_configuration(config_path):
+    """Return read-only bwrap exposure and Android preload path for kernel config."""
+    if config_path is None:
+        return '', ''
+    config_path = Path(config_path)
+    guest_path = f'/dev/aaas/{config_path.name}'
+    bind = f'  --ro-bind "{config_path}" "{guest_path}" \\\n'
+    environment = f'  --setenv AAAS_KERNEL_CONFIG_GZ "{guest_path}" \\\n'
+    return bind, environment
 
 
 def _aaas_cgroup_directory():
@@ -125,6 +137,9 @@ def main():
     ipc_dir.mkdir(parents=True, exist_ok=True)
     ipc_dir.chmod(0o777)
     ipc_bind = f'  --dir /dev/aaas \\\n  --bind "{ipc_dir}" /dev/aaas \\\n'
+    kernel_config_path = aaas_kernel_config.prepare_proc_config_fallback(ipc_dir)
+    kernel_config_bind, kernel_config_env = kernel_config_bwrap_configuration(
+        kernel_config_path)
 
     overlay_vulkan = Path(os.environ.get("AAAS_VULKAN_OVERLAY", str(tmp_dir / "vulkan.pastel.so")))
     vulkan_bind = f'  --bind "{overlay_vulkan}" /vendor/lib64/hw/vulkan.pastel.so \\\n' if overlay_vulkan.exists() else ""
@@ -356,7 +371,7 @@ for name in ["binder", "hwbinder", "vndbinder", "binder-control"]:
   --symlink /dev/binderfs/binder /dev/binder \\
   --symlink /dev/binderfs/hwbinder /dev/hwbinder \\
   --symlink /dev/binderfs/vndbinder /dev/vndbinder \\
-{ipc_bind}  --bind "{kmsg_log}" /dev/kmsg \\
+{ipc_bind}{kernel_config_bind}  --bind "{kmsg_log}" /dev/kmsg \\
   --bind "{full_logcat_log}" /data_logcat.log \\
   --bind "{sf_strace_log}" /data_sf_strace.log \\
   --bind "{composer_log}" /data_composer.log \\
@@ -381,7 +396,7 @@ for name in ["binder", "hwbinder", "vndbinder", "binder-control"]:
   --setenv ANDROID_ART_ROOT /apex/com.android.art \\
   --setenv ANDROID_I18N_ROOT /apex/com.android.i18n \\
   --setenv ANDROID_TZDATA_ROOT /apex/com.android.tzdata \\
-  --setenv LD_PRELOAD /system/lib64/libaaas-selinux-xattr-compat.so:/system/lib64/libselinux_shim.so \\
+{kernel_config_env}  --setenv LD_PRELOAD /system/lib64/libaaas-selinux-xattr-compat.so:/system/lib64/libselinux_shim.so \\
   sh -c '
     sleep() {{ /system/bin/toybox sleep "$@"; }}
     /system/bin/toybox ifconfig lo 127.0.0.1 up 2>/dev/null || true
@@ -725,6 +740,8 @@ runner_status=$?
 
     fifo_path.unlink(missing_ok=True)
     runner_script.unlink(missing_ok=True)
+    if kernel_config_path is not None:
+        kernel_config_path.unlink(missing_ok=True)
     if network_process is not None:
         network_process.terminate()
         try:
