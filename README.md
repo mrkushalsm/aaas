@@ -2,15 +2,23 @@
 
 AaaS runs Android 16 applications in individual Wayland windows on x86_64 Linux. A persistent Android runtime owns shared desktop bridges; launching an application creates its display endpoint and presenter, and closing it releases those resources.
 
-This is an experimental **trusted development runtime**. Live acceptance covers one Arch Linux/KWin host; other distributions and compositors have not been certified. It is not a production security sandbox.
+This is an experimental **trusted development runtime**, not a production
+security sandbox. Host acceptance exists for the isolated `engineering-b736090`
+candidate. Fedora 45/KWin 6 functional tests have also succeeded with a
+temporary source overlay and SELinux permissive inside the disposable VM; that
+is not acceptance of an immutable Fedora release bundle or Fedora enforcing
+mode. A final cross-distribution bundle has not yet been produced.
 
 ## Host requirements
 
-The verified host is Arch Linux x86_64 with KDE Plasma/KWin on Wayland and a
-systemd user session. AaaS also needs unprivileged user namespaces, binderfs,
+The original tested host is Arch Linux x86_64 with KDE Plasma/KWin on Wayland
+and a systemd user session. The secondary developer-test environment is Fedora
+45 x86_64 with KDE/KWin 6.8.2, tested only with an explicit temporary SELinux
+permissive setting inside the disposable VM. Fedora SELinux enforcing support
+is not available. AaaS also needs unprivileged user namespaces, binderfs,
 `/dev/fuse`, unified cgroup v2, and a DRM render node for the accelerated
 presenter. Run `./aaas doctor` to check the host capabilities and report missing
-requirements; only Arch/KWin has been exercised end to end. A compatible Android
+requirements. Other distributions and compositors are not certified. A compatible Android
 16 diagnostic image and runtime dependencies are supplied separately from this
 source checkout.
 
@@ -67,6 +75,12 @@ The generated user service is `aaas-runtime.service`. Use `apps close SLOT` to c
 
 ## Implemented capabilities and boundaries
 
+The runtime resolves Bubblewrap from system executable directories and
+validates its required options; user-local `bwrap` wrappers do not take
+precedence. `AAAS_BWRAP` is an explicit path override for a compatible ELF
+binary. Diagnostics can opt into an executable wrapper using
+`AAAS_BWRAP_TRACE_WRAPPER`; tracing is not enabled for normal launches.
+
 - Persistent Android with zero-window idle; independent windows, input, focus and Android framebuffer resizing. The current source fix keeps a Wayland toplevel alive across Composer reconnects during resize; it has been exercised on the installed development runtime, but is not yet included in a newly built release bundle ([evidence](results/m1a/dynamic-resize-acceptance-2026-11-11.json)). Android may retain its previous frame briefly while rebuilding the resized display.
 - Historical nine-application simultaneous-window acceptance on KWin.
 - ARM translation through the existing Native Bridge; tested applications do not establish universal ARM compatibility.
@@ -94,7 +108,11 @@ Run the Python suite with:
 python3 -m unittest discover -s tests -q
 ```
 
-The Python suite ran 554 tests on 2026-11-11: 548 passed and 6 were skipped in the current source worktree; unit tests do not establish live graphical, audio, or network acceptance. See the [release readiness record](docs/release-readiness-2026-11-11.md) for candidate-specific results and remaining gates.
+The current source suite ran **569 tests: 563 passed, 6 skipped** on
+2026-11-16. The Bubblewrap source correction is committed, but no new bundle
+was built because available root space is below the configured reserve. See
+the [packaging and acceptance record](results/release/bubblewrap-path-2026-11-16.json).
+Unit tests do not establish live graphical, audio, or network acceptance.
 
 The [image assembly guide](docs/android-rootfs-reconstruction.md) describes the separate, incomplete upstream-image reconstruction path.
 

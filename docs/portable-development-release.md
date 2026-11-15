@@ -105,3 +105,34 @@ the fresh profile in this acceptance.
 See [current release readiness](release-readiness-2026-11-11.md) and the
 [dependency/licensing inventory](dependencies-and-licenses.md) before using or
 distributing a candidate.
+
+## Cross-distribution packaging follow-up — 2026-11-16
+
+The isolated `engineering-b736090` candidate remains the last packaged
+candidate. Its Fedora functional testing used a temporary compatibility
+overlay; Fedora SELinux was set permissive only inside the disposable VM and
+restored to enforcing afterward. Fedora enforcing-mode compatibility is not
+claimed. The user confirmed hearing the Android audio probe through QEMU's
+PipeWire output.
+
+The source now resolves Bubblewrap from system executable directories and
+validates the binary rather than invoking whichever `bwrap` appears first on
+`PATH`. A user-local diagnostic tracing wrapper remains available only through
+the explicit `AAAS_BWRAP_TRACE_WRAPPER` setting. Focused regression tests cover
+PATH hijacking, explicit binary validation, and opt-in tracing. This source fix
+has not been packaged into a new candidate.
+
+After the source change, the full Python suite ran **569 tests: 563 passed and
+6 skipped**. The documentation link check covered 99 Markdown/license-named
+files and 355 local references with no broken links. Machine-readable results,
+including the failed bounded Fedora startup attempt and the earlier audible
+Fedora probe, are in
+[`bubblewrap-path-2026-11-16.json`](../results/release/bubblewrap-path-2026-11-16.json).
+
+The latest root filesystem measurement showed 19,411,955,712 bytes available,
+2,062,880,768 bytes below the configured 20 GiB reserve. The existing bundle's
+rootfs and workspace payload alone occupy 3,525,828,608 allocated bytes. A full
+copy candidate and isolated host installation cannot be created without
+further consuming reserved capacity, so no final bundle was built and no
+reserve was bypassed. Cross-distribution acceptance of a single final bundle
+remains open.
