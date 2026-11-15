@@ -328,6 +328,9 @@ class AaasCliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(run.call_args.kwargs['env_extra']['AAAS_RUNTIME_ROOT'],
                          str(payload))
+        self.assertEqual(
+            run.call_args.kwargs['env_extra']['AAAS_HELPER_KEYSTORE'],
+            str(config.state / 'signing/storage-probe.keystore'))
         self.assertNotIn('AAAS_PRESENTER_IMPLICIT_SYNC',
                          run.call_args.kwargs['env_extra'])
 
@@ -384,6 +387,8 @@ class AaasCliTests(unittest.TestCase):
             self.assertEqual(args.args[:3],
                              ('run_aaas.py', '--headless-storage', '--install-apk'))
             self.assertIn('AAAS_HEADLESS_STORAGE', args.kwargs['env_extra'])
+            self.assertEqual(args.kwargs['env_extra']['AAAS_HELPER_KEYSTORE'],
+                             str(config.state / 'signing/storage-probe.keystore'))
             self.assertEqual(run.call_args_list[1].args[:3],
                              ('aaas_desktop.py', 'catalog', 'refresh'))
 

@@ -916,7 +916,9 @@ def main(argv=None):
                     '--idle-timeout-seconds', config.idle_timeout_seconds,
                     '--app', 'com.android.settings', config=config,
                     env_extra={'AAAS_DEV_COMPAT': '1', 'AAAS_HEADLESS_STORAGE': '1',
-                               'AAAS_RUNTIME_ROOT': str(aaas_dev.runtime_root(config))})
+                               'AAAS_RUNTIME_ROOT': str(aaas_dev.runtime_root(config)),
+                               'AAAS_HELPER_KEYSTORE': str(
+                                   config.state / 'signing/storage-probe.keystore')})
             if args.dev_command == 'setup':
                 enrolled = aaas_dev.enroll_owned_installation(config)
                 key = aaas_dev.ensure_signing_key(
@@ -965,7 +967,9 @@ def main(argv=None):
                     config.idle_timeout_seconds, '--app', 'com.android.settings',
                     config=config,
                     env_extra={'AAAS_DEV_COMPAT': '1', 'AAAS_HEADLESS_STORAGE': '1',
-                               'AAAS_RUNTIME_ROOT': str(aaas_dev.runtime_root(config))})
+                               'AAAS_RUNTIME_ROOT': str(aaas_dev.runtime_root(config)),
+                               'AAAS_HELPER_KEYSTORE': str(
+                                   config.state / 'signing/storage-probe.keystore')})
                 if install_status == 0:
                     catalog_status = _run_script('aaas_desktop.py', 'catalog', 'refresh',
                                                  config=config, check=False)
@@ -1021,7 +1025,10 @@ def main(argv=None):
                                env_extra={'AAAS_DEV_COMPAT': '1',
                                           'AAAS_IP': result['checks']['host']['ip'],
                                           'AAAS_RUNTIME_ROOT': str(
-                                              aaas_dev.runtime_root(config))})
+                                              aaas_dev.runtime_root(config)),
+                                          'AAAS_HELPER_KEYSTORE': str(
+                                              config.state /
+                                              'signing/storage-probe.keystore')})
         if args.command == 'doctor':
             result = _doctor(config)
             _emit(result if json_output else '\n'.join(
