@@ -116,6 +116,23 @@ def ensure_signing_key(location: Path, legacy_key: Path | None = None):
     return key
 
 
+def signing_key_status(location: Path):
+    """Report whether the persistent diagnostic signer exists and is private."""
+    key = location / 'signing/storage-probe.keystore'
+    if key.is_symlink() or not key.is_file():
+        return 'MISSING'
+    try:
+        metadata = key.stat()
+        if metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+            return 'INVALID'
+        result = subprocess.run(
+            ['keytool', '-list', '-keystore', str(key), '-storepass', 'android',
+             '-alias', 'storage-probe'], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return 'INVALID'
+    return 'PRESENT_PRIVATE' if result.returncode == 0 else 'INVALID'
+
+
 def _check_host(config, runtime_root):
     checks = {'operating_system': platform.system(),
               'architecture': platform.machine()}
@@ -235,12 +252,10 @@ def verify(config, *, check_runner=True):
         missing.append('verified historical SELinux diagnostic shim and activation config')
     missing.extend(f'Android init mountpoint: /{name}' for name, present in mountpoints.items()
                    if not present)
-    key = config.workspace / 'tmp/m4-storage-probe/storage-probe.keystore'
-    report['checks']['development_key'] = (
-        'PRESENT_PRIVATE' if key.is_file() and not key.stat().st_mode & 0o077 else
-        'MISSING')
-    if not key.is_file():
-        missing.append('installation-local helper signing key (run aaas dev setup)')
+    key_status = signing_key_status(config.state)
+    report['checks']['development_key'] = key_status
+    if key_status != 'PRESENT_PRIVATE':
+        missing.append('valid private helper signing key in XDG state (run aaas dev setup)')
     for relative in (
         'sources/prebuilts-build-tools-qpr2/common/bin/dx',
         'sources/prebuilts-build-tools-qpr2/common/framework/dx.jar',

@@ -69,6 +69,30 @@ class DeveloperProfileTests(unittest.TestCase):
             self.assertEqual(migrated.stat().st_mode & 0o777, 0o600)
             self.assertEqual(legacy.read_bytes(), b'prior signer')
 
+    def test_signing_key_preflight_checks_xdg_state_location(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            key = state / 'signing/storage-probe.keystore'
+            key.parent.mkdir()
+            key.write_bytes(b'private test key')
+            key.chmod(0o600)
+            with patch.object(aaas_dev.subprocess, 'run', return_value=
+                              subprocess.CompletedProcess(['keytool'], 0, '', '')) as run:
+                self.assertEqual(aaas_dev.signing_key_status(state), 'PRESENT_PRIVATE')
+            self.assertEqual(run.call_args.args[0][0], 'keytool')
+
+    def test_signing_key_preflight_rejects_public_or_missing_key(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            self.assertEqual(aaas_dev.signing_key_status(state), 'MISSING')
+            key = state / 'signing/storage-probe.keystore'
+            key.parent.mkdir()
+            key.write_bytes(b'private test key')
+            key.chmod(0o644)
+            with patch.object(aaas_dev.subprocess, 'run') as run:
+                self.assertEqual(aaas_dev.signing_key_status(state), 'INVALID')
+            run.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
