@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+import aaas_bwrap
 import aaas_idmap
 import aaas_kernel_config
 
@@ -48,6 +49,11 @@ def kernel_config_bwrap_configuration(config_path):
     return bind, environment
 
 
+def bubblewrap_shell_command(environ=None):
+    """Return the quoted, validated Bubblewrap executable for a session script."""
+    return shlex.quote(str(aaas_bwrap.resolve_bwrap(environ, allow_trace_wrapper=True)))
+
+
 def _aaas_cgroup_directory():
     """Use the current user's delegated service cgroup, never a fixed UID path."""
     try:
@@ -65,6 +71,7 @@ def _aaas_cgroup_directory():
 
 
 def main():
+    bwrap_executable = bubblewrap_shell_command()
     xdg_data = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share'))
     workspace = Path(os.environ.get('AAAS_WORKSPACE', xdg_data / 'aaas/workspace'))
     rootfs = Path(os.environ.get('AAAS_ROOTFS', workspace / 'rootfs_m1b1'))
@@ -358,7 +365,7 @@ for name in ["binder", "hwbinder", "vndbinder", "binder-control"]:
     if os.path.exists(p):
         os.chmod(p, 0o666)
 '
-{network_setup}bwrap \\
+{network_setup}{bwrap_executable} \\
   --as-pid-1 \\
   --unshare-pid \\
   --bind "{rootfs}" / \\

@@ -266,6 +266,7 @@ def _runtime_closure_report(root: Path):
     """
     required = (
         'runtime/scripts/run_aaas.py',
+        'runtime/scripts/aaas_bwrap.py',
         'runtime/scripts/aaas_dev.py',
         'runtime/scripts/build_m4_audio_overlays.py',
         'runtime/experiments/m4/audio/build_audio_hal.py',

@@ -11,6 +11,7 @@ import subprocess
 import platform
 
 import aaas_bundle
+import aaas_bwrap
 import android_workspace
 
 REQUIRED_ROOTFS_MOUNTPOINTS = ('linkerconfig', 'debug_ramdisk')
@@ -119,7 +120,13 @@ def _check_host(config, runtime_root):
     checks = {'operating_system': platform.system(),
               'architecture': platform.machine()}
     for tool in REQUIRED_HOST_TOOLS:
-        checks[tool] = shutil.which(tool)
+        if tool != 'bwrap':
+            checks[tool] = shutil.which(tool)
+    try:
+        checks['bwrap'] = str(aaas_bwrap.resolve_bwrap(allow_trace_wrapper=False))
+    except aaas_bwrap.BubblewrapError as error:
+        checks['bwrap'] = None
+        checks['bwrap_error'] = str(error)
     checks['wayland_display'] = os.environ.get('WAYLAND_DISPLAY')
     checks['desktop'] = os.environ.get('XDG_CURRENT_DESKTOP', '')
     checks['kwin'] = ('SUPPORTED' if 'KDE' in checks['desktop'].upper()
@@ -145,7 +152,7 @@ def _check_host(config, runtime_root):
                 capture_output=True, timeout=8).returncode == 0
         except (OSError, subprocess.SubprocessError):
             pass
-    bwrap = shutil.which('bwrap')
+    bwrap = checks.get('bwrap')
     if bwrap:
         try:
             help_text = subprocess.run([bwrap, '--help'], capture_output=True,
