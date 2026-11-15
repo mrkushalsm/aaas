@@ -528,6 +528,13 @@ def _uninstallable_root(config):
     return root
 
 
+def _workspace_health_allows_user_data_removal(report):
+    """Accept the structured workspace health record returned by check()."""
+    health = report.get('health', {})
+    state = health.get('state') if isinstance(health, dict) else health
+    return state in ('HEALTHY', 'HEALTHY_FOR_CONTROLLED_TESTING')
+
+
 def _release_state_path(config):
     return config.state / 'release-lifecycle.json'
 
@@ -810,7 +817,7 @@ def main(argv=None):
                 import android_workspace
                 import aaas_userdata
                 check = android_workspace.check(config.workspace)
-                if check.get('health') not in ('HEALTHY', 'HEALTHY_FOR_CONTROLLED_TESTING'):
+                if not _workspace_health_allows_user_data_removal(check):
                     raise CliError('preserving the workspace: enrolled health check failed')
                 aaas_userdata.prepare_userdata_directory(config.workspace)
                 workspace_removal = True

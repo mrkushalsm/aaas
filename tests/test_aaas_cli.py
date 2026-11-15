@@ -248,6 +248,14 @@ class AaasCliTests(unittest.TestCase):
         self.assertFalse(parser.parse_args(['uninstall']).remove_user_data)
         self.assertTrue(parser.parse_args(['uninstall', '--remove-user-data']).remove_user_data)
 
+    def test_user_data_uninstall_accepts_structured_controlled_testing_health(self):
+        self.assertTrue(aaas_cli._workspace_health_allows_user_data_removal({
+            'health': {'state': 'HEALTHY_FOR_CONTROLLED_TESTING'}}))
+        self.assertTrue(aaas_cli._workspace_health_allows_user_data_removal({
+            'health': {'state': 'HEALTHY'}}))
+        self.assertFalse(aaas_cli._workspace_health_allows_user_data_removal({
+            'health': {'state': 'HEALTH_UNKNOWN'}}))
+
     def test_images_build_dispatches_to_source_assembler(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = self.config(temporary)
