@@ -709,7 +709,10 @@ runner_status=$?
                  f'/proc/{p.pid}/ns/user', f'--ready-fd={ready_write}',
                  str(p.pid), 'eth0'], pass_fds=(ready_write,),
                 stdout=network_log, stderr=subprocess.STDOUT,
-                start_new_session=True)
+                # Keep the helper in the owning AaaS session process group.
+                # The generated runner keeps unshare in this same group, so
+                # forced shutdown and early parent failure cannot orphan slirp.
+                start_new_session=False)
         finally:
             os.close(ready_write)
             network_log.close()

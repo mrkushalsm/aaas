@@ -911,6 +911,70 @@ class ForegroundRunnerTests(unittest.TestCase):
                     except ProcessLookupError:
                         pass
 
+    def test_session_cleanup_is_idempotent_and_preserves_unrelated_processes(self):
+        import os
+        import subprocess
+        import sys
+        import time
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            child_pid_file = root / 'owned-child.pid'
+            unrelated_pid_file = root / 'unrelated.pid'
+            child_code = 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'
+            parent_code = (
+                'import pathlib,subprocess,sys; '
+                'child=subprocess.Popen([sys.executable,"-c",sys.argv[2]]); '
+                'pathlib.Path(sys.argv[1]).write_text(str(child.pid)); '
+                'sys.exit(int(sys.argv[3]))'
+            )
+            unrelated = subprocess.Popen(
+                [sys.executable, '-c', 'import time; time.sleep(60)'],
+                start_new_session=True,
+            )
+            process = None
+            owned_pid = None
+            try:
+                for failed_start in (False, True, False):
+                    child_pid_file.unlink(missing_ok=True)
+                    process = subprocess.Popen(
+                        [sys.executable, '-c', parent_code, str(child_pid_file),
+                         child_code, '1' if failed_start else '0'],
+                        start_new_session=True,
+                    )
+                    deadline = time.monotonic() + 3
+                    while time.monotonic() < deadline and not child_pid_file.exists():
+                        time.sleep(.01)
+                    self.assertTrue(child_pid_file.exists(), 'owned helper did not start')
+                    owned_pid = int(child_pid_file.read_text())
+                    if failed_start:
+                        process.wait(timeout=3)
+                    SESSION.terminate_process_group(process, timeout=2)
+                    # Repeated cleanup of a completed session is harmless.
+                    SESSION.terminate_process_group(process, timeout=2)
+                    deadline = time.monotonic() + 3
+                    while time.monotonic() < deadline and Path(f'/proc/{owned_pid}').exists():
+                        time.sleep(.02)
+                    self.assertFalse(Path(f'/proc/{owned_pid}').exists(),
+                                     'owned helper survived session cleanup')
+                    self.assertIsNone(unrelated.poll(),
+                                      'cleanup terminated an unrelated process')
+            finally:
+                if process is not None and process.poll() is None:
+                    SESSION.terminate_process_group(process, timeout=2)
+                if unrelated.poll() is None:
+                    unrelated.terminate()
+                    unrelated.wait(timeout=3)
+
+    def test_network_helper_inherits_owning_runtime_process_group(self):
+        source = aaas_session_runner_base.__file__
+        text = Path(source).read_text()
+        helper_start = text.index("network_process = subprocess.Popen(")
+        helper_end = text.index("start_new_session=False)", helper_start) + len(
+            "start_new_session=False)")
+        helper = text[helper_start:helper_end]
+        self.assertIn('start_new_session=False', helper)
+
     def test_runner_copy_keeps_inherited_source_and_isolates_ipc(self):
         import subprocess
         import sys

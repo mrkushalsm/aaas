@@ -82,7 +82,7 @@ STORAGE_SERVICES_OVERLAY = TMP / 'm4_storage_services_overlay.jar'
 STORAGE_SERVICES_RECEIPT = TMP / 'm4_storage_services_overlay.json'
 FRAMEWORK_TRANSITION_BUILDER = ROOT / 'scripts/build_m1e_transition_input_overlay.py'
 VDC_OVERLAY = TMP / 'm1d_vdc_overlay/vdc'
-RUNNER_SHA256 = 'ade5998bab04e88a807d2559525311c96caea1a2a3a9bd48531fa1cb164e7afb'
+RUNNER_SHA256 = 'cdcdeefb14083066eff6fc1b9eff1e634c736497867bc4cb07b444ed230e5e2f'
 ETHERNET_FEATURE_OVERLAY = TMP / 'android.hardware.ethernet.xml'
 ETHERNET_OVERLAY_DIR = TMP / 'aaas-ethernet-compat'
 ETHERNET_CONNECTIVITY_OVERLAY = ETHERNET_OVERLAY_DIR / 'aaas_ethernet_connectivity_overlay.apk'
@@ -588,27 +588,36 @@ def write_session_control(path, value):
 def terminate_process_group(process, timeout=8):
     if process is None:
         return
+    process_group = process.pid
     try:
-        os.killpg(process.pid, signal.SIGTERM)
+        os.killpg(process_group, signal.SIGTERM)
     except ProcessLookupError:
-        return
+        pass
     try:
         process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            os.killpg(process_group, signal.SIGKILL)
         except ProcessLookupError:
             pass
         process.wait(timeout=timeout)
-        return
 
-    # Android init is PID 1 in the private namespace and ignores default
-    # termination signals. The runner can exit while init remains, so reap any
-    # surviving members of this unique session group after the bounded wait.
+    # Android init and helpers can outlive their direct launcher. Always clear
+    # the unique session group, then wait until the kernel reports it empty
+    # before publishing STOPPED. This never matches by process name and cannot
+    # signal processes outside this session's dedicated process group.
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        os.killpg(process_group, signal.SIGKILL)
     except ProcessLookupError:
-        pass
+        return
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(process_group, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.02)
+    raise TimeoutError(f'AaaS process group {process_group} did not exit after SIGKILL')
 
 
 def replace_once(source, old, new):
