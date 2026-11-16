@@ -1,53 +1,50 @@
 # Licensing and external runtime inputs
 
-AaaS is an experimental Android application runtime for Linux. This repository
-does not currently include a project-wide license. Public visibility of the
-source is not permission to use, modify, or redistribute it. The project owner
-must choose and authorize a license after confirming ownership of the original
-contributions. Apache-2.0 is the current recommendation for owner-controlled
-AaaS code because it includes an express patent grant and is familiar in the
-Android/Linux ecosystem. MIT and GPL-3.0-or-later remain alternatives with
-different patent and copyleft tradeoffs. No license has been applied.
+The repository root now contains the canonical Apache License 2.0. Its grant
+is limited to original AaaS source code that the project owner is authorized to
+license. It does not relicense third-party material, research/media assets, the
+Android image, or the prebuilt runtime. File-specific notices take precedence;
+see [third-party source notices](../THIRD_PARTY_NOTICES.md).
 
-## Third-party source
+This scope follows the owner's authorization. No file-by-file copyright
+assignment is implied. The source review found AaaS implementations and tests,
+generated AIDL/AOSP interfaces, upstream protocol descriptions, MIT-noticed
+audio files, and SwiftShader patches. Origins for some generated/imported files
+and the historical author/path privacy review remain incomplete. Do not treat
+the repository history as cleared for public exposure until those issues are
+reviewed.
 
-Some files retain independent upstream notices and must not be relicensed by a
-future project-wide license. In particular, the tree includes AOSP-attributed
-Binder/JNI and graphics interfaces, MIT-noticed audio files, upstream Wayland
-protocol descriptions, generated AIDL material, and SwiftShader-related
-patches. Preserve their file-level notices. Exact origin, revision, modification
-history, and notice obligations are not established for every imported or
-generated file; those items require review before a source release.
+## Android image and bundle
 
-## Android image and binary distribution
+The accepted preview used the Google Android SDK image
+`system-images;android-36;default;x86_64`, revision `r02`, build
+`BE2A.250530.026.D1`. The source checkout does not contain this image, does not
+reproduce the accepted modified rootfs, and cannot boot Android by itself. The
+SDK-derived system image and accepted bundle are not cleared for public
+redistribution. A supported user-side acquisition/assembly workflow is not
+implemented.
 
-The accepted developer preview was assembled from the Android SDK package
-`system-images;android-36;default;x86_64` (revision `r02`, build
-`BE2A.250530.026.D1`) and contains locally modified runtime components. A fresh
-source checkout does not contain the Android image and is not independently
-runnable without the required external inputs and assembly steps. Those image
-terms, modifications, bundled third-party binaries, and associated notice or
-source obligations have not been cleared for redistribution. Do not redistribute
-the accepted bundle or SDK image. A supported user-side acquisition and
-assembly workflow has not yet been established.
+The current [bundle redistribution decision matrix](release/bundle-redistribution-decision.md)
+summarizes the evidence and the exact remaining rights questions. It is an
+engineering assessment, not legal advice or a clearance decision. The
+Android SDK agreement and [AOSP file-level licensing guidance](https://source.android.com/docs/setup/contribute/licenses)
+must be read separately: AOSP says Apache-2.0 is preferred but recognizes
+exceptions, while the SDK agreement applies to SDK system files and treats
+open-source components under their own licenses.
 
-Detailed candidate-specific binary inventories and one-time publication
-review records are retained locally by the maintainer; they are not part of the
-source repository. This summary is not legal advice or a redistribution
-approval.
+## Owner and maintainer actions
 
-## Decisions required before public source release
+1. Confirm ownership of the AaaS-authored source covered by Apache-2.0,
+   including employer or contributor rights where relevant.
+2. Review the generated/imported files whose exact source revision or
+   modification history is not established.
+3. Decide whether the existing author identity and machine-specific history
+   may be published. No history rewriting has been done.
+4. Obtain qualified legal interpretation of the SDK agreement's application to
+   this modified, shared-kernel Android runtime before distributing the image
+   or bundle.
+5. Complete the component/notice mapping for the immutable bundle before any
+   binary release.
 
-1. The owner selects a project license and confirms authority over covered
-   contributions, including any employer or contributor rights.
-2. The maintainer resolves the origin and notices for imported/generated source
-   files while preserving independent upstream terms.
-3. The owner reviews whether existing Git author identities and historical
-   machine-specific paths are suitable for public exposure. History has not
-   been rewritten.
-4. The Android image acquisition, transformation, and binary redistribution
-   questions remain separate from source publication and require rights review.
-
-Until those decisions are complete, the repository is not an authorized
-open-source release and the developer-preview binaries are not cleared for
-public distribution.
+The source license does not authorize distribution of the Android SDK image or
+the accepted bundle.

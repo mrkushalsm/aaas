@@ -125,6 +125,11 @@ See [current release readiness](release-readiness-2026-11-11.md) and the
 [dependency/licensing inventory](dependencies-and-licenses.md) before using or
 distributing a candidate.
 
+The licensing finding above reflects the state on 2026-11-11. On 2026-11-16
+the owner authorized Apache-2.0 for eligible original AaaS source code and the
+root [LICENSE](../LICENSE) was added. This does not clear third-party source,
+historical privacy concerns, or the Android image/bundle for redistribution.
+
 ## Earlier cross-distribution packaging follow-up — 2026-11-16
 
 This section records the state before `engineering-af3dcb4` was built; it is

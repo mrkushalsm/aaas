@@ -29,9 +29,11 @@ desktop while remaining manageable as a user service.
 The exact accepted bundle is available only as a local engineering artifact.
 The bundle manifest and runtime dependency closure passed, but the Android image
 and a substantial portion of bundled executable provenance have not been
-cleared for public redistribution. The repository also has no project-level
-license granting rights to AaaS-authored code. A public source or binary release
-has not been authorized or published.
+cleared for public redistribution. Apache-2.0 now applies to eligible original
+AaaS source code the project owner is authorized to license. It does not cover
+independently licensed files, the Android SDK-derived image, or the accepted
+prebuilt runtime. Source-origin and Git-history privacy review still block a
+public source release; nothing has been published.
 
 ### Demonstration
 
@@ -126,6 +128,15 @@ The Android image and bundle are not included in this source repository. A
 source checkout alone cannot boot Android. The only accepted bundle is a local
 engineering artifact and is not cleared for redistribution. Do not obtain or
 redistribute third-party images outside their applicable terms.
+
+## Source license and attribution
+
+The root [Apache-2.0 license](LICENSE) applies only to eligible original AaaS
+source code that the project owner is authorized to license. Files with their
+own notices retain those terms; see [third-party notices](THIRD_PARTY_NOTICES.md).
+The Apache grant does not cover the Android SDK-derived image or accepted
+prebuilt bundle. Source-origin and historical privacy reviews remain open, so
+the source repository is not yet cleared for public publication.
 
 ## Installation and quick start
 
@@ -241,7 +252,8 @@ before any local use.
 ## Known limitations
 
 - No general public binary download; binary redistribution is not cleared.
-- No project-level AaaS license has been selected or granted.
+- Apache-2.0 applies only to eligible original AaaS-owned source code; see
+  [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
 - No Fedora SELinux Enforcing support or production security approval.
 - Android image assembly is not reproducible from the repository's complete
   source graph.
@@ -257,7 +269,8 @@ before any local use.
 
 ## Development and testing
 
-The [developer guide](docs/developer-runtime.md) describes the source checkout,
+The [contributor guide](CONTRIBUTING.md) covers source-level tests and
+contribution boundaries. The [developer guide](docs/developer-runtime.md) describes the source checkout,
 host diagnosis, and build boundaries. The [M5 bundle guide](docs/m5-portable-development-release.md)
 describes declared build inputs. Run:
 
@@ -281,10 +294,11 @@ M5 functional acceptance for the portable developer preview is
 and distribution-readiness work records the current evidence and unresolved
 rights. Broader compositor support, Fedora SELinux Enforcing compatibility,
 security approval, reproducible Android image assembly, and binary
-redistribution clearance remain future work. Public source release requires an
-owner-approved project license, third-party source review, and a privacy
-decision about existing Git history. See the [roadmap](docs/roadmap.md) and
-[licensing and external-input status](docs/dependencies-and-licenses.md).
+redistribution clearance remain future work. Apache-2.0 is limited to eligible
+original AaaS source code; public source release still requires source-origin
+and historical privacy review. See the [roadmap](docs/roadmap.md), [licensing
+and external-input status](docs/dependencies-and-licenses.md), and [bundle
+redistribution decision](docs/release/bundle-redistribution-decision.md).
 
 ## Third-party software and attribution
 
@@ -293,7 +307,8 @@ components, generated overlays, and host helpers. The available manifest does
 not establish complete per-file provenance or redistribution rights. Some
 embedded Digitalis materials carry Apache-2.0 notices, and related Refract
 source carries GPL-3.0-or-later terms; applicability to packaged binaries and
-required notices remain under review. See the [licensing and external-input
-status](docs/dependencies-and-licenses.md) and [release notes](docs/release/v0.1.0-dev-preview.md).
+required notices remain under review. See [third-party notices](THIRD_PARTY_NOTICES.md),
+the [licensing and external-input status](docs/dependencies-and-licenses.md),
+and [release notes](docs/release/v0.1.0-dev-preview.md).
 Do not treat this repository or bundle as licensed for redistribution by
 implication.
