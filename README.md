@@ -1,4 +1,4 @@
-# Android-as-a-Service (AaaS)
+# Android as a Service (AaaS)
 
 Run Android 16 applications as individual Linux desktop windows. AaaS uses a
 shared-kernel, namespace-isolated Android userspace and connects its application
