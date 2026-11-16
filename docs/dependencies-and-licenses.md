@@ -1,134 +1,259 @@
-# Provenance, licensing, and redistribution readiness
+# Provenance, licensing, and distribution plan
 
-**Status: source licensing and binary redistribution are unresolved. The
-engineering bundle is not approved for public redistribution.** This is an
-engineering inventory, not legal advice or a grant of rights. It does not
-replace review by the project owner and, where needed, counsel.
+**Status: no project-wide license has been authorized; the accepted binary is
+not cleared for public redistribution; user-side image assembly is not yet a
+supported installation route.** This is an engineering evidence report, not
+legal advice. Questions about the Android SDK agreement and uncertain imported
+code require review by the rights holders or qualified counsel.
 
-## Candidate under review
+## Scope and preserved release
 
-This report covers the immutable local candidate `engineering-af3dcb4`, bundle
-ID `43d04579ec874746a7c9da5152419bd6`, source revision recorded as
-`af3dcb4711d13197826942f0a1c7f2b1698589ec`, 8,795 manifest entries, manifest
-SHA-256
-`d638937b4bcb16f550b2e204175c70ec247190ca10b6e7229447560909db2a64`.
-Integrity and runtime dependency closure passed (26 declared inputs). The
-manifest classifies the bundle as `LOCAL_DEVELOPMENT_DIAGNOSTIC` and says
-authenticity is not established. It also records `source_tree_dirty_at_capture`
-as true. The acceptance result does not establish legal redistribution rights.
+This review covers source files tracked by this repository and the immutable
+M5 developer-preview candidate `engineering-af3dcb4`:
 
-The machine-readable component inventory is
-[`sbom-engineering-af3dcb4.json`](release/sbom-engineering-af3dcb4.json). It
-maps every executable/library provenance row to a bundle-relative path and
-SHA-256, and links the whole-file manifest digest above. It intentionally marks
-unreviewed items unresolved instead of assigning a license by guesswork.
+| Identity | Recorded value |
+|---|---|
+| Bundle ID | `43d04579ec874746a7c9da5152419bd6` |
+| Artifact count | 8,795 |
+| Manifest SHA-256 | `d638937b4bcb16f550b2e204175c70ec247190ca10b6e7229447560909db2a64` |
+| Recorded source revision | `af3dcb4711d13197826942f0a1c7f2b1698589ec` |
+| Recorded source worktree state | Dirty, without a complete dirty-file snapshot |
 
-## Material component assessment
+The bundle and `v0.1.0-dev-preview` tag were not modified. Integrity and
+dependency closure are engineering checks; they do not establish copyright
+ownership or redistribution rights. The detailed SPDX 2.3 inventory is
+[`sbom-engineering-af3dcb4.json`](release/sbom-engineering-af3dcb4.json). Its
+`NOASSERTION` values are intentional: the SBOM is not a license grant.
+The grouped record counts and matching criteria are also available in the
+[machine-readable component groups](release/component-groups-engineering-af3dcb4.json).
 
-| Component | Evidence/origin | License evidence | Source redistribution | Binary redistribution | Open issues |
-|---|---|---|---|---|---|
-| AaaS-authored source | Repository history and tracked source | No project-level `LICENSE`; a few individual audio files carry SPDX MIT identifiers | No blanket grant exists. Public visibility alone does not grant reuse rights. | Not applicable as a separate bundle component; bundled copies still require provenance review | Owner must select and authorize a project license; identify any adapted/copied code and preserve notices |
-| Android 16/API 36 image | Manifest: Android 16 build `BE2A.250530.026.D1`, based on historical SDK system image `system-images;android-36;default;x86_64`, revision r02; modified diagnostic rootfs | Android platform components have varied upstream licenses. Android licensing documentation says most AOSP is Apache-2.0 but exceptions exist. Google SDK terms separately cover SDK packages and system files. | Not cleared: the complete source/build graph and file-level attribution are absent | Not cleared | Confirm applicable SDK/system-image terms, image acquisition rights, modification rights, trademarks, and exact per-file origins. See [Android SDK terms](https://developer.android.com/studio/terms) and [AOSP licensing](https://source.android.com/license). |
-| Modified Android/rootfs binaries | Bundle manifest and `manifests/android16-diagnostic-rootfs-audit.json`; 16 modified base files, 1 unchanged base file, shim overlays, locally modified SwiftShader checkout entries | Per-file licenses not mapped in the candidate; rootfs provenance is `UNVERIFIED_PROVENANCE` | Not cleared | Not cleared | Establish transformation and source for each material file; identify vendor/proprietary components and required source/notice obligations |
-| Digitalis / Berberis translation components | Embedded Digitalis tree, internal manifest and source revisions; translation source points to Digitalis/Refract lineage | The inspected Digitalis upstream checkout has an Apache-2.0 license; embedded NOTICE describes Digitalis/Berberis components as Apache-2.0. The related Refract source repository is GPL-3.0-or-later and its NOTICE has attribution language while stating third-party prebuilts retain their own terms. | Source-specific terms may permit source use subject to their conditions; exact embedded modifications and obligations need reconciliation | Not cleared as bundled: no complete binary file-to-license review; expected Apache license/NOTICE packaging is incomplete in the embedded tree | Map each shipped prebuilt to exact upstream source/revision and applicable license. Reconcile Refract modifications, Apache components, guest libraries, and notices. Sources: [Digitalis project](https://github.com/DigitalisX64/digitalis) and [Refract repository](https://github.com/Refract-Foundation/Refract). The exact source revisions must be checked against the candidate before relying on upstream terms. |
-| Android guest libraries and apps | 1,844 Android platform executable/library/app rows in candidate provenance | All candidate executable/library rows have `NOT_REVIEWED_FOR_DISTRIBUTION`; 1,965 rows overall are marked `UNVERIFIED_PROVENANCE` | Not cleared | Not cleared | Resolve upstream project, exact revision, license, notices, source offer, vendor status, and modification status per component |
-| Runtime helpers and AaaS installer | Candidate records 44 host runtime code/executable rows, 2 installer wrappers, and 1 compatibility preload in its provenance summary; individual provenance entries are retained in the SBOM | Candidate rows remain `NOT_REVIEWED_FOR_DISTRIBUTION`; some are AaaS source, others pinned third-party tools | No AaaS project license; third-party terms require individual review | Not cleared as a complete package | The candidate's top-level source revision is `af3dcb4`, but installer provenance rows cite `71105b7` with a dirty worktree. Reconcile the build capture and exact source for every copied artifact |
-| Slirp4netns, compiler/toolchain, and host libraries | Runtime closure lists 26 host-provided inputs; `slirp4netns` is described as pinned/hash-verified; several tools/libraries remain host dependencies | Candidate dependency-closure metadata is not a complete license report | Depends on each upstream item | Not all are bundled; no blanket conclusion applies | Record exact versions, hashes, upstream license texts, and redistribution obligations before packaging any of them |
-| Generated overlays and helper APKs | Candidate runtime closure says overlays are re-extracted and helper APKs rebuilt from packaged inputs | Generated status does not remove upstream license obligations | Not cleared until all inputs are assessed | Not cleared | Trace generators and inputs, including Android platform-derived resources and embedded notices |
+## Source ownership boundary
 
-### Evidence limits
+The tracked source tree contains no top-level `LICENSE`, `COPYING`, or
+`NOTICE`. Therefore, there is no blanket permission to use, modify, or
+redistribute AaaS-authored code. Publicly visible source is not necessarily
+open-source licensed.
 
-The candidate contains 1,985 executable/library provenance rows. All 1,985
-have `license_review=NOT_REVIEWED_FOR_DISTRIBUTION`; 1,965 have unverified
-provenance. Source URLs and license identifiers are not populated consistently.
-The source revision is marked dirty at capture, and provenance rows for some
-installer/runtime artifacts cite an earlier revision. The Android rootfs is
-explicitly unverified and is not rebuilt from a complete materialized AOSP
-source graph. The separate [Android source lock](android-source-lock.md) is a
-research/pin record, not a complete build lock for this candidate.
+The repository scan found these concrete signals:
 
-Repository `sources/` trees and their upstream license files are ignored local
-material, not tracked source files and not proof that corresponding sources or
-licenses are included with the candidate. Historical license research applies
-only to the named subset; it does not clear the accepted bundle.
-
-## Tracked source-code license signals
-
-The tracked repository has no top-level `LICENSE`, `COPYING`, or `NOTICE` file.
-The scan found 36 tracked files with Android Open Source Project copyright
-attribution, including JNI, Binder/AIDL, graphics, and audio headers. Thirty
-eight files contain the Apache-2.0 license header text. Those file-level notices
-must be retained; they do not license adjacent AaaS-authored files or the whole
-repository. Three AaaS audio implementation files carry SPDX `MIT` identifiers.
-Two tracked SwiftShader patch files contain SwiftShader copyright references,
-and the tracked `linux-drm-syncobj-v1.xml` protocol includes its upstream
-copyright and permission terms. A further Wayland protocol XML file is also
-tracked. The exact upstream revisions and whether each patch contains
-copyrightable upstream expression need review before treating source
-redistribution as cleared.
-
-Relevant upstream references include [AOSP source licensing](https://source.android.com/license),
-[Android platform source](https://android.googlesource.com/platform/),
-[Wayland protocols](https://gitlab.freedesktop.org/wayland/wayland-protocols),
-and [SwiftShader](https://github.com/google/swiftshader). The tracked notices
-are evidence for the individual files; the exact origin and applicable terms
-for every imported/adapted portion remain to be reconciled. Tracked experiment
-source is not necessarily included in the accepted runtime bundle.
-
-## Distribution decision
-
-1. **Can the complete source tree be published with an open-source license?**
-   Not as an owner-authorized open-source release yet. There is no project-wide
-   license grant. The owner must choose and authorize one, after a code-origin
-   review. Do not infer permission from individual third-party licenses.
-2. **Can the full binary bundle be distributed?** No. The Android image,
-   modified platform/vendor files, Digitalis/Berberis payload, and other
-   executable/library rows lack complete provenance and rights review.
-3. **Is a reduced binary cleared?** No reduced, technically complete package
-   has been assembled and assessed.
-4. **Can source-only distribution work meanwhile?** The repository can be made
-   visible, but without a project license recipients receive no general
-   permission to copy, modify, or redistribute AaaS-authored code. The current
-   history also contains older machine-specific paths and identifiers; assess
-   that exposure before public publication without rewriting history silently.
-5. **What is needed next?** Owner-selected project license; source-origin
-   audit; exact bundle provenance reconciliation; per-component license and
-   notice review; resolution of Android SDK/system-image terms; and legal review
-   of any uncertain terms. Until then, do not attach or advertise the bundle as
-   a public download.
-
-The Android project describes AOSP as mostly Apache-2.0 with component
-exceptions; this does not itself grant rights to a Google SDK system image or
-every Android/vendor binary. Google's SDK terms separately govern SDK packages
-and system files and contain restrictions and an open-source-component
-exception; their application to this modified diagnostic image needs qualified
-review. These documents are linked as evidence, not interpreted here as legal
-approval.
-
-## Possible AaaS project-license choices for the owner
-
-No choice has been made or applied.
-
-| License | Practical effect | Fit and tradeoff |
+| Group | Evidence | Release handling |
 |---|---|---|
-| MIT | Permissive reuse with copyright/license notice | Simple for broad reuse, but provides no express patent grant and may be less explicit about patent rights |
-| Apache-2.0 | Permissive reuse, express patent grant, NOTICE handling | Strong fit for a developer tool with contributors; requires preserving notices and addressing patent termination terms |
-| GPL-3.0-or-later | Copyleft for distributed derivative works, with source/license obligations | Better if the owner wants downstream derivatives to remain under reciprocal terms; may constrain integration and redistribution choices |
+| AaaS-authored source | Most project scripts, native integration, tests, and documentation appear authored in this repository; this is an origin assessment, not proof of copyright ownership | Owner must license material they own; review contributor/employer ownership before applying a project license |
+| AaaS audio files with SPDX | `experiments/m4/audio/audio_hal.c`, `audio_protocol.h`, and `ashmem_compat.c` explicitly say MIT | Retain their headers; do not assume the rest of the project is MIT |
+| AOSP-attributed/imported source | 36 tracked files contain AOSP attribution; 38 contain Apache-2.0 header text, including Binder/JNI/audio/graphics interfaces | Keep per-file notices and verify each file's source and modifications; AOSP itself says Apache-2.0 is preferred but exceptions exist |
+| SwiftShader patches | Two tracked patch files mention SwiftShader copyright | Trace patch origin and preserve upstream notices; no project-wide license inferred |
+| Wayland protocol descriptions | `experiments/m1a/protocols/linux-drm-syncobj-v1.xml` has upstream copyright and permission terms; `viewporter.xml` is also upstream protocol material | Preserve source headers and record exact upstream version/terms |
+| Generated source and local ignored sources | `sources/` and other ignored local inputs are not Git-tracked and are not established as part of source redistribution | Do not publish these as project source without a separate origin and license review |
+| Unknown/adapted files | Some history and file headers do not establish whether material is original, copied, or adapted | Keep unresolved; inspect origin before licensing or publishing those files |
 
-These options apply only to AaaS-authored material after an origin review; they
-do not override third-party terms or clear the bundled Android image.
+The [AOSP licensing guide](https://source.android.com/docs/setup/contribute/licenses)
+says most Android software uses Apache-2.0 but identifies exceptions and says
+individual file headers matter. That is useful context, not a blanket license
+for all files bearing Android-related names. Repository history also contains
+older machine-specific paths and identifiers; public source preparation should
+review the existing history for privacy before publication. This report does
+not rewrite history.
 
-## Required release actions
+### Project license recommendation — owner decision required
 
-- Obtain the owner's explicit project-license decision.
-- Reconcile candidate capture revision, dirty state, and per-row provenance.
-- Review all 1,985 executable/library records and their corresponding notices.
-- Determine whether a lawful user-side image acquisition/assembly workflow is
-  possible and implement/test it before distributing a bundle that depends on
-  the image.
-- Keep public binary distribution disabled until the full dependency closure is
-  cleared and a reviewer approves the notices and obligations.
+No license has been added. For original AaaS-authored files, **Apache-2.0 is
+the recommended default**, contingent on ownership review and the owner's
+explicit approval. It grants an express patent license and is familiar in the
+Android/Linux tooling ecosystem. It also requires preserving notices and
+handling any `NOTICE` obligations. It will not relicense imported files or
+clear the Android image.
 
-See also the [candidate release notes](release/v0.1.0-dev-preview.md),
-[M5 acceptance record](release/portable-preview-af3dcb4-acceptance.json), and
-[architecture guide](architecture.md).
+| Choice | Tradeoff for AaaS-authored files |
+|---|---|
+| Apache-2.0 (recommended) | Permissive reuse with an express patent grant; clear notice and attribution duties; fits a tool likely to receive contributions |
+| MIT | Short, permissive terms and simple attribution; no express patent grant comparable to Apache-2.0 |
+| GPL-3.0-or-later | Copyleft obligations on covered derivative distributions; suitable if the owner wants reciprocal terms, but can complicate combining and redistributing the mixed-license runtime |
+
+The owner must choose the project license and confirm they have authority to
+license the original contributions. A maintainer must not make that choice by
+adding a license file unilaterally.
+
+## Accepted bundle: grouped provenance assessment
+
+The SBOM has 1,985 executable/library records. It marks 1,965
+`UNVERIFIED_PROVENANCE` and all 1,985 `NOT_REVIEWED_FOR_DISTRIBUTION`. The
+1,965 records are **not 1,965 independent legal issues**; they cluster as
+follows. Paths and SHA-256 values remain traceable in the SBOM and immutable
+bundle manifest.
+
+| Group | Records | Best-supported origin | License / redistribution status | Remaining work |
+|---|---:|---|---|---|
+| Android image executable, library, and app files | 1,844 | Android 16/API 36 x86_64 SDK package `system-images;android-36;default;x86_64`, revision `r02`, archive `x86_64-36_r02.zip`, build `BE2A.250530.026.D1`; the accepted rootfs is historically modified | Mixed Android/AOSP and possibly vendor/package terms. Not cleared as a group or file set | Map each shipped file to upstream source/license and modifications; identify proprietary content; collect notices and any source-offer duties |
+| Generated workspace compatibility/helper artifacts | 94 | Candidate calls these “retained historical M4 generated workspace artifact”; 91 paths are under `tmp`, 3 under `sources`; this label does not prove origin | Mostly unresolved. Some subset is Digitalis/Berberis; other helpers, overlays, APKs, libraries, and tools need exact mapping | Split by actual component and hash, link to source/build inputs, preserve license texts, determine whether generated outputs include third-party code |
+| Untracked local runtime outputs | 27 | Candidate calls these local runtime artifacts from the M4 closure; exact source path is not recorded in the old manifest | Unknown until linked to reproducible build inputs; not cleared | Map each path/hash to its producer, source revision, build recipe, and license |
+| Tracked runtime source rows | 17 | AaaS checkout; each recorded file hash matches its content at both `71105b7` and `af3dcb4` | Mixed AaaS and upstream headers; no blanket project license | File-level origin and licensing review remains |
+| Bundle installer wrappers | 2 | Generated by the AaaS release builder | AaaS source ownership likely, but no project license; old source identity is inconsistent | Correct future capture metadata; do not infer an earlier builder revision from this field |
+| Compatibility preload | 1 | Generated from `experiments/m1b/selinux_xattr_compat.c` by `scripts/build_android_selinux_xattr_compat.py` | Source license/ownership follows source file and its included headers; candidate row is not a rights review | Include source, notices, and exact toolchain/build record in any redistributable package |
+
+### Named third-party components
+
+| Component | Evidence and license evidence | Bundle status / action |
+|---|---|---|
+| Digitalis / Berberis | The retained package has a SHA256SUMS file whose 74 entries verified locally. M3 evidence records Digitalis `a6edb72029cd25cb616bdee1a12b2d64e3a6a3ae`, translator repository revision `9e7f4407e0e32a582fe2a56f87492443ca55d6fa`, and translator artifact SHA-256 `13821f9b70146e843d1c0e3cb28fc085d06cb5a51ecfec7299f97a67ba31301a`. It records the Refract revision string `ddef6e6ae7de37dd3e4006d07d3f18cb21a0ebc`, which is 39 hex characters and therefore not a complete SHA-1 object ID. Embedded NOTICE describes Digitalis/Berberis as Apache-2.0. The associated [Refract repository](https://github.com/MIXIDtheSilly/Refract) is GPL-3.0-or-later, while its notice says third-party prebuilts retain their own terms. | 74-file checksum validity confirms file identity only. Exact component-to-bundle mapping, modifications, applicable terms, and required license texts still need review. The embedded Digitalis directory lacks a top-level Apache license text; include appropriate license/NOTICE materials if distribution is authorized. Do not assume Refract's source license automatically determines every prebuilt's license. |
+| SwiftShader | Tracked patch references and the Android rootfs audit identify 11 locally modified SwiftShader checkout entries | Exact upstream commit, patch set, binaries, build flags, and notices are not fully connected. Not cleared as bundled. |
+| Android SDK image and emulator vendor files | The image manifest identifies an official SDK package and build; the rootfs audit records 16 modified base files, one unchanged base file, two known SELinux shim overlays, and locally modified SwiftShader entries | The image is not a clean AOSP build. Per-file rights and modification basis are unresolved; do not redistribute it. |
+| Host tools/libraries, APKs, overlays, and audio/network helpers | Candidate closure and workspace manifest identify files, but the SBOM does not consistently identify exact upstream releases/license files | Review each material component before including it in a public binary or source archive. Host-provided dependencies still need documentation and provenance, but are not automatically bundled. |
+
+Ignored local `sources/` checkouts and their license files are useful research
+evidence only. They do not show that those exact sources generated the accepted
+artifact. The 74-entry Digitalis checksum result likewise establishes
+integrity, not the right to redistribute.
+
+## Android image terms and acquisition
+
+The recorded base is Google SDK package
+`system-images;android-36;default;x86_64`, revision `r02`, build
+`BE2A.250530.026.D1`. Its archive was recorded as 844,217,077 bytes, with
+SDK-index SHA-1 `829c076e8ff448a336097ae25a355b495ba36e2c`. SHA-256
+`e1b9d9fb665001ef27b16e57d8762a2d54aec6bff617e17506edb8676667b9da` was
+measured locally; Google did not publish that SHA-256 in the evidence reviewed.
+The source package's historical availability does not itself grant permission
+to republish the archive or modified contents.
+
+The current [Android SDK agreement](https://developer.android.com/studio/terms)
+defines the SDK to include Android system files. It says SDK use is licensed
+for developing apps for “compatible implementations” (defined there by the
+CDD and CTS), restricts copying/modifying/redistributing SDK material except
+where third-party open-source terms require otherwise, and gives open-source
+components their own governing licenses. The AaaS diagnostic image is modified
+and has not been shown to meet CDD/CTS compatibility. Applying these terms to
+this project's particular use and modifications requires legal review; this
+report does not decide that question.
+
+Keep these cases distinct:
+
+1. **AOSP source:** published Git projects carry component-specific licenses.
+   AOSP documentation says a Cuttlefish build can run directly, while
+   device-specific proprietary binaries are separately obtained and licensed.
+   AOSP source availability does not establish that the accepted SDK image is
+   redistributable.
+2. **Self-built AOSP binaries:** rights follow the source components and any
+   separately acquired vendor binaries; the build's exact source manifest,
+   notices, and outputs still need review. A clean AOSP/Cuttlefish build is not
+   technically equivalent to the accepted rootless AaaS runtime.
+3. **Google prebuilt SDK system image:** the SDK agreement applies to SDK
+   packages and system files; a local download does not by itself establish a
+   right to redistribute, modify, or use it for this runtime.
+4. **User-side download:** requiring users to accept terms through official
+   Android SDK tooling avoids AaaS mirroring the archive, but does not
+   automatically cure restrictions on use or modification. The official
+   Android tooling documentation now marks `sdkmanager` deprecated in favor of
+   `android sdk`; package installation requires license acceptance. An
+   installer must not automate acceptance on a user's behalf.
+5. **Local transformation:** a user-side workflow still needs exact input
+   verification, a complete deterministic transformation recipe, compatible
+   outputs, and an adequate legal basis for each transformation. The current
+   recipe is incomplete and the accepted rootfs contains modifications whose
+   origins and purposes are not fully reconstructed.
+
+Evidence files [`android16-diagnostic-rootfs-audit.json`](../manifests/android16-diagnostic-rootfs-audit.json),
+[`android16-reconstruction-transformations.json`](../manifests/android16-reconstruction-transformations.json),
+[`android-profiles.json`](../manifests/android-profiles.json), and
+[`android-source-lock.md`](android-source-lock.md) all describe an incomplete
+or diagnostic state. The profile explicitly says it is not automatically
+installable: the SDK image is not the accepted rootless runtime, a complete
+source lock and transformation recipe are absent, and APEX activation remains
+unverified.
+
+Therefore **Option B is not currently implemented or ready to promise**. A
+future lawful assembly route would need to stop before downloading until the
+user chooses an official package and accepts its terms, verify a vendor-backed
+revision/checksum, apply a complete reviewed recipe, and prove output hashes
+and runtime compatibility. If the SDK terms do not permit this use, investigate
+a compatible self-built source image under component licenses instead. Do not
+offer an unofficial mirror or silently turn the SDK package into a derived
+public download.
+
+## Bundle source revision and dirty-worktree discrepancy
+
+The immutable candidate records top-level repository revision
+`af3dcb4711d13197826942f0a1c7f2b1698589ec` and
+`source_tree_dirty_at_capture=true`. Its 17 tracked runtime executable/library
+rows and both generated installer rows instead identify
+`71105b74c364ed9f179b55c5cd4cf1572b07e646` with `worktree_dirty=True`.
+This cannot be interpreted as evidence that the candidate was wholly built at
+either revision: a boolean dirty marker does not list changed files, and the
+installer identity conflicts with the top-level capture identity.
+
+Hash comparison against Git confirms all 17 tracked executable/library row
+hashes match at both revisions. Those commit versions provide no way to tell
+which one was copied. Other candidate files may have changed between the
+commits; matching an artifact hash to a commit proves content identity for
+that file only. The retained evidence does not establish whether the old
+manifest/SBOM was composed from multiple captures, edited after construction,
+or produced by a different local builder state. Exact reconstruction of the
+candidate's original capture is therefore **not established**. No claim of
+bit-for-bit reproducibility is made.
+
+The release builder previously used one broad dirty flag for unrelated
+untracked/generated outputs and repeated it in installer provenance. The
+current source change records the HEAD, tracked worktree changes included in
+the runtime, included untracked runtime paths, and other untracked-file count
+separately. This improves future evidence; it does not repair or retroactively
+change the M5 candidate.
+
+## Distribution options
+
+| Model | Legal dependencies | Engineering/user effort | Decision |
+|---|---|---|---|
+| **A. Source-only** | Owner must select a project license; imported source notices and source-origin questions must be resolved. Exclude system images and uncleared binaries. | Lowest ongoing engineering burden; users cannot run the accepted runtime from source alone yet | **Recommended near-term**, after owner license approval and source cleanup. Until then, a public repository has unspecified AaaS reuse rights and is not a completed open-source release. |
+| **B. Source plus user-side assembly** | Requires an acceptable legal basis for the SDK image or a clean self-built alternative, plus all third-party terms | Highest user setup burden and substantial engineering work; exact transforms and clean image compatibility are not ready | Future direction only. Do not advertise or implement as working today. |
+| **C. Fully redistributable binary** | Requires rights, notices, source obligations, and provenance for the entire dependency closure, especially Android image and modified files | Easiest user experience; highest compliance and maintenance burden | Not currently possible to approve. Do not upload the accepted bundle. |
+
+## Actionable publication checklist
+
+1. **Owner:** select Apache-2.0, MIT, GPL-3.0-or-later, or another license for
+   code the owner controls; confirm contributor/employer rights. No license is
+   applied by this report.
+2. **Maintainer:** inventory tracked files by origin, preserve imported
+   notices, resolve the SwiftShader and protocol sources, and remove or
+   separately license any copied material that cannot be cleared.
+3. **Maintainer:** review Git history for host-specific/private information
+   before making the existing history public; do not silently rewrite it.
+4. **Maintainer/reviewer:** map all 94 workspace artifacts and 27 untracked
+   runtime outputs to exact source, build recipe, and license. Add upstream
+   license and NOTICE texts where required.
+5. **Legal review:** determine whether use/modification of the SDK r02 image
+   for this non-CTS-proven Android implementation is permitted under the
+   applicable agreement, or select a separately licensed source-build path.
+6. **Engineering:** only after that decision, implement and test an explicit
+   user-consented acquisition/assembly flow or produce a fully cleared
+   binary closure. Verify exact inputs and output hashes.
+7. **Release maintainer:** regenerate the SBOM from the chosen release payload,
+   ensure every component has an evidence-backed license conclusion or an
+   explicit exclusion, attach notices/source offers as required, and obtain
+   final review before publication.
+
+## Decision summary
+
+- **AaaS source:** not yet an authorized open-source release; project owner
+  must choose a license. Apache-2.0 is the recommended default for
+  owner-controlled source after the origin review.
+- **Best near-term model:** source-only after authorization and cleanup. Do
+  not claim users can currently assemble the accepted runtime from official
+  inputs.
+- **Android image:** source package identity is recorded, but the local
+  SHA-256 is not vendor-published; modifications and applicable SDK terms
+  need review. User-side download alone does not resolve the question.
+- **Binary:** the M5 bundle is not cleared for public redistribution. The
+  Android image, modified platform files, workspace artifacts, and several
+  third-party components remain unresolved.
+- **M5:** functional acceptance is preserved; this licensing investigation
+  neither reopens nor changes it.
+
+## Authoritative references
+
+- [Android SDK License Agreement](https://developer.android.com/studio/terms)
+- [AOSP license headers and component licensing](https://source.android.com/docs/setup/contribute/licenses)
+- [AOSP source acquisition and proprietary device binaries](https://source.android.com/docs/setup/download)
+- [Android SDK package tools and license acceptance](https://developer.android.com/tools/sdkmanager)
+- [Digitalis](https://github.com/DigitalisX64/digitalis) and [Refract](https://github.com/MIXIDtheSilly/Refract) upstream projects; exact release terms must be checked against the embedded artifact revisions
+
+The linked upstream pages are evidence sources, not legal approval. Consult
+the actual license texts shipped with each component and obtain qualified
+review where terms or provenance remain uncertain.
