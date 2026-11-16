@@ -119,6 +119,56 @@ class BundleTests(unittest.TestCase):
             output.rename(moved)
             self.assertEqual(aaas_bundle.verify_bundle(moved)['integrity'], 'PASS')
 
+    def test_manifest_distinguishes_dirty_tracked_source_from_untracked_outputs(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            repo, workspace, _ = self.fixture(base)
+            source_cli = repo / 'scripts/aaas_cli.py'
+            source_cli.chmod(0o755)
+            host_binary = repo / 'experiments/m1a/host.bin'
+            host_binary.chmod(0o755)
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            subprocess.run(['git', '-C', str(repo), 'config', 'user.name', 'AaaS Test'],
+                           check=True)
+            subprocess.run(['git', '-C', str(repo), 'config', 'user.email',
+                            'aaas-test@example.invalid'], check=True)
+            subprocess.run(['git', '-C', str(repo), 'add', '-A'], check=True)
+            subprocess.run(['git', '-C', str(repo), 'commit', '-qm', 'fixture'], check=True)
+            revision = subprocess.run(
+                ['git', '-C', str(repo), 'rev-parse', 'HEAD'], check=True,
+                capture_output=True, text=True).stdout.strip()
+            source_cli.write_text('print("modified source")\n')
+            generated_output = repo / 'experiments/m1a/generated-after-commit.bin'
+            generated_output.write_bytes(b'generated fixture output')
+            generated_output.chmod(0o755)
+
+            output = base / 'bundle'
+            aaas_bundle.create_bundle(repo=repo, rootfs=workspace / 'rootfs_m1b1',
+                                      output=output, workspace=workspace)
+            manifest = json.loads((output / 'manifest.json').read_text())
+            provenance = manifest['provenance']
+            capture = provenance['source_capture']
+            self.assertEqual(provenance['source_repository_revision'], revision)
+            self.assertTrue(provenance['source_tree_dirty_at_capture'])
+            self.assertTrue(capture['tracked_worktree_dirty'])
+            self.assertEqual(capture['included_tracked_changes'], ['scripts/aaas_cli.py'])
+            self.assertEqual(capture['included_untracked_runtime_paths'],
+                             ['experiments/m1a/generated-after-commit.bin'])
+
+            rows = {row['path']: row for row in
+                    provenance['executable_library_provenance']}
+            installer = rows['install']['source_identity']
+            self.assertIn(revision, installer)
+            self.assertIn('tracked_worktree_dirty=True', installer)
+            modified = rows['runtime/scripts/aaas_cli.py']
+            self.assertEqual(modified['provenance'],
+                             'AaaS tracked source file from a modified worktree')
+            self.assertIn(revision, modified['source_identity'])
+            untracked = rows['runtime/experiments/m1a/generated-after-commit.bin']
+            self.assertEqual(untracked['provenance'], 'UNVERIFIED_PROVENANCE')
+            self.assertIn('experiments/m1a/generated-after-commit.bin',
+                          untracked['source_identity'])
+
     def test_bundle_creation_requires_the_selinux_xattr_compatibility_preload(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
