@@ -1,61 +1,137 @@
 # Android-as-a-Service (AaaS)
 
-AaaS runs Android 16 applications in individual Wayland windows on x86_64 Linux. A persistent Android runtime owns shared desktop bridges; launching an application creates its display endpoint and presenter, and closing it releases those resources.
+Run Android 16 applications as individual Linux desktop windows. AaaS uses a
+shared-kernel, namespace-isolated Android userspace and connects its application
+surfaces to a Wayland desktop; the Android runtime itself is not a full guest
+virtual machine.
 
-This is an experimental **trusted development runtime**, not a production
-security sandbox. Candidate `engineering-af3dcb4` (bundle ID
-`43d04579ec874746a7c9da5152419bd6`) passed the recorded isolated host
-application, ARM64, audio-transport, network, lifecycle, and uninstall checks.
-The same immutable bundle passed Fedora 45 application presentation, ARM64,
-audio-transport, network, lifecycle, and isolated uninstall checks. An initial
-zero-presentation run was caused by the Fedora VM desktop being locked: KWin
-marked the app surface suspended and discarded frame feedback. With the
-disposable VM session awake, Settings and Contacts rendered and KWin reported
-presented frames with balanced buffer releases. Portable developer-preview
-engineering acceptance is **PASSED/CLOSED**. Fedora testing temporarily used
-SELinux permissive mode inside the disposable VM; Fedora enforcing-mode support
-and runtime security approval remain deferred. Binary redistribution
-clearance is also separate and remains deferred.
+> **Developer preview:** M5 functional acceptance is closed for the exact
+> candidate `engineering-af3dcb4` (bundle ID
+> `43d04579ec874746a7c9da5152419bd6`). It passed the recorded Arch Linux host
+> and Fedora 45 test-VM checks. This is a trusted local development runtime,
+> not a security-approved or publicly distributable product. No binary download
+> is published. See [release notes](docs/release/v0.1.0-dev-preview.md) and
+> [acceptance evidence](docs/release/portable-preview-af3dcb4-acceptance.json).
 
-## Host requirements
+## What AaaS does
 
-The original tested host is Arch Linux x86_64 with KDE Plasma/KWin on Wayland
-and a systemd user session. The secondary developer-test environment is Fedora
-45 x86_64 with KDE/KWin 6.8.2, tested only with an explicit temporary SELinux
-permissive setting inside the disposable VM. Fedora SELinux enforcing support
-is not available. AaaS also needs unprivileged user namespaces, binderfs,
-`/dev/fuse`, unified cgroup v2, and a DRM render node for the accelerated
-presenter. Run `./aaas doctor` to check the host capabilities and report missing
-requirements. Other distributions and compositors are not certified. A compatible Android
-16 diagnostic image and runtime dependencies are supplied separately from this
-source checkout.
+AaaS keeps one Android runtime available while opening Android applications in
+separate desktop windows. This gives Linux developers access to Android apps
+and services without making a conventional Android VM the runtime architecture.
+The Fedora virtual machine described below was only a test environment.
+
+The project exists to explore how Android application lifecycle, graphics,
+input, audio, networking, and selected native ABIs can integrate with a Linux
+desktop while remaining manageable as a user service.
+
+## Developer-preview status
+
+The exact accepted bundle is available only as a local engineering artifact.
+The bundle manifest and runtime dependency closure passed, but the Android image
+and a substantial portion of bundled executable provenance have not been
+cleared for public redistribution. The repository also has no project-level
+license granting rights to AaaS-authored code. A public source or binary release
+has not been authorized or published.
+
+### Demonstration
+
+These genuine screenshots were captured during the accepted
+`engineering-af3dcb4` Fedora 45/KWin test-VM run. They show the test desktop,
+not a synthetic mockup. Fedora was tested as a VM guest; AaaS does not require a
+VM to run. The VM used temporary SELinux permissive mode for this diagnostic
+acceptance, then returned to Enforcing.
+
+![Android Settings in a Fedora 45 Wayland window](docs/media/settings-fedora-45-af3dcb4.png)
+
+*Settings window on the accepted candidate.*
+
+![Android Contacts in a Fedora 45 Wayland window](docs/media/contacts-fedora-45-af3dcb4.png)
+
+*Contacts window on the accepted candidate.*
+
+![Settings and Contacts presented together on the Fedora 45 desktop](docs/media/multiwindow-fedora-45-af3dcb4.png)
+
+*Two Android application windows presented concurrently.*
+
+## Working capabilities
+
+| Capability | Demonstrated scope |
+|---|---|
+| Android runtime | Android 16, x86_64, in a persistent user-managed runtime |
+| Desktop windows | Settings and Contacts, independent windows, KWin/Wayland presentation and frame release |
+| ARM applications | A deterministic ARM64 JNI fixture through Android Native Bridge using Digitalis/Berberis translation; selected application libraries also exercised |
+| Networking | Android virtual Ethernet with DNS and HTTPS; the accepted probe returned HTTP 204 over TLS 1.3 |
+| Audio | Android PCM transported through the AaaS PipeWire bridge; earlier Fedora diagnostic evidence includes human-confirmed audible tones |
+| Lifecycle | Start, stop, restart, fresh isolated install, uninstall, and owned-resource cleanup |
+
+These bounded results do not establish universal Android or ARM64 app
+compatibility, native ARM64 performance, every Android HAL, or support for every
+Linux distribution, compositor, GPU, or desktop session.
 
 ## Architecture
 
-Android 16 userspace runs in Linux namespaces as a persistent user service.
-The AaaS broker maps Android virtual displays to per-application Wayland
-presenters; the physical Wi-Fi device stays under the host network manager.
+Android userspace runs in Linux namespaces and uses the host kernel. Android
+Binder and system services manage applications. The AaaS Composer transport
+provides per-application Android displays; a Wayland presenter maps each app
+surface to a desktop toplevel and forwards input. Buffers use the implemented
+graphics transport paths; this project does not claim every path is zero-copy.
+The ARM64 path is dynamic Native Bridge translation to x86_64, not native ARM64
+execution. PipeWire and a virtual Ethernet helper bridge audio and networking.
 
 ```mermaid
 flowchart LR
-  CLI[AaaS CLI and desktop launchers] --> Broker[AaaS runtime broker]
-  Service[systemd user service] --> Android[Android 16 in Linux namespaces]
-  Broker --> Android
-  Android --> Composer[Composer virtual-display transport]
+  User[Linux user / desktop] --> CLI[AaaS CLI and user service]
+  CLI --> NS[Rootless Linux namespaces]
+  NS --> Android[Android 16 x86_64 userspace]
+  Android --> Binder[Binder and Android services]
+  Android --> Composer[Composer display transport]
   Composer --> Presenter[Per-app Wayland presenter]
-  Presenter --> KWin[KWin / Wayland desktop]
+  Presenter --> Wayland[KWin / Wayland compositor]
+  Android --> NB[Digitalis / Berberis Native Bridge]
+  NB --> ARM[Selected ARM64 native libraries]
   Android --> Audio[AaaS audio bridge]
-  Audio --> PipeWire[PipeWire host audio]
-  Android --> Net[Virtual Ethernet]
-  Net --> Slirp[slirp4netns]
-  Slirp --> Uplink[Host-managed network uplink]
+  Audio --> PW[Host PipeWire]
+  Android --> VETH[Virtual Ethernet]
+  VETH --> SLIRP[slirp4netns]
+  SLIRP --> Net[Host network connection]
+  Data[Persistent workspace and userdata] <--> Android
 ```
 
-**Publication status:** A public source or binary release is not available yet. The current engineering bundle contains an Android diagnostic image with SELinux authorization shims; it is not approved for untrusted APKs or public binary redistribution. See [current release readiness](docs/release-readiness-2026-11-11.md) and the [dependency/license review](docs/dependencies-and-licenses.md).
+See the [architecture guide](docs/architecture.md) for the component boundaries
+and the [portable release guide](docs/portable-development-release.md) for
+installation and lifecycle details.
 
-## Installation and use
+## Tested operating systems
 
-There is currently **no public installable release**. The local engineering bundle is diagnostic-only and is not cleared for redistribution. If you have an authorized local bundle, it must contain `install`, the Android rootfs, runtime components and integrity metadata; a source checkout alone does not provision the prepared Android image. From the extracted bundle root:
+- **Arch Linux x86_64**, KDE Plasma/KWin on Wayland: host acceptance.
+- **Fedora 45 x86_64**, KDE Plasma/KWin 6.8.2 on Wayland: tested in a disposable
+  VM. Fedora functional acceptance used an explicit temporary SELinux
+  permissive setting inside that VM, restored to Enforcing afterward. Fedora
+  SELinux Enforcing compatibility is not supported or claimed.
+
+Other distributions, compositors, kernels, GPU combinations, and desktop
+sessions are unverified. The Fedora test environment must not be interpreted as
+a recommendation to disable SELinux on a general-purpose machine.
+
+## Prerequisites
+
+The accepted test hosts used x86_64 Linux, a KDE/KWin Wayland session, user
+namespaces, BinderFS, FUSE, cgroup v2, DRM render-node access, and the host
+libraries and tools reported by `aaas doctor`. Audio requires an active PipeWire
+user session; the desktop window path requires a live Wayland session. Exact
+package names vary by distribution, and AaaS does not currently provide a
+universal distribution package or automatic dependency installer.
+
+The Android image and bundle are not included in this source repository. A
+source checkout alone cannot boot Android. The only accepted bundle is a local
+engineering artifact and is not cleared for redistribution. Do not obtain or
+redistribute third-party images outside their applicable terms.
+
+## Installation and quick start
+
+The following commands are for a user who already has authorized access to the
+exact local bundle. They do not imply that a public download exists. From the
+extracted bundle root:
 
 ```sh
 ./install --workspace "$HOME/.local/share/aaas/workspaces/android16" \
@@ -64,51 +140,126 @@ There is currently **no public installable release**. The local engineering bund
   --data-home "$HOME/.local/share/aaas"
 ```
 
-Use the installed executable explicitly if it is not on your PATH:
+Then use the installed CLI:
 
 ```sh
 AAAS="$HOME/.local/share/aaas/installations/android16/bin/aaas"
+"$AAAS" doctor
 "$AAAS" runtime install-service
 "$AAAS" runtime start
 "$AAAS" runtime status
-"$AAAS" apps install /path/to/trusted.apk
-"$AAAS" apps list
-"$AAAS" apps launch com.android.settings
-"$AAAS" apps running
-"$AAAS" logs
-"$AAAS" runtime stop
 ```
 
-The generated user service is `aaas-runtime.service`. Use `apps close SLOT` to close one window. Updates use `update /path/to/bundle`; `rollback` restores the retained prior runtime. `uninstall` preserves userdata by default. See the [installation guide](docs/portable-development-release.md); dated acceptance sections there describe earlier candidates, not automatic acceptance of every new bundle.
+`doctor` checks local host capabilities. A passing preflight does not certify
+security or unsupported hosts. The workspace contains persistent Android
+userdata; keep it on storage with adequate free space.
 
-## Implemented capabilities and boundaries
+## Running Android applications
 
-The runtime resolves Bubblewrap from system executable directories and
-validates its required options; user-local `bwrap` wrappers do not take
-precedence. `AAAS_BWRAP` is an explicit path override for a compatible ELF
-binary. Diagnostics can opt into an executable wrapper using
-`AAAS_BWRAP_TRACE_WRAPPER`; tracing is not enabled for normal launches.
+```sh
+"$AAAS" apps list
+"$AAAS" apps launch com.android.settings
+"$AAAS" apps launch com.android.contacts
+"$AAAS" apps running
+"$AAAS" apps close 1
+```
 
-- Persistent Android with zero-window idle; independent windows, input, focus and Android framebuffer resizing. The source keeps a Wayland toplevel alive across Composer reconnects during resize; Android may retain its previous frame briefly while rebuilding the resized display. This behavior is separately evidenced in the [dynamic-resize acceptance record](results/m1a/dynamic-resize-acceptance-2026-11-11.json).
-- Historical nine-application simultaneous-window acceptance on KWin.
-- ARM translation through the existing Native Bridge; tested applications do not establish universal ARM compatibility.
-- PipeWire audio, microphone, clipboard and Plasma notifications. [Human listening evidence](results/audio/human-listening-2026-11-10.json) records audible playback on the development laptop.
-- [Android networking](docs/android-networking.md) uses rootless slirp4netns and validated virtual Ethernet over the host connection. Android Wi-Fi hardware/SSIDs are unsupported.
-- Scoped shared storage is implemented. Gallery external-cache/project-quota compatibility remains limited.
-- Physical Bluetooth/peripheral mediation and other compositors have separate acceptance boundaries.
+Install a trusted APK with `"$AAAS" apps install /path/to/app.apk`. The tested
+runtime creates Linux desktop windows for supported Android apps; not every
+app's windowing, input, graphics, or service assumptions are compatible.
 
-Android SELinux enforcement is unavailable in the diagnostic profile. Use only trusted APKs. Android image provenance, redistribution licensing, public release authentication and production security require further closure. A manifest hash verifies integrity, not publisher identity.
+### ARM64 translation
+
+Android Native Bridge loads selected ARM64 libraries through the Digitalis
+Native Bridge implementation based on Berberis, translating ARM64 code for the
+x86_64 Android process. The M5 acceptance includes a deterministic ARM64 JNI
+fixture. This does not mean ARM64 code runs natively on the x86_64 host, promise
+native-equivalent performance, or guarantee arbitrary ARM64-only APKs.
+
+### Networking and audio
+
+Android networking uses a virtual Ethernet interface and `slirp4netns` to reach
+the host connection. DNS and HTTPS were verified. This does not expose physical
+Wi-Fi hardware or host SSIDs to Android. Audio is carried through the AaaS
+bridge to the user's PipeWire session. The accepted candidate transported PCM;
+human audibility was confirmed in an earlier Fedora diagnostic test, not as a
+new listening test for the final candidate.
+
+## Start, stop, restart, update, and uninstall
+
+```sh
+"$AAAS" restart
+"$AAAS" runtime stop
+"$AAAS" update /path/to/new-bundle
+"$AAAS" rollback
+"$AAAS" uninstall
+```
+
+Update and rollback commands exist in the CLI, but cross-version migration is
+not part of the accepted M5 evidence for this bundle. Uninstall preserves the
+workspace and Android userdata by default. To explicitly remove the enrolled
+workspace and userdata, use this only when that data is disposable:
+
+```sh
+"$AAAS" uninstall --remove-user-data
+```
+
+## Troubleshooting
+
+- **Missing host requirements:** run `"$AAAS" doctor` and install the
+  distribution's matching prerequisites. A passing report is not a security
+  certification.
+- **No app window or frame feedback:** launch from the active Wayland desktop
+  session. On Fedora test runs, unlock the test desktop and keep it awake; KWin
+  can suspend a toplevel and discard frame feedback while locked.
+- **PipeWire unavailable:** start the runtime from the user's graphical session
+  with PipeWire available. An SSH-only shell generally lacks the active
+  Wayland/PipeWire session environment; verify `WAYLAND_DISPLAY` and
+  `XDG_RUNTIME_DIR` before launch.
+- **Bubblewrap tracing wrapper interferes:** normal AaaS resolves a validated
+  system Bubblewrap binary instead of trusting user `PATH` ordering. Clear any
+  diagnostic `AAAS_BWRAP_TRACE_WRAPPER` or explicit `AAAS_BWRAP` override unless
+  intentionally debugging.
+- **Storage preflight fails:** use a persistent filesystem with sufficient
+  free capacity and keep the workspace reserve. Do not bypass the health or
+  reserve checks.
+- **Fedora SELinux:** Fedora compatibility was tested only with temporary
+  permissive mode inside the disposable acceptance VM. AaaS does not change
+  system security settings and does not support Fedora Enforcing mode; do not
+  apply a global permissive setting to a general-purpose host.
+
+## Security limitations
+
+The accepted image is a diagnostic Android userspace with SELinux compatibility
+shims. The runtime has **not** been approved as a security boundary for
+untrusted APKs. Fedora SELinux Enforcing support is deferred; Fedora was tested
+only with temporary permissive mode inside the isolated VM. Bundle checksums
+detect changes relative to a manifest but do not authenticate a publisher.
+Review the [security boundary documentation](docs/security/rootless-android-architecture.md)
+before any local use.
+
+## Known limitations
+
+- No general public binary download; binary redistribution is not cleared.
+- No project-level AaaS license has been selected or granted.
+- No Fedora SELinux Enforcing support or production security approval.
+- Android image assembly is not reproducible from the repository's complete
+  source graph.
+- Application, ARM64, HAL, compositor, and distribution compatibility is
+  bounded to the recorded tests.
+- Fedora desktop lock/suspend can prevent KWin frame feedback. Acceptance needs
+  an active, awake desktop session; this is a test-environment condition, not a
+  runtime workaround.
+- The optional traced keystore diagnostic exceeded a stop timeout; the normal
+  untraced runtime shutdown passed.
+- Binary provenance and component-by-component redistribution obligations
+  remain unresolved.
 
 ## Development and testing
 
-A source checkout does not include or provision the prepared Android image. See
-the [developer runtime guide](docs/developer-runtime.md) for dependencies,
-workspace preparation, image inputs, and component builds. The [M5 build-input
-guide](docs/m5-portable-development-release.md) documents the declared helper
-APK, signing, and audio-overlay inputs. The Android platform image is still a
-prepared diagnostic input rather than a complete reproducible AOSP build.
-
-Run the Python suite with:
+The [developer guide](docs/developer-runtime.md) describes the source checkout,
+host diagnosis, and build boundaries. The [M5 bundle guide](docs/m5-portable-development-release.md)
+describes declared build inputs. Run:
 
 ```sh
 ./aaas doctor
@@ -116,53 +267,31 @@ Run the Python suite with:
 python3 -m unittest discover -s tests -q
 ```
 
-The current source suite ran **574 tests, 6 skipped** after the runtime helper
-cleanup correction. Focused tests cover helper process-group ownership,
-shutdown, failure cleanup, repeated cycles, idempotency, and unrelated-process
-preservation. Exact-candidate results are in the
-[portable preview acceptance record](docs/release/portable-preview-af3dcb4-acceptance.json);
-supporting host and Fedora logs are retained under `results/release/` locally.
-Unit tests do not substitute for live runtime acceptance.
+The recorded source regression run completed **574 tests, 6 skipped**. Exact
+candidate runtime results are in the [acceptance JSON](docs/release/portable-preview-af3dcb4-acceptance.json)
+and detailed local evidence under `results/release/portable-preview-af3dcb4/`.
+That local evidence directory is not part of the public bundle. The
+[documentation index](docs/README.md) links architecture, installation,
+troubleshooting, and historical research.
 
-The [image assembly guide](docs/android-rootfs-reconstruction.md) describes the separate, incomplete upstream-image reconstruction path.
+## Roadmap
 
-Do not commit userdata, private keys or generated binaries. Preserve existing work and use focused Conventional Commits with relevant regression evidence.
+M5 functional acceptance for the portable developer preview is
+**PASSED/CLOSED** for bundle `43d04579ec874746a7c9da5152419bd6`. M6 documentation
+and distribution-readiness work records the current evidence and unresolved
+rights. Broader compositor support, Fedora SELinux Enforcing compatibility,
+security approval, reproducible Android image assembly, and binary
+redistribution clearance remain future work. See the [roadmap](docs/roadmap.md).
 
-## Update, removal, and troubleshooting
+## Third-party software and attribution
 
-On an installed local bundle, `aaas update /path/to/bundle` stages an update,
-`aaas rollback` restores the retained prior bundle, and `aaas uninstall` removes
-the installed runtime while preserving user data by default. These commands are
-documented in the [portable installation guide](docs/portable-development-release.md);
-they are not available as a public download while the bundle remains uncleared.
-For host and runtime diagnostics, run `aaas doctor`, `aaas runtime status`, and
-`aaas logs`. See [runtime troubleshooting](docs/developer-runtime.md) and the
-[candidate acceptance record](docs/release-readiness-2026-11-11.md).
-
-## Security and licensing
-
-The current profile is intended for trusted local development. SELinux enforcement
-is unavailable, APKs are not isolated to production standards, and bundle hashes
-provide integrity checks rather than publisher authentication. The repository
-has no AaaS project license grant. Upstream licenses for components do not grant
-rights to the AaaS source or to the diagnostic Android image. Public source and
-binary redistribution therefore remain unapproved.
-
-## Documentation
-
-- [Runtime configuration and host diagnosis](docs/developer-runtime.md)
-- [Portable install, update and uninstall](docs/portable-development-release.md)
-- [Graphics architecture](docs/m1e-architecture.md)
-- [Desktop integration](docs/milestones/m4-native-desktop-integration.md)
-- [ARM compatibility](docs/compatibility/arm64-applications.md)
-- [Networking](docs/android-networking.md)
-- [Persistent userdata](docs/storage/android-persistent-userdata.md)
-- [Storage capacity policy](docs/storage/workspace-capacity-policy.md)
-- [Security boundaries](docs/security/rootless-android-architecture.md)
-- [Dependency and license inventory](docs/dependencies-and-licenses.md)
-- [Local release readiness and candidate evidence](docs/release-readiness-2026-11-11.md)
-- [Candidate acceptance record](docs/release/local-prepublication-acceptance-52926e6-2026-11-11.json)
-- [Candidate bundle inventory](docs/release/sbom-engineering-52926e6.json)
-- [Security review](docs/release/security-review-2026-11-11.md)
-
-Historical milestone documents retain their dated findings. Machine-specific mount paths, device identifiers, UUIDs, and temporary paths in those records have been normalized to placeholders such as `$AAAS_WORKSPACE`, `$AAAS_WORKSPACE_DEVICE`, and temporary paths; those variables may need to be set before adapting old commands. The repository does not include a project-level license grant, and no project-wide license should be inferred from upstream component licenses. Source publication and binary redistribution are not approved; the [dependency inventory](docs/dependencies-and-licenses.md) records the unresolved rights and provenance gaps. No GitHub repository or public release has been configured.
+The bundle includes Android system-image content, native libraries, translation
+components, generated overlays, and host helpers. The available manifest does
+not establish complete per-file provenance or redistribution rights. Some
+embedded Digitalis materials carry Apache-2.0 notices, and related Refract
+source carries GPL-3.0-or-later terms; applicability to packaged binaries and
+required notices remain under review. See the candidate-specific
+[provenance and redistribution report](docs/dependencies-and-licenses.md),
+[SBOM](docs/release/sbom-engineering-af3dcb4.json), and
+[release notes](docs/release/v0.1.0-dev-preview.md). Do not treat this repository
+or bundle as licensed for redistribution by implication.
