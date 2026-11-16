@@ -3,11 +3,15 @@
 AaaS runs Android 16 applications in individual Wayland windows on x86_64 Linux. A persistent Android runtime owns shared desktop bridges; launching an application creates its display endpoint and presenter, and closing it releases those resources.
 
 This is an experimental **trusted development runtime**, not a production
-security sandbox. Host acceptance exists for the isolated `engineering-b736090`
-candidate. Fedora 45/KWin 6 functional tests have also succeeded with a
-temporary source overlay and SELinux permissive inside the disposable VM; that
-is not acceptance of an immutable Fedora release bundle or Fedora enforcing
-mode. A final cross-distribution bundle has not yet been produced.
+security sandbox. Candidate `engineering-af3dcb4` (bundle ID
+`43d04579ec874746a7c9da5152419bd6`) passed the recorded isolated host
+application, ARM64, audio-transport, network, lifecycle, and uninstall checks.
+The same immutable bundle boots on Fedora 45 and its applications and
+compatibility probes run, but Fedora Wayland frame presentation did not pass:
+the presenter released submitted buffers without receiving presentation
+feedback. The portable developer preview therefore remains **PARTIAL**, not
+closed. Fedora testing temporarily used SELinux permissive mode inside the
+disposable VM; Fedora enforcing-mode support is deferred.
 
 ## Host requirements
 
@@ -81,7 +85,7 @@ precedence. `AAAS_BWRAP` is an explicit path override for a compatible ELF
 binary. Diagnostics can opt into an executable wrapper using
 `AAAS_BWRAP_TRACE_WRAPPER`; tracing is not enabled for normal launches.
 
-- Persistent Android with zero-window idle; independent windows, input, focus and Android framebuffer resizing. The current source fix keeps a Wayland toplevel alive across Composer reconnects during resize; it has been exercised on the installed development runtime, but is not yet included in a newly built release bundle ([evidence](results/m1a/dynamic-resize-acceptance-2026-11-11.json)). Android may retain its previous frame briefly while rebuilding the resized display.
+- Persistent Android with zero-window idle; independent windows, input, focus and Android framebuffer resizing. The source keeps a Wayland toplevel alive across Composer reconnects during resize; Android may retain its previous frame briefly while rebuilding the resized display. This behavior is separately evidenced in the [dynamic-resize acceptance record](results/m1a/dynamic-resize-acceptance-2026-11-11.json).
 - Historical nine-application simultaneous-window acceptance on KWin.
 - ARM translation through the existing Native Bridge; tested applications do not establish universal ARM compatibility.
 - PipeWire audio, microphone, clipboard and Plasma notifications. [Human listening evidence](results/audio/human-listening-2026-11-10.json) records audible playback on the development laptop.
@@ -108,11 +112,13 @@ Run the Python suite with:
 python3 -m unittest discover -s tests -q
 ```
 
-The current source suite ran **569 tests: 563 passed, 6 skipped** on
-2026-11-16. The Bubblewrap source correction is committed, but no new bundle
-was built because available root space is below the configured reserve. See
-the [packaging and acceptance record](results/release/bubblewrap-path-2026-11-16.json).
-Unit tests do not establish live graphical, audio, or network acceptance.
+The current source suite ran **574 tests, 6 skipped** after the runtime helper
+cleanup correction. Focused tests cover helper process-group ownership,
+shutdown, failure cleanup, repeated cycles, idempotency, and unrelated-process
+preservation. Exact-candidate results are in the
+[portable preview acceptance record](docs/release/portable-preview-af3dcb4-acceptance.json);
+supporting host and Fedora logs are retained under `results/release/` locally.
+Unit tests do not substitute for live runtime acceptance.
 
 The [image assembly guide](docs/android-rootfs-reconstruction.md) describes the separate, incomplete upstream-image reconstruction path.
 

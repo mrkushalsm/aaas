@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "candidate": {
+    "source_commit": "af3dcb4711d13197826942f0a1c7f2b1698589ec",
+    "bundle": "engineering-af3dcb4",
+    "path": "/home/mrkus/.local/share/aaas-release-artifacts/engineering-af3dcb4",
+    "bundle_id": "43d04579ec874746a7c9da5152419bd6",
+    "artifact_count": 8795,
+    "manifest_sha256": "d638937b4bcb16f550b2e204175c70ec247190ca10b6e7229447560909db2a64",
+    "integrity": "PASS",
+    "runtime_dependency_closure": "PASS",
+    "checked_inputs": 26,
+    "immutable": true
+  },
+  "regression_tests": {
+    "full_python_suite": "574 tests, 6 skipped; suite completed successfully",
+    "focused_lifecycle_coverage": [
+      "normal shutdown",
+      "restart and repeated cycles",
+      "failed startup cleanup",
+      "helper process group ownership",
+      "idempotent cleanup",
+      "unrelated process preservation"
+    ]
+  },
+  "host": {
+    "distribution": "Arch Linux x86_64, KDE Plasma/KWin Wayland",
+    "fresh_install": "PASS",
+    "installed_candidate_integrity": "PASS",
+    "android_running": "PASS",
+    "settings_contacts": "PASS",
+    "first_frame": "PASS; presenter summaries report presented frames",
+    "arm64_berberis": "PASS; deterministic M3 ARM64 Native Bridge fixture signature observed",
+    "audio_pipewire": "PASS; 48 kHz PCM stream delivered, 2,231,040 bytes in captured acceptance session",
+    "network_dns_https": "PASS; DNS resolved and HTTPS returned 204 over TLS 1.3",
+    "restart_shutdown": "PASS; untraced persistent service stop completed and subsequent start/stop completed",
+    "resource_cleanup": "PASS for normal runs; AaaS helper process group, service and scope empty after STOPPED",
+    "uninstall": "PASS; isolated installation and service removed; workspace and userdata preserved",
+    "trace_diagnostic_shutdown": "FAIL; optional AAAS_KEYSTORE_TRACE run exceeded the 45-second unit stop timeout and systemd killed the diagnostic scope; temporary trace setting removed; subsequent untraced shutdown passed",
+    "evidence": "results/release/portable-preview-af3dcb4/host"
+  },
+  "fedora": {
+    "distribution": "Fedora 45 KDE, KWin 6.8.2 Wayland",
+    "kernel": "7.2.11-300.fc45.x86_64",
+    "fresh_install": "PASS",
+    "installed_candidate_integrity": "PASS",
+    "android_running": "PASS",
+    "settings_contacts": "PASS; activities/windows launched",
+    "first_frame": "FAIL; exact-candidate presenter session submitted and released 105 buffers, reported 0 presented frames; available VM screenshot is black",
+    "arm64_berberis": "PASS; deterministic M3 ARM64 Native Bridge fixture signature observed",
+    "audio_pipewire": "PASS transport; 48 kHz S16_LE stream opened and 2,042,880 PCM bytes delivered; no new human listening confirmation",
+    "network_dns_https": "PASS; DNS resolved and HTTPS returned 204 over TLS 1.3",
+    "restart_shutdown": "PASS; tested session reached STOPPED",
+    "resource_cleanup": "PASS in tested normal sessions; no AaaS runner/helper processes remained and test scope was inactive",
+    "selinux_test_mode": "Permissive only during disposable-VM acceptance; restored to Enforcing afterward",
+    "uninstall": "NOT TESTED",
+    "evidence": "results/release/portable-preview-af3dcb4/fedora"
+  },
+  "limitations": [
+    "Fedora exact-candidate Wayland frame presentation is not accepted because no frames received presentation feedback.",
+    "The optional trace-enabled persistent service exceeded its stop timeout; untraced service cleanup passed.",
+    "Fedora SELinux enforcing-mode compatibility and runtime security approval are deferred.",
+    "Binary redistribution clearance remains deferred.",
+    "The acceptance does not establish universal Android application or ARM64 compatibility."
+  ],
+  "overall": "M5 PARTIAL — Fedora frame presentation remains failed; portable preview not closed"
+}

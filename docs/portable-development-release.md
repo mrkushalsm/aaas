@@ -1,9 +1,13 @@
 # Portable Android development bundle
 
-**Current release state:** This guide describes installed-bundle operations;
-it is not an assertion that a public bundle is currently available. The latest
-candidate and its open acceptance gates are recorded in
-[`release-readiness-2026-11-11.md`](release-readiness-2026-11-11.md).
+**Current engineering candidate:** `engineering-af3dcb4`, bundle ID
+`43d04579ec874746a7c9da5152419bd6`, built from source commit
+`af3dcb4711d13197826942f0a1c7f2b1698589ec`. Its manifest SHA-256 is
+`d638937b4bcb16f550b2e204175c70ec247190ca10b6e7229447560909db2a64`.
+Host acceptance passed. Fedora reached Android `RUNNING` and passed ARM64,
+network, audio-transport, and shutdown checks, but actual Wayland presentation
+feedback was not observed on Fedora. Portable preview acceptance remains
+**PARTIAL**. See the [machine-readable acceptance record](release/portable-preview-af3dcb4-acceptance.json).
 
 This directory bundle is for local, trusted development use. It is not a
 production-secure Android environment and has no signed release provenance.
@@ -81,7 +85,10 @@ Nine-window multiwindow operation and M4 desktop bridges were accepted on the
 existing runtime before this packaging pass; they were not all rerun against
 the fresh profile in this acceptance.
 
-## Current release limitations
+## Historical release limitations — 2026-11-11
+
+The following findings describe the then-current candidate and are retained as
+historical evidence, not as the state of `engineering-af3dcb4`.
 
 - The newest bundle's integrity and 24-input runtime closure pass, but it has
   not completed fresh installed boot acceptance. Its update was automatically
@@ -106,7 +113,10 @@ See [current release readiness](release-readiness-2026-11-11.md) and the
 [dependency/licensing inventory](dependencies-and-licenses.md) before using or
 distributing a candidate.
 
-## Cross-distribution packaging follow-up — 2026-11-16
+## Earlier cross-distribution packaging follow-up — 2026-11-16
+
+This section records the state before `engineering-af3dcb4` was built; it is
+superseded by the exact-candidate acceptance record below.
 
 The isolated `engineering-b736090` candidate remains the last packaged
 candidate. Its Fedora functional testing used a temporary compatibility
@@ -135,4 +145,42 @@ rootfs and workspace payload alone occupy 3,525,828,608 allocated bytes. A full
 copy candidate and isolated host installation cannot be created without
 further consuming reserved capacity, so no final bundle was built and no
 reserve was bypassed. Cross-distribution acceptance of a single final bundle
-remains open.
+remained open at that point.
+
+## Lifecycle-corrected candidate acceptance — 2026-11-16
+
+The immutable `engineering-af3dcb4` bundle contains the process ownership fix
+from `af3dcb4`: `slirp4netns` now remains in the AaaS runtime process group,
+and shutdown waits for that owned group to empty before reporting completion.
+The full Python suite passed **574 tests with 6 skipped**. Bundle integrity
+passed for 8,795 artifacts and runtime dependency closure passed for 26
+declared inputs. The manifest SHA-256 is recorded above.
+
+On the original host, a fresh isolated install reached Android `RUNNING`;
+Settings, Contacts, the network probe, the audio probe, and the ARM64 JNI
+fixture opened. Presenter counters balanced imports, submissions, and releases
+with zero outstanding ownership and nonzero presented frames. Android reported
+DNS resolution and HTTPS 204 over TLS 1.3. The audio bridge delivered PCM
+through PipeWire. Berberis logged the deterministic `M3 ARM64 Native Bridge
+PASS mask=255` result. Normal persistent-runtime stop, a subsequent start/stop,
+and supported isolated uninstall completed; workspace/userdata were preserved.
+
+On Fedora 45/KWin 6.8.2, the same bundle installed and reached `RUNNING`.
+Settings/Contacts and the ARM64, networking, and audio probes launched. The
+ARM64 fixture emitted its deterministic pass signature; networking returned
+HTTPS 204 over TLS 1.3; the PipeWire bridge closed after receiving PCM. The
+presenter released every submitted buffer but recorded **0 presented frames**
+in the retained exact-candidate session, and the available screenshot is black.
+Fedora frame presentation therefore remains a failed acceptance gate. Runtime
+testing used explicitly temporary SELinux permissive mode inside the disposable
+VM; SELinux was restored to Enforcing afterward. This is not Fedora enforcing
+compatibility or a recommended general-user configuration.
+
+An opt-in `AAAS_KEYSTORE_TRACE=1` diagnostic run exceeded the disposable
+systemd service's stop timeout under tracing load. The temporary setting was
+removed, and the following untraced service cycle stopped cleanly. This traced
+run is recorded as a diagnostic limitation; it is not counted as a passing
+shutdown. Fedora SELinux enforcing support, runtime security approval, and
+binary redistribution clearance remain deferred.
+
+Detailed machine results: [`portable-preview-af3dcb4-acceptance.json`](release/portable-preview-af3dcb4-acceptance.json).
