@@ -6,15 +6,14 @@ license. It does not relicense third-party material, research/media assets, the
 Android image, or the prebuilt runtime. File-specific notices take precedence;
 see [third-party source notices](../THIRD_PARTY_NOTICES.md).
 
-This scope follows the owner's authorization. No file-by-file copyright
-assignment is implied. The source review found AaaS implementations and tests,
-generated AIDL/AOSP interfaces, upstream protocol descriptions, MIT-noticed
-audio files, and SwiftShader patches. Origins for some generated/imported files
-and the historical author/path privacy review remain incomplete. Do not treat
-the repository history as cleared for public exposure until those issues are
-reviewed.
+The owner authorized Apache-2.0 for eligible AaaS-authored code they own; this
+does not imply a file-by-file copyright assignment or cover third-party files.
+The owner also approved the preserved historical identities/paths and chose to
+retain the research report. This final source review found no high-confidence
+credential or private-key patterns in 2,340 reachable Git blobs. This is a
+bounded scan, not a guarantee against every form of sensitive information.
 
-The generated AIDL headers under `experiments/m1b/composer_aaas/include/aidl/`
+The generated Composer AIDL headers under `experiments/m1b/composer_aaas/include/aidl/`
 identify QPR2 `hardware-interfaces` inputs in their generator comments. Those
 paths match the pinned Android graphics source candidate:
 `platform/hardware/interfaces` revision
@@ -28,11 +27,40 @@ The manifest also pins the referenced build-tools and AIDL compiler source
 projects. No generation receipt captures the exact input/tool binary hashes
 used for the historical generation, so a bit-for-bit source-to-output rebuild
 is not claimed. These are AOSP-derived generated interfaces, not original AaaS
-code covered by the root license. `docs/research-report.pdf` identifies its author as
-“ChatGPT Deep Research” in PDF metadata and is not covered by the root Apache
-grant; text-based privacy checks found no local home/mount path, email address,
-IP address, or credential-label matches. The owner should still decide whether
-the report's origin and content are suitable for public retention.
+code covered by the root license. The separate allocator AIDL generated files
+name three source inputs under the same pinned `hardware/interfaces` revision;
+all three were fetched from that exact revision and verified to carry AOSP
+copyright and Apache-2.0 headers. The generated outputs are upstream-derived,
+not AaaS-owned, and no historical generation receipt records the actual input
+or tool binary hashes. The AOSP Binder/JNI headers reviewed in the source tree
+retain their file-level Apache notices. The reduced Mapper `android/rect.h`
+and `cutils/native_handle.h` headers now carry restored AOSP copyright and
+Apache notices, verified against the Android 16 pinned `frameworks/native` and
+`system/core` source revisions.
+
+The SwiftShader project is Apache-2.0. The coherent diagnostic patch is tied by
+the engineering record to upstream revision
+`cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5`; the earlier Android-buffer patch
+has no exact base revision recorded. That gap limits historical reproduction,
+but the files it patches are SwiftShader Apache-2.0 source and no separate
+incompatible patch origin was found. See [third-party notices](../THIRD_PARTY_NOTICES.md).
+
+`docs/research-report.pdf` is retained by owner decision and is not covered by
+the root Apache grant. Its metadata identifies ChatGPT Deep Research; review
+found 36 pages of cited technical analysis, no embedded raster images, and no
+personal paths, email addresses, IP addresses, or credentials. Metadata alone
+does not establish authorship or a rights defect. The report has no separate
+license notice; the owner's instruction authorizes retention, and no concrete
+third-party or confidentiality issue was identified in this review. The three
+selected screenshots are genuine accepted-run captures, contain no visible
+personal contact data, and likewise remain outside the Apache source grant.
+OpenAI's [individual Terms of Use](https://openai.com/policies/terms-of-use/)
+effective January 1, 2026 state that, as between OpenAI and the user and to the
+extent permitted by law, the user owns Output and OpenAI assigns any interest
+it may have. If the PDF metadata reflects output from the owner's individual
+account under those terms, they support retaining the generated report; they
+do not grant rights to third-party source material included in the user's
+inputs. This is a documented basis, not a legal opinion.
 
 ## Android image and bundle
 
@@ -54,16 +82,10 @@ open-source components under their own licenses.
 
 ## Owner and maintainer actions
 
-1. Confirm ownership of the AaaS-authored source covered by Apache-2.0,
-   including employer or contributor rights where relevant.
-2. Review the generated/imported files whose exact source revision or
-   modification history is not established.
-3. Decide whether the existing author identity and machine-specific history
-   may be published. No history rewriting has been done.
-4. Obtain qualified legal interpretation of the SDK agreement's application to
+1. Obtain qualified legal interpretation of the SDK agreement's application to
    this modified, shared-kernel Android runtime before distributing the image
    or bundle.
-5. Complete the component/notice mapping for the immutable bundle before any
+2. Complete the component/notice mapping for the immutable bundle before any
    binary release.
 
 The source license does not authorize distribution of the Android SDK image or

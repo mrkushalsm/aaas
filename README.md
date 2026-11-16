@@ -32,8 +32,9 @@ and a substantial portion of bundled executable provenance have not been
 cleared for public redistribution. Apache-2.0 now applies to eligible original
 AaaS source code the project owner is authorized to license. It does not cover
 independently licensed files, the Android SDK-derived image, or the accepted
-prebuilt runtime. Source-origin and Git-history privacy review still block a
-public source release; nothing has been published.
+prebuilt runtime. The cleaned source tree and its notices have completed a
+focused publication-safety review; the owner's approved historical identities
+and paths are retained. No source release has been published.
 
 ### Demonstration
 
@@ -135,8 +136,11 @@ The root [Apache-2.0 license](LICENSE) applies only to eligible original AaaS
 source code that the project owner is authorized to license. Files with their
 own notices retain those terms; see [third-party notices](THIRD_PARTY_NOTICES.md).
 The Apache grant does not cover the Android SDK-derived image or accepted
-prebuilt bundle. Source-origin and historical privacy reviews remain open, so
-the source repository is not yet cleared for public publication.
+prebuilt bundle. Generated AIDL, AOSP headers, protocol definitions, and
+SwiftShader patches retain their upstream terms; see the notice index. The
+owner-approved historical identities and paths remain in Git history. The
+separately retained research report and demo screenshots are not licensed by
+the root Apache grant.
 
 ## Installation and quick start
 
@@ -298,9 +302,9 @@ and distribution-readiness work records the current evidence and unresolved
 rights. Broader compositor support, Fedora SELinux Enforcing compatibility,
 security approval, reproducible Android image assembly, and binary
 redistribution clearance remain future work. Apache-2.0 is limited to eligible
-original AaaS source code; public source release still requires source-origin
-and historical privacy review. See the [roadmap](docs/roadmap.md), [licensing
-and external-input status](docs/dependencies-and-licenses.md), and [bundle
+original AaaS source code. Source publication preparation is complete, while
+the accepted runtime remains uncleared for binary distribution. See the
+[roadmap](docs/roadmap.md), [licensing and external-input status](docs/dependencies-and-licenses.md), and [bundle
 redistribution decision](docs/release/bundle-redistribution-decision.md).
 
 ## Third-party software and attribution

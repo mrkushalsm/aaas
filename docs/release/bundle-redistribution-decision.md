@@ -105,7 +105,7 @@ therefore not currently a supported, lawful-and-working substitute.
 | **A + D: Apache source plus unchanged bundle after full clearance** | **Lowest engineering effort and best preservation of today's install experience if cleared.** The current bundle cannot be uploaded today. First resolve SDK terms and map/clear every included component; keep the bundle unchanged if review permits. |
 | **A + C + D: replace only components that cannot be redistributed** | No limited replacement set is established. The SDK image is the runtime's core and thousands of files are involved; the 16 changed base files are only the modifications, not the complete image. Replacing selected components may be feasible after a component map, but compatibility is unverified. |
 | **B + D: users obtain Android inputs and assemble locally** | Not ready. A user download does not answer SDK usage rights, and the supported transformation recipe is incomplete. No AOSP rebuild is proposed for this milestone. |
-| **D initially: source-only contributors' repository** | The new Apache license prepares eligible AaaS code, but source-origin questions, historical privacy findings, unreviewed tracked images/PDF, and unclear ownership for some imported/generated files remain. Public source publication is not yet safe to declare complete. |
+| **D initially: source-only contributors' repository** | The cleaned source tree has been reviewed separately: eligible AaaS-owned code is Apache-2.0, imported/generated source retains its verified file-level terms, owner-approved history disclosures are retained, and the owner-selected PDF/screenshots remain outside the root license. No concrete source-publication blocker was found in the final review. This does not clear the binary bundle. |
 
 ## Exact decisions and evidence still needed
 
@@ -117,33 +117,33 @@ therefore not currently a supported, lawful-and-working substitute.
    any required notices/source offers.
 3. Source/build provenance for the 16 modified base files and a consistent
    provenance record for the generated installer wrappers.
-4. Review the retained author identity/email before public publication. The
-   history cleanup preserved both exactly, as requested.
-5. The history cleanup removed generated `results/` and `artifacts/` trees and
+4. The history cleanup removed generated `results/` and `artifacts/` trees and
    unselected release screenshots. It retained only the three selected M5
-   screenshots in `docs/media/`; `docs/research-report.pdf` remains for manual
-   provenance/privacy review.
+   screenshots in `docs/media/`; `docs/research-report.pdf` remains by owner
+   choice. The final source review found no concrete privacy or third-party
+   content concern in these retained media, which are not covered by the root
+   Apache license.
 
 Until these are resolved, the unchanged bundle is **not approved for public
 upload**. The lowest-disruption route is to seek a rights interpretation for
 the exact existing SDK-derived bundle first; do not rebuild or substitute
 components speculatively.
 
-## Source-repository publication blockers
+## Source-repository review status
 
 The source-only history filter removed the `results/` and `artifacts/` trees,
 three large generated SBOM inventories, a generated documentation audit, a
 superseded release draft, and one-time source-export review files. It retained
-the generated AIDL headers used by the current build, along with their
-existing provenance/licensing uncertainty. High-confidence credential
-patterns were not found in the prefilter scan or the post-filter scan of 2,286
-reachable blob objects. This is not a legal review or a guarantee against
-every form of sensitive data. Machine-specific diagnostics in the removed
-output trees are no longer reachable from the public clone's refs. The
-retained commit identities and emails are unchanged. Three selected M5
-screenshots remain under `docs/media/`; the research PDF is retained for
-manual review. Detailed redacted path and commit mapping is held locally by the
-maintainer, not in this repository.
+the generated AIDL headers used by the current build. The final source review
+verified Composer and allocator AIDL inputs against pinned Android 16 QPR2
+`hardware/interfaces` sources, checked file-level AOSP/Wayland/SwiftShader
+notices, and scanned 2,340 reachable Git blobs for high-confidence credential
+patterns with no matches. This bounded scan is not a guarantee against every
+form of sensitive data. Historical identities and machine paths are retained
+with authentic dates under explicit owner approval. The selected screenshots
+and research PDF were reviewed and retained by owner decision; none is covered
+by the root Apache grant. Detailed history mapping remains in the local review
+archive, not in this repository.
 
 The M5 tag name is retained and now points to the rewritten equivalent of its
 original acceptance commit; its commit hash necessarily changed. The original
