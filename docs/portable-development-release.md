@@ -11,6 +11,12 @@ uninstall. Portable developer-preview engineering acceptance is
 and binary redistribution clearance remain separate, deferred decisions. See
 the [machine-readable acceptance record](release/portable-preview-af3dcb4-acceptance.json).
 
+This page's dated acceptance sections below are historical records for their
+respective candidates. The current exact-candidate tests are summarized in the
+acceptance record above. In particular, the earlier update/rollback success
+belongs to its named earlier candidate; cross-version migration is not claimed
+as an `af3dcb4` acceptance gate.
+
 This directory bundle is for local, trusted development use. It is not a
 production-secure Android environment and has no signed release provenance.
 
@@ -44,7 +50,9 @@ aaas bundle install /path/to/portable-development-bundle \
   --data-home "$HOME/.local/share/aaas"
 ```
 
-The installed CLI provides persistent runtime and application controls:
+The installed CLI provides persistent runtime and application controls. The
+current command names are `aaas runtime start/status/stop` and top-level
+`aaas restart`; application control is through `aaas apps`:
 
 ```sh
 systemctl --user start aaas-runtime.service
@@ -54,10 +62,12 @@ aaas apps launch com.android.settings
 aaas apps install /path/to/trusted.apk
 aaas apps close SLOT
 aaas runtime stop
+aaas restart
 ```
 
-Updates stage and verify a new bundle before activation. The prior immutable
-runtime is retained for rollback; uninstall removes installed files and owned
+The CLI exposes update and rollback commands. They stage/restore the installed
+release family, but cross-version migration was not part of the exact-candidate
+`af3dcb4` acceptance record. Uninstall removes installed files and owned
 desktop/service entries while preserving the workspace and Android userdata by
 default:
 

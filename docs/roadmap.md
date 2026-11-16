@@ -2,6 +2,15 @@
 
 **Authority:** This is the canonical AaaS product roadmap. Its Plan A milestones govern future development. Plan B and Plan C are retained as supporting references and must not independently redefine milestone numbering or completion criteria.
 
+**Status clarification (2026-11-16):** The accepted `v0.1.0-dev-preview`
+portable-runtime tranche is functionally **PASSED/CLOSED** for bundle
+`43d04579ec874746a7c9da5152419bd6`; its exact-candidate record is
+[`portable-preview-af3dcb4-acceptance.json`](release/portable-preview-af3dcb4-acceptance.json).
+That release acceptance is separate from the canonical Plan A M5 graphics
+optimization milestone below, which remains open. M6 documentation has been
+prepared, but public source licensing and binary redistribution are not
+cleared, so public distribution remains open.
+
 AaaS runs unmodified Android applications as independently manageable native Linux desktop windows, with ARM64 application compatibility, host integration, on-demand operation, and efficient resource use.
 
 ## M0 — Architecture and feasibility
@@ -85,5 +94,5 @@ Later on 2026-11-08, the retained original Android 16 SDK r02 archive was assemb
 | M2 | PASS/CLOSED; see [M2 acceptance](milestones/m2-independent-desktop-windows.md). |
 | M3 | PASS/CLOSED for the bounded Android 16 Native Bridge feasibility proof; arbitrary ARM64 app compatibility is not claimed. |
 | M4 | PARTIAL/OPEN. The 2026-11-08 integrated campaign and historical M2/M3/M4 evidence remain preserved, but resumed acceptance has not completed all required integrations in the relocated installation. Headless shared-storage and MediaStore restart checks passed, and a separate pixman/`wl_shm` protocol lifecycle test passed without DRM access; Android/DMA-BUF presentation and host compositor safety remain unverified. See the [shared-storage evidence](../results/m4/headless-shared-storage-2026-11-09.json), [isolated graphics evidence](../results/m4/graphics-software-isolated-2026-11-09.json), [host graphics incident](incidents/host-graphics-impact-2026-11-09.md), and [historical M4 acceptance](../results/m4/acceptance.json). |
-| M5 | PARTIAL/OPEN; graphics performance and historical tail-latency work remain separate. |
-| M6 | PARTIAL/OPEN; KWin/Weston/Sway portability is not fully accepted; Hyprland/Mutter unverified. |
+| M5 | Plan A graphics optimization remains PARTIAL/OPEN; the separate portable developer-preview acceptance tranche is PASS/CLOSED. |
+| M6 | Documentation/readiness guidance is prepared; public source license and binary redistribution remain uncleared. Broader compositor support remains partial or unverified. |

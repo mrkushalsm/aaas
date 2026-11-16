@@ -1,4 +1,12 @@
-# Portable developer runtime foundation
+# Developer runtime and source checkout
+
+> **Scope note (2026-11-16):** This file began as a historical source-checkout
+> and provisioning guide. Its older statements that a fresh runtime cannot
+> start describe the earlier checkout/provisioning state, not the accepted
+> immutable `engineering-af3dcb4` bundle. The accepted local bundle has separate
+> host/Fedora functional evidence in the [M5 acceptance record](release/portable-preview-af3dcb4-acceptance.json).
+> It is not a public download, and this guide does not make the Android image
+> reproducible from source.
 
 This work introduces a user-local configuration layer and the `aaas` command
 while preserving the documented M4 runtime. It is a scoped engineering tranche
@@ -12,11 +20,14 @@ command list. After setup, a user-local symlink can be installed with
 `./aaas setup --install-command`; the shell must include `~/.local/bin` in
 `PATH`.
 
-The CLI includes `doctor`, `setup`, `status`, `start`, `stop`, `restart`,
-`apps list`, `apps launch`, `apps install`, `apps uninstall`, `images list`,
-`images inspect`, `verify`, `logs`, and `version`. `--json` is available for
-diagnostic and inspection output. `doctor`, `status`, `verify`, `images list`,
-and `version` are read-only and do not download files.
+The current CLI includes `doctor`, `setup`, `status`, `start`, `stop`,
+`restart`, `apps list`, `apps launch`, `apps running`, `apps close`,
+`apps install`, `apps uninstall`, `images list`, `images inspect`, `verify`,
+`logs`, `update`, `rollback`, `uninstall`, and `version`. Persistent service
+commands are `runtime install-service`, `runtime start`, `runtime status`, and
+`runtime stop`; restart is the top-level `aaas restart` command. `--json` is
+available for supported diagnostic and inspection output. Verify exact flags
+with `./aaas help` because individual subcommands do not all share flags.
 
 ## Persistent graphical development runtime
 
@@ -52,7 +63,12 @@ this local development profile. Run trusted APKs only; this is not production
 security approval. The generated systemd unit currently invokes the checkout,
 so keep that checkout in place while using this service.
 
-## Restricted local diagnostic installation
+## Historical restricted local diagnostic installation
+
+The workflow below documents the earlier `dev` diagnostic profile and is not
+the accepted bundle's normal app-window workflow. Use it only when deliberately
+working with that historical profile; do not infer release acceptance from a
+successful command here.
 
 The historical M4 installation can be operated only through the explicit
 `dev` commands. For example, `aaas dev verify` checks the installed local
@@ -153,12 +169,12 @@ provide a SHA-256. `images inspect` therefore reports archive identity and
 layout separately from rootless runtime compatibility. It never treats matching
 build properties as proof of trusted provenance.
 
-As a result, a fresh checkout can diagnose the host and configure a safe
-workspace, but it cannot yet provision a complete runnable Android 16
-installation. `verify`, `start`, and package-management operations fail closed
-when provenance or required runtime artifacts are absent. This is the remaining
-release blocker for the portable developer runtime, not a change to M4's
-accepted installed-runtime evidence.
+As recorded during the 2026-11-08 source-provisioning assessment, a fresh
+checkout could diagnose the host and configure a workspace but could not
+provision the prepared diagnostic Android image. This statement concerns
+source-only provisioning. It does not contradict the later locally assembled
+and accepted `engineering-af3dcb4` bundle, which contains a prepared image but
+is not cleared for public distribution.
 
 The M1B native allocator and Composer Makefiles default `WORKSPACE_ROOT` to
 `$XDG_DATA_HOME/aaas/workspace` (or `$HOME/.local/share/aaas/workspace` when
