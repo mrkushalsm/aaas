@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproducible AaaS source or runtime issue
+title: ""
+body:
+  - type: input
+    id: revision
+    attributes:
+      label: Source revision or bundle identity
+      placeholder: Commit hash or bundle ID
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Linux distribution, kernel, desktop, and session
+      placeholder: Distribution/version, kernel, KWin/Wayland, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce and expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior and relevant redacted logs
+      description: Remove credentials, personal data, and private host paths before posting.
+    validations:
+      required: true

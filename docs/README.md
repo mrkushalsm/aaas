@@ -3,6 +3,8 @@
 ## Getting started
 
 - [Root README](../README.md): project overview, tested scope, quick start, and limitations.
+- [Contributing](../CONTRIBUTING.md): source tests, provenance expectations, and license boundary.
+- [Third-party source notices](../THIRD_PARTY_NOTICES.md): known file-level terms and attribution guidance.
 - [Portable development release guide](portable-development-release.md): local bundle install, CLI operations, update and uninstall behavior.
 - [Developer runtime guide](developer-runtime.md): source checkout, host diagnosis, and image/build boundaries.
 - [Troubleshooting](developer-runtime.md#host-diagnosis): host checks and runtime constraints.
@@ -20,6 +22,7 @@
 - [v0.1.0-dev-preview notes](release/v0.1.0-dev-preview.md): exact candidate, acceptance, and release limitations.
 - [M5 acceptance JSON](release/portable-preview-af3dcb4-acceptance.json): machine-readable exact-candidate results.
 - [Licensing and external runtime inputs](dependencies-and-licenses.md): project-license status, upstream notices, and Android image limitations.
+- [Bundle redistribution decision](release/bundle-redistribution-decision.md): evidence-based decision for the accepted binary.
 - [Portable release guide](portable-development-release.md): install lifecycle and historical acceptance chronology.
 
 ## Development and historical records
