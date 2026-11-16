@@ -281,7 +281,11 @@ M5 functional acceptance for the portable developer preview is
 and distribution-readiness work records the current evidence and unresolved
 rights. Broader compositor support, Fedora SELinux Enforcing compatibility,
 security approval, reproducible Android image assembly, and binary
-redistribution clearance remain future work. See the [roadmap](docs/roadmap.md).
+redistribution clearance remain future work. Source-only publication is also
+blocked on an owner-approved project license, third-party review, and a
+decision about historical Git metadata; the local export tool fails closed
+until then. See the [roadmap](docs/roadmap.md) and
+[source-publication readiness report](docs/source-publication-readiness.md).
 
 ## Third-party software and attribution
 

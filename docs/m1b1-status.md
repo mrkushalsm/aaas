@@ -1,5 +1,9 @@
 # AaaS M1B.1 Status: Android 16 Runtime Boot and Composer3 Integration Boundary
 
+> Publication-hygiene note: account names and the host label in two command
+> examples are normalized to placeholders; technical results and numeric
+> subuid/subgid ranges are unchanged.
+
 ## 1. Executive Summary
 
 Milestone **M1B.1** investigated whether the verified Android 16 (API 36, userdebug) x86_64 SDK image can serve as the foundation for a shared-kernel Android-as-a-Service (AaaS) container runtime, and audited the AIDL Composer3 v4 integration boundary.
@@ -10,9 +14,9 @@ All investigations were conducted strictly without building full AOSP, without v
 1. **Dynamic Partition Extraction**: Developed `scripts/extract_super_partitions.py` to carve out raw ext4 partitions (`system`, `vendor`, `product`, `system_ext`) and erofs (`system_dlkm`) from the LP super image without native Android tools or root privileges.
 2. **APEX Architecture Discovery**: Identified that Android 16 moves all core Bionic libraries (`libc.so`, `libm.so`, `libdl.so`) and the ELF dynamic interpreter (`/system/bin/linker64`) into `/apex/com.android.runtime/`. Developed `scripts/extract_all_apexes.py` to unpack all 35 APEX/CAPEX packages, enabling standard Android binaries to execute directly on the Linux host kernel.
 3. **Host Kernel Binder Verification**: Audited host Linux kernel 7.2.9: discovered `CONFIG_ANDROID_BINDER_IPC_RUST=y`, `CONFIG_ANDROID_BINDER_DEVICES=""`, and `binderfs` registered as `nodev binder`. Verified that unprivileged user namespaces can mount `binderfs` and dynamically instantiate `/dev/binder`, `/dev/hwbinder`, and `/dev/vndbinder` via `BINDER_CTL_ADD` (`0xc1086201`).
-4. **Android Bionic & Shell Execution**: Successfully ran Android 16 `/system/bin/sh` and `toybox` (`Linux KushalSM-Laptop 7.2.9-arch1-1 x86_64 Toybox`) inside an unprivileged Bubblewrap (`bwrap`) container.
+4. **Android Bionic & Shell Execution**: Successfully ran Android 16 `/system/bin/sh` and `toybox` (`Linux <host> 7.2.9-arch1-1 x86_64 Toybox`) inside an unprivileged Bubblewrap (`bwrap`) container.
 5. **ServiceManager & SELinux Assertion**: Identified that `servicemanager` crashes on host kernels lacking SELinux due to unconditional assertions in `android::Access::Access()` (`selinux_status_open()` and `getcon()`). Developed a freestanding `libselinux_shim.so` (zero dependencies) allowing Android 16 `servicemanager` to initialize and run continuously on the host kernel via binderfs.
-6. **Init Second-Stage Parsing**: Tested Android 16 `/system/bin/init second_stage` with full subuid mapping (`mrkus:100000:65536`). Init parsed `/init.environ.rc`, `/system/etc/init/hw/init.zygote64.rc`, and all service definitions (`hwc3.rc`, `surfaceflinger.rc`, `servicemanager.rc`), revealing three concrete container blockers:
+6. **Init Second-Stage Parsing**: Tested Android 16 `/system/bin/init second_stage` with full subuid mapping (`<user>:100000:65536`). Init parsed `/init.environ.rc`, `/system/etc/init/hw/init.zygote64.rc`, and all service definitions (`hwc3.rc`, `surfaceflinger.rc`, `servicemanager.rc`), revealing three concrete container blockers:
    - Cgroup setup (`SetupCgroups` requires container write access to cgroups v2).
    - SELinux domain transitions (`setexeccon` fails when SELinux is disabled).
    - Host sysctl restrictions (`/proc/sys/kernel/kptr_restrict` and `sysrq` are read-only in user namespaces).
@@ -73,7 +77,7 @@ Dynamic device allocation is performed via `ioctl(fd, BINDER_CTL_ADD, &req)` wit
 - `/dev/binderfs/vndbinder` (major 242, minor 3) -> `/dev/vndbinder`
 
 ### 3.2 User Namespace UID Mapping
-Host system `/etc/subuid` and `/etc/subgid` allocate `mrkus:100000:65536`.
+Host system `/etc/subuid` and `/etc/subgid` allocate `<user>:100000:65536`.
 Using `newuidmap` and `newgidmap`:
 - Container UID 0 (root) -> Host UID 1000
 - Container UIDs 1..65535 -> Host UIDs 100001..165535

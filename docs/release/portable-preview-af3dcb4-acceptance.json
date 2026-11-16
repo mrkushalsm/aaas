@@ -3,7 +3,8 @@
   "candidate": {
     "source_commit": "af3dcb4711d13197826942f0a1c7f2b1698589ec",
     "bundle": "engineering-af3dcb4",
-    "path": "/home/mrkus/.local/share/aaas-release-artifacts/engineering-af3dcb4",
+    "path": "$XDG_DATA_HOME/aaas-release-artifacts/engineering-af3dcb4",
+    "path_redacted_for_publication": true,
     "bundle_id": "43d04579ec874746a7c9da5152419bd6",
     "artifact_count": 8795,
     "manifest_sha256": "d638937b4bcb16f550b2e204175c70ec247190ca10b6e7229447560909db2a64",
