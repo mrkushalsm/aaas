@@ -34,9 +34,9 @@ class NotificationFrameTests(unittest.TestCase):
             ipc.mkdir()
             directory = notifications.prepare_ipc_directory(ipc)
             self.assertEqual(directory.stat().st_mode & 0o7777, 0o1733)
-            acl = subprocess.run(['getfacl', '-cp', str(directory)], check=True,
+            acl = subprocess.run(['getfacl', '-ncp', str(directory)], check=True,
                                  capture_output=True, text=True).stdout
-            self.assertIn('default:user:mrkus:r--', acl)
+            self.assertIn(f'default:user:{os.getuid()}:r--', acl)
             self.assertIn('other::-wx', acl)
 
     def test_posted_unicode_and_multiline_round_trip(self):
