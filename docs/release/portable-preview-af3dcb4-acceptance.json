@@ -10,7 +10,8 @@
     "integrity": "PASS",
     "runtime_dependency_closure": "PASS",
     "checked_inputs": 26,
-    "immutable": true
+    "immutable": true,
+    "final_verification_evidence": "results/release/portable-preview-af3dcb4/final-candidate-verification.json"
   },
   "regression_tests": {
     "full_python_suite": "574 tests, 6 skipped; suite completed successfully",
@@ -45,23 +46,87 @@
     "fresh_install": "PASS",
     "installed_candidate_integrity": "PASS",
     "android_running": "PASS",
-    "settings_contacts": "PASS; activities/windows launched",
-    "first_frame": "FAIL; exact-candidate presenter session submitted and released 105 buffers, reported 0 presented frames; available VM screenshot is black",
+    "settings_contacts": "PASS; both windows rendered in the active KWin desktop; Settings and Contacts pixels are preserved in screenshot evidence",
+    "first_frame": "PASS; initial zero-feedback run was the locked/suspended Fedora desktop; awake controlled run presented frames with no discards",
     "arm64_berberis": "PASS; deterministic M3 ARM64 Native Bridge fixture signature observed",
     "audio_pipewire": "PASS transport; 48 kHz S16_LE stream opened and 2,042,880 PCM bytes delivered; no new human listening confirmation",
     "network_dns_https": "PASS; DNS resolved and HTTPS returned 204 over TLS 1.3",
     "restart_shutdown": "PASS; tested session reached STOPPED",
-    "resource_cleanup": "PASS in tested normal sessions; no AaaS runner/helper processes remained and test scope was inactive",
+    "resource_cleanup": "PASS; presenter summaries show zero outstanding ownership; AaaS scope inactive and runner/helper processes absent after STOPPED",
     "selinux_test_mode": "Permissive only during disposable-VM acceptance; restored to Enforcing afterward",
-    "uninstall": "NOT TESTED",
-    "evidence": "results/release/portable-preview-af3dcb4/fedora"
+    "uninstall": "PASS; supported isolated uninstall removed installation and owned service; workspace and Android userdata preserved",
+    "evidence": "results/release/portable-preview-af3dcb4/fedora",
+    "presentation_reproduction": {
+      "candidate_bundle_id": "43d04579ec874746a7c9da5152419bd6",
+      "initial_state": {
+        "session_locked_hint": true,
+        "freedesktop_screensaver_active": true,
+        "presenter_toplevel_suspended": true,
+        "presented": 0,
+        "discarded": 105,
+        "submitted": 105,
+        "released": 105,
+        "screenshot": "results/release/portable-preview-af3dcb4/fedora/screenshots/reproduction-fullscreen.png",
+        "presenter_log": "results/release/portable-preview-af3dcb4/fedora/virtual-presenter.log"
+      },
+      "cause": "The Fedora VM KDE session had locked while the test was running. KWin marked the app toplevel suspended and discarded frame presentation feedback; the black screenshot was the locked desktop, not evidence of black Android app buffers.",
+      "environment_correction": "Unlock the disposable Fedora desktop and inhibit idle/screen locking for the bounded acceptance run. No AaaS source or bundle changes were made.",
+      "awake_state": {
+        "session_active": true,
+        "session_locked_hint": false,
+        "freedesktop_screensaver_active": false,
+        "presenter_toplevel_suspended": false,
+        "presented": 43,
+        "discarded": 0,
+        "submitted": 43,
+        "released": 43,
+        "outstanding": 0,
+        "presenter_logs": [
+          "results/release/portable-preview-af3dcb4/fedora/virtual-presenter-awake-reproduction.log",
+          "results/release/portable-preview-af3dcb4/fedora/virtual-presenter2-awake-reproduction.log"
+        ],
+        "screenshots": [
+          "results/release/portable-preview-af3dcb4/fedora/screenshots/final-awake-desktop.png",
+          "results/release/portable-preview-af3dcb4/fedora/screenshots/final-active-window.png",
+          "results/release/portable-preview-af3dcb4/fedora/screenshots/reproduction-settings.png"
+        ]
+      },
+      "classification": "test-environment state; no product defect reproduced",
+      "historical_comparison": {
+        "previous_candidate": "engineering-71105b7",
+        "same_vm_successful_sessions": [
+          {
+            "session": "7pbvfx5n",
+            "presented": 55,
+            "discarded": 0,
+            "outstanding": 0
+          },
+          {
+            "session": "sy4in3th",
+            "presented": 91,
+            "discarded": 0,
+            "outstanding": 0
+          }
+        ],
+        "evidence_glob": "results/release/portable-preview-71105b7/fedora/logs/*/virtual-presenter.log",
+        "interpretation": "The Fedora compositor and presenter path had previously succeeded. The controlled awake run also succeeds on af3dcb4; the intermittent zero-feedback runs correlate with suspended surfaces."
+      }
+    },
+    "uninstall_evidence": "results/release/portable-preview-af3dcb4/fedora/uninstall.json",
+    "final_selinux_state": "Enforcing restored and verified after acceptance",
+    "final_environment_evidence": "results/release/portable-preview-af3dcb4/fedora/final-environment-and-uninstall.log"
   },
   "limitations": [
-    "Fedora exact-candidate Wayland frame presentation is not accepted because no frames received presentation feedback.",
-    "The optional trace-enabled persistent service exceeded its stop timeout; untraced service cleanup passed.",
-    "Fedora SELinux enforcing-mode compatibility and runtime security approval are deferred.",
+    "The optional AAAS_KEYSTORE_TRACE diagnostic run exceeded its stop timeout; the untraced runtime shutdown passed.",
+    "Fedora SELinux enforcing-mode support and runtime security approval are deferred; Fedora functional tests used temporary permissive mode only inside the disposable VM.",
     "Binary redistribution clearance remains deferred.",
     "The acceptance does not establish universal Android application or ARM64 compatibility."
   ],
-  "overall": "M5 PARTIAL — Fedora frame presentation remains failed; portable preview not closed"
+  "overall": "M5 PORTABLE DEVELOPER PREVIEW: PASSED/CLOSED — exact candidate passed host and Fedora functional acceptance; security approval and binary redistribution clearance remain separate and deferred",
+  "release_approvals": {
+    "functional_portable_preview": "PASSED/CLOSED for this exact candidate",
+    "fedora_selinux_enforcing": "DEFERRED",
+    "runtime_security_approval": "DEFERRED_NOT_APPROVED",
+    "binary_redistribution_clearance": "DEFERRED"
+  }
 }

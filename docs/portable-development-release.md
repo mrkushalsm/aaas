@@ -4,10 +4,12 @@
 `43d04579ec874746a7c9da5152419bd6`, built from source commit
 `af3dcb4711d13197826942f0a1c7f2b1698589ec`. Its manifest SHA-256 is
 `d638937b4bcb16f550b2e204175c70ec247190ca10b6e7229447560909db2a64`.
-Host acceptance passed. Fedora reached Android `RUNNING` and passed ARM64,
-network, audio-transport, and shutdown checks, but actual Wayland presentation
-feedback was not observed on Fedora. Portable preview acceptance remains
-**PARTIAL**. See the [machine-readable acceptance record](release/portable-preview-af3dcb4-acceptance.json).
+Host and Fedora acceptance passed for Android readiness, application
+presentation, ARM64, network, audio transport, lifecycle, and isolated
+uninstall. Portable developer-preview engineering acceptance is
+**PASSED/CLOSED**. Fedora SELinux enforcing support, runtime security approval,
+and binary redistribution clearance remain separate, deferred decisions. See
+the [machine-readable acceptance record](release/portable-preview-af3dcb4-acceptance.json).
 
 This directory bundle is for local, trusted development use. It is not a
 production-secure Android environment and has no signed release provenance.
@@ -169,12 +171,24 @@ On Fedora 45/KWin 6.8.2, the same bundle installed and reached `RUNNING`.
 Settings/Contacts and the ARM64, networking, and audio probes launched. The
 ARM64 fixture emitted its deterministic pass signature; networking returned
 HTTPS 204 over TLS 1.3; the PipeWire bridge closed after receiving PCM. The
-presenter released every submitted buffer but recorded **0 presented frames**
-in the retained exact-candidate session, and the available screenshot is black.
-Fedora frame presentation therefore remains a failed acceptance gate. Runtime
-testing used explicitly temporary SELinux permissive mode inside the disposable
-VM; SELinux was restored to Enforcing afterward. This is not Fedora enforcing
-compatibility or a recommended general-user configuration.
+initial presentation attempt recorded 105 submitted/released buffers and zero
+presented frames. Its evidence showed the Fedora desktop session was locked:
+KWin reported the AaaS toplevel as `suspended=true` and discarded all frame
+feedback; the black full-desktop screenshot showed the locked display. This was
+a VM test-session state, not a candidate graphics regression. The controlled
+reproduction unlocked the session and held it awake for the test. Settings and
+Contacts then appeared on the live Fedora desktop, and their presenter logs
+recorded 43 submitted, 43 presented, and 43 released frames, zero discards, and
+zero outstanding ownership. See the awake desktop and app-window screenshots
+and the `virtual-presenter-awake-reproduction.log` and
+`virtual-presenter2-awake-reproduction.log` files in the Fedora acceptance
+evidence directory.
+
+The isolated Fedora uninstaller then removed the candidate installation and
+its owned service while preserving the workspace and Android userdata. The
+VM's SELinux mode was restored to Enforcing after testing. The permissive mode
+used during AaaS runtime acceptance is a temporary developer-VM requirement;
+it is not Fedora enforcing compatibility or a safe general-user default.
 
 An opt-in `AAAS_KEYSTORE_TRACE=1` diagnostic run exceeded the disposable
 systemd service's stop timeout under tracing load. The temporary setting was
@@ -183,4 +197,4 @@ run is recorded as a diagnostic limitation; it is not counted as a passing
 shutdown. Fedora SELinux enforcing support, runtime security approval, and
 binary redistribution clearance remain deferred.
 
-Detailed machine results: [`portable-preview-af3dcb4-acceptance.json`](release/portable-preview-af3dcb4-acceptance.json).
+Detailed machine results: [`portable-preview-af3dcb4-acceptance.json`](release/portable-preview-af3dcb4-acceptance.json). Portable preview engineering gates are closed for this exact candidate. SELinux enforcing support, security approval, and public binary redistribution remain deferred and are not implied by functional acceptance.

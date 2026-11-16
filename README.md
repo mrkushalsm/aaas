@@ -6,12 +6,16 @@ This is an experimental **trusted development runtime**, not a production
 security sandbox. Candidate `engineering-af3dcb4` (bundle ID
 `43d04579ec874746a7c9da5152419bd6`) passed the recorded isolated host
 application, ARM64, audio-transport, network, lifecycle, and uninstall checks.
-The same immutable bundle boots on Fedora 45 and its applications and
-compatibility probes run, but Fedora Wayland frame presentation did not pass:
-the presenter released submitted buffers without receiving presentation
-feedback. The portable developer preview therefore remains **PARTIAL**, not
-closed. Fedora testing temporarily used SELinux permissive mode inside the
-disposable VM; Fedora enforcing-mode support is deferred.
+The same immutable bundle passed Fedora 45 application presentation, ARM64,
+audio-transport, network, lifecycle, and isolated uninstall checks. An initial
+zero-presentation run was caused by the Fedora VM desktop being locked: KWin
+marked the app surface suspended and discarded frame feedback. With the
+disposable VM session awake, Settings and Contacts rendered and KWin reported
+presented frames with balanced buffer releases. Portable developer-preview
+engineering acceptance is **PASSED/CLOSED**. Fedora testing temporarily used
+SELinux permissive mode inside the disposable VM; Fedora enforcing-mode support
+and runtime security approval remain deferred. Binary redistribution
+clearance is also separate and remains deferred.
 
 ## Host requirements
 
