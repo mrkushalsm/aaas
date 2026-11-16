@@ -10,5 +10,24 @@ experiments/m1c/input_adapter/build/
 *.log
 *.jsonl
 *.png
+!docs/media/*.png
 *.ranchu
 *.so
+
+# Local runtime and release staging outputs; keep source fixtures tracked.
+/aaas-workspace/
+/aaas-installations/
+/aaas-userdata/
+/aaas-release-artifacts/
+/bundles/
+/release-staging/
+**/*.qcow2
+**/*.qcow2.*
+**/*.keystore
+**/*.jks
+**/*.p12
+**/*.pfx
+**/id_rsa
+**/id_ed25519
+*.core
+core.*
