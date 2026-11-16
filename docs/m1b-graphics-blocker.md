@@ -43,6 +43,8 @@ product configuration rather than hidden behind emulation hooks.
    coherent minimal product entirely from one pinned source graph. Record
    mapper stable-C version, allocator AIDL version, VINTF, and linked library
    ABI before installing any candidate into an experimental rootfs.
+   The generated Composer AIDL header-to-input mapping and file-level license
+   evidence are recorded in the [AIDL provenance manifest](../manifests/composer-aidl-provenance.json).
 2. Build the upstream minigbm pair without source edits. The bounded QPR2
    Soong probe first stopped before compilation at
    `external/golang-protobuf/proto`. The pinned superproject

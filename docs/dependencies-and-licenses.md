@@ -15,11 +15,20 @@ the repository history as cleared for public exposure until those issues are
 reviewed.
 
 The generated AIDL headers under `experiments/m1b/composer_aaas/include/aidl/`
-identify QPR2 `hardware-interfaces` inputs in their generator comments, but the
-input revision and license mapping are not pinned by the current source
-manifest. Sampled generated headers do not contain their own license headers.
-Resolve that source mapping before treating these files as covered by any
-project-level license. `docs/research-report.pdf` identifies its author as
+identify QPR2 `hardware-interfaces` inputs in their generator comments. Those
+paths match the pinned Android graphics source candidate:
+`platform/hardware/interfaces` revision
+`aa229558cbf04bc997ed27465c5e7ad497123d1b`, from superproject revision
+`cc66c82349f536b77341e13862a548c01b048963`. I verified that all 92 referenced
+AIDL files exist at that revision and contain Apache-2.0 license headers; the
+276 generated headers are mapped to them in the
+[AIDL provenance manifest](../manifests/composer-aidl-provenance.json). Their
+source notices identify Android Open Source Project copyrights from 2019–2024.
+The manifest also pins the referenced build-tools and AIDL compiler source
+projects. No generation receipt captures the exact input/tool binary hashes
+used for the historical generation, so a bit-for-bit source-to-output rebuild
+is not claimed. These are AOSP-derived generated interfaces, not original AaaS
+code covered by the root license. `docs/research-report.pdf` identifies its author as
 “ChatGPT Deep Research” in PDF metadata and is not covered by the root Apache
 grant; text-based privacy checks found no local home/mount path, email address,
 IP address, or credential-label matches. The owner should still decide whether

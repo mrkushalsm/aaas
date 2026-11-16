@@ -1,0 +1,1886 @@
+{
+  "component": "Composer3 and Android hardware AIDL generated headers",
+  "evidence": {
+    "generator_comments": "All 276 generated headers name one of these 92 source AIDL paths and use the checkout name hardware-interfaces-qpr2.",
+    "notice": "The upstream project NOTICE at the pinned revision is the Apache-2.0 license text; its SHA-256 is recorded above.",
+    "pinned_manifest": "manifests/android-graphics-candidates.json records the exact hardware/interfaces, build-tools, and AIDL source revisions above.",
+    "upstream_check": "All 92 referenced files exist at the pinned hardware/interfaces revision and contain an Apache-2.0 license header."
+  },
+  "generated_header_count": 276,
+  "generated_header_root": "experiments/m1b/composer_aaas/include/aidl",
+  "inputs": [
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/Ashmem.h",
+          "sha256": "9be59d3eb42445458e5145ea2f64f3c5f51ccc1f0ac5087e7d5540d421b7a928"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/BnAshmem.h",
+          "sha256": "b606ec0b126dcd55c4455f50bf45940e1f8e89361cd23a84a38ad1f4d6b37d1f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/BpAshmem.h",
+          "sha256": "a2fd6335863045e8c89db832ef58e5552d43246bea5dde271976282782bcccff"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "common/aidl/android/hardware/common/Ashmem.aidl",
+      "sha256": "6d3072f4db3e4b892d1f7734fb0e8c0ff19af2e6b9a6ad3074c53d7b96a0c59b"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/BnMappableFile.h",
+          "sha256": "2b12875748ffe7468c4aeb1b5936f92557db721f59aa0cb51be0b8e993998e79"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/BpMappableFile.h",
+          "sha256": "a95bd1285631c2476b9424e3dff197e9c9a543f723c86ec24628487a96096861"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/MappableFile.h",
+          "sha256": "ea04806a1647d10a54079809c79b01953d31941c2c213d9a1898d5ecd9e89959"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "common/aidl/android/hardware/common/MappableFile.aidl",
+      "sha256": "10fa29f5aa9faa48053db852391a68e0d46fefa64fe08d60aa8c697e3a0366ba"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/BnNativeHandle.h",
+          "sha256": "e82c335ea26cbbe1620b5c91567d22b43abd86a11e52f7eb4f2ab6fc765cf9e6"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/BpNativeHandle.h",
+          "sha256": "8083532a71476e92524750082529e36aec53d00a9e812ade774af6b0ba9b4358"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/common/NativeHandle.h",
+          "sha256": "2d207e4ffa07c2d95badc6c0dbcf3d3b3fb8705becc62c6109614510392cb970"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "common/aidl/android/hardware/common/NativeHandle.aidl",
+      "sha256": "9a8f22d4bd3c75364be640b028bd7359a39d1783b5cc2b6ed8134990f895b14b"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/drm/BnHdcpLevel.h",
+          "sha256": "9ff666429b954dbc845f481507158787e43f33cb940a2ac1e281e8a2eccbfc7b"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/drm/BpHdcpLevel.h",
+          "sha256": "c6be890a3fa2f2539af2a6d8eca7796720ba3c2c16161f1b551e5cc9c5fa4263"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/drm/HdcpLevel.h",
+          "sha256": "8b87124b100d00628dcfc5ff0e07d3185fd8d6687375bd964075e040a25a2c75"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "drm/common/aidl/android/hardware/drm/HdcpLevel.aidl",
+      "sha256": "c02bef3d67e69ffffd706f8c4e6de98db1e5eec17d093f5d00c63a51b411a918"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/drm/BnHdcpLevels.h",
+          "sha256": "863f1db385d3f3b533e1b6feac209f40f6a65ec4b29d41ce702ec4e8a757504d"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/drm/BpHdcpLevels.h",
+          "sha256": "51f263d2a78093f996309f85cedfa347ed08d9aefdf7f19f938e4cb3a49a38dd"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/drm/HdcpLevels.h",
+          "sha256": "46a0d51f201a1efee074a6c71db285de5ada0de1fd7e944f3cc1096c15028fa8"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "drm/common/aidl/android/hardware/drm/HdcpLevels.aidl",
+      "sha256": "9a8906365e2e7f702cb06b3f1b142224b9e909e61d3d08dfb0ac8af51254bff0"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/AlphaInterpretation.h",
+          "sha256": "89b0ea801c394c97cf5a8dc407444d29319e979228247c81dc0cd1df4df3d98c"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnAlphaInterpretation.h",
+          "sha256": "fbd5f013065b641824d618d612bd9ffaaf66bf2725c66cd6576faf577255e989"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpAlphaInterpretation.h",
+          "sha256": "78abe699b6da9b170d67d43fd91dc829953fe2a285c46cecf3bcc67b257ffc4c"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/AlphaInterpretation.aidl",
+      "sha256": "dc8812bf1453ca6c41cf3c87a34cb537ac3d286b0f28ab8e1788e7c365f0ac39"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BlendMode.h",
+          "sha256": "909f8b7a3cd01bfcae209281100c8cbb69f54b4f2d8461c2042d11bb98874015"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnBlendMode.h",
+          "sha256": "59b0e95ae628cedc67714733f4dac718c4102507003bf864cec3967d9e98bbb1"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpBlendMode.h",
+          "sha256": "1b2b49a0bc43aafe295ab498398590da27d2c04fbf982575e46ec01d106555de"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/BlendMode.aidl",
+      "sha256": "4021692b6bdb0bc746315481b01f66c1aeb1be02c2eedd72e26e201a19929a20"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnBufferUsage.h",
+          "sha256": "8ee64defd31546161f38ca9259256f8f6e73c12b884afcac6e4eee1954d1ae34"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpBufferUsage.h",
+          "sha256": "59f4b85977c7ba926864d8a65878453dd0153d92e4610a6154fea1edcf684f90"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BufferUsage.h",
+          "sha256": "85dbd34ce6ec72f248bfabb6ca0d6988849da64405400026537cc36cda85f445"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/BufferUsage.aidl",
+      "sha256": "a6226c99ccea53ed72c0337e15b88f434ab2a2e0549f02a079f4c2e6f02b42ac"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnChromaSiting.h",
+          "sha256": "f92992dbdb4aee83ca4fed7c9286a98d3d327f005d90e5db62d6b76695238451"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpChromaSiting.h",
+          "sha256": "335d324b753e7c40a611aaa4c11edfed9626ad1c07399a24f784423ee93e00a5"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/ChromaSiting.h",
+          "sha256": "39f9e15f5954bccf4acfab67327ac742e280ba47dd4ede377ee7f7f2248464e6"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/ChromaSiting.aidl",
+      "sha256": "d226ee1ff246ee7674e8c141ec54130c5b4d96857056ac995474812227f0fc9f"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnColorTransform.h",
+          "sha256": "dc2a72d63521715efd53c2a5c432d65948aae5c4311d339e2851ccc6e249638e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpColorTransform.h",
+          "sha256": "baccb1fb1bc1c09d67684d2b365038b1810c9958e6bd4f4bedfdc67abc353372"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/ColorTransform.h",
+          "sha256": "7a41322804b006a5f9016a8f0d05465c462857ddf933a688325489aad122c873"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/ColorTransform.aidl",
+      "sha256": "6d2ec22223d7310c8c33d85559f623728dcf42be5316ba0f35c03b51780857cf"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnCompression.h",
+          "sha256": "3bf5412d6fd57aa2f57680f6bb8d20c50375615435fbd8bac0c62a595464a8c0"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpCompression.h",
+          "sha256": "60e3d6e293c52a22578c318024132e634aa33485593b90a55afbe0b0388b68fc"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Compression.h",
+          "sha256": "707ad0d299ac477577ce37012a348e2e3b44f348aba4585e5ae0396f4c439128"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Compression.aidl",
+      "sha256": "71babd5bbb506f43c4a709bbcb092ae618acb3feefb152fda7024c72bdb98726"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnCta861_3.h",
+          "sha256": "2690b04efb8fd1b0ce49db758942d93d1aca7977d86f4cfecb66c0801efd5199"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpCta861_3.h",
+          "sha256": "058e15363d20439270aab377955ff4596e6c746c6538c2cc1fe9074d5d38d9a3"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Cta861_3.h",
+          "sha256": "559b749e1653f9143f91c4ee382e8f47b76d75d8fa294d28d9492fee406b2195"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Cta861_3.aidl",
+      "sha256": "26ac8ae9e782a29e1e0a6a6ec8c911528043764b1afe9fce9b4f86724a66a3ce"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnDataspace.h",
+          "sha256": "e5fff0cf979b692157786c9b7f3782fe19fb54c64bbcf991ef889122cc765cf4"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpDataspace.h",
+          "sha256": "7721d79c93f03179204c4015acf52659fa328a0a752d691ea66fe2da274045df"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Dataspace.h",
+          "sha256": "f765fc4834ac5e03ad15b145f51034203d887ff79aa740b279f5393747a79bda"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Dataspace.aidl",
+      "sha256": "db0940b100e126bbf22ab47df2b9839f2c7476a0b9b884e58954dece7d1ef283"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnDisplayDecorationSupport.h",
+          "sha256": "9690cca2d18ffc4f07354385a03bd4bb55f1291ff4bcf8291cde723324af97d0"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpDisplayDecorationSupport.h",
+          "sha256": "9e41ba291e08b251c501ff38af730185ad4c172796c75134907966281acd83c6"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/DisplayDecorationSupport.h",
+          "sha256": "6f223f0d11ff5b17eb649d76092b7ec288b2323422726c060e1687972bf080e6"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/DisplayDecorationSupport.aidl",
+      "sha256": "78ac6848a42fc33d0bf14b50429a3fec3d72d2cd6f7b3db305008789d0f203d8"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnDisplayHotplugEvent.h",
+          "sha256": "172dfeece750c82c20ef0374156cb4f32464cd467c6dc0f62973c4058fdb5ae1"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpDisplayHotplugEvent.h",
+          "sha256": "388b872466976d9d11d3a51387093f312c32716f4024befdf16586298b51a19f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/DisplayHotplugEvent.h",
+          "sha256": "6aa62129bb3d86f1db19f8a7e4cb2b02713e950a228a458875b12ef2974bfd71"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/DisplayHotplugEvent.aidl",
+      "sha256": "cedd0ffce311a9994995709f4fc2db8474608842b2bbc29cf7b19b15ffa4cd45"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnExtendableType.h",
+          "sha256": "4cd645b98a9e1ac70380a091f6f8cd4e2f3a0139096ae8e7ec0a81429efcefa2"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpExtendableType.h",
+          "sha256": "2be8a7f37a95095c3ef5b437e8f39e037345fc347c0382ab77d4847d167a504f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/ExtendableType.h",
+          "sha256": "8a78c520ac701564ad993b359fb86d9e5cb7637328bb3d7db55f06d78b6b33ba"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/ExtendableType.aidl",
+      "sha256": "ad77b68e96d488b4c70e2f2c7052a6dcecdb47cb3f10615e48b65372b1d29f67"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnFRect.h",
+          "sha256": "132924cf2709dcdf3f58d4e1f9ab61680ba4e84f610e2b55b87bc57e5c3df889"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpFRect.h",
+          "sha256": "545d96176146f99ee322e8eda2f34409347acf6309474da52d09e978f9e87dd3"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/FRect.h",
+          "sha256": "8846bfcfd5d08027a981e9886f14196d008f2bef09905effbefe4c725c0595b4"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/FRect.aidl",
+      "sha256": "e4d055686d0986a345f2d44b38bed12d677599f06b15f28acb9981aed1222d78"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnHardwareBuffer.h",
+          "sha256": "049f11a155670e1ea77aa0113502a45564a4a3eed02b5d68af24dcb4f1d1286b"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpHardwareBuffer.h",
+          "sha256": "56292f64636828253128604e351fd26c3451a58dc77a7c16343b8d5d53d19324"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/HardwareBuffer.h",
+          "sha256": "a69c652bf6013ae505b07ccd5456afecf6c8951bd1ddce41d4bb2e1baa7a0119"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/HardwareBuffer.aidl",
+      "sha256": "9607a98aba5b3a5ffd6d569ca404087ea9fa583b1465c63c483acc40394a021f"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnHardwareBufferDescription.h",
+          "sha256": "ee4ee824e4cce76a29af10b85daece3dca56372c4bd6eb38e6edc7b80f62a876"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpHardwareBufferDescription.h",
+          "sha256": "ae557e95079c7b3cd1b6284b7306904c04ef93e0c4c03394ce02e1d0b988f3f5"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/HardwareBufferDescription.h",
+          "sha256": "4c21b3557f3b12529bc31223e561299023e8eabd86c53f072ec0235cab747661"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/HardwareBufferDescription.aidl",
+      "sha256": "d65aa8476ccf3ff6cb82db467513fda763dcdcfc0458c0e2bd398a452b66f6c3"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnHdr.h",
+          "sha256": "8bd6bd642c3f6f4e99c60eaed35d9d91430e764e0b6f9dffa033660a97517d63"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpHdr.h",
+          "sha256": "e1ab2312f72596d157e1d1388f43b756b5b23d5878fdf73aad3e68fedc7f2b62"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Hdr.h",
+          "sha256": "980da11839ee05760802502b442022d58883d77e01f6b65af69644d36c1821ea"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Hdr.aidl",
+      "sha256": "fd4f162779aec309d1c0dc039defc7dbd50b818e0221116ccb95d591b1585c0d"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnHdrConversionCapability.h",
+          "sha256": "e2da6619fb93b477167d67e0ef19b481035c4107ffa066faa0615683165c00b8"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpHdrConversionCapability.h",
+          "sha256": "204dae62579a810e1d37dd511092490e054fea80921a9cd19b23565c6055a71b"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/HdrConversionCapability.h",
+          "sha256": "f4139432a2e92b68ac2b16dc44f60afe178c3d73a655f9b4ffefa5d5b9cf4738"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/HdrConversionCapability.aidl",
+      "sha256": "7ebdb56dcf890d60416720987cecb33b473d5d9e066d8e202716fb1c208f046b"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnHdrConversionStrategy.h",
+          "sha256": "8804b74a030a415d6038075ef199e5c7118dd1601467c26fed5dc4398e3b2ebd"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpHdrConversionStrategy.h",
+          "sha256": "1bb2657a93729239fd14522a39d0aa6623c3b5820066a23b9bd04f9858e47b2c"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/HdrConversionStrategy.h",
+          "sha256": "bb1ac63f7336e68a11cd645e0ede0b400bbbf98b6fcf3eab94f396cf366241ef"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/HdrConversionStrategy.aidl",
+      "sha256": "c829e39f041ec4a0eb5cc3aa65b5835c0b236a5746f119b2ef687026f8181d0c"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnInterlaced.h",
+          "sha256": "cef7c7c2d599bd4a014d06b330737c00417e6ee47e4298a0ac353b7eb10ea6e0"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpInterlaced.h",
+          "sha256": "702b90358cf1c4335a34272313e06d7a3330ffe97114b5c8eca850d167a5989e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Interlaced.h",
+          "sha256": "9fb23d37a06442dac9cf5cd99e1b31539c91d6b9b6b6e9826fddbe565e049fed"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Interlaced.aidl",
+      "sha256": "8c337d4dd0878d5019470d066561335952fe501fc6ac67c48be929a1f50e86d9"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnPixelFormat.h",
+          "sha256": "a3ff48525823c02609c9fb73eaa8c33d15e97dc0c9aa6bfd0f19c654ea4cfbe3"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpPixelFormat.h",
+          "sha256": "e007482cd9ff444b6a5b789c7b8aee90cbf3d613a2433fefc0159e9de4eafd51"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/PixelFormat.h",
+          "sha256": "08141f8219b495b30babf0800fdbdb5156b39b13a85c6d23116585e5054db274"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/PixelFormat.aidl",
+      "sha256": "806386c3a5cbec4c1baabac3841e0fa5e972310710b148d9349b80bf1b754ab7"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnPlaneLayout.h",
+          "sha256": "053e315455813bbff219115565dde3b10894291aea935c5de2858cc6c91e9db6"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpPlaneLayout.h",
+          "sha256": "46ccf2601fa391f938b54c4ad25ae2eb8c404f5049d437289ac391a40617496c"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/PlaneLayout.h",
+          "sha256": "61f0def6e34b14f9ec45acb95a692a6ffe6202943ccd63f1aab892490063a008"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/PlaneLayout.aidl",
+      "sha256": "ddc624d2aac6e71feea513f7909e0df278f1c3ab203f43860099c51291c5a0bd"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnPlaneLayoutComponent.h",
+          "sha256": "8fd3249847f6e094a94a9c7b87a63d5ead2f52f56a07af9d7de20b1707f1041f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpPlaneLayoutComponent.h",
+          "sha256": "71d20a1bbee707d504c6a8f8f3d6b59951f65d71a76deee854fb280a64a7fddd"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/PlaneLayoutComponent.h",
+          "sha256": "318c428ea017552f6beb7370a0fbb8867cbb2998e903d9b791e117ac5204ea04"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/PlaneLayoutComponent.aidl",
+      "sha256": "83043be9aa45b8d210647604276dad6de1a9a4a9b88e2bf1f2022dc0780dfd92"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnPlaneLayoutComponentType.h",
+          "sha256": "9405f147bea649c2e1a9eb9abc202b27116e834f382e6253afbe744ecdd7ab87"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpPlaneLayoutComponentType.h",
+          "sha256": "28fc01c0a0f65f8a00fc1743accd9b60beced02c0215ff7e21e9607ef03bd148"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/PlaneLayoutComponentType.h",
+          "sha256": "72213b4741f6d9f07590b4c3b326d5760b1ad6baa1f4327b78083ec2a880d2df"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/PlaneLayoutComponentType.aidl",
+      "sha256": "21b1c8608f2b3ffa87004e7255030b84521274b288cba2cbdf8c2d7910b731ff"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnPoint.h",
+          "sha256": "f9089701f9ad90a152bce58eed52e3390a82c4f8f1c8e454fc32c254f6684fcd"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpPoint.h",
+          "sha256": "c70bc84f0f17b60568fc8767fd071dff97b635eaefa5d5aa138e91e187b846e5"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Point.h",
+          "sha256": "cc1f0bba40bfdc834c9f56075fc7a337332c87913ceb236aaa8d5acfe4bde35c"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Point.aidl",
+      "sha256": "59b1b46a93b6ebcca8332f238daa943700034258cc3f65be52f5b91c796f4241"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnRect.h",
+          "sha256": "5b3c086180a9046548d15f9bf930a92b47c6f7d946e904cef62b4ade3f94cae1"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpRect.h",
+          "sha256": "a2377c58b823fdea66f50c2955e82c55f3d1fb694771ceaec20b93c3fe3616f4"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Rect.h",
+          "sha256": "f9ff51667fef8fe8de483103addb2c766df04b6db9bd8c89e84c886aee30b33f"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Rect.aidl",
+      "sha256": "083c1435a0517f961bd0aa12825cb2c7a0020b97ff41074185c8c786e392edf3"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnSmpte2086.h",
+          "sha256": "06ef44bdbdbdf2149fbb7ca573a727c00024aa53f0c68bbb2cd999fc24b9e953"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpSmpte2086.h",
+          "sha256": "0d3ef5f26f8325117a7f75b5b368328039810e87b378732769a03293adc06135"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Smpte2086.h",
+          "sha256": "a9f67b971b14a36e12b6d8c91e6af20a8685e18a030819c7a3d070eec1a11352"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Smpte2086.aidl",
+      "sha256": "489fdaa71e7fd7761a7e2deef3aba348a732297e2358632b47504f19df44017e"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnStandardMetadataType.h",
+          "sha256": "700d180e4656a3795e2c88147707750bfa0ba059ecea2508ad8dc43b43dd63af"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpStandardMetadataType.h",
+          "sha256": "ccc6f9f6c0b0c47cfe170393d14056a2ea2cfe6ada5a665fc932e4377139d4a9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/StandardMetadataType.h",
+          "sha256": "030efa661f0c686c5f500a5ca911787d81a0e960cd85669f4086f6b29cbf3004"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/StandardMetadataType.aidl",
+      "sha256": "87557b7b53bc1b6df7efcdaf72f5d0962efbab39b96dacab80ec0512ad303655"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnTransform.h",
+          "sha256": "5b60da9e948b3b333e64d1fd1fa4774ec362827b986973683898884f54dfe8f8"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpTransform.h",
+          "sha256": "20d52a64ca6b4761be98e1cf1320a6e3a9138ae756d4cdf376b2f843ee2a07c1"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/Transform.h",
+          "sha256": "44c380b0fb13aa40e6e722f6bedee09d08decd7cc7a3aecb1b8f1369070325e1"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/Transform.aidl",
+      "sha256": "4ee8ee4637a52d9568bf09a6906c0ba69191b1d2687a926b95ee0637b978f175"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BnXyColor.h",
+          "sha256": "0d67efe12097717f493397af623aad957aa8178c0866c090bc73c9b605c1336f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/BpXyColor.h",
+          "sha256": "bc1a5ff87efecfe52b3e76f6e251608b62d24fcea06c64adc8ea19175ef04efa"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/common/XyColor.h",
+          "sha256": "a85cbfcfe0ce1ba7a9686c31a5219b1c2a04c6a6796de06fb1e099cdab45f919"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/common/aidl/android/hardware/graphics/common/XyColor.aidl",
+      "sha256": "549bdcfddff72ed0ac234b161e62402483b25c6f0da2a1b4a28714d3a5fd0852"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnBuffer.h",
+          "sha256": "4e290caeb1e21f0bcf60678586e3db12530894160bfe130451208cfe45aa051c"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpBuffer.h",
+          "sha256": "5ebd380b601c653fc15373a966d779ded3b679ab462d58f4fe06510c33020b43"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/Buffer.h",
+          "sha256": "eb4304375b8ddf0f404eb7f36a99895a74ecda6234be9764cc1cd688ee2c7d51"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/Buffer.aidl",
+      "sha256": "18f6d78c9cc49ae4f33b01934d0f7103594ed81e27959ec9f82a1e1863c9c6c6"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnCapability.h",
+          "sha256": "5b14e647a2057e095b0c4be37896fb39cabe665b6424da9206d58a6776dfa9ec"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpCapability.h",
+          "sha256": "035d87723e1bbbe77c70aa2267b3dd9a7a5eca2974760f21caae7880a6b3bb85"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/Capability.h",
+          "sha256": "a0d9d194712c430389b5d1b09e5dc316fb363e5add66c374d96c50b6d5a3f98e"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/Capability.aidl",
+      "sha256": "c95bca626821104ae9cddbfc1db25cd50a78c1759be381ebb01a96dac4414966"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnChangedCompositionLayer.h",
+          "sha256": "21dbf82b796134a91a5099edb4c9c9d245866975cefbac66da7af51ac026215e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpChangedCompositionLayer.h",
+          "sha256": "fa9321714e0c841dab8c46b60777e89efc312ce3ba2314c7ddc6929178a956fa"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ChangedCompositionLayer.h",
+          "sha256": "2cc8378e3d57862ba4a288119b76dde93cc2a7216c09c4ad1aa75e4cd95c7614"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ChangedCompositionLayer.aidl",
+      "sha256": "bc4b8006290af9409722e5e2d7d1d83aabb9df643d979a912e689bad55427f2a"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnChangedCompositionTypes.h",
+          "sha256": "7539970013f59658352cc30e24f3219c654149dd1d3a0a330baad37103492a82"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpChangedCompositionTypes.h",
+          "sha256": "dd768340b944859b03452ee62f4ec7c230db33324a4db298a978fa86a51ecaa9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ChangedCompositionTypes.h",
+          "sha256": "b02ed1ffee6d4aa68959fc76853c10af8895ada0e5524d1dfc192ea928579965"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ChangedCompositionTypes.aidl",
+      "sha256": "76980cfca64f08bf4e526ca40dc3cf6a47c657bf86451890177b3577fae859da"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnClientTarget.h",
+          "sha256": "5356adde04c52d10ab87e7409e9bc3fee5ff8b33c3f1de0439c35ac65d3bd8ca"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpClientTarget.h",
+          "sha256": "c35a85e0acacbf3fadb5a5bfe4823436863f84584d563d513be39cdce0c10286"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ClientTarget.h",
+          "sha256": "33253268ed031dedaf8531b59a4a23bb426fdde656a6d576f0800cfce626e4a1"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ClientTarget.aidl",
+      "sha256": "e95ac7aec6e6ef61d4be95aaf19f2bee1e9ef3983532f3c731da032573ec8947"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnClientTargetProperty.h",
+          "sha256": "44110c11edc21bc43a003dae56aa89665512b18b5f2c2aac8a2ef26686bad03f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpClientTargetProperty.h",
+          "sha256": "f1bb8a3b2e82ef9190eaa3317098f53877e35ed90eed2b08fcb59d1854e4c3a9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ClientTargetProperty.h",
+          "sha256": "013ecac7df49b5ac5446b23452babaee016902f6d8586d82dd19fce87e0420ce"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ClientTargetProperty.aidl",
+      "sha256": "cdebd9d1baf3bef646810a752c982e9f9e5a7e5bbc1fc8c9716875563a1481e1"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnClientTargetPropertyWithBrightness.h",
+          "sha256": "702c3cb7a596029d9bb77a78f2be0a11c2b9c69bfe18cc4265ec5f4250fe5b93"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpClientTargetPropertyWithBrightness.h",
+          "sha256": "b541fe169e0fd722a32fc31ddcffa05fd24cc20a7295612276ebf5ec7fdf2b4d"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ClientTargetPropertyWithBrightness.h",
+          "sha256": "3fa9e8b1232aed013ceaf4ee225a612887087d79fece9f625955ea7cd46bd955"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ClientTargetPropertyWithBrightness.aidl",
+      "sha256": "4842e6e026f9d42baa8227544ed149992b4817eb14edd229181f3316a6aa5cd6"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnClockMonotonicTimestamp.h",
+          "sha256": "04798f909ad1959a5c458d5afc8dee348dd3e075bc71a7de7f6cfcaa7cb29919"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpClockMonotonicTimestamp.h",
+          "sha256": "ae94d0e8adc997912f315918d0afffec523329e55120b98673256ffac0b66d59"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ClockMonotonicTimestamp.h",
+          "sha256": "1df9ca8956abfebb9083f4363ec0bf8c9dc1b66fb387104f2fe1c79465e14d92"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ClockMonotonicTimestamp.aidl",
+      "sha256": "6346257280871f3dcc4af7d4a71a5e8511fccf62cff88ff02e5c5c95102bd4c3"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnColor.h",
+          "sha256": "66c514cfa2d488522b231781b7d2fd298dcb8a527f2aab85a178d4c202244638"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpColor.h",
+          "sha256": "f18a9c9e927b7bb8a696679d68cc7ce4ba232213f8de0b07376b05eee707391a"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/Color.h",
+          "sha256": "ab263f4b20349c1258747329c84ad76579337789ae2be743021e06dcf9d99efa"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/Color.aidl",
+      "sha256": "4ea005a1fc7d6387ee8c026d53e8da0aca5e30c977bebe1a913d11ae3a0fac0b"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnColorMode.h",
+          "sha256": "98308e9cc62741707db365fed2d08516814d69591ef7a5aa2faeac7fe37c377b"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpColorMode.h",
+          "sha256": "ec48e2614f9a026410c7c86e83ae2cf83448a4e05bf55f9836ac900da38f00e6"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ColorMode.h",
+          "sha256": "bbdda0a72d66d541ae30c84561f03058b01d660a085ce722eed5956ab6effc0f"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ColorMode.aidl",
+      "sha256": "4add9dc3b0a91117c2405ee2b92c3c7bb599f9ee92ed379920aa10f681e2307e"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnCommandError.h",
+          "sha256": "8335df4fa5f99c0af48f8856ef9913b5858260fbf9243299b756083170f89943"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpCommandError.h",
+          "sha256": "4d9c33414935bf7608527b203d9fa555c1c49ea54d614d81fccd04691fa7f1be"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/CommandError.h",
+          "sha256": "13cf99c85b80ce9c8f843422cbb2893366b48bd57ec384a23c6764c46791f0c6"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/CommandError.aidl",
+      "sha256": "5c12895de10adef9d2b7af60c0b527426185ae572c6317f3abe37fb41412a2a9"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnCommandResultPayload.h",
+          "sha256": "bf52d609e8bed2fa093663e6548ec82bd3ee8796632ecbd538fe3128dbe90639"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpCommandResultPayload.h",
+          "sha256": "e5b0b2b0b425d9a1cba8eb37890fcf51d46177d1dac2d3f0fbd3e7004401e98e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/CommandResultPayload.h",
+          "sha256": "9380144d5d87be97780e0401d1e0c5f9a2d79c6f09a1b61405582afc576ca559"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/CommandResultPayload.aidl",
+      "sha256": "2f3fa3c0507304f26f6efa91b9e65885f226a2e7836454c750de0d545686564e"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnComposition.h",
+          "sha256": "9472bdd837fbf3de0666994733b0517abf14fb82524c0c28e1091c2f01d17935"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpComposition.h",
+          "sha256": "a6e063e5b32c7b629d1728fc0b604c712c78b901c27a64b111d49c86b1547fab"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/Composition.h",
+          "sha256": "e6aaca3e884dc842432778f832a82fc1ca06382c909f3b848472ca5b91a73e64"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/Composition.aidl",
+      "sha256": "6e733a17f62480e73ff05acb7a0c8c7dd018e5849be96e57baea19de7fc0cb98"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnContentType.h",
+          "sha256": "563a1662cbb9beead5c8a4688a3438636b1f80eb2ec44ae5d9f281754836c227"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpContentType.h",
+          "sha256": "0db4970d549f8227adc1a3ef28c807fe81a27bfa9d2dacbafa410b20451ed51f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ContentType.h",
+          "sha256": "f902dacec4617b161b92c94ab59337f6a5ce5c695823e0897df5a4c73890cc99"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ContentType.aidl",
+      "sha256": "6223ff224fc07643e9d90a0c9deac61b55e1890f699a51a3c45ae89960d8890b"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDimmingStage.h",
+          "sha256": "8ef3461227e61d2aead59f302c41ba7adb24bfdfe264f5b938b59ce8ad12d663"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDimmingStage.h",
+          "sha256": "67d0faa43f34df96370c28025f040e8ce1fca6da8f06319a575ddb3569195c42"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DimmingStage.h",
+          "sha256": "7949e8d98397b0c7d4a5650a8f36ff0e98e56c220144d60687b38916135eecd7"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DimmingStage.aidl",
+      "sha256": "48d10681d5ad4b5c17ce61237f7702272c835cbc63be05889673390e30779ef1"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayAttribute.h",
+          "sha256": "749dd918262a21a770c72351624f24b74f77b505abd83d7ec4d0d2ad26b240a0"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayAttribute.h",
+          "sha256": "5a98c221c92fbb83de079588f6e7f6e0975ae0ee82459905afc364b1d2a12365"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayAttribute.h",
+          "sha256": "e6cf5d81986ee71ef0038f70b3286f9f455ecc2005e1bd7bb0b4a52aba87be8c"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayAttribute.aidl",
+      "sha256": "aecf8e033bf6c4532efd74107b317002f56202766673db897758f60f5b32fefc"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayBrightness.h",
+          "sha256": "bef533dc7af548c07b7c0d5becda7da5d3e2135f655ea402b2d8c2308db73b96"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayBrightness.h",
+          "sha256": "bae734be3592e116deab51ea44f70c380e246535987ea0ae0465881af043ced4"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayBrightness.h",
+          "sha256": "c64cd37f7e069f1ec60b2aab147f838a790e74bde7890ca7f497800ef1f47551"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayBrightness.aidl",
+      "sha256": "719625618a1a8447014f4c9caaafc5a57edaa9aa45165e9717f7ace8a318648d"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayCapability.h",
+          "sha256": "2418cf544af55f6c53ec7361f6ed760db64625392ce6ac0efe2373912ac52b6e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayCapability.h",
+          "sha256": "86cc56c3d61bf9caf0d1ea1441b83f1ca6616501870ca36dc3a55ad3351da7e1"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayCapability.h",
+          "sha256": "52878098197550d9fd61374b3397dd2cec8c37ada22c8efca0182c113271fcdc"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayCapability.aidl",
+      "sha256": "224433210cdaca11a0e9f8e71f2801e52e4c1507bf919802228223b307fcd47c"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayCommand.h",
+          "sha256": "01d5e8ea282ed4a42a5b4324e49e7770fbeb8781987ef6f954bd970677bfebc8"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayCommand.h",
+          "sha256": "f78a837a0a956bfdf1eeb71b6276bccafd384acc8ba068808accc59c9aafc09a"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayCommand.h",
+          "sha256": "dab2b7b3374ee5692476ff25c9a07785ea4adf5c630580a3767ba92feb8b8378"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayCommand.aidl",
+      "sha256": "8c6604a93387841ffd0e2a8b86379a2709fdd0b6cb4cc8546c6d50dae237abaf"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayConfiguration.h",
+          "sha256": "ce4bdfa57ee5f730db16b56634a523e8ff3bedc861f9c678765bc2affb939b4a"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayConfiguration.h",
+          "sha256": "2e017c3bb0753353837441ac514840c348aa6d4ada634b5aec24dfcb3433e420"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayConfiguration.h",
+          "sha256": "6b5fa76c460856c162650c848726f7a475751f6fa971c19ed374e934f1f20cfb"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayConfiguration.aidl",
+      "sha256": "4df8a4ee2e1b2c17e2d1dc807fbc38a9ab47ec29c56bf762ec3c29318a3e5d18"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayConnectionType.h",
+          "sha256": "521818a46ead5a6188ec11a5d649b41ae08dfb12d73943ed8703ffd98030b906"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayConnectionType.h",
+          "sha256": "fb2c7e8057f79793315e734e73e4c6197f6d772ce653331c0fe6c9ed62ed4135"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayConnectionType.h",
+          "sha256": "3d60a325941866310c05764ccb6b1bd42140228fe5cccf010628103c71464a56"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayConnectionType.aidl",
+      "sha256": "10f728dd559a4044deb05ef1f9b0d04b6991c8e820a5f9a7875f725cb4a645ac"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayContentSample.h",
+          "sha256": "0fb893de34ecbe867a9e06979b9132d6460ba8b60632236e6386a5160af78095"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayContentSample.h",
+          "sha256": "1d0d7f0b859082e23437721eabedf7666c5c0f73c2af6f4cda9085dafc1bac58"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayContentSample.h",
+          "sha256": "40fa864a6bacc2f2016ce3c9a7da93ad2b4d897bed5089a65b517968e88317e1"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayContentSample.aidl",
+      "sha256": "12397c4c342f093f63ff2f646d21daf87343135bba3b589a9d5f3e4ce403a344"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayContentSamplingAttributes.h",
+          "sha256": "5d2955e6a4967ea9eb926c3785a673368ffcc750a888052dc146a6483389118b"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayContentSamplingAttributes.h",
+          "sha256": "4107b7e4adb53e8248efe664f14f7d160423e46d0db4b965e83e3fc8cab4f9c2"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayContentSamplingAttributes.h",
+          "sha256": "8bcbf920808cb9f5957aa73bbf5b16e7761eccfd6babc3cae9edb38a52a39c92"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayContentSamplingAttributes.aidl",
+      "sha256": "d5b187b9e452ad19461802f51115c287d527312e685c041a64d9a2626dfe0f51"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayIdentification.h",
+          "sha256": "44ff3dde95525a2e3d40da8b1d1645d381517d0d974bbaa20dbe7594aeb1d11f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayIdentification.h",
+          "sha256": "5938a04e27f4c84d62ac28e0a4b4b9bab4178aff24561ac4908100aa9b233423"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayIdentification.h",
+          "sha256": "92795d56c83ced6819ed637de79db91a0fd18ef64456590190fd81002cefd6b1"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayIdentification.aidl",
+      "sha256": "5d7da6473cdcc2f85799fca2a7fc0e77708e057bbb7abf6d5d71d6f2f5a2a4d1"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayLuts.h",
+          "sha256": "0aee1b586dadea5d70e7a6ec3db4cc6e9fe71240b86b9b0b820bac7c15d58193"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayLuts.h",
+          "sha256": "ac3b4dbf31c93a2b204d3795ae531d62942c77c23fe428f180ca81294d0cab36"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayLuts.h",
+          "sha256": "da2ebee615c63563ea4df825d4b6421680d4c688bd363270dd12ae713bce0bdd"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayLuts.aidl",
+      "sha256": "5d51eefd31a5ee746ef3376bf78b8acdafab8b114e291bfa2057f1d2b83cf953"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnDisplayRequest.h",
+          "sha256": "10d51cafe71e77bcd0ced2bcceffaf527e5b1986c80dcae6cbc1a86c82484729"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpDisplayRequest.h",
+          "sha256": "368de10ca1829871a6b98469c607aba432a09d26dab37dee00b23c5962a9885c"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/DisplayRequest.h",
+          "sha256": "e00e40da56db16cf1520954e845727a26867bb1c270469509b111f9944886ba5"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/DisplayRequest.aidl",
+      "sha256": "7db6cac6f66445df1c0c6eeca7fdd5333ef21610eaba5ca8061e323efbe7486d"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnFormatColorComponent.h",
+          "sha256": "3d0167f04cc8103b02863a5341d080c90426ca374306401453c1a8359e3e21a9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpFormatColorComponent.h",
+          "sha256": "ac3b82f64961868f8edd2a0dd64157bb0cc8396c6ac67ea340ffd8d5e21e8243"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/FormatColorComponent.h",
+          "sha256": "85cf7a14500c98b74c25317f189da0c71a31b44733ce0d325855ff4ba72e9ffc"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/FormatColorComponent.aidl",
+      "sha256": "07c71aca67807db90fed904a6e9a2a7de9d27ad032abdedaa73b5ba62d5d2511"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnHdrCapabilities.h",
+          "sha256": "20ee0298716d74c94d0f25063815a3ba8a78d5d193c05dde436e47edcbc8e1cf"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpHdrCapabilities.h",
+          "sha256": "5ef58ab117dcbf20b6ab0452d82f1797dd1e05057c1c3fd557c1038730f76014"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/HdrCapabilities.h",
+          "sha256": "0a0f1a578d1a1f2843cf943fc466dd4abee5636c9068078b3019aa04e6baf233"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/HdrCapabilities.aidl",
+      "sha256": "40595846aa76bc494c5ae049d8e8d3120c67a2067f790053237a30ff04eae342"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnComposer.h",
+          "sha256": "da8d920232d13b235f36d599d31b5104fade2a06e7c1897e70fd3fe81b1e2921"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpComposer.h",
+          "sha256": "9eaafec055312fc2e61cee227850f093a2677ba76d105af1ea3ae7a84c670202"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/IComposer.h",
+          "sha256": "723048228ae2210df16b7729ea6b925d1af802d7c8df3a840a7668b9b1d94a84"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/IComposer.aidl",
+      "sha256": "46e0190c7e40f837eb77bc390621bc50bed79fc55858713a3a14af61641ad5fb"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnComposerCallback.h",
+          "sha256": "78000c38415366e8302785691bf7ab48d5d4281aff0436655d05db52a4f5bd35"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpComposerCallback.h",
+          "sha256": "61135bcce549ee38a031b1a4bd98d278b53fdb4690513d14ded51a7763692fb9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/IComposerCallback.h",
+          "sha256": "eada83645d9b64012b5d91ea7df257850784e54a44b81c89e249660d215dcc4a"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/IComposerCallback.aidl",
+      "sha256": "628c6e70e1e5bdc761022c5243eea4255647dad7156be375db2761af4574805f"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnComposerClient.h",
+          "sha256": "fe15337a281b31ff1c5dfd331342f4baa95314dec90797cf8ad9ddc7e58f9aaf"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpComposerClient.h",
+          "sha256": "6e205f16b21ee98c8b8f51f09d5267f6c5f47690e1bd18d6c5a3e61e50d2f4f9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/IComposerClient.h",
+          "sha256": "2456e1950d6d2b2702dd3b21209a9c3cbd3ca1144524f73c19f1ccc961f5281e"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/IComposerClient.aidl",
+      "sha256": "e570892b2a0e05e1b077d2c6a739a6cfeef54647b28393a975a0fcd3ae9bcbf8"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnLayerBrightness.h",
+          "sha256": "13497e728e324211fdac4338a8559fddbdb206ab01c3ce698bf78099351c8045"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpLayerBrightness.h",
+          "sha256": "98d25db0b5d0b7068ad72f38052cbb0c487f5613c9c318f81e66ca77b768cef3"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/LayerBrightness.h",
+          "sha256": "6a616ca3ae65ac9b85b7e3ed81253cad6f77dd2c2f075043cc08ebef73b33fd4"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/LayerBrightness.aidl",
+      "sha256": "0d3afe9f676fa3d85653db21b3912a03a800bed8d1d7a09ceaa018d6d0cb87d8"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnLayerCommand.h",
+          "sha256": "2a7cc797d84a8ec5aa01691c7caf7bc91a2a68ad7be797738a3d59db4a67f53f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpLayerCommand.h",
+          "sha256": "270875094405d132cdc2f0a2a3c7631d765e76ded75800d46b3c7d652833dd5d"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/LayerCommand.h",
+          "sha256": "5ff679d63857eb38e5f0a7650f9be25fe609a345672a14a51ceec780d40538ce"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/LayerCommand.aidl",
+      "sha256": "7d3844a0ec20affd03b90383d44cb87ff400bc82e7e3c959d7b9303b6cb5c5cd"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnLayerLifecycleBatchCommandType.h",
+          "sha256": "5cfdab1390172ef5907fe941a34d0ccb7ce73be6d0c718f8d8698e2e32296bed"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpLayerLifecycleBatchCommandType.h",
+          "sha256": "9dec2d723592aed644cf0994fa02d06cb672acd400ecb4520d6bc0e783ec8f8c"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/LayerLifecycleBatchCommandType.h",
+          "sha256": "25c28344c6ac947c436fc39abf024f1a0b72168437cf07b3618175ed8730fc4e"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/LayerLifecycleBatchCommandType.aidl",
+      "sha256": "3b1c0320bcbfa5fb1fbdfd15f7592752b675baefa757d92041368477ce19ea12"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnLutProperties.h",
+          "sha256": "968d9463406f8d7cb732c60033c3eba5af43b3e7334912ad41e5fffac1e1bc07"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpLutProperties.h",
+          "sha256": "f3ecafd4808398471c88b634c736382d045744856b256480d7d65957d1a979fd"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/LutProperties.h",
+          "sha256": "f02a9dcfaa86fc9fc1755b6db60f79fa4a7a8a94c285b8b9c38baf47ad481796"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/LutProperties.aidl",
+      "sha256": "afc10cc50ea0b3baff85d36184acaa037198caee1cf6df03e47dc5aefc6e351a"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnLuts.h",
+          "sha256": "a56d9e6a6e950639ac3948b23ddafe451ea8d5c565ce0122bdcfe65369a0917c"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpLuts.h",
+          "sha256": "52bc3b6950ab8d401f266c0364255c0f7154d4afa4a284749fbb2a7ffd5a8311"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/Luts.h",
+          "sha256": "297910f1b3b214b28953572cc4a509ec8e0682b43a9e16df3dfd4a720e458ea5"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/Luts.aidl",
+      "sha256": "f262c89bb51bb0371c7dbacf5203a1fdb5f42440226bef27c1416c6acf5f7f31"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnOutputType.h",
+          "sha256": "8c7d5cfa6803df3f024972480dd85553ddef39319cc081370021804a9d74f3d9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpOutputType.h",
+          "sha256": "0a378b156b256d533d5cb79336bb65d6703b3dfb5eb1ed3732ff1892a6cbe888"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/OutputType.h",
+          "sha256": "20991d124de45c16086046a3e30e0915490d9783acdd1bc47e0f4f0715feecb8"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/OutputType.aidl",
+      "sha256": "5c6b436fff5d2ec8e04a2a09a973c37e9e822a7013ee7d29e4e349c38f7f558b"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnOverlayProperties.h",
+          "sha256": "35dfe06e6b9e8b50874303d1b5cb697dcfd18c475c6cc1f1db971c5cd384457b"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpOverlayProperties.h",
+          "sha256": "df3847dcb9383d35808e3ebe471b408aeab9b739a04dbf212635c5967f2717e0"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/OverlayProperties.h",
+          "sha256": "2bff3b1c6494f92cb61c0c6d224fa0b1cf21980e64a816d9418593a816fd3d67"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/OverlayProperties.aidl",
+      "sha256": "0c0f1e7efc45b24630fa5dcc2e50c24a6925c9b1c3b617605c08a963119c8e24"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnParcelableBlendMode.h",
+          "sha256": "62546ac51b07c6e53689d69960902412782a6d42fbed31713f7bb79dfab90dab"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpParcelableBlendMode.h",
+          "sha256": "adcd03b800500ffd035d1719634437e2b8932ff53aa5e479068e174069cb8f5d"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ParcelableBlendMode.h",
+          "sha256": "3b25ed8afd6e8c840903a0060fbecccce2cdf364462a4b3b639fbd419658f8f2"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ParcelableBlendMode.aidl",
+      "sha256": "e4e0ec02f854f9b0d3654f383ecc31df36ba4e6ffbe63555859ee1e1792f2d1a"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnParcelableComposition.h",
+          "sha256": "7e1b8e3d395880737d68edc8f52453662ff44cfe4ec1901f8a59b50b9f5d5bb9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpParcelableComposition.h",
+          "sha256": "c77a65f2c34a99133970ba97a7dc70928ec871fdd2392328ce266f256d2fc30e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ParcelableComposition.h",
+          "sha256": "f16d089209fc5eb995093219c5ad7f7b28d7ed24c70b9798420033769ae6dbbc"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ParcelableComposition.aidl",
+      "sha256": "c6591510f2d8b079340bd45de1a55e49ee22bd6c425cbbb19ee9bfa4caac95bf"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnParcelableDataspace.h",
+          "sha256": "f3888f3cc44f354328f2e7d56bb53b0f287479d848787e3030472f2682a9ad93"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpParcelableDataspace.h",
+          "sha256": "915227e6429fe66783f57831167aeb51a3fa33f8fd9bba0baea937a7c083dece"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ParcelableDataspace.h",
+          "sha256": "7b5fbda40bac9ffecceaf1646ba89d9870c1d7911259e6baac25b18e04370fe9"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ParcelableDataspace.aidl",
+      "sha256": "7db23b6df5c2880281f97daf9ba71785bccfe856b7fe2a1bef3944b4364ed4e5"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnParcelableTransform.h",
+          "sha256": "bbeec645e7ee504df4c57cb0723bdb58f34129bcb38e48e8b63aee8e891f0e9d"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpParcelableTransform.h",
+          "sha256": "36949da828045870b2ca1cf7581cfc4aa0064b9c5cf5b3d0aa9b14e8ea9fd7e5"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ParcelableTransform.h",
+          "sha256": "8c420592035b8f98606b995a123733f93f5b04d918ab0cb22a9df88d080df825"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ParcelableTransform.aidl",
+      "sha256": "a686f754c1e1caf98adeb00b3deab09464306238abb4a17c83c0dbc9876b6c68"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnPerFrameMetadata.h",
+          "sha256": "6441da6a553fbd480e57865db6e9172ac0b6650353831b59b8224fec180e8f53"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpPerFrameMetadata.h",
+          "sha256": "6045d7165d3645a3e428a174bb7454892dd7eb45ea0becba51fc0ce313df5a8e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/PerFrameMetadata.h",
+          "sha256": "2fa1ef84e64d0da9189f49f840ec9593352c3e77105f1fe1fcb67189cda83c6c"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/PerFrameMetadata.aidl",
+      "sha256": "da5a8bbe206e7c3332f8831054342eedb331caff86ffa57879a8bbedbd33eafc"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnPerFrameMetadataBlob.h",
+          "sha256": "0c81e2fefef7b22051749771653c1c5f0aecd62cc1dbfdd1be275ed79c8ae22e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpPerFrameMetadataBlob.h",
+          "sha256": "886284376ed792e1c82ce942acaf3f14a9d9cea15adea5e6d20167f319ed99b6"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/PerFrameMetadataBlob.h",
+          "sha256": "754bc16f7a848484606bd5487dcdc2e0fd822d23e0928bee07d0f4afaa9f0ad5"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/PerFrameMetadataBlob.aidl",
+      "sha256": "a77e373fb2b6531138e1b9ce65668bfcfd6c2603d9a5764b073dce7371949754"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnPerFrameMetadataKey.h",
+          "sha256": "744d5422fe3b230bbc22dacad170b459d4f92a6bf05c2c1eced5a21dd5af1525"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpPerFrameMetadataKey.h",
+          "sha256": "56ef37808317c34a665bcbead0c5a9735bc6d08dc8b2ef4af6fc52eb3e273287"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/PerFrameMetadataKey.h",
+          "sha256": "19ea509c9bd5d1d8ca29bd34a9569c3f302cf54d697f34533cc98991f3256a0c"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/PerFrameMetadataKey.aidl",
+      "sha256": "0b12d079e26847e49c5c6cee28b7f5595966ef10e5506159fbf706bdd4eca227"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnPlaneAlpha.h",
+          "sha256": "af35b854c25ecd4579bcdb094a1825aa11cd0173a2cfbb70a72334a33c316328"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpPlaneAlpha.h",
+          "sha256": "5e54dd8609a5a0c737c93a1c243fec9d985d051983fb67e70066d15b0e4c7720"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/PlaneAlpha.h",
+          "sha256": "7b9389d3231b6e1135aeabfbcc886b1918cb8afea9fee1be86bd4cd035f8c0d2"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/PlaneAlpha.aidl",
+      "sha256": "b21547fb1f49d0898afbb62f74d536373ed24ed0c8112b182248237f9bb09ef9"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnPowerMode.h",
+          "sha256": "d6cff9bee9b62bbd44ff24ec8486e2c029d79559649828fdd3a5f4b9742d2d6c"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpPowerMode.h",
+          "sha256": "6e8de1c0f96415e3f8defed5e7268f06e14975381e6fba5a529b73513ec0636f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/PowerMode.h",
+          "sha256": "162185598c90bb17fcf0328c7e462ed1c0e15b4402e3feddf76eec05f71f690b"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/PowerMode.aidl",
+      "sha256": "1942fdb1ec24845477df15af7d6b46c745f1da9e7fc2f64dbd1a42e4ddd7fbb6"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnPresentFence.h",
+          "sha256": "36fccd9f3a54d0e48936a149fdf9e89cdf28a46e3b53cfb594d2f607ec501309"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpPresentFence.h",
+          "sha256": "d39d482cddf861ce0787e85e28a7d9af8ef0ce134a555379ad86710ebdbd4843"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/PresentFence.h",
+          "sha256": "ad5a481342d304e857916ef7474fefbceafcb9ab9e63816c832fef0ef562ec9d"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/PresentFence.aidl",
+      "sha256": "d8cc725c5e4b231abe36afbac3f2cbfdfbeafb926da14ebe8be46ad97f2c8990"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnPresentOrValidate.h",
+          "sha256": "af28cc946c3585c429a3d9726933695996f2d96d84c7552ff836bb2618065106"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpPresentOrValidate.h",
+          "sha256": "0689a33c08d961855376b1a70df1cda5bfccf98f87884e7892f751b63dfa522f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/PresentOrValidate.h",
+          "sha256": "f0adbfb2059a0d1f6781f857b084a7bd5cb25dc03758824ce0cefbe197e884e1"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/PresentOrValidate.aidl",
+      "sha256": "b66c79d3eb90e843d6980d094e8135cae5cb8f8540708ba8459fea21307a0293"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnReadbackBufferAttributes.h",
+          "sha256": "60c3126b2ab20aecf679afc618fe7d54d15683cf844ea6b17df032cdbe1f6563"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpReadbackBufferAttributes.h",
+          "sha256": "e243d68f9fc194de892b1cb49686a3ac14fa31cb09dc63b6ee524f7dffbb0344"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ReadbackBufferAttributes.h",
+          "sha256": "cbebc90d73d2afc97e37cca1a235495c34e8a53f41971cd0ddb6036a6449d0fe"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ReadbackBufferAttributes.aidl",
+      "sha256": "185813344902cae1954882e027f36c6f2f2ad74e7fe3f70e61db2824e062dd8a"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnRefreshRateChangedDebugData.h",
+          "sha256": "336afadfa9a1aad745cb573d0daf227e110b9763368fa8413470a3dc0ddaa16f"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpRefreshRateChangedDebugData.h",
+          "sha256": "7349abe8c1031e334db914a27b0d20039d3812445d7d4fd975a2acdb4bacc850"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/RefreshRateChangedDebugData.h",
+          "sha256": "056ab82d2e10281f4360595ce8012875c7902806d6cbe5816c8205bac89c325b"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/RefreshRateChangedDebugData.aidl",
+      "sha256": "3ed80f1bb6fec135e17b25550e3ee93d070dde7f3ab640e858bd6f4001ccd4f8"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnReleaseFences.h",
+          "sha256": "68ac83aa0c0d8ac6d38f3016dc3327e24ffa80be87aedb056497b5f4c82f9aac"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpReleaseFences.h",
+          "sha256": "96be2c97575a799d199486692c0cbee1d006586f5603cb5bb18485a1bee2de87"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ReleaseFences.h",
+          "sha256": "5f5b951a410684e3bcb273294f5fe86c1ed9b820b4a5daa123b7893fa362609d"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ReleaseFences.aidl",
+      "sha256": "045ca0e66b6d60753187b9533c8586a8385a82329bbe1c9cf4f4b914f15f2e8c"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnRenderIntent.h",
+          "sha256": "08cc37fa3c90fd94782a641a5e4caf13e3be575b374486b756944e668e4564b5"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpRenderIntent.h",
+          "sha256": "023af2827a49210d80d6a7c9bc767218590d3704219a7327c814ad863eaa5e25"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/RenderIntent.h",
+          "sha256": "3f66cdb638018f6910302817869440a61a854fb1867f9058cfbfa87adbf596eb"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/RenderIntent.aidl",
+      "sha256": "3460fea42d34f3db8910fa6aa91d916da45d93de8d4b53458f6ea1c236271f3d"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnScreenPartStatus.h",
+          "sha256": "f31afcdb119aba4a6df3a82e03f70b6caf72d9fbf98e78205119caa4f0371f8b"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpScreenPartStatus.h",
+          "sha256": "a217ff83d7cb2bf11f26311364a61e4dfc2b42fc895525adab0168139712a287"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ScreenPartStatus.h",
+          "sha256": "dafdba7c3d20b01ec9af3c290b5ee0a98a635020c1b4dbd199ec35da27a60a23"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ScreenPartStatus.aidl",
+      "sha256": "d213e46fdf2310c0f4e96b080c1602bbe63357f855c17a517e649f6c4aeb8ee3"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnVirtualDisplay.h",
+          "sha256": "73d4320ab087fa4a10073dd5d85c16e4a4cf44362208cf270ee81e679b13bc49"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpVirtualDisplay.h",
+          "sha256": "8474522a2d48ab1aecf16ac5289686c5f3e0ddb9efc9d06e6915ec2b64cd594d"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/VirtualDisplay.h",
+          "sha256": "34e80a3f192a3b5107aa0a20a78d1fa3c6874b434b7298b6f216abf3023331c3"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/VirtualDisplay.aidl",
+      "sha256": "7a3abbd060b72abc437d31c18b2bc9a9180a6beb50cf95a2ac6953feced1dd36"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnVrrConfig.h",
+          "sha256": "9235353d9478706683d138cbc0803c617fbf9225a6f390bf6233b081f2d279cd"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpVrrConfig.h",
+          "sha256": "2c88ce3624c2ed390931f917a84e3a7a68d7a2e813f8f1bcfcedd7d1f5ce30e0"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/VrrConfig.h",
+          "sha256": "802f77f8915d1b1d89d0ff80c5e23094c85c642c6f3fc0919f37ee34618419b2"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/VrrConfig.aidl",
+      "sha256": "2536f0fc1d2517a78516dfb309846e5ef682df0f072daae855803b56d1842b1b"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnVsyncPeriodChangeConstraints.h",
+          "sha256": "12316932455fc1d0bed1c4946ee4f4315150540216da8e6cb18b9dad101ded99"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpVsyncPeriodChangeConstraints.h",
+          "sha256": "7c983f3a798278e6cbee6223c559ece0a942b1b463d3cd5fecad36d2caae9e97"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/VsyncPeriodChangeConstraints.h",
+          "sha256": "aef2f5a613233f4bd8bdaa6a7b7d396ff7ec96e3da6d992b642abbf23fb9c3ef"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/VsyncPeriodChangeConstraints.aidl",
+      "sha256": "d9f95222208c3441bc6a80af77be8a152ac5389a3b926422ba4d65413698be13"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnVsyncPeriodChangeTimeline.h",
+          "sha256": "c81b5ff50d7d858575ec543c9e35486c2d1f34135292f7750c8c968f13a0cd4e"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpVsyncPeriodChangeTimeline.h",
+          "sha256": "5b6e7ec23b30a75b8da63739016ae634b1ad4f49a7031bae48d2b4b5dd1c80de"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/VsyncPeriodChangeTimeline.h",
+          "sha256": "2233f52bca1c538f8574addee9ed1f8c9c33cf03d1f55e82eca21b2c27ecdb05"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/VsyncPeriodChangeTimeline.aidl",
+      "sha256": "c54226421e648d4d9bd6a3e8f66a2f89242936e3872782148f0cafbf8f999b5c"
+    },
+    {
+      "generated_headers": [
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BnZOrder.h",
+          "sha256": "8cf9be40b56cd69ca7182a06dab7b98ce7d9d5335aa904d211b852f9163518c9"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/BpZOrder.h",
+          "sha256": "f1ee2b8bc1b299c3c6be7aaf37211a496565c74f1130e12fb508009312a78908"
+        },
+        {
+          "path": "experiments/m1b/composer_aaas/include/aidl/android/hardware/graphics/composer3/ZOrder.h",
+          "sha256": "f3eef1a9a0c84169e99a54f89ab9a8f323f017f78d41791760dc1df99f55316f"
+        }
+      ],
+      "license": "Apache-2.0",
+      "license_evidence": "per-file AIDL header",
+      "path": "graphics/composer/aidl/android/hardware/graphics/composer3/ZOrder.aidl",
+      "sha256": "fd059347a4cbe5250d9f7aa6eeea74f9c5901d183ea39629d6493c2b1e03dcd8"
+    }
+  ],
+  "limitation": "The original generation run has no separate receipt recording source/tool commit IDs or the prebuilt aidl executable hash. Generator comments and the matching pinned candidate manifest establish source-path correspondence, but exact historical generation from these immutable inputs is not independently reproducible from the retained checkout.",
+  "schema": 1,
+  "unique_aidl_input_count": 92,
+  "upstream": {
+    "aidl_compiler_source_project": "platform/system/tools/aidl",
+    "aidl_compiler_source_revision": "3747384b876442e7ea0c355fe5adc75b29362833",
+    "android_branch": "android16-qpr2-release",
+    "copyright_notices": [
+      "Copyright (C) 2021 The Android Open Source Project",
+      "Copyright (C) 2022 The Android Open Source Project",
+      "Copyright (C) 2024 The Android Open Source Project",
+      "Copyright (c) 2019, The Android Open Source Project",
+      "Copyright (c) 2019,libgralloctypes_helper The Android Open Source Project",
+      "Copyright (c) 2021, The Android Open Source Project",
+      "Copyright (c) 2022, The Android Open Source Project",
+      "Copyright (c) 2023, The Android Open Source Project",
+      "Copyright (c) 2024, The Android Open Source Project",
+      "Copyright 2019 The Android Open Source Project",
+      "Copyright 2021 The Android Open Source Project",
+      "Copyright 2021, The Android Open Source Project",
+      "Copyright 2023, The Android Open Source Project"
+    ],
+    "digitalis_manifest_revision": "c04ff674ee0926fe79e690b20493c7b2f0e380b4",
+    "license": "Apache-2.0",
+    "notice_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "prebuilt_aidl_tool_project": "platform/prebuilts/build-tools",
+    "prebuilt_aidl_tool_revision": "412724a805835d89234d67c363f7ada7f5f8a67f",
+    "project": "platform/hardware/interfaces",
+    "revision": "aa229558cbf04bc997ed27465c5e7ad497123d1b",
+    "superproject_revision": "cc66c82349f536b77341e13862a548c01b048963",
+    "url": "https://android.googlesource.com/platform/hardware/interfaces"
+  },
+  "verification_status": "SOURCE_PATHS_AND_LICENSES_VERIFIED; generation event not receipt-attested"
+}

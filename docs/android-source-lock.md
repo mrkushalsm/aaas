@@ -2,6 +2,13 @@
 
 `manifests/sources.json` pins every listed standalone or reference repository to an observed Git commit. These are **individual snapshots**, not a compatible multi-repository Android build. The `selected_from` field preserves the moving ref used for each new pin. `results/m0/source-verification.json` records commit-object existence, not build compatibility.
 
+The generated Composer AIDL headers are a separately checked subset of the
+Android 16 QPR2 source candidate. Their 92 input definitions, 276 generated
+header mappings, source hashes, and Apache-2.0 header evidence are in the
+[Composer AIDL provenance manifest](../manifests/composer-aidl-provenance.json).
+That mapping does not replace a full `repo manifest -r` lock or a historical
+generation receipt.
+
 Digitalis's `android16` manifest is pinned at `c04ff674ee0926fe79e690b20493c7b2f0e380b4`. Its `default.xml` uses AOSP's `android16-qpr2-release` branch and includes `digitalis.xml`, which removes the AOSP Goldfish and Berberis projects and replaces them with Digitalis GitHub projects. The pinned manifest contains **1,015** effective project paths. None of those branch-backed projects has been synced or converted to a revision lock. The observed AOSP platform manifest and superproject commits in `sources.json` are reference snapshots; they do not prove the Digitalis project graph corresponds to that superproject commit.
 
 To materialize the Android graph on a sufficiently provisioned isolated build machine:

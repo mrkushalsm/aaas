@@ -23,6 +23,20 @@ selected developer-preview screenshots are under `docs/media/`.
 - [Persistent userdata](storage/android-persistent-userdata.md): workspace data boundaries.
 - [Workspace capacity policy](storage/workspace-capacity-policy.md): reserves and enrollment checks.
 
+## Decision records
+
+These records describe the main runtime, graphics, source, security, and
+distribution decisions and link to the evidence that supports them.
+
+- [M1B.4 source-coherent runtime decision](m1b4-runtime-decision.md)
+- [M1B graphics blocker and source candidates](m1b-graphics-blocker.md)
+- [M1E architecture evaluation](m1e-architecture.md)
+- [M1E interfaces and identity model](m1e-interfaces.md)
+- [Android source graph and revision lock](android-source-lock.md)
+- [Android rootfs reconstruction boundary](android-rootfs-reconstruction.md)
+- [Rootless Android security decision](security/rootless-android-architecture.md)
+- [M5 bundle redistribution decision](release/bundle-redistribution-decision.md)
+
 ## Release and provenance
 
 - [v0.1.0-dev-preview notes](release/v0.1.0-dev-preview.md): exact candidate, acceptance, and release limitations.
