@@ -96,4 +96,4 @@ modified.
 
 The structured run record is
 `android_notification_forwarding_2026_11_06` in
-[`results/m4/acceptance.json`](../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).

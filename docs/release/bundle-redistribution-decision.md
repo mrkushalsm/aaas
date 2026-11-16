@@ -117,13 +117,12 @@ therefore not currently a supported, lawful-and-working substitute.
    any required notices/source offers.
 3. Source/build provenance for the 16 modified base files and a consistent
    provenance record for the generated installer wrappers.
-4. Owner decision on publishing existing author metadata and historical
-   machine-specific paths; no history rewriting has been performed.
-5. Review or exclusion decision for the 97 tracked `results/` images, 13
-   tracked `artifacts/` images, one old release image, and
-   `docs/research-report.pdf`. Only the three selected `docs/media/` M5
-   screenshots were previously selected for public display; the other binary
-   evidence was not visually/license reviewed in this pass.
+4. Review the retained author identity/email before public publication. The
+   history cleanup preserved both exactly, as requested.
+5. The history cleanup removed generated `results/` and `artifacts/` trees and
+   unselected release screenshots. It retained only the three selected M5
+   screenshots in `docs/media/`; `docs/research-report.pdf` remains for manual
+   provenance/privacy review.
 
 Until these are resolved, the unchanged bundle is **not approved for public
 upload**. The lowest-disruption route is to seek a rights interpretation for
@@ -132,40 +131,21 @@ components speculatively.
 
 ## Source-repository publication blockers
 
-The previous read-only history scan found no high-confidence credential
-patterns in the scanned text objects; 116 binary Git objects were not searched
-as text, so this is not a clean-history certification. A redacted-value
-`git log -G` scan found machine-specific home-path strings in 324 repository
-paths across 42 commits. Of these, 276 generated AIDL files are under
-`experiments/m1b/allocator_aaas/include/aidl/**` and
-`experiments/m1b/composer_aaas/include/aidl/**`, in commits
-`0e5f2f04d1e7` and `177a907b9310`. Forty-eight other paths span docs, tests,
-scripts, and `results/`; representative commits are `8b0b7ca29725`,
-`fc7cd8de246b`, and `7ddf991e2de5`. The individual file/commit map is retained
-locally at `~/.local/share/aaas-m8-local-review/history-path-occurrences.json`;
-matched values are not in that file. The current tracked tree has no matching
-home-path literal.
+The source-only history filter removed the `results/` and `artifacts/` trees,
+three large generated SBOM inventories, a generated documentation audit, a
+superseded release draft, and one-time source-export review files. It retained
+the generated AIDL headers used by the current build, along with their
+existing provenance/licensing uncertainty. High-confidence credential
+patterns were not found in the prefilter scan or the post-filter scan of 2,286
+reachable blob objects. This is not a legal review or a guarantee against
+every form of sensitive data. Machine-specific diagnostics in the removed
+output trees are no longer reachable from the public clone's refs. The
+retained commit identities and emails are unchanged. Three selected M5
+screenshots remain under `docs/media/`; the research PDF is retained for
+manual review. Detailed redacted path and commit mapping is held locally by the
+maintainer, not in this repository.
 
-A machine-specific host label was found historically in
-`docs/m1b1-status.md`, `results/m0/host/uname_-a.log`,
-`results/m1a/uname.log`, and `results/m1b/host-preflight.log`, across commits
-`4e70351ad799`, `5942d5883e3a`, `972cc70920ff`, `a8acc6410367`,
-`5f074c7634ee`, and `8243a64a73b2`. The label is redacted here. History contains
-one distinct author identity with a public-provider email address. The owner
-must decide whether to expose these history details; no rewriting was
-performed.
-
-The current tree no longer includes the one-time export tool and candidate
-SBOM/group report, but those files remain reachable in old commits
-`d37ca0a`, `4e70351`, and `75f932c`. The M5 acceptance tag and full history are
-preserved. A full clone therefore still contains these audit artifacts; the
-owner must decide whether to publish the existing history or separately
-authorize another publication format.
-
-The current Git tree also tracks 114 image files: three selected M5 screenshots
-in `docs/media/`, 97 under `results/`, 13 under `artifacts/`, and one old image
-under `docs/release/`. It tracks one `docs/research-report.pdf`. Only the three
-selected M5 screenshots were previously reviewed as public-facing media; the
-other image/PDF items need provenance/privacy review or an explicit exclusion
-decision. They are preserved as historical evidence in the current repository
-and are not silently declared suitable for public release.
+The M5 tag name is retained and now points to the rewritten equivalent of its
+original acceptance commit; its commit hash necessarily changed. The original
+repository remains the authoritative unfiltered archive. A full description
+of excluded local run outputs is in the documentation index.

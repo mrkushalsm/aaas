@@ -18,7 +18,7 @@ computes the access as row 557, x=832 of that framebuffer. The 960×578
 allocation's base happened to be the next address and was released 32.5 ms
 earlier. See the complete equations, raw artifact hashes, and pre/post runtime
 identities in
-[`v4_fault_geometry_reconstruction_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_fault_geometry_reconstruction_20261102.json).
+**`v4_fault_geometry_reconstruction_20261102.json`** (maintainer archive only).
 
 The causal defect is the odd-height paired-row `PixelRoutine::writeColor()`
 out-of-bounds access, corrected by commit `f38251d`. The historical v4 session
@@ -110,7 +110,7 @@ remain unknown. The analyzer labels this as trace event order, not standalone
 happens-before proof. For the v10 target path, the source's ticket wait is the
 completion mechanism represented by the synchronization event. Details and
 hashes are in
-[`v10_target_retirement_order.json`](../../results/graphics-stability/buffer-lifetime/v10_target_retirement_order.json).
+**`v10_target_retirement_order.json`** (maintainer archive only).
 
 ## Current-candidate runtime checks
 
@@ -129,7 +129,7 @@ sessions were smoke checks, not resize trials. Existing bounded resize and
 resize-back evidence for this same corrected no-tracing candidate is retained
 in the M1E live records; those records are not reinterpreted as proof of the v4
 root cause. Machine-readable summaries and raw log hashes are in
-[`current_candidate_two_app_smoke_20261102.json`](../../results/graphics-stability/buffer-lifetime/current_candidate_two_app_smoke_20261102.json).
+**`current_candidate_two_app_smoke_20261102.json`** (maintainer archive only).
 
 ## Closure decision
 

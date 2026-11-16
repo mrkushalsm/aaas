@@ -302,7 +302,7 @@ and is excluded. The remaining critical binary/init transformations are not
 reconstructed and must not be copied. Both SELinux success shims and the
 locally modified SwiftShader source are excluded. See the [assembly
 procedure](android-rootfs-reconstruction.md) and its structured
-[`result`](../results/m6/android16-rootfs-assembly-2026-11-08.json).
+**`result`** (maintainer archive only).
 
 Static profile inspection reports the candidate's Android build identity as
 matching and its assembly record as internally valid (source/profile identity,

@@ -4,7 +4,7 @@ Status: **PASS/CLOSED — real Android staged mixed composition verified for the
 
 Evidence date: 2026-11-03
 
-This scoped result closes the staged path. The older broad mixed-composition record remains **OPEN/BLOCKED** for exact Composer-output allocation presentation; this document does not change it. The M1E, Bluetooth, and SwiftShader decisions are unchanged. Machine-readable run details and hashes are in [acceptance.json](../../results/post-m1e/staged-mixed-composition/acceptance.json).
+This scoped result closes the staged path. The older broad mixed-composition record remains **OPEN/BLOCKED** for exact Composer-output allocation presentation; this document does not change it. The M1E, Bluetooth, and SwiftShader decisions are unchanged. Machine-readable run details and hashes are in **acceptance.json** (maintainer archive only).
 
 ## Supported path
 

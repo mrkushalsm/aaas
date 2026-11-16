@@ -184,7 +184,7 @@ which remains barred from the active KDE/KWin session pending the unresolved
 direct filesystem, headless app-context, MediaStore, and restart subgates, but
 the interactive picker remains open. Canonical M4 therefore remains
 `PARTIAL/OPEN`. Machine-readable details and raw log paths are in
-[`shared-storage-partition-2026-11-09.json`](../../results/m4/shared-storage-partition-2026-11-09.json).
+**`shared-storage-partition-2026-11-09.json`** (maintainer archive only).
 Android's FUSE mount is session-owned and disappears with the Android session;
 the host files persist. A subsequent AaaS session rebinds the same parent.
 
@@ -284,7 +284,7 @@ Verified after repair:
 ## Evidence and next work
 
 Structured observations, session IDs, checksums, and raw-log hashes are in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json). Raw runtime
+**`results/m4/acceptance.json`** (maintainer archive only). Raw runtime
 logs and controlled fixtures remain under the external AaaS workspace, not in
 Git. The 2026-11-06 closure continuation records normal-session scanning,
 application-level symlink and ContentResolver outcomes, bounded NTFS3
@@ -569,7 +569,7 @@ concurrent checks, followed by 3 sequential and 4 concurrently traced checks;
 all 28 mapping-helper calls succeeded. The isolated prior `newuidmap EPERM`
 was not reproduced. See the [userdata reliability record](android-persistent-userdata.md)
 and the new `userdata_reliability_continuation` evidence in
-[`acceptance.json`](../../results/m4/acceptance.json).
+**`acceptance.json`** (maintainer archive only).
 
 A separate bounded Linux SQLite probe on NTFS3 exercised committed WAL data,
 checkpointing, a killed writer with spilled uncommitted WAL frames, integrity
@@ -648,7 +648,7 @@ runtime-permission revocation, SAF-grant revocation, cross-app private-data
 isolation, Android StorageStatsManager accounting, and the full Android-facing
 symlink matrix remain unverified. The storage workstream therefore remains
 `PARTIAL/OPEN`. See the post-CHKDSK record in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 ## BFE window and archive follow-up (2026-11-05)
 
@@ -683,7 +683,7 @@ after Android stopped.
 The Settings session `m1b84_session_lkcrtzq5` confirmed BFE's all-files access
 toggle was off before clean runtime shutdown. Logcat hashes and session
 references are recorded in the 2026-11-05 continuation in
-[`acceptance.json`](../../results/m4/acceptance.json). At the time of this BFE
+**`acceptance.json`** (maintainer archive only). At the time of this BFE
 archive attempt, package uninstall/reinstall, runtime-permission lifecycle,
 SAF grant revocation, and cross-app private-data isolation had not yet been
 tested. Later continuations verified the package lifecycle, SAF grant release,
@@ -735,7 +735,7 @@ previously persisted SDK 35 SAF grant was explicitly released, a read of the
 still-existing host fixture was denied with `SecurityException`, and the
 denial plus empty persisted-grant list survived a complete runtime restart.
 See the distinct live test sessions and hashes in
-[`acceptance.json`](../../results/m4/acceptance.json); overall storage
+**`acceptance.json`** (maintainer archive only); overall storage
 integration remains `PARTIAL/OPEN`.
 
 ### Runtime permission and app-specific external-storage follow-up (2026-11-06)
@@ -847,7 +847,7 @@ The original BFE failure log is
 (SHA-256 `460557b25cf96ef1b214ccdbca82e761788cf37c285d685b3b3dc18e88cb9318`).
 The corresponding machine-readable gate results and M2/M3/Python/workspace
 regressions are appended as `final_storage_closure_2026_11_06` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 ## NTFS3 health stop (2026-11-07)
 
@@ -879,7 +879,7 @@ storage behavior remains historical evidence, but this health warning blocks
 relying on the current backing state until it is assessed. Exact messages and
 the stopped-testing classification are recorded in
 `filesystem_integrity_stop_2026_11_07` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 ### Read-only follow-up and enforced workspace pause
 
@@ -929,7 +929,7 @@ visual inspection or physical display output. The KWin/Mesa incident remains
 unresolved and does not establish active-host-compositor safety. That broader
 graphics gate and canonical M4 remain open. Machine-readable session IDs,
 hashes, buffer accounting, and capacity measurements are in
-[`saf-shared-storage-2026-11-09.json`](../../results/m4/saf-shared-storage-2026-11-09.json).
+**`saf-shared-storage-2026-11-09.json`** (maintainer archive only).
 
 The primary AaaS workspace's Android `/data` and shared-media backing both
 reside on the enrolled dedicated ext4 partition. The relocated installation

@@ -99,7 +99,7 @@ remained visible and queryable after stop/start as
 `content://media/external_primary/file/19`. Each session stopped with status
 `STOPPED`; no AaaS runner, presenter, or installation workspace mount remained
 in the host namespace. Detailed machine-readable results are in
-[`results/m4/headless-shared-storage-2026-11-09.json`](../../results/m4/headless-shared-storage-2026-11-09.json).
+**`results/m4/headless-shared-storage-2026-11-09.json`** (maintainer archive only).
 
 These tests did not launch the Wayland presenter, access the active KDE
 compositor, or exercise the SAF picker. Android-to-host writing used the
@@ -180,7 +180,7 @@ remaining after teardown. The producer observed a maximum of two buffers in
 flight. Headless presentation-feedback counts varied and were lower than
 submissions; no physical display or human-visible presentation was observed.
 Test records and artifact hashes are in
-[`graphics-software-isolated-2026-11-09.json`](../../results/m4/graphics-software-isolated-2026-11-09.json).
+**`graphics-software-isolated-2026-11-09.json`** (maintainer archive only).
 
 An initial run completed frame accounting but crashed in cleanup because the
 new `wl_shm`-only mode unconditionally destroyed a NULL linux-dmabuf proxy.
@@ -279,7 +279,7 @@ observed 1,023 releases plus one teardown invalidation, zero rejects, and zero
 outstanding buffers. SHM does not execute the GBM staging-credit branch.
 
 The machine-readable comparison and exact artifact references are in
-[`graphics-known-good-vs-incident-2026-11-09.json`](../../results/m4/graphics-known-good-vs-incident-2026-11-09.json).
+**`graphics-known-good-vs-incident-2026-11-09.json`** (maintainer archive only).
 The active KDE render nodes are shared host devices, so no post-fix GBM or
 DMA-BUF presentation run was made. The historical KWin/Mesa cause and
 accelerated-path correction remain unverified; active-KWin presentation is
@@ -296,7 +296,7 @@ varying counts of slot-cap rejections. This confirms AaaS presentation activity
 coincided with the repeated crashes. It still does not establish which client
 or resource caused Mesa to abort: the cores remain inaccessible and contain no
 recoverable assertion detail. The full per-PID/per-session table is in the
-[forensic comparison artifact](../../results/m4/graphics-known-good-vs-incident-2026-11-09.json).
+**forensic comparison artifact** (maintainer archive only).
 
 The staged-resource defect was then tested on a disposable QEMU/KVM guest with
 its own virtio-GPU DRM device and Debian Weston GL compositor. The guest had no
@@ -315,7 +315,7 @@ Composer/SurfaceFlinger, or the original KWin failure. Staging accumulation is
 a confirmed resource-retention defect and its bound is now exercised on the
 production code path; KWin crash causality and active-host-KWin safety remain
 unresolved. See
-[`staging-backpressure-acceptance-2026-11-09.json`](../../results/m4/staging-backpressure-acceptance-2026-11-09.json).
+**`staging-backpressure-acceptance-2026-11-09.json`** (maintainer archive only).
 
 ## Controlled live retest (2026-11-09)
 

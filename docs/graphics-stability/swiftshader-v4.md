@@ -90,9 +90,9 @@ this fault. The independent bounded current-build ownership verification
 record remains intact.
 
 The initial stale-buffer interpretation in
-[`swiftshader_v4_ownership_narrowing_20261102.json`](../../results/graphics-stability/swiftshader_v4_ownership_narrowing_20261102.json),
+**`swiftshader_v4_ownership_narrowing_20261102.json`** (maintainer archive only),
 and the earlier unresolved conclusion in
-[`v4_idtrace_replay_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_idtrace_replay_20261102.json),
+**`v4_idtrace_replay_20261102.json`** (maintainer archive only),
 are preserved as dated analyses and superseded by the register-and-mapping
 reconstruction in
-[`v4_fault_geometry_reconstruction_20261102.json`](../../results/graphics-stability/buffer-lifetime/v4_fault_geometry_reconstruction_20261102.json).
+**`v4_fault_geometry_reconstruction_20261102.json`** (maintainer archive only).

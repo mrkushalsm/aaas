@@ -154,7 +154,7 @@ After the source change, the full Python suite ran **569 tests: 563 passed and
 files and 355 local references with no broken links. Machine-readable results,
 including the failed bounded Fedora startup attempt and the earlier audible
 Fedora probe, are in
-[`bubblewrap-path-2026-11-16.json`](../results/release/bubblewrap-path-2026-11-16.json).
+**`bubblewrap-path-2026-11-16.json`** (maintainer archive only).
 
 The latest root filesystem measurement showed 19,411,955,712 bytes available,
 2,062,880,768 bytes below the configured 20 GiB reserve. The existing bundle's

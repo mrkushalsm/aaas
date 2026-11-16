@@ -348,4 +348,4 @@ virtual-display producer exists. An earlier capacity-two retry failed before
 RUNNING during severe low-memory/swap pressure; subsequent bounded default and
 source-LMKD/cgroup runs reached RUNNING and STOPPED. The lower-swap failure was
 not reproduced in those follow-ups; see
-[`two_output_capacity_memory_pressure_20261030.json`](../results/m1e/live/two_output_capacity_memory_pressure_20261030.json).
+**`two_output_capacity_memory_pressure_20261030.json`** (maintainer archive only).

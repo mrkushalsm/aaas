@@ -349,7 +349,7 @@ launches. Runtime dangerous-permission grant and revocation remain untested.
 
 Raw logs remain outside Git under
 `$AAAS_WORKSPACE/tmp/`; hashes and session references
-are in [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+are in **`results/m4/acceptance.json`** (maintainer archive only).
 
 ### External-volume remount follow-up (2026-11-05)
 
@@ -450,5 +450,5 @@ availability in this relocated installation. The primary external workspace
 uses the same 2 GiB filesystem-available reserve policy as its shared media.
 
 See [workspace capacity policy](workspace-capacity-policy.md) and the
-[2026-11-09 storage acceptance record](../../results/m4/shared-storage-partition-2026-11-09.json)
+**2026-11-09 storage acceptance record** (maintainer archive only)
 for block-availability measurements, runtime logs, and test hashes.

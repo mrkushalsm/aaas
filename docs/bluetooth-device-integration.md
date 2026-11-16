@@ -16,7 +16,7 @@ longer binds or restarts `com.android.bluetooth`. The base image is unchanged,
 no host privilege or scheduling policy is altered, and Bluetooth remains
 unavailable to apps. See
 [`post-m1e-bluetooth-runtime-health.md`](post-m1e-bluetooth-runtime-health.md)
-and [`acceptance.json`](../results/post-m1e/bluetooth-runtime-health/acceptance.json)
+and **`acceptance.json`** (maintainer archive only)
 for implementation and live evidence.
 
 ## Historical rootless triage (superseded by the runtime policy above)

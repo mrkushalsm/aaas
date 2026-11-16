@@ -125,7 +125,7 @@ At the 2026-11-02 checkpoint, 232 Python tests, M1A tests, presenter tests,
 input adapter build, isolated Composer tests, display broker build, and
 workspace guard passed. That checkpoint's incomplete resize status is
 superseded by the scoped staged-path acceptance below. See
-[`acceptance.json`](../../results/post-m1e/mixed-composition/acceptance.json)
+**`acceptance.json`** (maintainer archive only)
 for commands, session IDs, evidence paths, hashes, and gate-by-gate status.
 
 ## Supported and unsupported claims
@@ -151,6 +151,6 @@ two concurrent mixed displays, mixed/alias coexistence in both directions,
 resize and resize-back, exact visible-pixel checks, and buffer/fence release
 ordering passed in default and enhanced sessions. See
 [`staged-mixed-composition.md`](staged-mixed-composition.md) and its
-[acceptance record](../../results/post-m1e/staged-mixed-composition/acceptance.json).
+**acceptance record** (maintainer archive only).
 This result does not close this broader record: exact Composer-output
 allocation presentation to Wayland remains **OPEN/BLOCKED**.

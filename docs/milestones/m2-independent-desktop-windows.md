@@ -35,10 +35,10 @@ both had zero outstanding buffers and zero teardown invalidations.
 
 Visible input and focus isolation are supported by recent real KWin sessions:
 
-- [`desktop_input_probe_20261031.json`](../../results/m1e/live/desktop_input_probe_20261031.json): focus switched between Settings Search and Contacts First name; host keyboard edits appeared in the selected app, while the other app's text remained unchanged.
-- [`postresize_visible_input_20261101.json`](../../results/m1e/live/postresize_visible_input_20261101.json): after both Android displays reached matching 950×1100 source buffers, pointer navigation/editing produced visible responses on Settings and Contacts.
-- [`contacts_menu_final_live_20261102.json`](../../results/m1e/live/contacts_menu_final_live_20261102.json): real KWin Wayland pointer events opened Contacts menus in default and enhanced modes. Both sessions stopped cleanly; enhanced cgroup was removed.
-- [`dynamic_reopen_enhanced_lmkd_20261030.json`](../../results/m1e/live/dynamic_reopen_enhanced_lmkd_20261030.json): Settings closed and reopened on a new display while DeskClock remained alive; the enhanced cgroup was removed at shutdown.
+- **`desktop_input_probe_20261031.json`** (maintainer archive only): focus switched between Settings Search and Contacts First name; host keyboard edits appeared in the selected app, while the other app's text remained unchanged.
+- **`postresize_visible_input_20261101.json`** (maintainer archive only): after both Android displays reached matching 950×1100 source buffers, pointer navigation/editing produced visible responses on Settings and Contacts.
+- **`contacts_menu_final_live_20261102.json`** (maintainer archive only): real KWin Wayland pointer events opened Contacts menus in default and enhanced modes. Both sessions stopped cleanly; enhanced cgroup was removed.
+- **`dynamic_reopen_enhanced_lmkd_20261030.json`** (maintainer archive only): Settings closed and reopened on a new display while DeskClock remained alive; the enhanced cgroup was removed at shutdown.
 
 These records are combined only for the M2 behaviors each directly demonstrates.
 No result is inferred from cross-compositor testing. The low-level origin of
@@ -61,7 +61,7 @@ touchscreen path.
 The full 243-test Python suite, M1A tests, Composer tests in an isolated `/tmp`
 build directory, and workspace guard passed during this audit. Full gate
 mapping and raw-log references are machine-readable in
-[`results/m2/acceptance.json`](../../results/m2/acceptance.json). The preceding
+**`results/m2/acceptance.json`** (maintainer archive only). The preceding
 2026-11-02 M1E regression record reports 222 Python tests and applicable native
 checks passing. M2 does not close the separate M5 graphics-performance or M6
 cross-compositor workstreams.

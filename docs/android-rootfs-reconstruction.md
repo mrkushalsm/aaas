@@ -89,7 +89,7 @@ candidate.
 ## Evidence and tests
 
 The machine-readable assembly observation is
-[`results/m6/android16-rootfs-assembly-2026-11-08.json`](../results/m6/android16-rootfs-assembly-2026-11-08.json).
+**`results/m6/android16-rootfs-assembly-2026-11-08.json`** (maintainer archive only).
 The retained candidate is outside Git and is intentionally not a release
 artifact. M4's historical `PASS/CLOSED` status is unchanged; the portable
 runtime foundation and independently runnable Android 16 rootfs remain

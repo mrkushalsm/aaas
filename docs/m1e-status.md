@@ -20,7 +20,7 @@ The exact mechanism behind the old Binder touchscreen event that returned
 success without activating the child view remains unidentified; the current
 adapter uses Android's platform touchscreen injector for touch gestures. This
 is a bounded user-visible behavior PASS, not a low-level Binder root-cause
-claim. See [`contacts_menu_final_live_20261102.json`](../results/m1e/live/contacts_menu_final_live_20261102.json).
+claim. See **`contacts_menu_final_live_20261102.json`** (maintainer archive only).
 
 Initial windows request a comfortable **420×740 logical content geometry** in
 normal windowed mode while Android initially renders a 720×1280 source buffer.
@@ -40,7 +40,7 @@ resource diagnostics converged in 184 ms. These are bounded observations from
 separate sessions, not a controlled benchmark or a universal latency guarantee.
 The final frame remained genuine Android output, including matching dimensions,
 stride, and generation; stale frames stayed rejected. The session summary and
-screenshots are in [`resize_latency_adaptive_20261102.json`](../results/m1e/live/resize_latency_adaptive_20261102.json).
+screenshots are in **`resize_latency_adaptive_20261102.json`** (maintainer archive only).
 
 Default session `m1b84_session_qcyqpliw` and enhanced session
 `m1b84_session_09781jtb` each reached `RUNNING`, kept both Android apps
@@ -59,14 +59,14 @@ aborted when its `bt_main_thread` SCHED_FIFO request failed with `EPERM`. No
 host capability, global scheduler policy, Android image, or service policy was
 changed. The matching Bluetooth module source is absent locally. The separate
 implementation plan is [`bluetooth-device-integration.md`](bluetooth-device-integration.md), with exact findings in
-[`bluetooth_rootless_triage_20261102.json`](../results/m1e/live/bluetooth_rootless_triage_20261102.json).
+**`bluetooth_rootless_triage_20261102.json`** (maintainer archive only).
 This optional device capability does not block the desktop-window contract and
 is not represented as fixed or supported.
 
 The complete current regression set passed: **222 Python tests**, M1A and
 forced presenter tests, input-adapter build, Composer component tests, display
 broker build, and external workspace guard. See
-[`regression_suite_current_head_20261102.json`](../results/m1e/live/regression_suite_current_head_20261102.json).
+**`regression_suite_current_head_20261102.json`** (maintainer archive only).
 
 ### Final M1E decision
 
@@ -82,7 +82,7 @@ Scope limitations remain explicit: only KWin 6.7.5 was available for live
 compositor testing; libdecor Cairo client fallback and standard protocol
 behavior were tested, but another compositor was not. The local availability
 check and protocol/product-dependency scope are recorded in
-[`wayland_compositor_scope_20261102.json`](../results/m1e/live/wayland_compositor_scope_20261102.json). The historical SwiftShader
+**`wayland_compositor_scope_20261102.json`** (maintainer archive only). The historical SwiftShader
 v4 stale-AHardwareBuffer access remains a separate unresolved stability
 investigation and is not claimed fixed by the newer bounded resize runs. Mixed
 distinct-DMA-BUF composition and hardware-specific touchpad sources remain
@@ -105,7 +105,7 @@ The same host pointer coordinates delivered through Android's platform
 deterministic `aaas qa` label, and navigated to Contacts Settings. A host Back
 click returned to the Contacts People screen. Screenshots, coordinates, adapter
 hash, session identity, and test limits are in
-[`contacts_drawer_input_recovery_20261101.json`](../results/m1e/live/contacts_drawer_input_recovery_20261101.json).
+**`contacts_drawer_input_recovery_20261101.json`** (maintainer archive only).
 
 The input adapter now routes touchscreen gestures through that platform event
 builder in auto mode, while retaining the Binder path for mouse/keyboard and
@@ -123,7 +123,7 @@ the drawer opened, Create label accepted the deterministic text `aaas qa 2`
 from host keyboard input, and Save navigated to the new label page. Contacts
 Settings also opened via the drawer and Back returned to the prior label page.
 The fresh-build screenshots and focus-generation/key logs are in
-[`contacts_drawer_narrowed_build_20261101.json`](../results/m1e/live/contacts_drawer_narrowed_build_20261101.json).
+**`contacts_drawer_narrowed_build_20261101.json`** (maintainer archive only).
 
 ## Preserved baseline
 
@@ -161,7 +161,7 @@ acquire fence as the release dependency when valid. The first frame of the new
 size then arrived and was presented. The run ended with 176 imports, 176
 submissions, 176 releases, zero outstanding buffers, and no teardown
 invalidations. Full trace and hashes are in
-[`native_resize_release_ack_20261030.json`](../results/m1e/live/native_resize_release_ack_20261030.json).
+**`native_resize_release_ack_20261030.json`** (maintainer archive only).
 
 This proves one output resizing in both directions. Rapid resize bursts,
 landscape, simultaneous independent output resizing, navigation during resize,
@@ -176,10 +176,10 @@ The continuation session `m1b84_session_8e7pe6lh` created Settings task 8 on
 Android display 2 / Composer display 100 and DeskClock task 9 on Android
 display 3 / Composer display 101. KWin quick-tiled their separate toplevels
 left and right; the real desktop capture shows both live Android applications
-at once in [`two_app_side_by_side_resize_20261030.png`](../results/m1e/live/two_app_side_by_side_resize_20261030.png).
+at once in **`two_app_side_by_side_resize_20261030.png`** (maintainer archive only).
 The temporary KWin script used compositor-managed quick tiling; it did not
 change persistent KWin configuration. Details and raw-log hashes are in
-[`two_app_window_resize_close_20261030.json`](../results/m1e/live/two_app_window_resize_close_20261030.json).
+**`two_app_window_resize_close_20261030.json`** (maintainer archive only).
 
 ### Per-window close and terminal buffer ownership
 
@@ -249,8 +249,8 @@ buffers; the journal and sentinel reached STOPPED. In source-LMKD/cgroup mode,
 Settings then crossed the 960×557 odd-height path and returned to 720×1280,
 accepted visible post-resize text editing, and survived three guest minute
 boundaries without the AlarmManager failure. The cgroup was removed at clean
-shutdown. Records: [`default_runtime_corrected_swiftshader_resize_20261101.json`](../results/m1e/live/default_runtime_corrected_swiftshader_resize_20261101.json)
-and [`enhanced_runtime_transition_resize_20261101.json`](../results/m1e/live/enhanced_runtime_transition_resize_20261101.json).
+shutdown. Records: **`default_runtime_corrected_swiftshader_resize_20261101.json`** (maintainer archive only)
+and **`enhanced_runtime_transition_resize_20261101.json`** (maintainer archive only).
 
 The old v4 stale AHardwareBuffer access remains a separate unresolved
 historical lifetime observation; this bounded candidate validation does not
@@ -281,7 +281,7 @@ Closing and reopening Settings in the same Android runtime and repeating the
 sequence produced the same visible result. Both presenters ended with
 imports=submissions=releases, zero outstanding buffers, and the runtime ended
 `STOPPED`. The detailed trace, overlay provenance, hashes, and limits are in
-[`activity_transition_key_deferral_20261101.json`](../results/m1e/live/activity_transition_key_deferral_20261101.json).
+**`activity_transition_key_deferral_20261101.json`** (maintainer archive only).
 
 This is bounded live verification, not the full Activity/key stress matrix.
 The concurrent host-focus-loss cancellation path, Contacts Activity-transition
@@ -319,7 +319,7 @@ The final automated runs for this continuation passed:
 The external workspace remained on `$AAAS_WORKSPACE_DEVICE` (NTFS3, UUID
 `$AAAS_NTFS_WORKSPACE_UUID`) at 22.9 GB used, under its 80 GiB ceiling with the
 20 GiB safety reserve. Build hashes and IDs are in
-[`window_resize_lifecycle_20261030.json`](../results/m1e/build_receipts/window_resize_lifecycle_20261030.json).
+**`window_resize_lifecycle_20261030.json`** (maintainer archive only).
 
 After adding resource snapshots and the app-mode presentation option, the
 Python suite passed **164 tests** in the earlier resource-diagnostics run; the focus-sync follow-up passed **165 tests**. M1A, forced presenter rebuild/tests, forced
@@ -347,7 +347,7 @@ home page rather than a confirmed scrollable view. A later scrollable-list and
 Contacts-editor experiment exposed and fixed Android 16 argument ordering;
 visible independent vertical scrolling then passed in both default and
 enhanced runs. See
-[`scroll_routing_fix_20261031.json`](../results/m1e/live/scroll_routing_fix_20261031.json). Transient InputDispatcher no-focused-window warnings, horizontal/touchpad-specific scroll coverage, full resize matrix, and the historical SwiftShader JIT crash remain open.
+**`scroll_routing_fix_20261031.json`** (maintainer archive only). Transient InputDispatcher no-focused-window warnings, horizontal/touchpad-specific scroll coverage, full resize matrix, and the historical SwiftShader JIT crash remain open.
 
 The minimize limitation is confirmed in the host source: the presenter binds
 `xdg_wm_base` no higher than version 3, and `toplevel_configure()` discards the
@@ -364,8 +364,8 @@ Contacts task 9/display 3), controlled `/dev/uinput` text appeared as `alpha`
 in Settings Search and `beta`/`hii` in Contacts. A later focus sequence
 changed each focused app independently, and Ctrl+A replaced the Settings query
 with `beta` while the Contacts fields stayed unchanged. The screenshots are
-[`input_two_apps_alpha_beta_20261031.png`](../results/m1e/live/input_two_apps_alpha_beta_20261031.png),
-[`input_two_way_focus_20261031.png`](../results/m1e/live/input_two_way_focus_20261031.png),
+**`input_two_apps_alpha_beta_20261031.png`** (maintainer archive only),
+**`input_two_way_focus_20261031.png`** (maintainer archive only),
 and the Ctrl+A capture referenced in the JSON evidence.
 
 KWin minimized and restored the Contacts window using its normal window state.
@@ -407,7 +407,7 @@ zero in Settings. Enhanced source-LMKD/cgroup mode reproduced both operations
 runtime journals and sentinels reached STOPPED; the enhanced delegated cgroup
 was removed. Presenters ended with imports=submissions=releases, zero outstanding
 buffers, and no teardown invalidations. The screenshots and raw session hashes
-are in [`scroll_routing_fix_20261031.json`](../results/m1e/live/scroll_routing_fix_20261031.json).
+are in **`scroll_routing_fix_20261031.json`** (maintainer archive only).
 
 This accepts bounded vertical mouse-wheel routing/isolation on these two views.
 It does not cover horizontal scrolling, dedicated touchpad gesture-source
@@ -452,10 +452,10 @@ create-after-destroy cycles without restarting Android:
 
 The captured side-by-side screenshot records Settings and DeskClock after the
 first reopen in
-[`dynamic_reopen_two_windows_20261030.png`](../results/m1e/live/dynamic_reopen_two_windows_20261030.png).
+**`dynamic_reopen_two_windows_20261030.png`** (maintainer archive only).
 The structured transaction, Android IDs, log hashes, capacity result, and
 ownership summaries are in
-[`dynamic_reopen_control_20261030.json`](../results/m1e/live/dynamic_reopen_control_20261030.json).
+**`dynamic_reopen_control_20261030.json`** (maintainer archive only).
 At final shutdown the state journal and status sentinel were both `STOPPED`,
 the broker acknowledged `released`, and presenter summaries showed no
 outstanding or teardown-invalidated buffers. The enhanced source-LMKD/cgroup
@@ -490,7 +490,7 @@ not a missing second-presenter HELLO. The attempt did not produce a valid
 simultaneous-window screenshot and establishes no new UI/input acceptance.
 Host swap was effectively exhausted after the run, so no immediate retry was
 started. The two-output build identity, state history, and raw log hashes are
-in [`two_output_capacity_memory_pressure_20261030.json`](../results/m1e/live/two_output_capacity_memory_pressure_20261030.json).
+in **`two_output_capacity_memory_pressure_20261030.json`** (maintainer archive only).
 
 The capacity-two runtime configuration is now selected by the two-app
 experimental launch path; one-app mode retains its existing Composer overlay.
@@ -516,12 +516,12 @@ session, Settings reopened as a mapped Wayland window with Android task 10 and
 display 4 while Contacts task 9/display 3 remained running. The new display
 stayed at its initial 720×1280 until host interaction; the stale 960×1156
 request was absent. The screenshot
-[`dynamic_reopen_stale_resize_fix_20261031.png`](../results/m1e/live/dynamic_reopen_stale_resize_fix_20261031.png)
+**`dynamic_reopen_stale_resize_fix_20261031.png`** (maintainer archive only)
 shows the reopened Settings content. It was captured before retiling, so the
 windows overlap; it is evidence of mapping/content, not simultaneous
 accessibility. The complete failure/fix trace, external raw-log paths and
 hashes are in
-[`dynamic_reopen_stale_resize_fix_20261031.json`](../results/m1e/live/dynamic_reopen_stale_resize_fix_20261031.json).
+**`dynamic_reopen_stale_resize_fix_20261031.json`** (maintainer archive only).
 
 Both presenters ended with imports=submissions=releases, zero outstanding
 buffers, and zero teardown invalidations. The session journal and status
@@ -578,7 +578,7 @@ to these runs; the enhanced session's own policy cgroup recorded zero OOMs and
 was removed. No LMKD policy change was made. Full interactive two-window input,
 concurrent resize, close/reopen, and the separate historical SwiftShader JIT
 crash remain open. Overall M1E remains **PARTIAL**. Structured measurements and
-raw-log hashes: [`two_app_memory_comparison_20261030.json`](../results/m1e/live/two_app_memory_comparison_20261030.json).
+raw-log hashes: **`two_app_memory_comparison_20261030.json`** (maintainer archive only).
 
 ### App-mode presentation policy and bounded resource snapshots (2026-10-30)
 
@@ -592,7 +592,7 @@ and the session IPC directory exposed the two `wayland-vdisplay` endpoints
 without a primary `wayland.sock`. A real desktop screenshot shows DeskClock
 content rather than the Android launcher/primary desktop; it is a single
 foreground window capture, not new side-by-side evidence:
-[`app_mode_primary_suppressed_20261030.png`](../results/m1e/live/app_mode_primary_suppressed_20261030.png).
+**`app_mode_primary_suppressed_20261030.png`** (maintainer archive only).
 The `--show-primary-diagnostic` escape hatch was also exercised live in a
 single-app session: both `wayland.sock` and `wayland-vdisplay.sock` were
 created with their presenters, then the session reached STOPPED on Ctrl+C.
@@ -620,7 +620,7 @@ These are process-accounting snapshots, not total graphics memory; DMA-BUF
 allocations may not be represented in process PSS. Both presenters completed
 all submitted-buffer releases with zero outstanding buffers. Full structured
 evidence and session paths are in
-[`app_mode_resource_diagnostics_20261030.json`](../results/m1e/live/app_mode_resource_diagnostics_20261030.json).
+**`app_mode_resource_diagnostics_20261030.json`** (maintainer archive only).
 
 ### Concurrent virtual-display resize and per-display keyboard routing (2026-10-30)
 
@@ -631,7 +631,7 @@ Android displays 2 and 3 to advance independently to resize generation 2 at
 WindowManager recorded task 8 on display 2 and task 9 on display 3 with
 960×1156 bounds. Composer and both presenters received Android source buffers
 at 960×1156 with 3840-byte stride. The genuine full-desktop screenshot
-[`two_output_native_resize_20261030.png`](../results/m1e/live/two_output_native_resize_20261030.png)
+**`two_output_native_resize_20261030.png`** (maintainer archive only)
 shows both Android applications simultaneously.
 
 Settings was then resized alone to 960×578. Android WindowManager changed
@@ -652,9 +652,9 @@ were injected by the display-3 adapter only. The Settings adapter had logged
 keyboard focus leave and no subsequent key injection. The DeskClock Activity
 has no text editor and no visible application response to those keys was
 established; this remains partial keyboard acceptance. The screenshots
-[`two_app_keyboard_route_20261030.png`](../results/m1e/live/two_app_keyboard_route_20261030.png)
+**`two_app_keyboard_route_20261030.png`** (maintainer archive only)
 and the detailed packet/focus/frame evidence are in
-[`two_output_resize_keyboard_20261030.json`](../results/m1e/live/two_output_resize_keyboard_20261030.json).
+**`two_output_resize_keyboard_20261030.json`** (maintainer archive only).
 
 Both sessions reached `RUNNING` then `STOPPED`; the state journal and sentinel
 matched. The new concurrent-resize and keyboard-routing sessions did not
@@ -671,7 +671,7 @@ OOM counters were already nonzero at the first snapshot and unchanged at the
 last, so those cumulative counters are not attributed to this session. The
 historical SwiftShader JIT fault did not recur. No resize was performed in
 this smoke session. Details and external raw-log hashes are in
-[`two_app_startup_shutdown_resource_probe_20261030.json`](../results/m1e/live/two_app_startup_shutdown_resource_probe_20261030.json).
+**`two_app_startup_shutdown_resource_probe_20261030.json`** (maintainer archive only).
 
 An enhanced-mode run `m1b84_session_koo55mvl` also remained RUNNING for 66.2
 seconds before Ctrl+C shutdown. The source-built LMKD logged 14 cached or
@@ -682,7 +682,7 @@ shutdown. Each presenter ended with all 401/401 and 378/378 imported,
 submitted, released buffers and zero outstanding. This is bounded startup and
 cleanup evidence only: no interaction or deliberate pressure injection was
 performed. See
-[`two_app_enhanced_lmkd_cgroup_smoke_20261030.json`](../results/m1e/live/two_app_enhanced_lmkd_cgroup_smoke_20261030.json).
+**`two_app_enhanced_lmkd_cgroup_smoke_20261030.json`** (maintainer archive only).
 
 ### Continuation lifecycle audit (2026-10-30)
 
@@ -701,7 +701,7 @@ and 334/334 imports/submissions/releases, zero outstanding buffers, and zero
 teardown invalidations. This session is useful for shutdown accounting, not for
 the missing input-isolation or reopen gates. Structured observations and raw
 log hashes are in
-[`continuation_runtime_audit_20261030.json`](../results/m1e/live/continuation_runtime_audit_20261030.json).
+**`continuation_runtime_audit_20261030.json`** (maintainer archive only).
 
 At the prior checkpoint, the launcher supported only its initial `--app` /
 `--app2` pair. The dated follow-up below adds a coordinated session-local
@@ -746,8 +746,8 @@ on that app is still not established.
 The session ended with matching `STOPPED` state journal and sentinel. Settings
 and DeskClock presenters reported 872/872 and 848/848 imports/submissions/
 releases, zero outstanding buffers, and zero teardown invalidations. Evidence:
-[`focus_sync_inputdispatcher_20261030.json`](../results/m1e/live/focus_sync_inputdispatcher_20261030.json),
-[`two-window screenshot`](../results/m1e/live/focus_sync_two_windows_20261030.png),
+**`focus_sync_inputdispatcher_20261030.json`** (maintainer archive only),
+**`two-window screenshot`** (maintainer archive only),
 and the filtered Android input/task snapshots beside them.
 
 The same patched focus path was exercised in a separate enhanced
@@ -756,7 +756,7 @@ matching Android focused-display IDs 2 → 3 → 2. The session reached RUNNING,
 stopped cleanly, removed its delegated cgroup, had no observed ANR, and both
 presenters ended with zero outstanding buffers. This was focus/lifecycle smoke
 coverage only; it did not repeat visible text entry. See
-[`focus_sync_enhanced_lmkd_20261030.json`](../results/m1e/live/focus_sync_enhanced_lmkd_20261030.json).
+**`focus_sync_enhanced_lmkd_20261030.json`** (maintainer archive only).
 
 This resolves the reproduced host-focus/Android-display-focus mismatch for
 the tested tasks, but it does not close M1E. Two-way application-consumed
@@ -777,7 +777,7 @@ imports/submissions/releases, zero outstanding buffers, and zero invalidated
 buffers. The state journal and sentinel matched at STOPPED, and the delegated
 cgroup was removed. This was a short text-entry smoke only; enhanced-mode
 scrolling, minimize, resize, and close/reopen were not repeated. Evidence:
-[`enhanced_keyboard_interaction_20261031.json`](../results/m1e/live/enhanced_keyboard_interaction_20261031.json).
+**`enhanced_keyboard_interaction_20261031.json`** (maintainer archive only).
 
 ### InputDispatcher focus-readiness follow-up (2026-10-31)
 
@@ -797,8 +797,8 @@ The broker logged per-display focused-window matches before the adapter logged
 submissions and releases (698/698 for Settings, 690/690 for Contacts), zero
 outstanding buffers, and zero teardown invalidations. The state journal and
 status sentinel both reached `STOPPED`. The screenshot is
-[`focus_readiness_first_key_20261031.png`](../results/m1e/live/focus_readiness_first_key_20261031.png); structured evidence and external log hashes are in
-[`focus_readiness_followup_20261031.json`](../results/m1e/live/focus_readiness_followup_20261031.json).
+**`focus_readiness_first_key_20261031.png`** (maintainer archive only); structured evidence and external log hashes are in
+**`focus_readiness_followup_20261031.json`** (maintainer archive only).
 
 This is bounded evidence for one first character in Settings, not a complete
 reliability result. Contacts did not visibly consume text in this session, and
@@ -816,7 +816,7 @@ source-LMKD/cgroup mode (session `m1b84_session_3195sxc9`). Both displays
 received focus-ready acknowledgements; shutdown reached `STOPPED`, removed the
 session cgroup, and drained presenter buffers (135/135 and 124/124 releases).
 This run did not switch focus or type into either app, so it is startup/cleanup
-evidence only: [`focus_readiness_enhanced_smoke_20261031.json`](../results/m1e/live/focus_readiness_enhanced_smoke_20261031.json).
+evidence only: **`focus_readiness_enhanced_smoke_20261031.json`** (maintainer archive only).
 
 ### Repeated two-window first-key acceptance (2026-10-31)
 
@@ -836,13 +836,13 @@ keyboard attribution is not claimed. The OCR helper confused some `0` glyphs
 with `o`; the pass count comes from direct screenshot inspection, and OCR text
 is retained as diagnostic metadata rather than used as the acceptance oracle.
 See the genuine screenshot contact sheets
-[`default`](../results/m1e/live/repeated_focus_fields_default_20261031.png) and
-[`enhanced`](../results/m1e/live/repeated_focus_fields_enhanced_20261031.png),
+**`default`** (maintainer archive only) and
+**`enhanced`** (maintainer archive only),
 final simultaneous captures
-[`default`](../results/m1e/live/repeated_first_key_focus_20261031.png) and
-[`enhanced`](../results/m1e/live/repeated_first_key_focus_enhanced_20261031.png),
+**`default`** (maintainer archive only) and
+**`enhanced`** (maintainer archive only),
 and structured per-transition results in
-[`repeated_focus_typing_20261031.json`](../results/m1e/live/repeated_focus_typing_20261031.json).
+**`repeated_focus_typing_20261031.json`** (maintainer archive only).
 
 The broker observed InputDispatcher focused-window matches on the requested
 display before readiness acknowledgements. The observed snapshot-readiness
@@ -882,7 +882,7 @@ Search on task 8/display 2 remained `z`. After the delayed pointer probe
 focused Settings, `q` appended to its query; Ctrl+A followed by `alpha`
 replaced it, while Contacts remained `beta`. The final real desktop capture
 shows both app windows and both editor values in
-[`two_app_input_isolation_default_20261031.png`](../results/m1e/live/two_app_input_isolation_default_20261031.png).
+**`two_app_input_isolation_default_20261031.png`** (maintainer archive only).
 This establishes one visible input-isolation sample in each direction in
 default mode. It is synthetic `/dev/uinput`, not physical-keyboard evidence,
 and does not replace the prior 40/40 repeated first-key trials.
@@ -894,7 +894,7 @@ Contacts finished with 488/488. Both had zero outstanding buffers and zero
 teardown invalidations. The state journal and sentinel both reached
 `STOPPED`; no runtime processes were left. The structured run record contains
 the identities, hashes, and exact untested matrix:
-[`desktop_input_probe_20261031.json`](../results/m1e/live/desktop_input_probe_20261031.json).
+**`desktop_input_probe_20261031.json`** (maintainer archive only).
 
 The same run also demonstrated why pointer-test setup must wait for uinput
 device registration: an earlier temporary probe left Contacts as KWin's
@@ -941,14 +941,14 @@ a KWin focus transfer, released after the new Settings focus acknowledgement,
 and the following `A` appeared lowercase; this shows no Shift effect at the new
 target, but does not establish that a held modifier is automatically released
 before an explicit key-up. The captures are
-[`final_key_matrix_default_20261031.png`](../results/m1e/live/final_key_matrix_default_20261031.png),
-[`final_key_caps_default_20261031.png`](../results/m1e/live/final_key_caps_default_20261031.png),
-[`final_key_shift_selection_default_20261031.png`](../results/m1e/live/final_key_shift_selection_default_20261031.png),
-[`final_key_enter_default_20261031.png`](../results/m1e/live/final_key_enter_default_20261031.png),
+**`final_key_matrix_default_20261031.png`** (maintainer archive only),
+**`final_key_caps_default_20261031.png`** (maintainer archive only),
+**`final_key_shift_selection_default_20261031.png`** (maintainer archive only),
+**`final_key_enter_default_20261031.png`** (maintainer archive only),
 and
-[`final_modifier_focus_switch_default_20261031.png`](../results/m1e/live/final_modifier_focus_switch_default_20261031.png).
+**`final_modifier_focus_switch_default_20261031.png`** (maintainer archive only).
 The key-by-key observations and artifact hashes are in
-[`final_key_matrix_default_20261031.json`](../results/m1e/live/final_key_matrix_default_20261031.json).
+**`final_key_matrix_default_20261031.json`** (maintainer archive only).
 
 This was a default-mode synthetic-input check only. Escape/Back, Up/Down,
 Ctrl/Alt shortcuts, repeat, and modifier cleanup on close/reopen remain
@@ -977,10 +977,10 @@ First name field to `kappaOMEGA` using Ctrl+A and Caps Lock, then switched to
 Settings and changed its Search field to `sigma`. The simultaneous desktop
 capture shows both values and the unchanged unfocused Contacts field after the
 Settings edit in
-[`final_enhanced_input_isolation_20261031.png`](../results/m1e/live/final_enhanced_input_isolation_20261031.png);
-[`final_enhanced_caps_modifier_20261031.png`](../results/m1e/live/final_enhanced_caps_modifier_20261031.png)
+**`final_enhanced_input_isolation_20261031.png`** (maintainer archive only);
+**`final_enhanced_caps_modifier_20261031.png`** (maintainer archive only)
 shows the Contacts modifier result. The structured record is
-[`final_enhanced_input_isolation_20261031.json`](../results/m1e/live/final_enhanced_input_isolation_20261031.json).
+**`final_enhanced_input_isolation_20261031.json`** (maintainer archive only).
 
 Both app slots remained RUNNING during interaction. The log recorded eight
 InputDispatcher no-focused-window warnings and no ANR signature; warning-level
@@ -1002,10 +1002,10 @@ at 960×578 (stride 3840); Settings reached that size while Contacts remained
 at 960×1156, confirming independent resize. Contacts then resized to 960×578,
 and both outputs subsequently produced matching 960×557 buffers. A later
 simultaneous generation-5 request changed both to 960×565. The screenshot
-[`two_output_landscape_resize_crash_20261031.png`](../results/m1e/live/two_output_landscape_resize_crash_20261031.png)
+**`two_output_landscape_resize_crash_20261031.png`** (maintainer archive only)
 shows both app outputs side by side in landscape geometry; a host terminal
 covers the lower desktop region. Dimensions and source strides are in
-[`two_output_landscape_resize_crash_20261031.json`](../results/m1e/live/two_output_landscape_resize_crash_20261031.json).
+**`two_output_landscape_resize_crash_20261031.json`** (maintainer archive only).
 
 Approximately 63 ms after the broker logged the generation-5 resize requests,
 SurfaceFlinger PID 189/TID 219 crashed with SIGSEGV (`SEGV_MAPERR`). The only
@@ -1035,7 +1035,7 @@ Android `tombstoned`/debuggerd export path. The child tombstone was captured,
 hashed, and stored in a session-private directory (0700; tombstone and manifest
 files 0600); the session journal and sentinel both reached STOPPED. This test
 did not crash SurfaceFlinger. See
-[`swiftshader_crash_capture_20261031.json`](../results/m1e/live/swiftshader_crash_capture_20261031.json).
+**`swiftshader_crash_capture_20261031.json`** (maintainer archive only).
 
 A subsequent bounded default-LMKD run reproduced the SurfaceFlinger failure
 while both displays resized from 960×557 to 960×565. The KWin configure events
@@ -1086,7 +1086,7 @@ host-wide memory exhaustion as the direct cause.
 
 The full tombstone, resize timeline, buffer accounting, provenance hashes,
 and failure-cleanup record are in
-[`swiftshader_resize_reproduction_20261031.json`](../results/m1e/live/swiftshader_resize_reproduction_20261031.json).
+**`swiftshader_resize_reproduction_20261031.json`** (maintainer archive only).
 The failure is reproducible enough to block M1E closure, but the exact JIT
 shader/resource lifetime cause is not yet isolated. No further aggressive
 resize stress was run after this informative crash.
@@ -1099,7 +1099,7 @@ quotes, a second disposable-child test reached RUNNING, exported exactly the
 matching text and protobuf tombstones (no unrelated tombstones), and reached
 STOPPED in both the journal and sentinel. The export directory remained 0700
 and the artifacts 0600. See
-[`swiftshader_capture_filter_validation_20261031.json`](../results/m1e/live/swiftshader_capture_filter_validation_20261031.json).
+**`swiftshader_capture_filter_validation_20261031.json`** (maintainer archive only).
 
 After the filter change, the repository regression run passed 178 Python
 tests. M1A, the forced presenter build/tests, the Android input-adapter build,
@@ -1136,7 +1136,7 @@ producer disconnect without a SurfaceFlinger fatal event in the checked logs.
 This supports a distinct presenter defect that could be exposed by a producer
 disconnect; it does not resolve the separate SwiftShader JIT failure. The
 complete core findings, hashes, and clock correlation are in
-[`presenter_libxkbcommon_crash_analysis_20261031.json`](../results/m1e/live/presenter_libxkbcommon_crash_analysis_20261031.json).
+**`presenter_libxkbcommon_crash_analysis_20261031.json`** (maintainer archive only).
 
 The SurfaceFlinger `PC 0x12bf` fault in `/memfd:swiftshader_jit (deleted)`
 remains unresolved. No shader/pipeline or graphics allocation identity has
@@ -1153,7 +1153,7 @@ callback is discarded. Both paths passed in a separate ASan/UBSan build, and
 the full M1A test target passed from `/tmp`. This exercises the proxy/event
 lifetime contract, but is not a forced KWin or Android producer-disconnect
 reproduction. See
-[`presenter_queued_keyboard_teardown_validation_20261031.json`](../results/m1e/live/presenter_queued_keyboard_teardown_validation_20261031.json).
+**`presenter_queued_keyboard_teardown_validation_20261031.json`** (maintainer archive only).
 
 A complete tombstone from `m1b84_session_wpoyddeu` decodes the SwiftShader JIT
 instruction as `movq (%rcx,%rax,1),%xmm1`, an 8-byte read. Its effective
@@ -1169,7 +1169,7 @@ allocation or shader was accessed, nor whether resize caused it. Reactor JIT
 debug info was disabled in the Release build. No persistent source-checkout
 change or SwiftShader correction is claimed. Full decoded evidence and exact
 external artifact hashes are in
-[`swiftshader_fault_instruction_analysis_20261031.json`](../results/m1e/live/swiftshader_fault_instruction_analysis_20261031.json).
+**`swiftshader_fault_instruction_analysis_20261031.json`** (maintainer archive only).
 
 The verified baseline overlay was built from SwiftShader revision
 `cddb5c91b23ff70a1f607ea31610aa0d7f4b5ad5` with the existing sampling-cache
@@ -1183,7 +1183,7 @@ release accounting. These were no-resize instrumentation checks, not crash
 reproductions. The production overlay hash was unchanged. The diagnostic
 stderr path was not captured by session logs, so the trace uses the bound IPC
 directory. See
-[`swiftshader_jit_routine_trace_20261031.json`](../results/m1e/live/swiftshader_jit_routine_trace_20261031.json)
+**`swiftshader_jit_routine_trace_20261031.json`** (maintainer archive only)
 and the reproducible patch at
 [`swiftshader_subzero_jit_trace.patch`](../experiments/m1e/patches/swiftshader_subzero_jit_trace.patch).
 
@@ -1202,7 +1202,7 @@ trace build assembled from selected objects while retaining other objects
 built against modified external headers. The stack and Build ID distinguish
 this instrumentation/ABI failure from the historical JIT fault. The failed
 run and hashes are recorded in
-[`swiftshader_ahb_trace_diagnostic_overlay_20261031.json`](../results/m1e/live/swiftshader_ahb_trace_diagnostic_overlay_20261031.json).
+**`swiftshader_ahb_trace_diagnostic_overlay_20261031.json`** (maintainer archive only).
 That overlay is not suitable for further runtime tests. The expected
 sampling-lock overlay was reconstructed and its pinned SHA-256 and Build ID
 were verified before restoring the runtime path.
@@ -1257,7 +1257,7 @@ The production overlay remains unchanged at SHA-256
 `1b29507504c649431380d689e27325c5ad23b742ea430d55758fb31045ee3181`.
 
 Detailed build, trace, tombstone hashes, and limits are recorded in
-[`swiftshader_coherent_resize_investigation_20261031.json`](../results/m1e/live/swiftshader_coherent_resize_investigation_20261031.json).
+**`swiftshader_coherent_resize_investigation_20261031.json`** (maintainer archive only).
 M1E remains **PARTIAL** until the resource owner and violated lifetime
 contract are established and the resize failure is corrected and retested.
 
@@ -1286,7 +1286,7 @@ recorded draw submissions carried fence events and were followed by renderer
 synchronization completion. This does not explain the stale AHardwareBuffer read
 from the historical resize crash. The v5 trace has not yet captured a successful
 resize-correlated crash or established a display-generation owner. See
-[`swiftshader_v5_object_trace_20261031.json`](../results/m1e/live/swiftshader_v5_object_trace_20261031.json).
+**`swiftshader_v5_object_trace_20261031.json`** (maintainer archive only).
 
 These failure sessions also exposed a host reporting bug: the runner searched
 `commands.log` for a death marker as an arbitrary substring, and that log includes
@@ -1319,7 +1319,7 @@ This trace does not reproduce the historical JIT stale read and still does
 not attach an Android display ID directly to a SwiftShader object. It provides
 a sound per-draw Vulkan image-to-memory link for the next bounded resize
 capture. See
-[`swiftshader_v6_descriptor_use_resize_20261031.json`](../results/m1e/live/swiftshader_v6_descriptor_use_resize_20261031.json).
+**`swiftshader_v6_descriptor_use_resize_20261031.json`** (maintainer archive only).
 The repeated system-server exception is recorded separately from the
 SurfaceFlinger JIT failure. No graphics lifetime fix is claimed; M1E remains
 **PARTIAL**.
@@ -1350,7 +1350,7 @@ SurfaceFlinger tombstone manifest truthfully reports no tombstone. Therefore
 this is useful bounded trace coverage, not clean runtime acceptance and not a
 SwiftShader fix. The historical fault's target/source relation remains
 unresolved because that older run did not include target records. See
-[`swiftshader_v7_target_trace_resize_20261031.json`](../results/m1e/live/swiftshader_v7_target_trace_resize_20261031.json).
+**`swiftshader_v7_target_trace_resize_20261031.json`** (maintainer archive only).
 
 ### Odd-height SwiftShader paired-row bounds correction (2026-10-31)
 
@@ -1384,7 +1384,7 @@ matrix, and post-resize pointer acceptance remain open. Live resizing used the
 available KWin session only to issue ordinary Wayland configure events; the
 product implementation uses SwiftShader attachment extents and introduces no
 KDE/KWin dependency or patch. See
-[`swiftshader_odd_height_pair_bounds_20261031.json`](../results/m1e/live/swiftshader_odd_height_pair_bounds_20261031.json).
+**`swiftshader_odd_height_pair_bounds_20261031.json`** (maintainer archive only).
 
 ### Corrected SwiftShader candidate selected by the default runner (2026-11-01)
 
@@ -1404,7 +1404,7 @@ outstanding buffers, and the state journal and sentinel both reached STOPPED.
 This validates the default deployment path for this bounded sequence. The
 historical v4 stale AHardwareBuffer mapping access remains unresolved and is
 not covered by the odd-height bounds fix. Full trace and artifact hashes are
-in [`default_runtime_corrected_swiftshader_resize_20261101.json`](../results/m1e/live/default_runtime_corrected_swiftshader_resize_20261101.json).
+in **`default_runtime_corrected_swiftshader_resize_20261101.json`** (maintainer archive only).
 
 ### Enhanced-mode v9 smoke (2026-10-31)
 
@@ -1417,7 +1417,7 @@ not resize or exercise input, and therefore does not establish enhanced-mode
 resize acceptance. The guest log also showed the existing Bluetooth service
 restarting after `libbluetooth_jni.so` was unavailable; the target application
 presenters remained active. See
-[`swiftshader_v9_enhanced_smoke_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_smoke_20261031.json).
+**`swiftshader_v9_enhanced_smoke_20261031.json`** (maintainer archive only).
 
 A subsequent enhanced resize attempt (`m1b84_session_1ky_uksb`) did not reach a
 resize request: system_server terminated at guest time 16:48:00 with the
@@ -1427,7 +1427,7 @@ enhanced resize pass. Both presenters emitted complete summaries (137/137/137
 and 123/123/123 releases, zero outstanding), and cgroup cleanup succeeded. No
 SurfaceFlinger SIGSEGV was observed. This known framework failure is separate
 from SwiftShader and KWin; no causal connection is established. See
-[`swiftshader_v9_enhanced_resize_blocked_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_resize_blocked_20261031.json).
+**`swiftshader_v9_enhanced_resize_blocked_20261031.json`** (maintainer archive only).
 
 A further bounded default-mode v9 run configured Settings to 960×557 while
 Contacts remained at 720×1280. DisplayManager and SwiftShader draw-target trace
@@ -1438,14 +1438,14 @@ buffers; Contacts accounted for 142/142/142. This is one more bounded odd-height
 resize pass, not resize-back or input acceptance. The temporary KWin script was
 only a test driver for ordinary Wayland configure events; the AaaS and SwiftShader
 implementation has no KDE/KWin dependency. See
-[`swiftshader_v9_557_resize_20261031.json`](../results/m1e/live/swiftshader_v9_557_resize_20261031.json).
+**`swiftshader_v9_557_resize_20261031.json`** (maintainer archive only).
 
 Two intervening attempts are also recorded: one was interrupted by a stale-session
 selection bug in the one-off test harness before readiness (all processes in that
 specific runtime were subsequently removed; ownership is recorded unknown), and
 another failed at the known guest minute-boundary `AlarmManagerService` null
 `PendingIntent` exception. Neither is counted as resize acceptance. See
-[`swiftshader_v9_failed_probe_attempts_20261031.json`](../results/m1e/live/swiftshader_v9_failed_probe_attempts_20261031.json).
+**`swiftshader_v9_failed_probe_attempts_20261031.json`** (maintainer archive only).
 
 ### Odd-height resize-back (2026-10-31)
 
@@ -1460,7 +1460,7 @@ and zero teardown invalidations. Contacts ended at generation 1 with
 139/139/139, zero outstanding. The session reached `STOPPED`. This bounded
 result does not test input after resize, repeated bursts, dual-output landscape,
 or enhanced mode. Evidence:
-[`swiftshader_resize_back_odd_height_20261031.json`](../results/m1e/live/swiftshader_resize_back_odd_height_20261031.json).
+**`swiftshader_resize_back_odd_height_20261031.json`** (maintainer archive only).
 
 ### Coherent no-tracing build and odd-height validation (2026-10-31)
 
@@ -1480,7 +1480,7 @@ each Settings generation, including 3840-byte odd-height strides. Settings
 reconciled 176 imports/submissions/releases and Contacts 168/168/168, with zero
 outstanding buffers and zero teardown invalidations. SurfaceFlinger survived
 the resize sequence. The exact session and hashes are recorded in
-[`swiftshader_fixed_notrace_resize_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_resize_20261031.json).
+**`swiftshader_fixed_notrace_resize_20261031.json`** (maintainer archive only).
 
 This was not a clean session acceptance: after resize-back, system_server
 restarted at guest 17:21:00.001 UTC with the known null-PendingIntent
@@ -1501,7 +1501,7 @@ buffers, then returned to 720×1280; Contacts remained independently at
 The session cgroup was removed. At guest 17:27:00.004 UTC, the known unrelated
 AlarmManager null-PendingIntent exception crashed system_server, so the session
 correctly remained `FAILED`, not `STOPPED`. See
-[`swiftshader_fixed_notrace_resize_enhanced_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_resize_enhanced_20261031.json).
+**`swiftshader_fixed_notrace_resize_enhanced_20261031.json`** (maintainer archive only).
 This is bounded resize-path evidence only; input, landscape, bursts, app reopen,
 and clean terminal shutdown under this exact overlay remain unverified.
 
@@ -1510,14 +1510,14 @@ Settings and Contacts simultaneously and reached `STOPPED` after a user stop.
 The two presenters drained 135/135 and 124/124 buffers with zero outstanding.
 It was intentionally kept within one guest minute to avoid the observed periodic
 system-server AlarmManager exception. The run did not resize or exercise input;
-see [`swiftshader_fixed_notrace_default_shutdown_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_default_shutdown_20261031.json).
+see **`swiftshader_fixed_notrace_default_shutdown_20261031.json`** (maintainer archive only).
 
 A short enhanced-mode two-app run with the same fixed no-tracing build also
 reached `STOPPED` cleanly when stopped before the known minute-boundary
 framework exception. Source-built LMKD remained active, the delegated session
 cgroup was removed, and Settings/Contacts drained 131/131 and 116/116 buffers,
 with zero outstanding. It did not exercise resize or input; see
-[`swiftshader_fixed_notrace_enhanced_shutdown_20261031.json`](../results/m1e/live/swiftshader_fixed_notrace_enhanced_shutdown_20261031.json).
+**`swiftshader_fixed_notrace_enhanced_shutdown_20261031.json`** (maintainer archive only).
 
 ### Pre-fix reproduction and corrected odd-height path (2026-10-31)
 
@@ -1540,7 +1540,7 @@ reached `STOPPED`. Settings released 177/177 buffers and Contacts 166/166,
 with zero outstanding and zero teardown invalidations. This is bounded live
 validation of the exact previously failing sequence, not universal stability
 proof. Full trace, crash hashes, binary provenance, and limitations are in
-[`swiftshader_odd_height_prefx_reproduction_20261031.json`](../results/m1e/live/swiftshader_odd_height_prefx_reproduction_20261031.json).
+**`swiftshader_odd_height_prefx_reproduction_20261031.json`** (maintainer archive only).
 
 This result does **not** identify or resolve the separate older v4 observation
 of a 960×578 AHardwareBuffer address released before a later JIT fault. That
@@ -1566,7 +1566,7 @@ known guest-minute `AlarmManagerService` null-`PendingIntent` system_server
 crash. The runner later reached `STOPPED` during explicit cleanup, so this run
 is not counted as a healthy Android runtime pass. The enhanced trace, both
 run classifications, and hashes are recorded in
-[`swiftshader_even_height_lifetime_followup_20261031.json`](../results/m1e/live/swiftshader_even_height_lifetime_followup_20261031.json).
+**`swiftshader_even_height_lifetime_followup_20261031.json`** (maintainer archive only).
 
 The old v4 crash remains unresolved: its allocation was released before the
 fault, but that run lacks the image/view/descriptor/submission/job identifiers
@@ -1588,7 +1588,7 @@ This strengthens bounded validation of the odd-height fix across both runtime
 modes. It does not resolve the separate older v4 stale-AHardwareBuffer fault or
 cover input, landscape, resize-back, burst, or dynamic lifecycle in enhanced
 mode. See
-[`swiftshader_v9_enhanced_odd_height_sequence_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_odd_height_sequence_20261031.json).
+**`swiftshader_v9_enhanced_odd_height_sequence_20261031.json`** (maintainer archive only).
 
 A closer enhanced-mode reproduction layout resized both Settings and Contacts to
 960×578, then moved Settings through 960×557 and 960×565 while Contacts stayed
@@ -1601,7 +1601,7 @@ queue renderer synchronization. No release-before-sync ordering was observed.
 Five imports remained live/unclassified at process exit, so this is not a claim
 that every Vulkan allocation has a traced terminal event. The historical v4
 fault did not recur and remains unexplained. Details and hashes are in
-[`swiftshader_v9_enhanced_two_output_lifetime_20261031.json`](../results/m1e/live/swiftshader_v9_enhanced_two_output_lifetime_20261031.json).
+**`swiftshader_v9_enhanced_two_output_lifetime_20261031.json`** (maintainer archive only).
 
 Offline disassembly of the preserved v4 JIT code further narrows the old
 960×578 stale-address fault. The exact load at `PixelRoutine_00000042+0x125f`
@@ -1611,7 +1611,7 @@ released AHardwareBuffer base. This identifies the faulting access role, but
 not the VkImage/framebuffer/submission or which side violated the pending-work
 lifetime. The missing v4 object/job identities still prevent a justified
 lifetime fix. See
-[`swiftshader_faulting_target_access_20261031.json`](../results/m1e/live/swiftshader_faulting_target_access_20261031.json).
+**`swiftshader_faulting_target_access_20261031.json`** (maintainer archive only).
 
 A temporary queue-semaphore synchronization candidate was built coherently and
 started both apps, but the trace recorded no queue semaphore signal events, so
@@ -1619,7 +1619,7 @@ the changed path was not exercised. That session later failed after the known
 system_server AlarmManager null-PendingIntent exception; the broker release
 errors followed framework death. The candidate patch was removed from the
 source tree and did not alter the production overlay. See
-[`swiftshader_queue_signal_candidate_20261031.json`](../results/m1e/live/swiftshader_queue_signal_candidate_20261031.json).
+**`swiftshader_queue_signal_candidate_20261031.json`** (maintainer archive only).
 
 ### SwiftShader-to-Composer resource identity on one resize (2026-11-01)
 
@@ -1644,7 +1644,7 @@ all buffers released, with zero outstanding or teardown-invalidated buffers;
 no SurfaceFlinger fault was observed. The resize result is therefore bounded
 diagnostic evidence, not a healthy-session or stability pass. The v4 stale
 960×578 target attachment lifetime remains unresolved. See
-[`swiftshader_resource_identity_resize_20261101.json`](../results/m1e/live/swiftshader_resource_identity_resize_20261101.json).
+**`swiftshader_resource_identity_resize_20261101.json`** (maintainer archive only).
 
 The diagnostic build and Composer changes are compositor-neutral and introduce
 no KDE/KWin product dependency. KWin was only used locally to emit standard
@@ -1678,7 +1678,7 @@ outstanding, and zero teardown invalidations. No resize-back, concurrent
 request, or post-resize input was performed. This bounded successful resize
 sequence does not identify the older v4 use-after-unmap owner or validate clean
 runtime acceptance. See
-[`swiftshader_v10_resize_sequence_20261101.json`](../results/m1e/live/swiftshader_v10_resize_sequence_20261101.json).
+**`swiftshader_v10_resize_sequence_20261101.json`** (maintainer archive only).
 
 ### v10 resize-back follow-up (2026-11-01)
 
@@ -1699,7 +1699,7 @@ AlarmManager null-PendingIntent exception at guest time 18:48:00.001 and broker
 shutdown timed out. There was no SurfaceFlinger SIGSEGV in this run, and it does
 not resolve the historical v4 release-before-fault observation. Concurrent
 resize, input after resize, and app lifecycle were not tested. See
-[`swiftshader_v10_resizeback_sequence_20261101.json`](../results/m1e/live/swiftshader_v10_resizeback_sequence_20261101.json).
+**`swiftshader_v10_resizeback_sequence_20261101.json`** (maintainer archive only).
 
 ### AlarmManager handler fallback: listener alarm correction (2026-11-01)
 
@@ -1732,7 +1732,7 @@ submissions, and releases, with zero outstanding or teardown-invalidated
 buffers. No direct TIME_TICK receiver trace was enabled. This is bounded
 validation of the corrected M1E framework fallback, not proof of universal
 AlarmManager correctness and not the complete resize/input acceptance matrix.
-See [`alarm_fallback_two_app_tick_validation_20261101.json`](../results/m1e/live/alarm_fallback_two_app_tick_validation_20261101.json).
+See **`alarm_fallback_two_app_tick_validation_20261101.json`** (maintainer archive only).
 
 The independent historical SwiftShader v4 read-after-unmap observation remains
 unresolved. The healthy v10 resource-order traces and this framework fix do not
@@ -1763,7 +1763,7 @@ the old reader or establish its ownership invariant. Landscape, configure
 bursts, visible post-resize pointer-corner probes, and the full interaction and
 lifecycle matrix remain open. The exact sessions, request times, Composer frame
 identities, trace counters, binary provenance, and artifact hashes are in
-[`swiftshader_clean_resize_after_alarm_fix_20261101.json`](../results/m1e/live/swiftshader_clean_resize_after_alarm_fix_20261101.json).
+**`swiftshader_clean_resize_after_alarm_fix_20261101.json`** (maintainer archive only).
 
 ### Current-patch odd-height resize validation (2026-11-01)
 
@@ -1794,10 +1794,10 @@ source frames at every stable size. SurfaceFlinger and system_server survived,
 shutdown reached STOPPED, and both presenters drained with zero outstanding
 buffers. This is one bounded successful paired trial, not proof of general
 crash freedom. Detailed logs, metrics, build identity, and hashes are in
-[`swiftshader_no_trace_current_patch_default_resize_20261101.json`](../results/m1e/live/swiftshader_no_trace_current_patch_default_resize_20261101.json),
-[`swiftshader_no_trace_current_patch_enhanced_resize_20261101.json`](../results/m1e/live/swiftshader_no_trace_current_patch_enhanced_resize_20261101.json),
+**`swiftshader_no_trace_current_patch_default_resize_20261101.json`** (maintainer archive only),
+**`swiftshader_no_trace_current_patch_enhanced_resize_20261101.json`** (maintainer archive only),
 and
-[`swiftshader_current_patch_near_simultaneous_resize_20261101.json`](../results/m1e/live/swiftshader_current_patch_near_simultaneous_resize_20261101.json).
+**`swiftshader_current_patch_near_simultaneous_resize_20261101.json`** (maintainer archive only).
 
 These runs validate the odd-height correction in the explicitly selected
 current-patch binary across default/enhanced modes and a bounded paired resize.
@@ -1817,7 +1817,7 @@ Create new contact / First name. Settings Search visibly accepted `alpha`
 while Contacts remained `beta`; Contacts then visibly accepted `gamma` while
 Settings remained `alpha`. The interaction screenshots and raw session hashes
 are referenced by
-[`postresize_two_way_input_transition_20261101.json`](../results/m1e/live/postresize_two_way_input_transition_20261101.json).
+**`postresize_two_way_input_transition_20261101.json`** (maintainer archive only).
 Both presenters finished with balanced imports/submissions/releases, zero
 outstanding buffers, and zero teardown invalidations; the session ended
 STOPPED.
@@ -1877,7 +1877,7 @@ These runs used KWin only as the available local compositor and geometry test
 driver for standard Wayland configure events. No AaaS component depends on KDE,
 KWin, or a compositor patch. Cropped, actual desktop captures and raw-log
 hashes are referenced from
-[`postresize_input_transition_and_enhanced_reopen_20261101.json`](../results/m1e/live/postresize_input_transition_and_enhanced_reopen_20261101.json).
+**`postresize_input_transition_and_enhanced_reopen_20261101.json`** (maintainer archive only).
 
 This does not close M1E. Pointer corner mapping, landscape and configure-burst
 acceptance, a full post-reopen Contacts editor probe, and the historical v4
@@ -1903,7 +1903,7 @@ releases, zero outstanding buffers, and zero teardown invalidations. The state
 sentinel reached \`STOPPED\`. This run did not cover an in-flight resize race,
 landscape, or configure bursts; Settings did not expose safe controls at every
 absolute corner. Evidence and screenshot hashes are in
-[postresize_pointer_navigation_20261101.json](../results/m1e/live/postresize_pointer_navigation_20261101.json).
+**postresize_pointer_navigation_20261101.json** (maintainer archive only).
 
 ### Mixed-orientation resize and resize-back (2026-11-01)
 
@@ -1924,7 +1924,7 @@ by the image's missing libbluetooth_jni.so; these were not SurfaceFlinger or
 system_server failures. No configure-burst or near-simultaneous resize was
 included in this run. The historical v4 SwiftShader stale-AHardwareBuffer
 observation remains unresolved. Full generation and hash data are in
-[mixed_orientation_resize_back_20261101.json](../results/m1e/live/mixed_orientation_resize_back_20261101.json).
+**mixed_orientation_resize_back_20261101.json** (maintainer archive only).
 
 ### Bounded configure burst and stale-frame recovery (2026-11-01)
 
@@ -1942,7 +1942,7 @@ buffers, zero teardown invalidations, and the session reached STOPPED.
 SurfaceFlinger and system_server survived. This validates bounded configure
 coalescing and stale-frame recovery, not rendering at every transient size.
 The event trace and hashes are in
-[configure_burst_coalescing_20261101.json](../results/m1e/live/configure_burst_coalescing_20261101.json).
+**configure_burst_coalescing_20261101.json** (maintainer archive only).
 
 ### Enhanced-mode mixed resize and restore (2026-11-01)
 
@@ -1958,7 +1958,7 @@ ended STOPPED, and the session-specific delegated cgroup was removed.
 
 This was a bounded resize/ownership run, not a full input run. Evidence and
 artifact hashes are in
-[enhanced_mixed_orientation_20261101.json](../results/m1e/live/enhanced_mixed_orientation_20261101.json).
+**enhanced_mixed_orientation_20261101.json** (maintainer archive only).
 The historical v4 SwiftShader ownership question remains unresolved.
 
 
@@ -1984,7 +1984,7 @@ The final regression run passed 204 Python tests, M1A, presenter (including
 queued keyboard teardown), input adapter, Composer component tests run from an
 isolated tracked-source archive, display broker, and the workspace guard. Raw
 logs and their hashes are recorded in the external regression manifest; the
-repository index is [regression_suite_20261101.json](../results/m1e/live/regression_suite_20261101.json).
+repository index is **regression_suite_20261101.json** (maintainer archive only).
 
 M1E remains **PARTIAL**. Open acceptance includes the unresolved historical
 v4 resource owner, complete modifier/navigation and scroll-source matrices,
@@ -2012,7 +2012,7 @@ ended STOPPED and the delegated cgroup was removed. Logcat also contains
 repeated `com.android.bluetooth` process failures caused by the runtime image's
 missing `libbluetooth_jni.so`; `system_server` and SurfaceFlinger remained alive.
 The screenshots, event timestamps, and raw log hashes are in
-[enhanced_modifier_close_reopen_20261101.json](../results/m1e/live/enhanced_modifier_close_reopen_20261101.json).
+**enhanced_modifier_close_reopen_20261101.json** (maintainer archive only).
 
 ### Diagnostic v10 historical resize sequence (2026-11-01)
 
@@ -2045,7 +2045,7 @@ optional `com.android.bluetooth` process failures caused by the missing
 `libbluetooth_jni.so`; neither target app, system_server, nor SurfaceFlinger
 failed. The historical v4 stale-AHardwareBuffer read remains unresolved and
 M1E remains **PARTIAL**. Structured details and hashes are in
-[swiftshader_v10_resize_back_followup_20261101.json](../results/m1e/live/swiftshader_v10_resize_back_followup_20261101.json).
+**swiftshader_v10_resize_back_followup_20261101.json** (maintainer archive only).
 
 ### Diagnostic v10 two-output resize correlation (2026-11-01)
 
@@ -2068,7 +2068,7 @@ odd-height correction in the diagnostic overlay; it still did not reproduce
 the separate v4 stale-address fault or identify its owner. The production
 SwiftShader overlay remains unchanged. Details, monotonic request times, trace
 and log hashes are in
-[swiftshader_v10_two_output_resize_trace_20261101.json](../results/m1e/live/swiftshader_v10_two_output_resize_trace_20261101.json).
+**swiftshader_v10_two_output_resize_trace_20261101.json** (maintainer archive only).
 M1E remains **PARTIAL**.
 
 ### Reproducible v10 memory-retirement trace analysis (2026-11-01)
@@ -2083,7 +2083,7 @@ without an explicit release before process exit. This agrees with the prior
 manual 34/7 summary. The analyzer reports trace order only; it does not establish
 independent Vulkan happens-before or identify the allocation from the historical
 v4 fault. See
-[swiftshader_v10_lifetime_order_reanalysis_20261101.json](../results/m1e/live/swiftshader_v10_lifetime_order_reanalysis_20261101.json).
+**swiftshader_v10_lifetime_order_reanalysis_20261101.json** (maintainer archive only).
 
 ### Post-resize visible input on both outputs (2026-11-01)
 
@@ -2100,8 +2100,8 @@ keyboard behavior is not inferred. KWin scripting set geometry only as a local
 test driver; AaaS itself uses standard Wayland configure events and has no KWin
 product dependency. The run does not establish corner mapping, in-flight-resize,
 landscape, resize-burst, or enhanced-mode input coverage. Evidence and hashes:
-[postresize_visible_input_20261101.json](../results/m1e/live/postresize_visible_input_20261101.json),
-[screenshot](../results/m1e/live/postresize_visible_input_20261101.png).
+**postresize_visible_input_20261101.json** (maintainer archive only),
+**screenshot** (maintainer archive only).
 
 ### Enhanced asymmetric resize, reopen, and minimize/restore (2026-11-01)
 
@@ -2120,8 +2120,8 @@ delegated cgroup was removed. The log recorded the non-protected
 PendingIntent fatal or system_server death. Repeated Bluetooth process failures
 from the missing `libbluetooth_jni.so` remain an unrelated image limitation.
 Evidence:
-[enhanced_asymmetric_reopen_minimize_20261101.json](../results/m1e/live/enhanced_asymmetric_reopen_minimize_20261101.json),
-[screenshot](../results/m1e/live/enhanced_asymmetric_reopen_minimize_20261101.png).
+**enhanced_asymmetric_reopen_minimize_20261101.json** (maintainer archive only),
+**screenshot** (maintainer archive only).
 KWin only drove local test geometry/minimize actions; product behavior stays on
 standard Wayland protocols. Cross-compositor live testing remains untested.
 
@@ -2143,7 +2143,7 @@ A fresh regression rerun passed 208 Python tests, M1A tests, forced presenter
 build/tests, input-adapter build, Composer component tests, display-broker
 build, and the external workspace guard. Per-command logs and SHA-256 values
 are kept outside the repository; the structured summary is
-[`regression_suite_continuation_20261101.json`](../results/m1e/live/regression_suite_continuation_20261101.json).
+**`regression_suite_continuation_20261101.json`** (maintainer archive only).
 The historical v4 SwiftShader stale-AHardwareBuffer ownership remains open;
 later healthy v10 ordering and corrected-patch resize results are not treated as
 a root-cause fix. M1E remains **PARTIAL**.
@@ -2169,7 +2169,7 @@ visibly produced `alpha`. The run ended STOPPED. Settings and Contacts each
 reported imports=submissions=releases (1199 and 1195 respectively), zero
 outstanding buffers, zero teardown invalidations, and zero input drops.
 Structured details and hashes are in
-[`pointer_mapping_inflight_resize_20261101.json`](../results/m1e/live/pointer_mapping_inflight_resize_20261101.json).
+**`pointer_mapping_inflight_resize_20261101.json`** (maintainer archive only).
 
 This is a bounded pointer correctness result, not a full corner/landscape/burst
 matrix. The click itself occurred after the matching frame; the stale interval
@@ -2190,13 +2190,13 @@ Android focus readiness and was rejected (`rc=-3`); cancellation remains
 untested. This session also logged optional `com.android.bluetooth` process
 failures because the runtime image lacks `libbluetooth_jni.so`; SurfaceFlinger,
 `system_server`, Settings, and Contacts stayed alive. See
-[`activity_transition_latest_runtime_probe_20261101.json`](../results/m1e/live/activity_transition_latest_runtime_probe_20261101.json).
+**`activity_transition_latest_runtime_probe_20261101.json`** (maintainer archive only).
 
 The latest full regression run passed 214 Python tests, M1A, a forced presenter
 rebuild and test, input-adapter rebuild, Composer component tests, display-broker
 rebuild, and the external workspace guard. The inherited Composer build
 contents were not cleaned or rebuilt. Exact commands and workspace usage are in
-[`regression_suite_final_20261101.json`](../results/m1e/live/regression_suite_final_20261101.json).
+**`regression_suite_final_20261101.json`** (maintainer archive only).
 
 A corrected cancellation probe (`m1b84_session_7x8bm9kt`) then exercised the other transition branch. After Android focused Settings SearchActivity, a synthetic `KEY_W` was retained by its original ViewRoot. Host focus moved to Contacts; InputDispatcher entered Contacts, the Settings key-up was rejected with `rc=-3`, and the input adapter released the held key on focus leave. The original ViewRoot logged `finishing retained key without redelivery`; the screenshot showed an empty Search field and unchanged Contacts. The session ended `STOPPED`, with Settings 559/559/559 and Contacts 547/547/547 imports/submissions/releases and zero outstanding buffers. This is one bounded cancellation observation, not a repeated rate. See `results/m1e/live/activity_transition_cancel_20261101.json` and the external screenshot/hash referenced there.
 
@@ -2224,7 +2224,7 @@ imports/submissions/releases, zero outstanding buffers, and no teardown
 invalidations. SurfaceFlinger and system_server remained alive through normal
 shutdown. No AlarmManager null-PendingIntent fatal occurred in this session.
 The full trace hashes, overlay provenance, and screenshots are in
-[`enhanced_activity_resize_text_acceptance_20261101.json`](../results/m1e/live/enhanced_activity_resize_text_acceptance_20261101.json).
+**`enhanced_activity_resize_text_acceptance_20261101.json`** (maintainer archive only).
 
 This updates the earlier Activity-transition and resize results with one
 additional enhanced run; it does not erase the old failures. The historical
@@ -2243,7 +2243,7 @@ build, Composer component tests, forced display-broker build, and the external
 workspace guard also passed. The inherited Composer build directory remained
 untracked and was not cleaned or rebuilt; the Composer target executed its
 existing component-test binaries. See
-[`regression_suite_current_head_20261101.json`](../results/m1e/live/regression_suite_current_head_20261101.json).
+**`regression_suite_current_head_20261101.json`** (maintainer archive only).
 
 The accepted bounded input/resize behavior is stronger than the baseline but
 does not retroactively identify the historical v4 SwiftShader stale mapping
@@ -2263,7 +2263,7 @@ home screen and held-key repeat (`x` followed by repeated `a` characters).
 Up/Down packets did not visibly change the Settings Search result view, so no
 application-level Up/Down action is claimed for this fixture. Raw log, adapter
 sequence IDs, per-transition screenshots and hashes are recorded in
-[`activity_transition_key_matrix_repeat_20261101.json`](../results/m1e/live/activity_transition_key_matrix_repeat_20261101.json).
+**`activity_transition_key_matrix_repeat_20261101.json`** (maintainer archive only).
 
 That session crossed an AlarmManager delivery interval without the prior
 null-PendingIntent `system_server` fatal, ended with matching STOPPED state and
@@ -2272,7 +2272,7 @@ zero outstanding buffers. Optional Bluetooth process failures caused by the
 image's missing `libbluetooth_jni.so` remained visible; SurfaceFlinger,
 `system_server`, Settings and Contacts stayed alive. The enhanced
 source-LMKD/cgroup interaction evidence is separately recorded in
-[`enhanced_activity_resize_text_acceptance_20261101.json`](../results/m1e/live/enhanced_activity_resize_text_acceptance_20261101.json).
+**`enhanced_activity_resize_text_acceptance_20261101.json`** (maintainer archive only).
 
 #### M1E closure decision
 
@@ -2335,7 +2335,7 @@ sessions also ended STOPPED with no outstanding presenter buffers.
 
 The decoration screenshots, presenter/input log hashes, state transitions,
 source dimensions, build identities, and test results are in
-[`native_window_integration_20261101.json`](../results/m1e/live/native_window_integration_20261101.json).
+**`native_window_integration_20261101.json`** (maintainer archive only).
 The images are retained under `results/m1e/live/` with their SHA-256 hashes.
 The presenter state regression and DPAD mapping regression passed with the
 current automated suite (215 Python tests, M1A tests, and a forced presenter

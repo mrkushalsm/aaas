@@ -54,7 +54,7 @@ images, and file URIs are unsupported and are not claimed.
 **M4 Bidirectional Clipboard Integration: PASS/CLOSED** for plain UTF-8 text on
 the current KWin Wayland session. Reproducible details are in
 `clipboard_live_acceptance_2026_11_06` in
-[`results/m4/acceptance.json`](../results/m4/acceptance.json). The tested code
+**`results/m4/acceptance.json`** (maintainer archive only). The tested code
 revision is `11e1fd656d5ffc6b6cf2700528d2cd23ad1dc011`, based on starting HEAD
 `c1b08b75b28b301f007e9f6a33b0c20c1fd61bdf`.
 

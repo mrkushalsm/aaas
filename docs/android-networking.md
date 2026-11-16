@@ -47,4 +47,4 @@ output hashes. Focused regression checks are `python -m unittest
 The live installed-runtime results, session path, app-level HTTPS probe, Android
 network-validation evidence, host-network check, interruption/recovery check,
 and overlay hashes are recorded in
-[`results/networking/2026-11-10.json`](../results/networking/2026-11-10.json).
+**`results/networking/2026-11-10.json`** (maintainer archive only).

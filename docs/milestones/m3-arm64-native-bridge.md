@@ -50,7 +50,7 @@ The ARM64 JNI function validates and returns a result string only after the foll
 | Runtime/presenter cleanup | PASS — stopped sessions, 0 outstanding presenter buffers, temporary overlay removed |
 | Full Android-platform source rebuild | Not performed; the pinned, hash-verified prebuilt bundle was used |
 
-Session IDs, exact hashes, result values, runtime fingerprint, presenter accounting, test commands, and external log locations are in [`results/m3/acceptance.json`](../../results/m3/acceptance.json). Large raw logs remain in the external AaaS workspace.
+Session IDs, exact hashes, result values, runtime fingerprint, presenter accounting, test commands, and external log locations are in **`results/m3/acceptance.json`** (maintainer archive only). Large raw logs remain in the external AaaS workspace.
 
 ## Supported scope and limitations
 

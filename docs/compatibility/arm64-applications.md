@@ -6,7 +6,7 @@ The test scope was the supplied collection on Android 16/API 36 x86_64 with the 
 
 ## Inventory summary
 
-Five APK files representing four package IDs were found recursively under `$AAAS_WORKSPACE/apks/post-m3/`. All five ZIPs passed integrity checks, all contained ARM64 libraries, and no split sets, byte-identical duplicates, or unsupported input formats were found. Every original SHA-256 was rechecked after testing and matched the initial inventory. Package versions, signatures, permissions, activities, ELF machines, native libraries and hashes are in [`compatibility.json`](../../results/post-m3/compatibility.json); the full metadata inventory and alias/split analysis remain in the external workspace at `$AAAS_WORKSPACE/results/post-m3-app-compat/inventory.json`.
+Five APK files representing four package IDs were found recursively under `$AAAS_WORKSPACE/apks/post-m3/`. All five ZIPs passed integrity checks, all contained ARM64 libraries, and no split sets, byte-identical duplicates, or unsupported input formats were found. Every original SHA-256 was rechecked after testing and matched the initial inventory. Package versions, signatures, permissions, activities, ELF machines, native libraries and hashes are in **`compatibility.json`** (maintainer archive only); the full metadata inventory and alias/split analysis remain in the external workspace at `$AAAS_WORKSPACE/results/post-m3-app-compat/inventory.json`.
 
 The APKs were exposed to Android as session-local preinstalled diagnostic system apps, matching the existing AaaS app-overlay mechanism. PackageManager scanned them and their activities ran; this was not a `PackageInstaller` user-install test. Compressed native libraries were extracted to a temporary validated library directory and bound read-only at the Android app library path. Source APKs remained unchanged.
 
@@ -68,7 +68,7 @@ classified as BFE's cross-ABI child-process environment/launcher issue;
 archive compatibility remains `PARTIAL/OPEN`. Ordinary BFE shared-file
 operations and the platform storage integration are tracked separately. Raw
 session log hashes and the exact linker line are in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 ### BFE archive UI follow-up (2026-11-05)
 

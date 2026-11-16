@@ -23,8 +23,8 @@ Ctrl and A events. A separate Alt+A sequence reached Android with
 claimed. XKB native regression tests now cover Tab translation and Ctrl, Alt,
 combined Ctrl+Alt, and Caps Lock state transitions. The controlled screenshot
 and session trace hashes are in
-[`final_acceptance_followup.json`](../results/m1d/final_acceptance_followup.json);
-[`ctrl_a_selection.png`](../results/m1d/evidence/ctrl_a_selection.png) shows the
+**`final_acceptance_followup.json`** (maintainer archive only);
+**`ctrl_a_selection.png`** (maintainer archive only) shows the
 Android editor selection.
 
 The final direct default launch (`python3 scripts/run_aaas.py`) and enhanced
@@ -58,7 +58,7 @@ into fabricated text.
 Final verification: 132 Python tests passed; M1A, presenter build/tests,
 input-adapter rebuild, and workspace checks passed. The enhanced cgroup smoke
 reported clean removal, and process inspection found no AaaS runtime processes
-left after shutdown. See [`acceptance.json`](../results/m1d/acceptance.json) for
+left after shutdown. See **`acceptance.json`** (maintainer archive only) for
 the gate-by-gate evidence classification.
 
 
@@ -84,7 +84,7 @@ behavior as an accessibility/mobile escape hatch.
 The source patch applies exactly to the pinned Android 16 `frameworks/base`
 revision `99b01a65cc4c104933788b3143285ab6bae65827`; source and generated
 framework provenance, hashes, and reproducibility are recorded in
-[`desktop_ime_build_receipt.json`](../results/m1d/desktop_ime_build_receipt.json).
+**`desktop_ime_build_receipt.json`** (maintainer archive only).
 The original framework JAR remains unchanged. The runtime overlay hash is
 `701d2fd4afe62e4b02a3f2da603daab492a4369dea3bd4d3baefe52789623a0b`.
 
@@ -101,7 +101,7 @@ synthetic `h`/`i` input appeared in the real field. A search result at Android
 y=950 remained reachable; a separate
 `--software-keyboard` run showed LatinIME with visible IME Insets and reduced
 app bounds of 720×1154. Screenshots and the structured state record are linked
-from [`desktop_ime_policy.json`](../results/m1d/desktop_ime_policy.json).
+from **`desktop_ime_policy.json`** (maintainer archive only).
 
 Desktop-mode regression checks also verified Backspace, Shift+A, Left/Delete,
 Enter and Escape delivery; Escape returned to Settings. A 1.1-second synthetic
@@ -162,7 +162,7 @@ and the keyboard source was synthetic uinput, not physical hardware.
 The latest measured Binder injection duration was 20 events, median 0.807 ms,
 maximum 1.800 ms. This excludes end-to-end display latency. Images and
 session/log checksums are listed in
-[`unlock_text_entry_followup.json`](../results/m1d/unlock_text_entry_followup.json).
+**`unlock_text_entry_followup.json`** (maintainer archive only).
 
 Default and source-LMKD/cgroup foreground sessions both reached `RUNNING` and
 stopped on Ctrl+C. The enhanced run removed its cgroup hierarchy with no
@@ -261,7 +261,7 @@ The after-capture still shows the Settings homepage's “Search Settings”
 placeholder and no typed characters. The search editor's focus was not verified,
 so this does not isolate a key-injection defect from a focus/tap problem. The
 captured negative result is retained at
-[`settings_after_synthetic_key_probe.png`](../results/m1d/evidence/settings_after_synthetic_key_probe.png).
+**`settings_after_synthetic_key_probe.png`** (maintainer archive only).
 
 ## Historical Settings editor focus investigation (before the vdc correction)
 
@@ -325,13 +325,13 @@ and the search activity stayed unresolvable. A second, legitimate
 diagnostic operations changed no boot property to claim unlock success. Neither
 the ownership change nor a workaround has been applied to repository source.
 The raw focus, user-state, and runtime logs remain on the external workspace;
-paths and hashes are recorded in [`editor_focus_probe.json`](../results/m1d/editor_focus_probe.json).
+paths and hashes are recorded in **`editor_focus_probe.json`** (maintainer archive only).
 
 Screenshots show the unchanged search homepage after the click and a
 successful adjacent category navigation:
 
-- [`settings_search_click_no_transition.png`](../results/m1d/evidence/settings_search_click_no_transition.png)
-- [`settings_category_click_control.png`](../results/m1d/evidence/settings_category_click_control.png)
+- **`settings_search_click_no_transition.png`** (maintainer archive only)
+- **`settings_category_click_control.png`** (maintainer archive only)
 
 At the time of this diagnostic, no synthetic keyboard fixture was sent because
 no editable Android view or InputConnection was focused. This blocker was later
@@ -366,7 +366,7 @@ the visible Android screenshots and ActivityTaskManager/InputDispatcher logs
 are retained alongside the adapter trace.
 
 The machine-readable gate results are in
-[`acceptance.json`](../results/m1d/acceptance.json). Text entry, editing,
+**`acceptance.json`** (maintainer archive only). Text entry, editing,
 Shift, Enter, Escape, repeat, and controlled focus-loss isolation are verified
 with `/dev/uinput`; desktop IME suppression preserves the live editor and full
 app bounds. Physical keyboard hardware, Caps Lock/Ctrl/Alt/Tab combinations,

@@ -12,9 +12,9 @@ bundle separately. It is not approval to publish either one.
 - Documentation inventory covers **98 Markdown/license-named files**. The audit records **42 corrected files**, 12 current operational/release documents reconciled against code/tests/evidence, and 354 local Markdown links checked with zero broken links. Historical records remain labeled as historical.
 - All tracked JSON/JSONL evidence files parse successfully (271 checked). Tracked documentation and result records now use generic placeholders for local home/workspace paths and host storage identifiers; the Git history is unchanged and still contains historical host-specific values. The original `aaas-runtime.service` is active; `aaas-portable status` reports Android `RUNNING` from installation `$AAAS_INSTALLATION/rootfs`.
 
-Evidence: [`documentation audit`](release/documentation-audit-2026-11-11.json),
-[`candidate SBOM`](release/sbom-engineering-52926e6.json), and the
-[machine-readable local acceptance record](release/local-prepublication-acceptance-52926e6-2026-11-11.json).
+Evidence: **`documentation audit`** (maintainer archive only),
+**`candidate SBOM`** (maintainer archive only), and the
+**machine-readable local acceptance record** (maintainer archive only).
 
 ## Existing engineering bundle
 
@@ -49,7 +49,7 @@ rollback evidence belong to a different candidate (`engineering-7226838`, ID
 `fd386b95a7a949de9da3bb18c88e5c64`) and must not be attributed to this bundle.
 
 Other historical candidate evidence is indexed in
-[`acceptance-2026-11-11.json`](release/acceptance-2026-11-11.json); that record
+**`acceptance-2026-11-11.json`** (maintainer archive only); that record
 explicitly concerns the older `fd386b95` bundle and is not acceptance evidence
 for `52926e6c`.
 

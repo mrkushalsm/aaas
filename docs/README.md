@@ -1,5 +1,11 @@
 # Documentation index
 
+The public-source history omits generated `results/` and `artifacts/` run
+outputs. Historical milestone notes may describe those local records; any
+non-clickable evidence path in those notes refers to the original maintainer
+archive. Reproducible test inputs are kept under `tests/fixtures/`, and the
+selected developer-preview screenshots are under `docs/media/`.
+
 ## Getting started
 
 - [Root README](../README.md): project overview, tested scope, quick start, and limitations.

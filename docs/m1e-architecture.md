@@ -239,7 +239,7 @@ the requested dimensions. The first 960×1156 source frame had stride 3840;
 the return 720×1280 frame had stride 2944. Stale transition frames were
 explicitly RELEASEd. The presenter drained 176/176 buffers with zero
 outstanding or teardown-invalidated buffers. Details and raw artifact hashes:
-[`native_resize_release_ack_20261030.json`](../results/m1e/live/native_resize_release_ack_20261030.json).
+**`native_resize_release_ack_20261030.json`** (maintainer archive only).
 
 This validates one output and these two sizes only. No live evidence yet covers
 simultaneous two-output resize, rapid resize bursts, landscape, navigation
@@ -304,4 +304,4 @@ watermarks and swap below the configured ~801 MB minimum. This is the current
 observed blocker for repeating live two-app acceptance on this host; it is not
 evidence that the cap-two transport or adapter handshake failed. No screenshot
 or interactive acceptance is claimed for that attempt. Evidence and hashes are
-in [`two_output_capacity_memory_pressure_20261030.json`](../results/m1e/live/two_output_capacity_memory_pressure_20261030.json).
+in **`two_output_capacity_memory_pressure_20261030.json`** (maintainer archive only).

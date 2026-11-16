@@ -10,7 +10,7 @@ Initial branch `master`, HEAD `b06deca`, no Git remote. The five inherited M1B.8
 
 The first new run (`m1b84_baseline1_`) accidentally included the optional no-Wi-Fi feature overlay. `ContextHubSystemService` then failed in phase 500 because `WifiManager` was null, and no host frames were submitted. This is an excluded configuration error. Removing that overlay in `m1b84_baseline2_` yielded `sys.boot_completed=1`, `Status: ok` for `com.android.settings/.homepage.SettingsHomepageActivity`, and 284 presenter submissions, 279 presentations, 283 releases, zero rejections. All raw logs retain unique prefixes under external `tmp/`.
 
-The foreground capture run `m1b84_session_lm6bckpd` dumped actual Android Composer3 DMA-BUF client targets through the host presenter's existing `AAAS_FRAME_DUMP_DIR` path. Its [frame 151](../artifacts/m1b84_android_settings.png) visibly contains Search Settings, Network & internet, and Connected devices at 1280×720. The raw PPM SHA-256 is `960d3d58841ee5e7af43273b57519f19de4d3e5e8b00e087011fd497e56016c4`; the PNG SHA-256 is `7bda1bbc74d2935baf2af3e704dab608a519023313f9ad029c34a4ccb45c38b1`. The presenter reported 151 submissions, 151 presentations, 150 releases at shutdown. This screen is Android-generated. An idle Settings screen need not keep submitting frames.
+The foreground capture run `m1b84_session_lm6bckpd` dumped actual Android Composer3 DMA-BUF client targets through the host presenter's existing `AAAS_FRAME_DUMP_DIR` path. Its **frame 151** (maintainer archive only) visibly contains Search Settings, Network & internet, and Connected devices at 1280×720. The raw PPM SHA-256 is `960d3d58841ee5e7af43273b57519f19de4d3e5e8b00e087011fd497e56016c4`; the PNG SHA-256 is `7bda1bbc74d2935baf2af3e704dab608a519023313f9ad029c34a4ccb45c38b1`. The presenter reported 151 submissions, 151 presentations, 150 releases at shutdown. This screen is Android-generated. An idle Settings screen need not keep submitting frames.
 
 ## Source-built LMKD investigation
 
@@ -44,7 +44,7 @@ The 163-second session reported 285 submissions, 283 presentations, 284 releases
 
 The Gemini handoff continuation executed an autonomous live verification run (`m1b84_session_l36bex85`) via `scripts/test_live_session_gemini.py`:
 - Reached `RUNNING` in 16.71 seconds from cold invocation.
-- Recaptured fresh [m1b84_gemini_settings_repro.png](../artifacts/m1b84_gemini_settings_repro.png) (SHA-256 `9c07581bbef4227d5dc01992e46c51ff6a704496ef4fa74e81b34e96965c35eb`) at 1280×720, visibly displaying Android 16 Settings Search bar, Network & internet, Connected devices, status bar time 6:24, and battery indicator.
+- Recaptured fresh **m1b84_gemini_settings_repro.png** (maintainer archive only) (SHA-256 `9c07581bbef4227d5dc01992e46c51ff6a704496ef4fa74e81b34e96965c35eb`) at 1280×720, visibly displaying Android 16 Settings Search bar, Network & internet, Connected devices, status bar time 6:24, and battery indicator.
 - Total frames dumped: 192. Presenter recorded 192 imports, 192 submissions, 192 presentations, 191 releases, 0 rejected, 0 discarded, 192 explicit sync frames.
 - Resource usage at steady-state:
   - Settings (PID 561368): 225,024 KiB RSS, 129 FDs.
@@ -80,7 +80,7 @@ Audit of the Wayland and Android input pipelines for Phase G:
 | Gate | Result | Evidence boundary |
 | --- | --- | --- |
 | G1 historical preservation | PASS | Inherited hashes match preservation manifest 100%; old overlays and logs retained. |
-| G2 Settings reproduced | PASS | Fresh frame 192 ([m1b84_gemini_settings_repro.png](../artifacts/m1b84_gemini_settings_repro.png)) is the actual Android Settings homepage. |
+| G2 Settings reproduced | PASS | Fresh frame 192 (**m1b84_gemini_settings_repro.png** (maintainer archive only)) is the actual Android Settings homepage. |
 | G3 source-built LMKD | FAIL | Platform build dependencies absent; no binary built. |
 | G4 LMKD correctness | PARTIAL | Vmstats fallback verified live; dropped data connection, `oom_score_adj` EACCES explained by kernel user-namespace constraints. |
 | G5 persistent session | PASS | Foreground session held Settings stable and alive across multiple tested runs. |

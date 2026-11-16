@@ -1,13 +1,13 @@
 # M4 — Native desktop integration
 
-**Current canonical M4 status: PARTIAL/OPEN.** Historical M4 acceptance remains preserved in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). The shared-storage subgate is now `PASS/CLOSED`, including live relocated-installation SAF grant, restart, force-stop/relaunch, revocation, MediaStore, and capacity evidence. Broader presenter/KWin safety, fresh full M2 graphics regressions, and other canonical M4 gates remain independently open. See [`saf-shared-storage-2026-11-09.json`](../../results/m4/saf-shared-storage-2026-11-09.json) and the unresolved [KWin/Mesa incident](../incidents/host-graphics-impact-2026-11-09.md).
+**Current canonical M4 status: PARTIAL/OPEN.** Historical M4 acceptance remains preserved in **`results/m4/acceptance.json`** (maintainer archive only). The shared-storage subgate is now `PASS/CLOSED`, including live relocated-installation SAF grant, restart, force-stop/relaunch, revocation, MediaStore, and capacity evidence. Broader presenter/KWin safety, fresh full M2 graphics regressions, and other canonical M4 gates remain independently open. See **`saf-shared-storage-2026-11-09.json`** (maintainer archive only) and the unresolved [KWin/Mesa incident](../incidents/host-graphics-impact-2026-11-09.md).
 
 **M4 desktop-integrations workstream: PASS/CLOSED (2026-11-10).** The
 integrated desktop gates for bidirectional clipboard, notifications, audio,
 microphone, multiwindow input/focus, dynamic content resize, and persistent
 service lifecycle are closed with live and regression evidence. This does not
 change the separate canonical M4 status above. See
-[`desktop-integration-closure-2026-11-10.json`](../../results/m4/desktop-integration-closure-2026-11-10.json).
+**`desktop-integration-closure-2026-11-10.json`** (maintainer archive only).
 
 ## Baseline and scope
 
@@ -221,7 +221,7 @@ These results advance the audio vertical slices but do not close audio or
 canonical M4. The detailed raw session logs and captures remain outside Git
 under the workspace temporary directory. The dated machine-readable record is
 `audio_microphone_continuation_2026_11_07` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 ## External-workspace integrity pause (2026-11-07)
 
@@ -237,7 +237,7 @@ The capacity/workspace guard passed, but it does not check MFT integrity.
 Storage integration retains its historical acceptance record while the
 current backing-health revalidation remains open. See
 `filesystem_integrity_stop_2026_11_07` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 The follow-up read-only assessment found same-device UAS resets and block
 read I/O errors, while passive SMART data was inaccessible without elevated
@@ -256,7 +256,7 @@ M4 acceptance JSON.
 
 ### Installed application catalog and Linux launcher (2026-11-06)
 
-**Installed-App Catalog and Launcher Integration: PASS/CLOSED.** The tested source revision is recorded in the matching `installed_app_catalog_launcher_2026_11_06` object in [`results/m4/acceptance.json`](../../results/m4/acceptance.json). This closes the launcher workstream only; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone, bidirectional clipboard, and Android notification forwarding.
+**Installed-App Catalog and Launcher Integration: PASS/CLOSED.** The tested source revision is recorded in the matching `installed_app_catalog_launcher_2026_11_06` object in **`results/m4/acceptance.json`** (maintainer archive only). This closes the launcher workstream only; canonical M4 remains `PARTIAL/OPEN` for host audio/microphone, bidirectional clipboard, and Android notification forwarding.
 
 The runner's existing session-owned storage helper now performs a one-shot PackageManager query for `ACTION_MAIN` plus `CATEGORY_LAUNCHER`. Its manifest declares only that launcher intent under `<queries>`, fixing Android package-visibility filtering without requesting `QUERY_ALL_PACKAGES`. The helper returns package ID, resolved launch activity, application label, version code/name, enabled state, and a 96×96 PNG icon rendered through Android resources. The AaaS host refreshes this snapshot through the active session control socket or creates a temporary Settings session when stopped, then shuts that temporary runtime down cleanly.
 
@@ -445,7 +445,7 @@ limitation, not evidence of a shared-storage read failure. Archive
 creation/extraction therefore remains unaccepted. App uninstall and reinstall,
 permission/grant revocation beyond the BFE special access, app isolation,
 accounting, and Android-facing symlink tests also remain open. See the distinct
-continuation record in [`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+continuation record in **`results/m4/acceptance.json`** (maintainer archive only).
 
 ### Android package lifecycle and private-data boundary (2026-11-05)
 
@@ -588,7 +588,7 @@ UTF-8 text on the accepted KWin host. Actual byte-identical Android-to-Linux
 and Linux-to-Android application transfers, protocol selection, cleanup, and
 regression evidence are in [`docs/m4-clipboard-integration.md`](../m4-clipboard-integration.md)
 and `clipboard_live_acceptance_2026_11_06` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json). Rich clipboard
+**`results/m4/acceptance.json`** (maintainer archive only). Rich clipboard
 formats and untested compositor backends remain outside this bounded support
 claim.
 
@@ -603,7 +603,7 @@ session notification service. The architecture, privacy controls, Plasma
 service details, session IDs, package identities, update/cancel evidence, and
 cleanup are recorded in the [notification integration record](../m4-notifications.md)
 and `android_notification_forwarding_2026_11_06` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 The final two-package run used Android packages
 `org.aaas.notificationprobe` (UID 10161) and
@@ -727,7 +727,7 @@ disconnect. The full Python suite passed 390 tests after this change.
 
 Session log hashes and the exact remaining gates are recorded in
 `audio_failure_followup_2026_11_08` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json). Canonical
+**`results/m4/acceptance.json`** (maintainer archive only). Canonical
 M4 remains **PARTIAL/OPEN**: active Android microphone-permission revocation
 and post-revocation denial are untested, PipeWire daemon failure and precise
 sink-fallback behavior are not established, and the final integrated
@@ -804,7 +804,7 @@ campaign. Canonical M4 remains **PARTIAL/OPEN** pending verified microphone
 regrant and active-capture revocation, an accepted capture outage policy, and
 the combined integration and cleanup run. Structured details are in
 `post_acceptance_verification_2026_11_08` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 ### Completed revocation and regrant verification (2026-11-08)
 
@@ -883,7 +883,7 @@ and every cleanup assertion in one acceptance campaign. The full M4 integration
 matrix therefore remains **PARTIAL/OPEN**. Structured records are in
 `integrated_audio_m2_m3_sessions_2026_11_08` and
 `final_acceptance_crossruns_2026_11_08` in
-[`results/m4/acceptance.json`](../../results/m4/acceptance.json).
+**`results/m4/acceptance.json`** (maintainer archive only).
 
 ### PipeWire capture repair and final M4 acceptance (2026-11-08)
 
@@ -939,7 +939,7 @@ Interactive SAF/DocumentsUI and graphical presenter acceptance remain
 and the KWin/Mesa incident remains unresolved rather than attributed to an
 AaaS defect. M4 is therefore **PARTIAL/OPEN** for the current relocated
 installation. See the detailed
-[storage record](../../results/m4/shared-storage-partition-2026-11-09.json)
+**storage record** (maintainer archive only)
 and [host graphics incident](../incidents/host-graphics-impact-2026-11-09.md).
 
 ### Shared-storage SAF closure (2026-11-09)
@@ -961,7 +961,7 @@ inspection is claimed. The active KDE compositor was never used. The KWin/Mesa
 incident remains unresolved, so this storage test does not approve general
 presenter use on the active host compositor or replace a fresh complete M2
 multi-window regression. Detailed logs and hashes are in the
-[SAF acceptance record](../../results/m4/saf-shared-storage-2026-11-09.json).
+**SAF acceptance record** (maintainer archive only).
 
 ### Graphical presenter follow-up (2026-11-09)
 
@@ -971,7 +971,7 @@ when DRM syncobj synchronization was unavailable, an incoming acquire
 submission. The presenter now waits on the producer fence (bounded at two
 seconds) and rejects the frame if that wait fails. The focused presenter tests,
 strict native compilation, and full Python suite passed. See
-[`graphics-stability-followup-2026-11-09.json`](../../results/m4/graphics-stability-followup-2026-11-09.json).
+**`graphics-stability-followup-2026-11-09.json`** (maintainer archive only).
 
 Graphical stability remains `PARTIAL/OPEN`. The current host has no isolated
 DRM render device; the presenter requires GBM allocations through a render
@@ -1017,7 +1017,7 @@ run because the isolated test intentionally has no DRM device. The November 9
 KWin/Mesa crash remains unresolved and its cause unproven. Active KDE
 presentation is still not approved; M4 graphical stability and canonical M4
 remain `PARTIAL/OPEN`. See the
-[software-isolated result](../../results/m4/graphics-software-isolated-2026-11-09.json)
+**software-isolated result** (maintainer archive only)
 and the [host graphics incident](../incidents/host-graphics-impact-2026-11-09.md).
 
 ### Known-good versus KWin incident comparison (2026-11-09)
@@ -1045,7 +1045,7 @@ resource or client. No post-fix GBM/DMA-BUF run was made because all render
 nodes are shared with active KDE. Isolated pixman/Weston SHM lifecycle tests
 passed, but do not cover that accelerated branch. Graphical presenter stability
 and canonical M4 remain **PARTIAL/OPEN**. See the
-[forensic comparison](../../results/m4/graphics-known-good-vs-incident-2026-11-09.json).
+**forensic comparison** (maintainer archive only).
 
 ### Isolated accelerated staging follow-up (2026-11-09)
 
@@ -1066,7 +1066,7 @@ application windows, or host Intel/KWin. The 12 historical KWin aborts
 coincided with AaaS presenter activity, but accessible core evidence still does
 not establish causality. Graphical stability and canonical M4 therefore
 remain **PARTIAL/OPEN**, and active-KWin presentation remains unapproved. See
-[`staging-backpressure acceptance`](../../results/m4/staging-backpressure-acceptance-2026-11-09.json)
+**`staging-backpressure acceptance`** (maintainer archive only)
 and the [incident record](../incidents/host-graphics-impact-2026-11-09.md).
 
 ## Live KDE developer release continuation (2026-11-09)
@@ -1107,7 +1107,7 @@ file chooser, or app-private-data mutation test was performed here. The local
 APK command uses an explicitly supplied path. This is a usable local
 interactive development release, not a production-security approval, universal
 APK compatibility claim, or canonical M4 closure. See
-[`results/m4/integrated-desktop-live-2026-11-09.json`](../../results/m4/integrated-desktop-live-2026-11-09.json).
+**`results/m4/integrated-desktop-live-2026-11-09.json`** (maintainer archive only).
 
 ### Running this local development install
 
@@ -1134,7 +1134,7 @@ its SELinux/security warning and does not claim production approval.
 
 The native presenter now receives the Android PackageManager label and the matching AaaS desktop application ID for each app window. Reused dynamic slots update their Wayland title and app ID when assigned, instead of keeping a slot placeholder. Unassigned Composer endpoints remain unmapped, so they do not appear as blank “available slot” windows. Since the app ID matches the generated desktop-entry basename, KDE can resolve the same PackageManager-rendered icon used by the launcher and desktop entry. APK installation refreshes the catalog; `./aaas apps list --refresh` requests an explicit refresh.
 
-Live installed-runtime verification opened Settings and Contacts as separate RUNNING windows with titles `Settings` and `Contacts`, catalog app IDs, and display IDs 2 and 3. A separate dynamic-slot session applied identities for Apotris, Calendar, Phone, and Files, including closing Phone and reusing its slot for Files. A fresh installed-runtime run kept unassigned slots 4–8 unmapped, then launched Phone and Files in slot 3 in turn while Settings and Contacts stayed active. Closing an Android app now withdraws its Wayland surface after display release while retaining the hidden presenter for reuse; a live close/relaunch/close test confirmed the window disappeared from the mapped-surface lifecycle and the slot reopened with the correct identity. Six corresponding desktop entries passed `desktop-file-validate` and their referenced PNG icons exist. The installed portable runtime and its source bundle passed integrity verification after incremental runtime refresh. The final installed presenter SHA-256 is `78d29450540f7a55e455a8571c0fa87f064fd9adbe15f24f24799db4235ccdc2`. KWin remained running. This confirms the app identity and icon mapping; titlebar icon pixels were not separately captured. See [`window-identity-icons-2026-11-09.json`](../../results/m4/window-identity-icons-2026-11-09.json).
+Live installed-runtime verification opened Settings and Contacts as separate RUNNING windows with titles `Settings` and `Contacts`, catalog app IDs, and display IDs 2 and 3. A separate dynamic-slot session applied identities for Apotris, Calendar, Phone, and Files, including closing Phone and reusing its slot for Files. A fresh installed-runtime run kept unassigned slots 4–8 unmapped, then launched Phone and Files in slot 3 in turn while Settings and Contacts stayed active. Closing an Android app now withdraws its Wayland surface after display release while retaining the hidden presenter for reuse; a live close/relaunch/close test confirmed the window disappeared from the mapped-surface lifecycle and the slot reopened with the correct identity. Six corresponding desktop entries passed `desktop-file-validate` and their referenced PNG icons exist. The installed portable runtime and its source bundle passed integrity verification after incremental runtime refresh. The final installed presenter SHA-256 is `78d29450540f7a55e455a8571c0fa87f064fd9adbe15f24f24799db4235ccdc2`. KWin remained running. This confirms the app identity and icon mapping; titlebar icon pixels were not separately captured. See **`window-identity-icons-2026-11-09.json`** (maintainer archive only).
 # Persistent desktop bridge recheck (2026-11-09)
 
 The persistent systemd runtime previously exported `AAAS_AUDIO` from user
@@ -1189,7 +1189,7 @@ RUNNING with zero app windows, zero app presenters, and no audio streams. KWin
 remained active. Fresh manual keyboard/pointer/resize interaction, human audio
 audibility, visual popup observation, and Android-to-host clipboard receiver
 readback remain unverified in this recheck. Structured measurements are in
-[`desktop-integrations-recheck-2026-11-09.json`](../../results/m4/desktop-integrations-recheck-2026-11-09.json).
+**`desktop-integrations-recheck-2026-11-09.json`** (maintainer archive only).
 
 ### Desktop bridge live recheck (2026-11-10)
 
@@ -1214,7 +1214,7 @@ guarded from startup until filesystem health is cleared. Android userdata was
 not reset or repaired. The notification bridge does not forward Android
 PendingIntent/action metadata, so notification activation is not currently
 supported. See
-[`desktop-integrations-recheck-2026-11-10.json`](../../results/m4/desktop-integrations-recheck-2026-11-10.json).
+**`desktop-integrations-recheck-2026-11-10.json`** (maintainer archive only).
 
 ### Resize reconnect regression follow-up (2026-11-10)
 
@@ -1229,7 +1229,7 @@ observed the producer disconnect/reconnect, then confirmed resumed generation
 and zero stale-format rejections in the captured interval. Settings remained
 visible and KWin stayed alive. The rebuilt presenter hash and structured
 evidence are in
-[`resize-reconnect-acceptance-2026-11-10.json`](../../results/m4/resize-reconnect-acceptance-2026-11-10.json).
+**`resize-reconnect-acceptance-2026-11-10.json`** (maintainer archive only).
 
 The controlled test followed a fresh offline `e2fsck -fn` exit 0, passive
 SMART evidence, and workspace/userdata manifest checks. The earlier device-
@@ -1265,7 +1265,7 @@ entered in the Settings and Contacts search fields remained app-local after
 switching focus back to Settings. This closes the fresh input/focus and second
 resize/restore checks described in the earlier recheck; it does not add
 notification activation support. See
-[`resize-input-recovery-2026-11-10.json`](../../results/m4/resize-input-recovery-2026-11-10.json).
+**`resize-input-recovery-2026-11-10.json`** (maintainer archive only).
 
 ### Plasma notification activation follow-up (2026-11-10)
 
@@ -1286,7 +1286,7 @@ already running, so the app manager rejects a duplicate launch and does not
 raise/focus the existing Wayland window. Android PendingIntent/deep-link
 metadata is also not forwarded. The stopped-app launch outcome was not tested;
 existing-window activation and arbitrary Android actions remain open. Evidence:
-[`notification-activation-2026-11-10.json`](../../results/m4/notification-activation-2026-11-10.json).
+**`notification-activation-2026-11-10.json`** (maintainer archive only).
 
 ### Visible notification activation and desktop-integration closure (2026-11-10)
 
@@ -1307,4 +1307,4 @@ framebuffer resize/restore recorded above, this closes the desktop-integration
 workstream. The full Python suite passed 517 tests. Custom Android
 PendingIntent/deep-link forwarding and human-perceived audio are not claimed;
 canonical M4 and historical KWin/Mesa causation keep their independent status.
-See [`desktop-integration-closure-2026-11-10.json`](../../results/m4/desktop-integration-closure-2026-11-10.json).
+See **`desktop-integration-closure-2026-11-10.json`** (maintainer archive only).

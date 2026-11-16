@@ -78,7 +78,7 @@ Analysis of the live trace across 150 and 120 submissions (`m1b72_sync2_live_` a
 This bit-exact periodicity confirms:
 1. Genuine, advancing Android BootAnimation artwork is being rendered.
 2. The rendering pipeline is free of horizontal tearing, race conditions, or partial buffer updates.
-3. Visual evidence is preserved in [artifacts/m1b72_synchronized_animation.png](../artifacts/m1b72_synchronized_animation.png).
+3. Visual evidence is preserved in **artifacts/m1b72_synchronized_animation.png** (maintainer archive only).
 
 ---
 

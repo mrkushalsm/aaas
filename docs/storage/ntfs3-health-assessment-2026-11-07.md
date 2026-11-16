@@ -190,7 +190,7 @@ the actual CHKDSK result, authorized passive device-health data, an approved
 backup decision, and a user- or system-managed normal mount followed by
 post-mount metadata and stability checks. The exact structured result is
 `post_chkdsk_assessment_2026_11_07` in
-[`acceptance.json`](../../results/m4/acceptance.json).
+**`acceptance.json`** (maintainer archive only).
 
 The post-repair guard suite passed 24 tests. The full Python suite ran 371
 tests and failed with 18 errors and 7 skips: 11 real cgroup-hierarchy tests

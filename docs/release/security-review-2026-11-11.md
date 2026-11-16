@@ -43,4 +43,4 @@ binary or recommend it for untrusted APKs, multi-user isolation, or production.
 Current source changes after this bundle include portability and resize work;
 they have not been rebuilt into this candidate. See the
 [release-readiness record](../release-readiness-2026-11-11.md) and
-[candidate SBOM](sbom-engineering-52926e6.json).
+**candidate SBOM** (maintainer archive only).

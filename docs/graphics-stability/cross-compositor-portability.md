@@ -2,7 +2,7 @@
 
 Status: **PARTIAL/OPEN — Sway resize convergence is corrected and verified; Weston lifecycle acceptance and KWin 60 Hz performance remain incomplete.**
 
-The structured matrix and raw artifact references are in [acceptance.json](../../results/post-m1e/compositor-portability/acceptance.json). Graphics and frame-pacing results are also summarized in [frame-pacing-and-latency.md](frame-pacing-and-latency.md).
+The structured matrix and raw artifact references are in **acceptance.json** (maintainer archive only). Graphics and frame-pacing results are also summarized in [frame-pacing-and-latency.md](frame-pacing-and-latency.md).
 
 ## Verified scope
 

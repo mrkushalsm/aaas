@@ -2,7 +2,7 @@
 
 Status: **PARTIAL — presenter instrumentation and bounded staging baseline verified; historical outlier and causal input latency remain open.**
 
-Evidence date: 2026-11-03. Structured results are in [acceptance.json](../../results/post-m1e/graphics-performance/acceptance.json); raw presenter logs remain in the external AaaS workspace and are addressed by session ID and SHA-256 there.
+Evidence date: 2026-11-03. Structured results are in **acceptance.json** (maintainer archive only); raw presenter logs remain in the external AaaS workspace and are addressed by session ID and SHA-256 there.
 
 ## Scope and interpretation
 
@@ -70,7 +70,7 @@ The input-to-compositor-reported-presentation measurement task is **PASS/CLOSED*
 
 ## Continuous rendering and compositor comparison (2026-11-03)
 
-The same diagnostic Android marker View accepts `--animation-hz 30` or `60`; the default remains static/input-driven (`0`). The original driver used `postInvalidateDelayed`; later measurements changed it to frame-aligned `postInvalidateOnAnimation` with a monotonic target-period gate and an opt-in, low-rate draw checkpoint. APKs were built locally and installed through the existing diagnostic overlay. This remains test-only; no base-image or rendering-pipeline code changed. Frame statistics and raw-log hashes are in [the performance acceptance record](../../results/post-m1e/graphics-performance/acceptance.json) and [the compositor record](../../results/post-m1e/compositor-portability/acceptance.json).
+The same diagnostic Android marker View accepts `--animation-hz 30` or `60`; the default remains static/input-driven (`0`). The original driver used `postInvalidateDelayed`; later measurements changed it to frame-aligned `postInvalidateOnAnimation` with a monotonic target-period gate and an opt-in, low-rate draw checkpoint. APKs were built locally and installed through the existing diagnostic overlay. This remains test-only; no base-image or rendering-pipeline code changed. Frame statistics and raw-log hashes are in **the performance acceptance record** (maintainer archive only) and **the compositor record** (maintainer archive only).
 
 These are short diagnostic runs. Presented FPS is computed from compositor presentation timestamps, and interval percentiles are within that compositor's feedback clock. They are not directly comparable where backends differ.
 

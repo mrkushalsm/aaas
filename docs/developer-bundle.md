@@ -97,4 +97,4 @@ unenrolled, and runtime closure is partial. Status remained `STOPPED`. This
 confirms relocation and integrity, not Android boot. M4's historical live
 acceptance remains evidence for the original diagnostic installation only.
 The tests and observed statuses are recorded in
-[local bundle acceptance](../results/m6/local-bundle-acceptance-2026-11-08.json).
+**local bundle acceptance** (maintainer archive only).
