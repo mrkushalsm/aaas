@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "sha256": "a36135b6948342163186fe57acb9de0245fe00aeafcb9556c48a2e4c52f291ce",
+  "source_verification": "passed",
+  "sources": {
+    "bionic-android16": {
+      "commit_matches": true,
+      "patch_matches": true
+    },
+    "connectivity-android16": {
+      "commit_matches": true,
+      "patch_matches": true
+    },
+    "core-android16": {
+      "commit_matches": true,
+      "patch_matches": true
+    },
+    "libbase-android16": {
+      "commit_matches": true,
+      "patch_matches": true
+    },
+    "libmeminfo-android16": {
+      "commit_matches": true,
+      "patch_matches": true
+    },
+    "lmkd-android16": {
+      "commit_matches": true,
+      "patch_matches": true
+    },
+    "logging-android16": {
+      "commit_matches": true,
+      "patch_matches": true
+    }
+  }
+}

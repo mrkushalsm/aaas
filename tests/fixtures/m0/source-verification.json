@@ -1,0 +1,98 @@
+[
+  {
+    "name": "droidloom",
+    "status": "verified-commit-object"
+  },
+  {
+    "name": "waydroid",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "lipstick",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "qt-hwc",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "digitalis",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "teto",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "drm_hwcomposer",
+    "status": "verified-commit-object"
+  },
+  {
+    "name": "waydroid-hal",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "libhybris",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "libgbinder",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "goldfish-opengl",
+    "status": "verified-commit-object"
+  },
+  {
+    "name": "aosp-berberis",
+    "status": "verified-commit-object"
+  },
+  {
+    "name": "drmfb-composer",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "lxc",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "digitalis-manifest",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "qtwayland",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "aosp-art",
+    "status": "verified-commit-object"
+  },
+  {
+    "name": "aosp-platform-manifest",
+    "status": "verified-commit-object"
+  },
+  {
+    "name": "aosp-superproject",
+    "status": "verified-commit-object"
+  },
+  {
+    "name": "sailfish-qtwayland",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "git-repo-tool",
+    "status": "verified-commit-object"
+  },
+  {
+    "name": "digitalis-goldfish",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "digitalis-berberis",
+    "status": "verified-commit-page"
+  },
+  {
+    "name": "digitalis-sample",
+    "status": "verified-commit-page"
+  }
+]

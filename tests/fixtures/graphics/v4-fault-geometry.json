@@ -1,0 +1,84 @@
+{
+  "before_after_runtime_evidence": {
+    "post_fix": [
+      {
+        "matching_android_frames": true,
+        "outstanding_buffers": 0,
+        "presenter_imports_submissions_releases_balanced": true,
+        "result": "STOPPED",
+        "sequence": [
+          "720x1280",
+          "960x578",
+          "960x557",
+          "960x565",
+          "720x1280"
+        ]
+      },
+      {
+        "matching_android_frames": true,
+        "outstanding_buffers": 0,
+        "presenter_imports_submissions_releases_balanced": true,
+        "result": "STOPPED",
+        "sequence": [
+          "720x1280",
+          "960x578",
+          "960x557",
+          "960x565",
+          "720x1280"
+        ]
+      }
+    ]
+  },
+  "correction": {
+    "commit": "f38251d52f4a49b5b8f690ded737c7d1143e2b45",
+    "production_candidate": {
+      "diagnostics_enabled": false,
+      "selected_by_default_runner": true
+    }
+  },
+  "historical_incident": {
+    "address_calculation": {
+      "effective_offset_from_target_base": "0x20b000",
+      "effective_x": 832,
+      "effective_y": 557,
+      "one_past_target_mapping": true,
+      "pixel_x": 832,
+      "r8_minus_target_base": "0x209400",
+      "r8_row": 556,
+      "rax_row_pitch_bytes": 3840,
+      "rcx_equals_r8_plus_rdx": true,
+      "rdx_pixel_x_bytes": "0xd00"
+    },
+    "adjacent_released_allocation": {
+      "ahardwarebuffer_id": "3560527888403",
+      "base": "0x7f31c8ba5000",
+      "height": 578,
+      "interpretation": "Its released base equals the out-of-bounds address, but the JIT operand is computed from the still-mapped 960x557 target at row 557, x=832. The matching address does not establish a read from the released 960x578 object.",
+      "release_end_monotonic_ns": 390884016906800,
+      "release_to_fault_ms": 32.5,
+      "row_pitch_bytes": 3840,
+      "stride_pixels": 960,
+      "width": 960
+    },
+    "effective_address": "0x7f31c8ba5000",
+    "mapping_geometry": {
+      "first_unmapped_address": "0x7f31c8ba5000",
+      "mapped_length": "0x20b000",
+      "target_ahardwarebuffer_id": "9573482102795",
+      "target_base": "0x7f31c899a000",
+      "target_height": 557,
+      "target_row_pitch_bytes": 3840,
+      "target_stride_pixels": 960,
+      "target_usage": "0xb03",
+      "target_width": 960,
+      "tombstone_mapping_end_inclusive": "0x7f31c8ba4fff",
+      "tombstone_mapping_start": "0x7f31c899a000"
+    },
+    "registers": {
+      "r8": "0x7f31c8ba3400",
+      "rax": "0xf00",
+      "rcx": "0x7f31c8ba4100",
+      "rdx": "0xd00"
+    }
+  }
+}

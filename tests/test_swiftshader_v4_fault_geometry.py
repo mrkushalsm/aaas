@@ -3,9 +3,8 @@ import unittest
 from pathlib import Path
 
 
-EVIDENCE = (Path(__file__).resolve().parents[1] / 'results' /
-            'graphics-stability' / 'buffer-lifetime' /
-            'v4_fault_geometry_reconstruction_20261102.json')
+EVIDENCE = (Path(__file__).resolve().parents[1] / 'tests' / 'fixtures' /
+            'graphics' / 'v4-fault-geometry.json')
 
 
 class SwiftShaderV4FaultGeometryTests(unittest.TestCase):

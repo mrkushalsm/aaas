@@ -43,7 +43,7 @@ class LmkdOverlayTests(unittest.TestCase):
 
     def test_source_overlay_hash_matches_build_receipt(self):
         receipt = json.loads(
-            (ROOT / 'results/m1b85/lmkd_build_receipt.json').read_text())
+            (ROOT / 'tests/fixtures/m1b85/lmkd-build-receipt.json').read_text())
         self.assertEqual(receipt['sha256'], RUN_AAAS.LMKD_SOURCE_BUILT_SHA256)
         self.assertEqual(receipt['schema'], 1)
         self.assertEqual(receipt['source_verification'], 'passed')

@@ -2032,8 +2032,13 @@ class ForegroundRunnerTests(unittest.TestCase):
         import os
         import subprocess
         import sys
+        if os.environ.get('AAAS_RUN_WORKSPACE_INTEGRATION_TESTS') != '1':
+            self.skipTest(
+                'set AAAS_RUN_WORKSPACE_INTEGRATION_TESTS=1 to use a disposable workspace')
         if not SESSION.TMP.is_dir():
             self.skipTest('external AaaS workspace is not mounted')
+        if not SESSION.PRESENTER.is_file():
+            self.skipTest('built host presenter is unavailable for integration test')
         guard = subprocess.run(
             [sys.executable, str(SCRIPT.parents[1] / 'scripts/android_workspace.py'),
              '--workspace', str(SESSION.WORKSPACE), 'check'],

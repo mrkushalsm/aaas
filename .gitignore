@@ -2,7 +2,10 @@ sources/
 __pycache__/
 *.pyc
 results/
-benchmarks/
+# Keep benchmark schemas and harness source; ignore generated observations.
+benchmarks/*.jsonl
+benchmarks/*.csv
+benchmarks/*.tsv
 experiments/m1a/build/
 experiments/m1a/core
 experiments/m1c/input_adapter/build/
