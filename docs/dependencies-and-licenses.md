@@ -14,6 +14,17 @@ and the historical author/path privacy review remain incomplete. Do not treat
 the repository history as cleared for public exposure until those issues are
 reviewed.
 
+The generated AIDL headers under `experiments/m1b/composer_aaas/include/aidl/`
+identify QPR2 `hardware-interfaces` inputs in their generator comments, but the
+input revision and license mapping are not pinned by the current source
+manifest. Sampled generated headers do not contain their own license headers.
+Resolve that source mapping before treating these files as covered by any
+project-level license. `docs/research-report.pdf` identifies its author as
+“ChatGPT Deep Research” in PDF metadata and is not covered by the root Apache
+grant; text-based privacy checks found no local home/mount path, email address,
+IP address, or credential-label matches. The owner should still decide whether
+the report's origin and content are suitable for public retention.
+
 ## Android image and bundle
 
 The accepted preview used the Google Android SDK image

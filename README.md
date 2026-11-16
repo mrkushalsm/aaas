@@ -280,10 +280,13 @@ describes declared build inputs. Run:
 python3 -m unittest discover -s tests -q
 ```
 
-The recorded source regression run completed **574 tests, 6 skipped**. Exact
-candidate runtime results are in the [acceptance JSON](docs/release/portable-preview-af3dcb4-acceptance.json)
-and detailed local evidence under `results/release/portable-preview-af3dcb4/`.
-That local evidence directory is not part of the public bundle. The
+The M5 acceptance record reports **574 tests, 6 skipped** for that release's
+source regression run. The cleaned source checkout was separately verified on
+2026-11-16: **567 passed, 8 skipped**. The test command and its `jsonschema`
+dependency are listed in [CONTRIBUTING.md](CONTRIBUTING.md). Candidate runtime results are in
+the [acceptance JSON](docs/release/portable-preview-af3dcb4-acceptance.json).
+Detailed local session logs are retained in the maintainer's evidence archive
+and are not included in this history-filtered clone. The
 [documentation index](docs/README.md) links architecture, installation,
 troubleshooting, and historical research.
 

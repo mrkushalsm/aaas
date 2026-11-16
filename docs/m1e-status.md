@@ -1,6 +1,6 @@
 # M1E status
 
-M1E is a technical subdivision mapped to canonical product [M2](roadmap.md#m2--independent-desktop-windows). Its closed experiment status is evidence for M2, not a separate top-level product milestone.
+M1E is a technical subdivision mapped to canonical product [M2](milestones/m2-independent-desktop-windows.md). Its closed experiment status is evidence for M2, not a separate top-level product milestone.
 
 Status: **PASS / CLOSED — supported two-application Wayland desktop scope**
 

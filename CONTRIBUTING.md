@@ -8,7 +8,14 @@ and [architecture guide](docs/architecture.md) before changing runtime code.
 
 ## Tests
 
-The Python regression suite requires Python 3 and uses the standard library:
+The Python regression suite requires Python 3 and the `jsonschema` package
+(4.x). Install the test dependency with:
+
+```sh
+python3 -m pip install 'jsonschema>=4,<5'
+```
+
+Then run:
 
 ```sh
 python3 -m unittest discover -s tests -q
