@@ -1,0 +1,307 @@
+{
+  "source_spec": "rpm/lipstick-qt5.spec",
+  "immediate_requirements": [
+    {
+      "category": "Requires",
+      "requirement": "mce >= 1.87.0",
+      "module": "mce",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires",
+      "requirement": "pulseaudio-modules-nemo-mainvolume >= 6.0.19",
+      "module": "pulseaudio-modules-nemo-mainvolume",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires",
+      "requirement": "user-managerd >= 0.3.0",
+      "module": "user-managerd",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires",
+      "requirement": "sailjail-daemon",
+      "module": "sailjail-daemon",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires(post)",
+      "requirement": "/sbin/ldconfig",
+      "module": "/sbin/ldconfig",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires(postun)",
+      "requirement": "/sbin/ldconfig",
+      "module": "/sbin/ldconfig",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(Qt5Core)",
+      "module": "pkgconfig(Qt5Core)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "5.15.8"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(Qt5DBus)",
+      "module": "pkgconfig(Qt5DBus)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "5.15.8"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(Qt5Quick) >= 5.2.1",
+      "module": "pkgconfig(Qt5Quick)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "5.15.8"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(Qt5Sql)",
+      "module": "pkgconfig(Qt5Sql)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "5.15.8"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(Qt5Test)",
+      "module": "pkgconfig(Qt5Test)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "5.15.8"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(Qt5Sensors)",
+      "module": "pkgconfig(Qt5Sensors)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "5.15.8"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(contentaction5)",
+      "module": "pkgconfig(contentaction5)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(mlite5) >= 0.2.19",
+      "module": "pkgconfig(mlite5)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(mce) >= 1.22.0",
+      "module": "pkgconfig(mce)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(mce-qt5) >= 1.5.0",
+      "module": "pkgconfig(mce-qt5)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(keepalive)",
+      "module": "pkgconfig(keepalive)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(dsme_dbus_if) >= 0.63.2",
+      "module": "pkgconfig(dsme_dbus_if)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(thermalmanager_dbus_if)",
+      "module": "pkgconfig(thermalmanager_dbus_if)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(usb_moded)",
+      "module": "pkgconfig(usb_moded)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(dbus-1)",
+      "module": "pkgconfig(dbus-1)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "1.14.10"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(libresourceqt5)",
+      "module": "pkgconfig(libresourceqt5)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(ngf-qt5)",
+      "module": "pkgconfig(ngf-qt5)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(systemd)",
+      "module": "pkgconfig(systemd)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(wayland-server)",
+      "module": "pkgconfig(wayland-server)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "1.21.0"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(wayland-protocols)",
+      "module": "pkgconfig(wayland-protocols)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "1.31"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(usb-moded-qt5) >= 1.8",
+      "module": "pkgconfig(usb-moded-qt5)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(systemsettings) >= 0.8.0",
+      "module": "pkgconfig(systemsettings)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(nemodevicelock)",
+      "module": "pkgconfig(nemodevicelock)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(nemoconnectivity)",
+      "module": "pkgconfig(nemoconnectivity)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(sailfishusermanager)",
+      "module": "pkgconfig(sailfishusermanager)",
+      "state": "environment-pkgconfig-missing",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "pkgconfig(glib-2.0)",
+      "module": "pkgconfig(glib-2.0)",
+      "state": "environment-pkgconfig-present",
+      "detected_version": "2.74.6"
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "qt5-qttools-linguist",
+      "module": "qt5-qttools-linguist",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "qt5-qtgui-devel >= 5.2.1+git24",
+      "module": "qt5-qtgui-devel",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "qt5-qtwayland-wayland_egl-devel >= 5.4.0+git26",
+      "module": "qt5-qtwayland-wayland_egl-devel",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "doxygen",
+      "module": "doxygen",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "qt5-qttools-qthelp-devel",
+      "module": "qt5-qttools-qthelp-devel",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "BuildRequires",
+      "requirement": "nemo-qml-plugin-systemsettings >= 0.8.0",
+      "module": "nemo-qml-plugin-systemsettings",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires",
+      "requirement": "%{name} = %{version}-%{release}",
+      "module": "%{name}",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires",
+      "requirement": "%{name} = %{version}-%{release}",
+      "module": "%{name}",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires",
+      "requirement": "nemo-test-tools",
+      "module": "nemo-test-tools",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires",
+      "requirement": "%{name} = %{version}-%{release}",
+      "module": "%{name}",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    },
+    {
+      "category": "Requires",
+      "requirement": "%{name} = %{version}-%{release}",
+      "module": "%{name}",
+      "state": "not-checked-by-pkgconfig",
+      "detected_version": null
+    }
+  ],
+  "transitive_closure": "unresolved"
+}

@@ -1,0 +1,1951 @@
+{
+  "packages": [
+    {
+      "package": "adduser",
+      "version": "3.134",
+      "notice_sha256": "b143053a4862ab354831487b5f8bd31dc9ffdc589d15de9d9c764332a0209796"
+    },
+    {
+      "package": "apt",
+      "version": "2.6.1",
+      "notice_sha256": "b4701305243d8d746f4acaafe15d94f946251b05691bd6917fef41dd15e9ee12"
+    },
+    {
+      "package": "base-files",
+      "version": "12.4+deb12u15",
+      "notice_sha256": "fd7e4aae7e7b05f217bcf2d02322825c360e66c52c4c2f1b28d784d6297a1c23"
+    },
+    {
+      "package": "base-passwd",
+      "version": "3.6.1",
+      "notice_sha256": "0f1cde79bd80a75f9029ae9a8c252b642223027ef36f6989c63a8230aae576a7"
+    },
+    {
+      "package": "bash",
+      "version": "5.2.15-2+b13",
+      "notice_sha256": "06319d84c3e5ed096036f6a9310a030c7e84e50dff2b8a6792285c83ec0ada73"
+    },
+    {
+      "package": "binutils",
+      "version": "2.40-2",
+      "notice_sha256": "a81bdd422c2c015deca84bf6ad249bf0d7d19885fc01d1894463291b0b7313e1"
+    },
+    {
+      "package": "binutils-common",
+      "version": "2.40-2",
+      "notice_sha256": "a81bdd422c2c015deca84bf6ad249bf0d7d19885fc01d1894463291b0b7313e1"
+    },
+    {
+      "package": "binutils-x86-64-linux-gnu",
+      "version": "2.40-2",
+      "notice_sha256": "a81bdd422c2c015deca84bf6ad249bf0d7d19885fc01d1894463291b0b7313e1"
+    },
+    {
+      "package": "bsdutils",
+      "version": "1:2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "build-essential",
+      "version": "12.9",
+      "notice_sha256": "5ac244848c8571fcd7044b0c3778cde9e068ce169227b0354a1be519b695358f"
+    },
+    {
+      "package": "bzip2",
+      "version": "1.0.8-5+b1",
+      "notice_sha256": "832ed535ff3c3d025a8d2348eb1b697b89addcf2eaadbc17650262040b9145e2"
+    },
+    {
+      "package": "ca-certificates",
+      "version": "20250419~deb12u2",
+      "notice_sha256": "e85e1bcad3a915dc7e6f41412bc5bdeba275cadd817896ea0451f2140a93967c"
+    },
+    {
+      "package": "coreutils",
+      "version": "9.1-1",
+      "notice_sha256": "24e86c5ca53d6bfd8e0c47988160daa62d10a74997fe11f651e1d9533c78bff6"
+    },
+    {
+      "package": "cpp",
+      "version": "4:12.2.0-3",
+      "notice_sha256": "156004744edbf17a975f0004ac4a9295b160ab403d646c445235711255ca9ff8"
+    },
+    {
+      "package": "cpp-12",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "dash",
+      "version": "0.5.12-2",
+      "notice_sha256": "d98c53f281321baad38164aa9ae6e368a9253be6ec51bd26a759b5e72b326f4a"
+    },
+    {
+      "package": "debconf",
+      "version": "1.5.82",
+      "notice_sha256": "57163c71bd8a5289660892827dd0dfaa7fef47f89deedc9dc6711ced7d0a28d7"
+    },
+    {
+      "package": "debian-archive-keyring",
+      "version": "2023.3+deb12u2",
+      "notice_sha256": "b32aecaae84643700a33bc9ee83fa9b36938d35aa7b61b5042092eca77ddb732"
+    },
+    {
+      "package": "debianutils",
+      "version": "5.7-0.5~deb12u1",
+      "notice_sha256": "fd2d797e208bcfb713510e47a89867191180943e1167d44c2acd8ff1b88e5c10"
+    },
+    {
+      "package": "diffutils",
+      "version": "1:3.8-4",
+      "notice_sha256": "8654d7cc7cdae1f31bb67a3ce5bf35d512c0bdfffd071df757edc54153cc7930"
+    },
+    {
+      "package": "dpkg",
+      "version": "1.21.23",
+      "notice_sha256": "7442bdadcd44e818fddd786057db07639cc68225c389c7c240d3bb3984b05173"
+    },
+    {
+      "package": "dpkg-dev",
+      "version": "1.21.23",
+      "notice_sha256": "7442bdadcd44e818fddd786057db07639cc68225c389c7c240d3bb3984b05173"
+    },
+    {
+      "package": "e2fsprogs",
+      "version": "1.47.0-2+b2",
+      "notice_sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+    },
+    {
+      "package": "findutils",
+      "version": "4.9.0-4",
+      "notice_sha256": "8fbcc77ed31f480a85654e9b6d1d25cbb95b62e9dc5159ae1565bca684c3e1dc"
+    },
+    {
+      "package": "fontconfig",
+      "version": "2.14.1-4",
+      "notice_sha256": "b215a61cdd3e62b5b17cc28b1852c78acb3dd38be0fb30706f7efc050dba91db"
+    },
+    {
+      "package": "fontconfig-config",
+      "version": "2.14.1-4",
+      "notice_sha256": "b215a61cdd3e62b5b17cc28b1852c78acb3dd38be0fb30706f7efc050dba91db"
+    },
+    {
+      "package": "fonts-dejavu-core",
+      "version": "2.37-6",
+      "notice_sha256": "63d3ba759d12804c5b31a9d5940d855c1820d1f5999e6b0872eb1c7ff045fbc9"
+    },
+    {
+      "package": "g++",
+      "version": "4:12.2.0-3",
+      "notice_sha256": "156004744edbf17a975f0004ac4a9295b160ab403d646c445235711255ca9ff8"
+    },
+    {
+      "package": "g++-12",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "gcc",
+      "version": "4:12.2.0-3",
+      "notice_sha256": "156004744edbf17a975f0004ac4a9295b160ab403d646c445235711255ca9ff8"
+    },
+    {
+      "package": "gcc-12",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "gcc-12-base",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "gir1.2-glib-2.0",
+      "version": "1.74.0-3",
+      "notice_sha256": "496f160d56ab69e95bf2908b0cde87cd07904d8b4296214928e9b1e626020e48"
+    },
+    {
+      "package": "gir1.2-gudev-1.0",
+      "version": "237-2",
+      "notice_sha256": "e8208610819fd05fca6ea4776156858bb934e29c408ae9bdac4a8266a53178e3"
+    },
+    {
+      "package": "git",
+      "version": "1:2.39.5-0+deb12u3",
+      "notice_sha256": "8ceacdebe13249ea8aba6e400418e2b503c83a1f19ad92377380fb32ecf48d0c"
+    },
+    {
+      "package": "git-man",
+      "version": "1:2.39.5-0+deb12u3",
+      "notice_sha256": "8ceacdebe13249ea8aba6e400418e2b503c83a1f19ad92377380fb32ecf48d0c"
+    },
+    {
+      "package": "gpgv",
+      "version": "2.2.40-1.1+deb12u2",
+      "notice_sha256": "84dab06b5c1baf3a7a45c3cdc5f98fb121234e98fdd6266c3f773d54fcdc4f54"
+    },
+    {
+      "package": "grep",
+      "version": "3.8-5",
+      "notice_sha256": "42d9b4d610396b1e8d1303dcb9487af3f5a2d2709623cf03a04cf76acdf6c5e3"
+    },
+    {
+      "package": "gzip",
+      "version": "1.12-1",
+      "notice_sha256": "1ca5dd5098fe2e1c0f0d05196f5b3da8b414a807702e6ca8b536eb5fd3059130"
+    },
+    {
+      "package": "hostname",
+      "version": "3.23+nmu1",
+      "notice_sha256": "94189fc5a9a7b7224d96e1a0cfdfe9be0df2018b04bf21d591627ab96b30cad1"
+    },
+    {
+      "package": "init-system-helpers",
+      "version": "1.65.2+deb12u1",
+      "notice_sha256": "7534601cc4fa513804d16490359f5831e7b6a1212da3bbf948bebdd4c8799783"
+    },
+    {
+      "package": "iso-codes",
+      "version": "4.15.0-1",
+      "notice_sha256": "029d2b219782fb99b7c8f2f736cdf8a6907397110c36f5a851b976a844479b75"
+    },
+    {
+      "package": "libacl1",
+      "version": "2.3.1-3",
+      "notice_sha256": "9a2dfb4a5abc7e84be2cc41f1089be665519c9409549296f6c19de57ab1d37c2"
+    },
+    {
+      "package": "libapt-pkg6.0",
+      "version": "2.6.1",
+      "notice_sha256": "b4701305243d8d746f4acaafe15d94f946251b05691bd6917fef41dd15e9ee12"
+    },
+    {
+      "package": "libasan8",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libatomic1",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libattr1",
+      "version": "1:2.5.1-4",
+      "notice_sha256": "0cbec745d85ea775450b2d54fac55277197f429e52d611f72852ed420450620e"
+    },
+    {
+      "package": "libaudit-common",
+      "version": "1:3.0.9-1",
+      "notice_sha256": "6c7011e93f643b112c4cc3622131e28a30477afad6c4f5efe466b13aa7f603cc"
+    },
+    {
+      "package": "libaudit1",
+      "version": "1:3.0.9-1",
+      "notice_sha256": "6c7011e93f643b112c4cc3622131e28a30477afad6c4f5efe466b13aa7f603cc"
+    },
+    {
+      "package": "libavahi-client3",
+      "version": "0.8-10+deb12u1",
+      "notice_sha256": "66849d0ab7cbf0d770e40e00276ed8d264ed8974c0e064fb12814c0f80430c5d"
+    },
+    {
+      "package": "libavahi-common-data",
+      "version": "0.8-10+deb12u1",
+      "notice_sha256": "66849d0ab7cbf0d770e40e00276ed8d264ed8974c0e064fb12814c0f80430c5d"
+    },
+    {
+      "package": "libavahi-common3",
+      "version": "0.8-10+deb12u1",
+      "notice_sha256": "66849d0ab7cbf0d770e40e00276ed8d264ed8974c0e064fb12814c0f80430c5d"
+    },
+    {
+      "package": "libbinutils",
+      "version": "2.40-2",
+      "notice_sha256": "a81bdd422c2c015deca84bf6ad249bf0d7d19885fc01d1894463291b0b7313e1"
+    },
+    {
+      "package": "libblkid-dev",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "libblkid1",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "libbrotli-dev",
+      "version": "1.0.9-2+b6",
+      "notice_sha256": "24a64e5bb83d0960d1835696a1e23c0896ad6055b0ca47c66ab0eb9a766324b1"
+    },
+    {
+      "package": "libbrotli1",
+      "version": "1.0.9-2+b6",
+      "notice_sha256": "24a64e5bb83d0960d1835696a1e23c0896ad6055b0ca47c66ab0eb9a766324b1"
+    },
+    {
+      "package": "libbsd0",
+      "version": "0.11.7-2",
+      "notice_sha256": "00fd7be5d907a6bcc409a80f2d565f508673db4761d54623691f89ae3aa20fc7"
+    },
+    {
+      "package": "libbz2-1.0",
+      "version": "1.0.8-5+b1",
+      "notice_sha256": "832ed535ff3c3d025a8d2348eb1b697b89addcf2eaadbc17650262040b9145e2"
+    },
+    {
+      "package": "libc-bin",
+      "version": "2.36-9+deb12u14",
+      "notice_sha256": "40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987"
+    },
+    {
+      "package": "libc-dev-bin",
+      "version": "2.36-9+deb12u14",
+      "notice_sha256": "40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987"
+    },
+    {
+      "package": "libc6",
+      "version": "2.36-9+deb12u14",
+      "notice_sha256": "40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987"
+    },
+    {
+      "package": "libc6-dev",
+      "version": "2.36-9+deb12u14",
+      "notice_sha256": "40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987"
+    },
+    {
+      "package": "libcap-ng0",
+      "version": "0.8.3-1+b3",
+      "notice_sha256": "49b5db19990a3e3cc1a9ed716aed231f6f3c1c217e58f62ae4dc2818c6d3e9cc"
+    },
+    {
+      "package": "libcap2",
+      "version": "1:2.66-4+deb12u3+b1",
+      "notice_sha256": "e60a5642e12e340060e4e519a65b2eb0330be2917854841c644e36268f607d54"
+    },
+    {
+      "package": "libcap2-bin",
+      "version": "1:2.66-4+deb12u3+b1",
+      "notice_sha256": "e60a5642e12e340060e4e519a65b2eb0330be2917854841c644e36268f607d54"
+    },
+    {
+      "package": "libcc1-0",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libclang1-14",
+      "version": "1:14.0.6-12",
+      "notice_sha256": "dc2a171c75ca72818f7f4312602f27cb0e4bf6d010a86e7073a3797cb228ddff"
+    },
+    {
+      "package": "libcom-err2",
+      "version": "1.47.0-2+b2",
+      "notice_sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+    },
+    {
+      "package": "libcrypt-dev",
+      "version": "1:4.4.33-2",
+      "notice_sha256": "5a5e7ca0e9f3f9679977e3a3e9ede45ad92885a3297ea78e766979f9866c5a16"
+    },
+    {
+      "package": "libcrypt1",
+      "version": "1:4.4.33-2",
+      "notice_sha256": "5a5e7ca0e9f3f9679977e3a3e9ede45ad92885a3297ea78e766979f9866c5a16"
+    },
+    {
+      "package": "libctf-nobfd0",
+      "version": "2.40-2",
+      "notice_sha256": "a81bdd422c2c015deca84bf6ad249bf0d7d19885fc01d1894463291b0b7313e1"
+    },
+    {
+      "package": "libctf0",
+      "version": "2.40-2",
+      "notice_sha256": "a81bdd422c2c015deca84bf6ad249bf0d7d19885fc01d1894463291b0b7313e1"
+    },
+    {
+      "package": "libcups2",
+      "version": "2.4.2-3+deb12u9",
+      "notice_sha256": "adf89b2f8c8abb8cd0770184a4536266e5b816e59cf78a3d2bdaf8916067de6e"
+    },
+    {
+      "package": "libcurl3-gnutls",
+      "version": "7.88.1-10+deb12u15",
+      "notice_sha256": "a7c131b21e6e73b3b085a7d9f1637b68f5f92b832cc6f462e0c978fbe7841ccb"
+    },
+    {
+      "package": "libdb5.3",
+      "version": "5.3.28+dfsg2-1",
+      "notice_sha256": "8b53da37d73289d9df7317b3a2dbe16491f1fa9fec8b77b86d69704b40ce2c26"
+    },
+    {
+      "package": "libdbus-1-3",
+      "version": "1.14.10-1~deb12u1",
+      "notice_sha256": "4cfc9f33368f3b95429992704c96fa598818ec796046426a9979ce4d9b8b1900"
+    },
+    {
+      "package": "libdbus-1-dev",
+      "version": "1.14.10-1~deb12u1",
+      "notice_sha256": "4cfc9f33368f3b95429992704c96fa598818ec796046426a9979ce4d9b8b1900"
+    },
+    {
+      "package": "libdebconfclient0",
+      "version": "0.270",
+      "notice_sha256": "cf63099896d1c0f6529c41b8d95738e6fea342ffba609187d339c4f38ce36ecc"
+    },
+    {
+      "package": "libdouble-conversion3",
+      "version": "3.2.1-1",
+      "notice_sha256": "1cc0b36cdfe5a674e11cb9907a88291c7602d3805bddd334cc07d57231a0cd00"
+    },
+    {
+      "package": "libdpkg-perl",
+      "version": "1.21.23",
+      "notice_sha256": "7442bdadcd44e818fddd786057db07639cc68225c389c7c240d3bb3984b05173"
+    },
+    {
+      "package": "libdrm-amdgpu1",
+      "version": "2.4.114-1+b1",
+      "notice_sha256": "512c9a57fd8b449aa157351da9df07bf8e19f767e496a72205a4020268ddb2e0"
+    },
+    {
+      "package": "libdrm-common",
+      "version": "2.4.114-1",
+      "notice_sha256": "512c9a57fd8b449aa157351da9df07bf8e19f767e496a72205a4020268ddb2e0"
+    },
+    {
+      "package": "libdrm-intel1",
+      "version": "2.4.114-1+b1",
+      "notice_sha256": "512c9a57fd8b449aa157351da9df07bf8e19f767e496a72205a4020268ddb2e0"
+    },
+    {
+      "package": "libdrm-nouveau2",
+      "version": "2.4.114-1+b1",
+      "notice_sha256": "512c9a57fd8b449aa157351da9df07bf8e19f767e496a72205a4020268ddb2e0"
+    },
+    {
+      "package": "libdrm-radeon1",
+      "version": "2.4.114-1+b1",
+      "notice_sha256": "512c9a57fd8b449aa157351da9df07bf8e19f767e496a72205a4020268ddb2e0"
+    },
+    {
+      "package": "libdrm2",
+      "version": "2.4.114-1+b1",
+      "notice_sha256": "512c9a57fd8b449aa157351da9df07bf8e19f767e496a72205a4020268ddb2e0"
+    },
+    {
+      "package": "libdw1",
+      "version": "0.188-2.1",
+      "notice_sha256": "d754a0edec1a510561aa643040456266536e3ec26bdb22e69a11c3f7b5de2339"
+    },
+    {
+      "package": "libedit2",
+      "version": "3.1-20221030-2",
+      "notice_sha256": "2b53671050f6319be6fcdcafa434e8ccb8af629359b4afc83185867204f3927d"
+    },
+    {
+      "package": "libegl-dev",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libegl-mesa0",
+      "version": "22.3.6-1+deb12u2",
+      "notice_sha256": "30c36421275bf40e318d5d3e8662db6e332f97f047fa963bdb44e28ef9112232"
+    },
+    {
+      "package": "libegl1",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libegl1-mesa-dev",
+      "version": "22.3.6-1+deb12u2",
+      "notice_sha256": "30c36421275bf40e318d5d3e8662db6e332f97f047fa963bdb44e28ef9112232"
+    },
+    {
+      "package": "libelf1",
+      "version": "0.188-2.1",
+      "notice_sha256": "d754a0edec1a510561aa643040456266536e3ec26bdb22e69a11c3f7b5de2339"
+    },
+    {
+      "package": "liberror-perl",
+      "version": "0.17029-2",
+      "notice_sha256": "5ece6f21cf4f64f798479e81abd3f25a20bd7e8fc13d98c680b25a8af6b954af"
+    },
+    {
+      "package": "libevdev-dev",
+      "version": "1.13.0+dfsg-1",
+      "notice_sha256": "f16fd65cac581f19c54835f399e9a6d7087df1b8319ac65f0f0c67a15c5d2ee0"
+    },
+    {
+      "package": "libevdev2",
+      "version": "1.13.0+dfsg-1",
+      "notice_sha256": "f16fd65cac581f19c54835f399e9a6d7087df1b8319ac65f0f0c67a15c5d2ee0"
+    },
+    {
+      "package": "libexpat1",
+      "version": "2.5.0-1+deb12u4",
+      "notice_sha256": "60919fe1a156395ff14511bb6ff79756c50ade2fff59ac60c9bae1d8a7fe6292"
+    },
+    {
+      "package": "libexpat1-dev",
+      "version": "2.5.0-1+deb12u4",
+      "notice_sha256": "60919fe1a156395ff14511bb6ff79756c50ade2fff59ac60c9bae1d8a7fe6292"
+    },
+    {
+      "package": "libext2fs2",
+      "version": "1.47.0-2+b2",
+      "notice_sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+    },
+    {
+      "package": "libffi-dev",
+      "version": "3.4.4-1",
+      "notice_sha256": "f83d2ecba1ea4d99957e81c50bebbd076a128194288a3ec22cc8ccdb77c43087"
+    },
+    {
+      "package": "libffi8",
+      "version": "3.4.4-1",
+      "notice_sha256": "f83d2ecba1ea4d99957e81c50bebbd076a128194288a3ec22cc8ccdb77c43087"
+    },
+    {
+      "package": "libfontconfig-dev",
+      "version": "2.14.1-4",
+      "notice_sha256": "b215a61cdd3e62b5b17cc28b1852c78acb3dd38be0fb30706f7efc050dba91db"
+    },
+    {
+      "package": "libfontconfig1",
+      "version": "2.14.1-4",
+      "notice_sha256": "b215a61cdd3e62b5b17cc28b1852c78acb3dd38be0fb30706f7efc050dba91db"
+    },
+    {
+      "package": "libfontconfig1-dev",
+      "version": "2.14.1-4",
+      "notice_sha256": "b215a61cdd3e62b5b17cc28b1852c78acb3dd38be0fb30706f7efc050dba91db"
+    },
+    {
+      "package": "libfreetype-dev",
+      "version": "2.12.1+dfsg-5+deb12u4",
+      "notice_sha256": "70a7a0a06e6440777417f6875476cb712b03943010abed1c32297798c8cc8ed8"
+    },
+    {
+      "package": "libfreetype6",
+      "version": "2.12.1+dfsg-5+deb12u4",
+      "notice_sha256": "70a7a0a06e6440777417f6875476cb712b03943010abed1c32297798c8cc8ed8"
+    },
+    {
+      "package": "libgbm1",
+      "version": "22.3.6-1+deb12u2",
+      "notice_sha256": "30c36421275bf40e318d5d3e8662db6e332f97f047fa963bdb44e28ef9112232"
+    },
+    {
+      "package": "libgcc-12-dev",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libgcc-s1",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libgcrypt20",
+      "version": "1.10.1-3+deb12u1",
+      "notice_sha256": "95db2f9da663f2bfe2aabe9c72fce9d6c9ae767b912f397d7823f50bd55a1a7d"
+    },
+    {
+      "package": "libgdbm-compat4",
+      "version": "1.23-3",
+      "notice_sha256": "8bea8cf2f94cd8b37a0b8b3a2b974122b9194c1165e6ad508e366c74679e8817"
+    },
+    {
+      "package": "libgdbm6",
+      "version": "1.23-3",
+      "notice_sha256": "8bea8cf2f94cd8b37a0b8b3a2b974122b9194c1165e6ad508e366c74679e8817"
+    },
+    {
+      "package": "libgirepository-1.0-1",
+      "version": "1.74.0-3",
+      "notice_sha256": "496f160d56ab69e95bf2908b0cde87cd07904d8b4296214928e9b1e626020e48"
+    },
+    {
+      "package": "libgl-dev",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libgl1",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libgl1-mesa-dri",
+      "version": "22.3.6-1+deb12u2",
+      "notice_sha256": "30c36421275bf40e318d5d3e8662db6e332f97f047fa963bdb44e28ef9112232"
+    },
+    {
+      "package": "libglapi-mesa",
+      "version": "22.3.6-1+deb12u2",
+      "notice_sha256": "30c36421275bf40e318d5d3e8662db6e332f97f047fa963bdb44e28ef9112232"
+    },
+    {
+      "package": "libgles-dev",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libgles1",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libgles2",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libglib2.0-0",
+      "version": "2.74.6-2+deb12u9",
+      "notice_sha256": "03cbcd6142c92bb14c997af557b8c73b1534710c34fe7f69788f8e8fc5fd941d"
+    },
+    {
+      "package": "libglib2.0-bin",
+      "version": "2.74.6-2+deb12u9",
+      "notice_sha256": "03cbcd6142c92bb14c997af557b8c73b1534710c34fe7f69788f8e8fc5fd941d"
+    },
+    {
+      "package": "libglib2.0-data",
+      "version": "2.74.6-2+deb12u9",
+      "notice_sha256": "03cbcd6142c92bb14c997af557b8c73b1534710c34fe7f69788f8e8fc5fd941d"
+    },
+    {
+      "package": "libglib2.0-dev",
+      "version": "2.74.6-2+deb12u9",
+      "notice_sha256": "03cbcd6142c92bb14c997af557b8c73b1534710c34fe7f69788f8e8fc5fd941d"
+    },
+    {
+      "package": "libglib2.0-dev-bin",
+      "version": "2.74.6-2+deb12u9",
+      "notice_sha256": "03cbcd6142c92bb14c997af557b8c73b1534710c34fe7f69788f8e8fc5fd941d"
+    },
+    {
+      "package": "libglu1-mesa",
+      "version": "9.0.2-1.1",
+      "notice_sha256": "7802232600641c113e2948fbc2feae6de45f26af59a43c28836e0ef846f8dd94"
+    },
+    {
+      "package": "libglu1-mesa-dev",
+      "version": "9.0.2-1.1",
+      "notice_sha256": "7802232600641c113e2948fbc2feae6de45f26af59a43c28836e0ef846f8dd94"
+    },
+    {
+      "package": "libglvnd-core-dev",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libglvnd-dev",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libglvnd0",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libglx-dev",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libglx-mesa0",
+      "version": "22.3.6-1+deb12u2",
+      "notice_sha256": "30c36421275bf40e318d5d3e8662db6e332f97f047fa963bdb44e28ef9112232"
+    },
+    {
+      "package": "libglx0",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libgmp10",
+      "version": "2:6.2.1+dfsg1-1.1",
+      "notice_sha256": "7d366aef5ba325150246de1d7820c4c9926cd27ca61a69948492b26cd3b61601"
+    },
+    {
+      "package": "libgnutls30",
+      "version": "3.7.9-2+deb12u7",
+      "notice_sha256": "bb7e5c24b3e27bbba5671dd710d159a0066833bda4caa1d55d8027ffed539337"
+    },
+    {
+      "package": "libgomp1",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libgpg-error0",
+      "version": "1.46-1",
+      "notice_sha256": "8760fd36efa1d7186f8769d4e76a3e678045b94d54465bf6f2db5eb871c7c27f"
+    },
+    {
+      "package": "libgprofng0",
+      "version": "2.40-2",
+      "notice_sha256": "a81bdd422c2c015deca84bf6ad249bf0d7d19885fc01d1894463291b0b7313e1"
+    },
+    {
+      "package": "libgraphite2-3",
+      "version": "1.3.14-1+deb12u1",
+      "notice_sha256": "a33017ba0308c41bdbde4751bff349ab7b26af45fadbb1e3e7ac67c372985572"
+    },
+    {
+      "package": "libgssapi-krb5-2",
+      "version": "1.20.1-2+deb12u5",
+      "notice_sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+    },
+    {
+      "package": "libgstreamer-plugins-base1.0-0",
+      "version": "1.22.0-3+deb12u7",
+      "notice_sha256": "1562456a438eb6d92bd04548bc136c5459edc486eea33230470a2ca13c18a9ed"
+    },
+    {
+      "package": "libgstreamer1.0-0",
+      "version": "1.22.0-2+deb12u1",
+      "notice_sha256": "de00f8e299a9ed1bd23e7a0c2fe31051c8f99546359be75f33b98e3f0328d68a"
+    },
+    {
+      "package": "libgudev-1.0-0",
+      "version": "237-2",
+      "notice_sha256": "e8208610819fd05fca6ea4776156858bb934e29c408ae9bdac4a8266a53178e3"
+    },
+    {
+      "package": "libgudev-1.0-dev",
+      "version": "237-2",
+      "notice_sha256": "e8208610819fd05fca6ea4776156858bb934e29c408ae9bdac4a8266a53178e3"
+    },
+    {
+      "package": "libharfbuzz0b",
+      "version": "6.0.0+dfsg-3",
+      "notice_sha256": "31cfabe2acdcc9cc9dcda6b93185cffc50424d817ae20dd8efd8bcdac5396148"
+    },
+    {
+      "package": "libhogweed6",
+      "version": "3.8.1-2",
+      "notice_sha256": "ca2ca597320220c00ef6dc0fe5d0d82025548d6d4ba80e85615eb691f9021f93"
+    },
+    {
+      "package": "libhyphen0",
+      "version": "2.8.8-7",
+      "notice_sha256": "3419e19f01880c9b319a6e80d89b5975185706a2b568aa634eb0efd6bde0856e"
+    },
+    {
+      "package": "libice6",
+      "version": "2:1.0.10-1",
+      "notice_sha256": "fc16500a74acc2d0a7bb2fa1005956a52551abdce2afe0642a9a8dc2b6af53c6"
+    },
+    {
+      "package": "libicu72",
+      "version": "72.1-3+deb12u1",
+      "notice_sha256": "5bbff5f646ce750ac0a347e7f91793279b7422a1119820b5f75d98879c201c68"
+    },
+    {
+      "package": "libidn2-0",
+      "version": "2.3.3-1+b1",
+      "notice_sha256": "41702469f28e8ff406345e3d1dd0c741f11bdfca319264f67036efd6aaa79e4b"
+    },
+    {
+      "package": "libinput-bin",
+      "version": "1.22.1-1+deb12u1",
+      "notice_sha256": "775ae51958dbb6391e687cff8d0ee628d86532f12dc5f2a63f392de222c00f43"
+    },
+    {
+      "package": "libinput-dev",
+      "version": "1.22.1-1+deb12u1",
+      "notice_sha256": "775ae51958dbb6391e687cff8d0ee628d86532f12dc5f2a63f392de222c00f43"
+    },
+    {
+      "package": "libinput10",
+      "version": "1.22.1-1+deb12u1",
+      "notice_sha256": "775ae51958dbb6391e687cff8d0ee628d86532f12dc5f2a63f392de222c00f43"
+    },
+    {
+      "package": "libisl23",
+      "version": "0.25-1.1",
+      "notice_sha256": "fb1ea085945df53c756939eecf5d9bf4072316538bc3b314a5408350b679a637"
+    },
+    {
+      "package": "libitm1",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libjansson4",
+      "version": "2.14-2",
+      "notice_sha256": "29347e2528ab31d20e8582b09aa89cd878d306c59a273541141c9aede1903cb8"
+    },
+    {
+      "package": "libjpeg62-turbo",
+      "version": "1:2.1.5-2",
+      "notice_sha256": "3821184e23385bf2cdc01f56bd999b34036fc3aa03d5135d41680374eb81bf8a"
+    },
+    {
+      "package": "libk5crypto3",
+      "version": "1.20.1-2+deb12u5",
+      "notice_sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+    },
+    {
+      "package": "libkeyutils1",
+      "version": "1.6.3-2",
+      "notice_sha256": "c62fe37d22203046611112bc10a9e03a39a7f73bec1b061e7c615326166d9ff5"
+    },
+    {
+      "package": "libkrb5-3",
+      "version": "1.20.1-2+deb12u5",
+      "notice_sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+    },
+    {
+      "package": "libkrb5support0",
+      "version": "1.20.1-2+deb12u5",
+      "notice_sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+    },
+    {
+      "package": "libldap-2.5-0",
+      "version": "2.5.13+dfsg-5",
+      "notice_sha256": "b4081907f0d9a4110736fa6540dc8ca9d7d60a20878b5d78f84916cc04907bdc"
+    },
+    {
+      "package": "libllvm14",
+      "version": "1:14.0.6-12",
+      "notice_sha256": "dc2a171c75ca72818f7f4312602f27cb0e4bf6d010a86e7073a3797cb228ddff"
+    },
+    {
+      "package": "libllvm15",
+      "version": "1:15.0.6-4+b1",
+      "notice_sha256": "dc2a171c75ca72818f7f4312602f27cb0e4bf6d010a86e7073a3797cb228ddff"
+    },
+    {
+      "package": "liblsan0",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "liblz4-1",
+      "version": "1.9.4-1",
+      "notice_sha256": "d3be0f43fe14da244f97c451bbae789c0acf868612598a69f5f22a289abeca40"
+    },
+    {
+      "package": "liblzma5",
+      "version": "5.4.1-1+deb12u2",
+      "notice_sha256": "a2dc8fac0f496e1c58aff67018cf0c6b88336316afa5642f9335b71642e28aa8"
+    },
+    {
+      "package": "libmd0",
+      "version": "1.0.4-2",
+      "notice_sha256": "4365ef6255ad553fce69dd4bc0e093472c5d0e41b8ea493a545cc926ce171aa6"
+    },
+    {
+      "package": "libmd4c0",
+      "version": "0.4.8-1",
+      "notice_sha256": "68e5ce452a6fc2bee44279ca61a7064950d146481e325eeaece6c9bea095fd2f"
+    },
+    {
+      "package": "libmount-dev",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "libmount1",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "libmpc3",
+      "version": "1.3.1-1",
+      "notice_sha256": "80763e4cca3963670637b98abff467ee09b83d1737d683ad5ccfb1e919bea94b"
+    },
+    {
+      "package": "libmpfr6",
+      "version": "4.2.0-1",
+      "notice_sha256": "c434a44e656a89e72b5cee13bba6719011e0899bfc626ab9c08205010ab2dbbe"
+    },
+    {
+      "package": "libmtdev-dev",
+      "version": "1.1.6-1",
+      "notice_sha256": "7ca89f7e6e0ab15b9941aa80def7c50b22a7bd6356dd1eacf28ca4382f72a6de"
+    },
+    {
+      "package": "libmtdev1",
+      "version": "1.1.6-1",
+      "notice_sha256": "7ca89f7e6e0ab15b9941aa80def7c50b22a7bd6356dd1eacf28ca4382f72a6de"
+    },
+    {
+      "package": "libncursesw6",
+      "version": "6.4-4",
+      "notice_sha256": "f0974fb41778e23c94111ff90da0546de8971f8270c58877283d372e6bd7f17e"
+    },
+    {
+      "package": "libnettle8",
+      "version": "3.8.1-2",
+      "notice_sha256": "ca2ca597320220c00ef6dc0fe5d0d82025548d6d4ba80e85615eb691f9021f93"
+    },
+    {
+      "package": "libnghttp2-14",
+      "version": "1.52.0-1+deb12u3",
+      "notice_sha256": "a34ae32a5eba61e535835a8de7c398f47e420247d339bc400a3b9c618ba29a3d"
+    },
+    {
+      "package": "libnsl-dev",
+      "version": "1.3.0-2",
+      "notice_sha256": "7d9c79b73fd956319a90cd210441498b225e00960352c4c6d447436481bb0eec"
+    },
+    {
+      "package": "libnsl2",
+      "version": "1.3.0-2",
+      "notice_sha256": "7d9c79b73fd956319a90cd210441498b225e00960352c4c6d447436481bb0eec"
+    },
+    {
+      "package": "libopengl-dev",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "libopengl0",
+      "version": "1.6.0-1",
+      "notice_sha256": "cf246da9d8979f9be80e5b9c3ce0010c09786f11a55637ff3d09f1a36d269b25"
+    },
+    {
+      "package": "liborc-0.4-0",
+      "version": "1:0.4.33-2",
+      "notice_sha256": "3601f6d868864e700ffd87005f75c813a8652db0563f32dc3891f8c3e77ac4ca"
+    },
+    {
+      "package": "libp11-kit0",
+      "version": "0.24.1-2",
+      "notice_sha256": "ed139379f7c874f0ee75f3ddcc2e01091dd828d84ee1a0bdff6a1c5673ee6e58"
+    },
+    {
+      "package": "libpam-modules",
+      "version": "1.5.2-6+deb12u2",
+      "notice_sha256": "9596b9028339d66c285422237728d6170e1e29d0b0d9adf0e9f1bda82e2391ce"
+    },
+    {
+      "package": "libpam-modules-bin",
+      "version": "1.5.2-6+deb12u2",
+      "notice_sha256": "9596b9028339d66c285422237728d6170e1e29d0b0d9adf0e9f1bda82e2391ce"
+    },
+    {
+      "package": "libpam-runtime",
+      "version": "1.5.2-6+deb12u2",
+      "notice_sha256": "9596b9028339d66c285422237728d6170e1e29d0b0d9adf0e9f1bda82e2391ce"
+    },
+    {
+      "package": "libpam0g",
+      "version": "1.5.2-6+deb12u2",
+      "notice_sha256": "9596b9028339d66c285422237728d6170e1e29d0b0d9adf0e9f1bda82e2391ce"
+    },
+    {
+      "package": "libpciaccess0",
+      "version": "0.17-2",
+      "notice_sha256": "59f90c1ad1face5bd0a516feb8a71e005075d532c522b64ff06b2bfeebde8fe8"
+    },
+    {
+      "package": "libpcre2-16-0",
+      "version": "10.42-1+deb12u2",
+      "notice_sha256": "030511beb4d9d620ad09914c369c36ec0528dcf301d1923cc643c948ee7c6a38"
+    },
+    {
+      "package": "libpcre2-32-0",
+      "version": "10.42-1+deb12u2",
+      "notice_sha256": "030511beb4d9d620ad09914c369c36ec0528dcf301d1923cc643c948ee7c6a38"
+    },
+    {
+      "package": "libpcre2-8-0",
+      "version": "10.42-1+deb12u2",
+      "notice_sha256": "030511beb4d9d620ad09914c369c36ec0528dcf301d1923cc643c948ee7c6a38"
+    },
+    {
+      "package": "libpcre2-dev",
+      "version": "10.42-1+deb12u2",
+      "notice_sha256": "030511beb4d9d620ad09914c369c36ec0528dcf301d1923cc643c948ee7c6a38"
+    },
+    {
+      "package": "libpcre2-posix3",
+      "version": "10.42-1+deb12u2",
+      "notice_sha256": "030511beb4d9d620ad09914c369c36ec0528dcf301d1923cc643c948ee7c6a38"
+    },
+    {
+      "package": "libperl5.36",
+      "version": "5.36.0-7+deb12u4",
+      "notice_sha256": "b52f3ca17b45473cb0da6ec46748949101fcf0dda1fd5d8b306e6c97fd41af4d"
+    },
+    {
+      "package": "libpkgconf3",
+      "version": "1.8.1-1",
+      "notice_sha256": "676c75e54ff7e3b9892940fbf1b31763cb6f2a6527a5607a3640ac59a2441fba"
+    },
+    {
+      "package": "libpng-dev",
+      "version": "1.6.39-2+deb12u6",
+      "notice_sha256": "68bd3997355bc44ccb97ff5e2bb146360e762c7d9c721945a4fabf77d1349e4a"
+    },
+    {
+      "package": "libpng16-16",
+      "version": "1.6.39-2+deb12u6",
+      "notice_sha256": "68bd3997355bc44ccb97ff5e2bb146360e762c7d9c721945a4fabf77d1349e4a"
+    },
+    {
+      "package": "libpsl5",
+      "version": "0.21.2-1",
+      "notice_sha256": "bbafb0cf52d34465fc69f5ffd22d724224f6a2f28402c88b045c69d88af06aaf"
+    },
+    {
+      "package": "libpthread-stubs0-dev",
+      "version": "0.4-1",
+      "notice_sha256": "e45b85577d0f6883300ccfb004ab79e1a4f2cf3777b64eb989525115af400b5a"
+    },
+    {
+      "package": "libpython3-stdlib",
+      "version": "3.11.2-1+b1",
+      "notice_sha256": "5b274dbb44b28a54b795b9471c07ab045054d6b8a86273cb9feb632b6fd2760d"
+    },
+    {
+      "package": "libpython3.11-minimal",
+      "version": "3.11.2-6+deb12u9",
+      "notice_sha256": "f1cbf908e1daa8789b389fdcf17811ed36b675d736b39a103591399861350382"
+    },
+    {
+      "package": "libpython3.11-stdlib",
+      "version": "3.11.2-6+deb12u9",
+      "notice_sha256": "f1cbf908e1daa8789b389fdcf17811ed36b675d736b39a103591399861350382"
+    },
+    {
+      "package": "libqt5concurrent5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5core5a",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5dbus5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5designer5",
+      "version": "5.15.8-2",
+      "notice_sha256": "7a40d39e1f8ee761dc3061b646a887998c3da2d6c397ba2e5c53c92149b5f63e"
+    },
+    {
+      "package": "libqt5designercomponents5",
+      "version": "5.15.8-2",
+      "notice_sha256": "7a40d39e1f8ee761dc3061b646a887998c3da2d6c397ba2e5c53c92149b5f63e"
+    },
+    {
+      "package": "libqt5gui5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5help5",
+      "version": "5.15.8-2",
+      "notice_sha256": "7a40d39e1f8ee761dc3061b646a887998c3da2d6c397ba2e5c53c92149b5f63e"
+    },
+    {
+      "package": "libqt5network5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5positioning5",
+      "version": "5.15.8+dfsg-3+deb12u1",
+      "notice_sha256": "7f8e3237058d83e9cd7858fc26b38be9bad1f437e521d1c4849b7d2c910f3406"
+    },
+    {
+      "package": "libqt5printsupport5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5qml5",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "libqt5qmlmodels5",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "libqt5qmlworkerscript5",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "libqt5quick5",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "libqt5quickparticles5",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "libqt5quickshapes5",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "libqt5quicktest5",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "libqt5quickwidgets5",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "libqt5sensors5",
+      "version": "5.15.8-2",
+      "notice_sha256": "3d542530e14dc4e980e3bd88efecef398972b1fafdabec977eeb8f371cb22ccf"
+    },
+    {
+      "package": "libqt5sensors5-dev",
+      "version": "5.15.8-2",
+      "notice_sha256": "3d542530e14dc4e980e3bd88efecef398972b1fafdabec977eeb8f371cb22ccf"
+    },
+    {
+      "package": "libqt5sql5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5sql5-sqlite",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5test5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5waylandclient5",
+      "version": "5.15.8-2",
+      "notice_sha256": "ce376bf713ebdd7b9dbedaa493ba41bc44ce51621fabdf8dfad33fb7295d9f03"
+    },
+    {
+      "package": "libqt5waylandclient5-dev",
+      "version": "5.15.8-2",
+      "notice_sha256": "ce376bf713ebdd7b9dbedaa493ba41bc44ce51621fabdf8dfad33fb7295d9f03"
+    },
+    {
+      "package": "libqt5waylandcompositor5",
+      "version": "5.15.8-2",
+      "notice_sha256": "ce376bf713ebdd7b9dbedaa493ba41bc44ce51621fabdf8dfad33fb7295d9f03"
+    },
+    {
+      "package": "libqt5waylandcompositor5-dev",
+      "version": "5.15.8-2",
+      "notice_sha256": "ce376bf713ebdd7b9dbedaa493ba41bc44ce51621fabdf8dfad33fb7295d9f03"
+    },
+    {
+      "package": "libqt5webchannel5",
+      "version": "5.15.8-2",
+      "notice_sha256": "09a3dec188c15709187fe58839c469d26e4c93f9d593a4632196073aeb728074"
+    },
+    {
+      "package": "libqt5webkit5",
+      "version": "5.212.0~alpha4-30",
+      "notice_sha256": "ef652cf2cb5e9f82305913d6c7dcc9887d79c42ed014d9122b1d5179d9897ea5"
+    },
+    {
+      "package": "libqt5widgets5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libqt5xml5",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "libquadmath0",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libreadline8",
+      "version": "8.2-1.3",
+      "notice_sha256": "3591a8e4de849d910c5ee9045388344ef151c23b10cf8c6b1950f89f1ba1569c"
+    },
+    {
+      "package": "librtmp1",
+      "version": "2.4+20151223.gitfa8646d.1-2+b2",
+      "notice_sha256": "4302abcc1ea1b6cbe8d19c79b892acf78878030220210707c19006828866207c"
+    },
+    {
+      "package": "libsasl2-2",
+      "version": "2.1.28+dfsg-10",
+      "notice_sha256": "5e77ddcac7fb682d696bc4b034dc2869e5a9011e8c2ed3c570ab8db0f4506931"
+    },
+    {
+      "package": "libsasl2-modules-db",
+      "version": "2.1.28+dfsg-10",
+      "notice_sha256": "5e77ddcac7fb682d696bc4b034dc2869e5a9011e8c2ed3c570ab8db0f4506931"
+    },
+    {
+      "package": "libseccomp2",
+      "version": "2.5.4-1+deb12u1",
+      "notice_sha256": "6da0653a365b80ab31478dbfe9e7c358e80d58b6d2b52b4e16b4dbb42d7d9f5c"
+    },
+    {
+      "package": "libselinux1",
+      "version": "3.4-1+b6",
+      "notice_sha256": "641806738b0c6a3d03168c2649e6b94205198bb66cd557e6bae3a20b71c9bb0b"
+    },
+    {
+      "package": "libselinux1-dev",
+      "version": "3.4-1+b6",
+      "notice_sha256": "641806738b0c6a3d03168c2649e6b94205198bb66cd557e6bae3a20b71c9bb0b"
+    },
+    {
+      "package": "libsemanage-common",
+      "version": "3.4-1",
+      "notice_sha256": "e00e6a86c598f9e24ced0180a70a5f2f2e45e133d93adf2b17ce8a06ce4b1b51"
+    },
+    {
+      "package": "libsemanage2",
+      "version": "3.4-1+b5",
+      "notice_sha256": "e00e6a86c598f9e24ced0180a70a5f2f2e45e133d93adf2b17ce8a06ce4b1b51"
+    },
+    {
+      "package": "libsensors-config",
+      "version": "1:3.6.0-7.1",
+      "notice_sha256": "36df1f6d732ef306eba85489352b2afe329f7b54c6850c3e2094f7c5df1bc46b"
+    },
+    {
+      "package": "libsensors5",
+      "version": "1:3.6.0-7.1",
+      "notice_sha256": "36df1f6d732ef306eba85489352b2afe329f7b54c6850c3e2094f7c5df1bc46b"
+    },
+    {
+      "package": "libsepol-dev",
+      "version": "3.4-2.1",
+      "notice_sha256": "78d2a34606a0302057ec499a3b3c07bcbc43ca334064ce4c80891a0f69c8f6c6"
+    },
+    {
+      "package": "libsepol2",
+      "version": "3.4-2.1",
+      "notice_sha256": "78d2a34606a0302057ec499a3b3c07bcbc43ca334064ce4c80891a0f69c8f6c6"
+    },
+    {
+      "package": "libsm6",
+      "version": "2:1.2.3-1",
+      "notice_sha256": "333d829128c80619625f7e43a0ff0e79f36812b2b7ba12696eec9b4b42ce729b"
+    },
+    {
+      "package": "libsmartcols1",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "libsqlite3-0",
+      "version": "3.40.1-2+deb12u2",
+      "notice_sha256": "78e9df8f8153c91c762ec970b82d224ac4d30f05aa7773e7e17e268141e53873"
+    },
+    {
+      "package": "libss2",
+      "version": "1.47.0-2+b2",
+      "notice_sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+    },
+    {
+      "package": "libssh2-1",
+      "version": "1.10.0-3+deb12u1",
+      "notice_sha256": "98978241c573785aa7c8504e399bb66cfb3c40c1f20507a0d3c7580bfbf9d8d4"
+    },
+    {
+      "package": "libssl3",
+      "version": "3.0.22-1~deb12u1",
+      "notice_sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35"
+    },
+    {
+      "package": "libstdc++-12-dev",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libstdc++6",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libsystemd-dev",
+      "version": "252.39-1~deb12u2",
+      "notice_sha256": "a7d06854714a1ca99f6dbd1a1641dde5bcf28635be149f6554449618f8f427f3"
+    },
+    {
+      "package": "libsystemd0",
+      "version": "252.39-1~deb12u2",
+      "notice_sha256": "a7d06854714a1ca99f6dbd1a1641dde5bcf28635be149f6554449618f8f427f3"
+    },
+    {
+      "package": "libtasn1-6",
+      "version": "4.19.0-2+deb12u1",
+      "notice_sha256": "572ad60ad184d8f52c6dc66d83a61a68f137db560b3452ce00588c9ecf128a65"
+    },
+    {
+      "package": "libtinfo6",
+      "version": "6.4-4",
+      "notice_sha256": "f0974fb41778e23c94111ff90da0546de8971f8270c58877283d372e6bd7f17e"
+    },
+    {
+      "package": "libtirpc-common",
+      "version": "1.3.3+ds-1",
+      "notice_sha256": "401dcf98d8ef2b712ec6ab310dbf727fc2cdce290bfde5b6d0b609a927530217"
+    },
+    {
+      "package": "libtirpc-dev",
+      "version": "1.3.3+ds-1",
+      "notice_sha256": "401dcf98d8ef2b712ec6ab310dbf727fc2cdce290bfde5b6d0b609a927530217"
+    },
+    {
+      "package": "libtirpc3",
+      "version": "1.3.3+ds-1",
+      "notice_sha256": "401dcf98d8ef2b712ec6ab310dbf727fc2cdce290bfde5b6d0b609a927530217"
+    },
+    {
+      "package": "libtsan2",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libubsan1",
+      "version": "12.2.0-14+deb12u1",
+      "notice_sha256": "da8191658b3452ce9caf31638ba61dab31a38c619fa39df119812e050f592fd3"
+    },
+    {
+      "package": "libudev-dev",
+      "version": "252.39-1~deb12u2",
+      "notice_sha256": "a7d06854714a1ca99f6dbd1a1641dde5bcf28635be149f6554449618f8f427f3"
+    },
+    {
+      "package": "libudev1",
+      "version": "252.39-1~deb12u2",
+      "notice_sha256": "a7d06854714a1ca99f6dbd1a1641dde5bcf28635be149f6554449618f8f427f3"
+    },
+    {
+      "package": "libunistring2",
+      "version": "1.0-2",
+      "notice_sha256": "0035f89e5317f3cec389383e8727788521b0fde3e75cea881fa0e92e1d48cb57"
+    },
+    {
+      "package": "libunwind8",
+      "version": "1.6.2-3",
+      "notice_sha256": "977d981f5677652884b09cccef6b62f992aa9c74b7a748bfe9863a703f5aed58"
+    },
+    {
+      "package": "libuuid1",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "libvulkan-dev",
+      "version": "1.3.239.0-1",
+      "notice_sha256": "c579213e28f67944a7e407816b8a8e1d2d2406b3d820e420aa923807c450dc07"
+    },
+    {
+      "package": "libvulkan1",
+      "version": "1.3.239.0-1",
+      "notice_sha256": "c579213e28f67944a7e407816b8a8e1d2d2406b3d820e420aa923807c450dc07"
+    },
+    {
+      "package": "libwacom-common",
+      "version": "2.6.0-1",
+      "notice_sha256": "5026eb61394922e821cfea069fe9740141b1d6abd3ea900e79655ad45ea1cb8a"
+    },
+    {
+      "package": "libwacom-dev",
+      "version": "2.6.0-1",
+      "notice_sha256": "5026eb61394922e821cfea069fe9740141b1d6abd3ea900e79655ad45ea1cb8a"
+    },
+    {
+      "package": "libwacom9",
+      "version": "2.6.0-1",
+      "notice_sha256": "5026eb61394922e821cfea069fe9740141b1d6abd3ea900e79655ad45ea1cb8a"
+    },
+    {
+      "package": "libwayland-bin",
+      "version": "1.21.0-1",
+      "notice_sha256": "736bf54141fa9808939ffff2691b817888ea53197484c2099e8d03b954b83e3b"
+    },
+    {
+      "package": "libwayland-client0",
+      "version": "1.21.0-1",
+      "notice_sha256": "736bf54141fa9808939ffff2691b817888ea53197484c2099e8d03b954b83e3b"
+    },
+    {
+      "package": "libwayland-cursor0",
+      "version": "1.21.0-1",
+      "notice_sha256": "736bf54141fa9808939ffff2691b817888ea53197484c2099e8d03b954b83e3b"
+    },
+    {
+      "package": "libwayland-dev",
+      "version": "1.21.0-1",
+      "notice_sha256": "736bf54141fa9808939ffff2691b817888ea53197484c2099e8d03b954b83e3b"
+    },
+    {
+      "package": "libwayland-egl1",
+      "version": "1.21.0-1",
+      "notice_sha256": "736bf54141fa9808939ffff2691b817888ea53197484c2099e8d03b954b83e3b"
+    },
+    {
+      "package": "libwayland-server0",
+      "version": "1.21.0-1",
+      "notice_sha256": "736bf54141fa9808939ffff2691b817888ea53197484c2099e8d03b954b83e3b"
+    },
+    {
+      "package": "libwebp7",
+      "version": "1.2.4-0.2+deb12u1",
+      "notice_sha256": "01eb328708a9454061dd13931b19135e1c2c6251a7e6a6d0efc4b9bc436109c7"
+    },
+    {
+      "package": "libwoff1",
+      "version": "1.0.2-2",
+      "notice_sha256": "eed7e5b74bff67db46ccdbc12b8f205f6655138f14e4bdbea31079abbcd6ec3f"
+    },
+    {
+      "package": "libx11-6",
+      "version": "2:1.8.4-2+deb12u2",
+      "notice_sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e"
+    },
+    {
+      "package": "libx11-data",
+      "version": "2:1.8.4-2+deb12u2",
+      "notice_sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e"
+    },
+    {
+      "package": "libx11-dev",
+      "version": "2:1.8.4-2+deb12u2",
+      "notice_sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e"
+    },
+    {
+      "package": "libx11-xcb1",
+      "version": "2:1.8.4-2+deb12u2",
+      "notice_sha256": "0b380a7fd5b2228f26e9585e56f14812efd3350f3df307507d2bc055dfd8de3e"
+    },
+    {
+      "package": "libxau-dev",
+      "version": "1:1.0.9-1",
+      "notice_sha256": "118dd263a7b91c8f21c489f949bf13281dff9e766deea92b829dac4dce66601a"
+    },
+    {
+      "package": "libxau6",
+      "version": "1:1.0.9-1",
+      "notice_sha256": "118dd263a7b91c8f21c489f949bf13281dff9e766deea92b829dac4dce66601a"
+    },
+    {
+      "package": "libxcb-dri2-0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-dri3-0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-glx0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-icccm4",
+      "version": "0.4.1-1.1",
+      "notice_sha256": "b5b83faabe190515e7a5938aa00441204cd163e24191ef7bcf5e4ac690acd376"
+    },
+    {
+      "package": "libxcb-image0",
+      "version": "0.4.0-2",
+      "notice_sha256": "daf2d51e978ec64fc21f59b12d850c2efc907c15eae5c4ba2f3237ce946476de"
+    },
+    {
+      "package": "libxcb-keysyms1",
+      "version": "0.4.0-1+b2",
+      "notice_sha256": "ec64999ff22c8cbba2aa1c88828cd51461efd74db3a6f4044ea81fbc0a6f6288"
+    },
+    {
+      "package": "libxcb-present0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-randr0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-render-util0",
+      "version": "0.3.9-1+b1",
+      "notice_sha256": "94e32edbc98a324a3c13cd7a1687406328a9a94c6fefe319d6ac43dd4cbf151c"
+    },
+    {
+      "package": "libxcb-render0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-shape0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-shm0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-sync1",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-util1",
+      "version": "0.4.0-1+b1",
+      "notice_sha256": "1142dc404c2f6845a5e9a39ee569e670fd629b3a974a03bcd64f84e57e5acd90"
+    },
+    {
+      "package": "libxcb-xfixes0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-xinerama0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-xinput0",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb-xkb1",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb1",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxcb1-dev",
+      "version": "1.15-1",
+      "notice_sha256": "4f7cb9db6bf6542f5417e3d674c780d3a5fd12291a54d63054fb576ee0cfae80"
+    },
+    {
+      "package": "libxdmcp-dev",
+      "version": "1:1.1.2-3",
+      "notice_sha256": "1bcbb50f8603fe8b86d330bfa460b772ea04fbd3c70e4499f0768b5340b9fd6e"
+    },
+    {
+      "package": "libxdmcp6",
+      "version": "1:1.1.2-3",
+      "notice_sha256": "1bcbb50f8603fe8b86d330bfa460b772ea04fbd3c70e4499f0768b5340b9fd6e"
+    },
+    {
+      "package": "libxext-dev",
+      "version": "2:1.3.4-1+b1",
+      "notice_sha256": "bc57e445ca1d9fe082c8d54189dd411ff26caa8552c9c63d44ea06a982f32124"
+    },
+    {
+      "package": "libxext6",
+      "version": "2:1.3.4-1+b1",
+      "notice_sha256": "bc57e445ca1d9fe082c8d54189dd411ff26caa8552c9c63d44ea06a982f32124"
+    },
+    {
+      "package": "libxfixes3",
+      "version": "1:6.0.0-2",
+      "notice_sha256": "051ffe073ab38244c504bb379903b4ecda6081fb3d97d0d3dce44bc11712eef2"
+    },
+    {
+      "package": "libxkbcommon-dev",
+      "version": "1.5.0-1",
+      "notice_sha256": "5eeaeb1b6e029a0274e1573765bb0bae2926ef96a3679203faa4fd00fdaeaa88"
+    },
+    {
+      "package": "libxkbcommon-x11-0",
+      "version": "1.5.0-1",
+      "notice_sha256": "5eeaeb1b6e029a0274e1573765bb0bae2926ef96a3679203faa4fd00fdaeaa88"
+    },
+    {
+      "package": "libxkbcommon0",
+      "version": "1.5.0-1",
+      "notice_sha256": "5eeaeb1b6e029a0274e1573765bb0bae2926ef96a3679203faa4fd00fdaeaa88"
+    },
+    {
+      "package": "libxml2",
+      "version": "2.9.14+dfsg-1.3~deb12u6",
+      "notice_sha256": "ee746b96cfa5be73c3ea3e4cfb1285e9b315d4c9267f99b2ee9c5d911d9fe3f4"
+    },
+    {
+      "package": "libxrender1",
+      "version": "1:0.9.10-1.1",
+      "notice_sha256": "ed2a78123a5076b4f11da38cb1ffb85b5cb9fdc26b5746c517b1d7e7a9029704"
+    },
+    {
+      "package": "libxshmfence1",
+      "version": "1.3-1",
+      "notice_sha256": "6a76b32c9174c0cb9e3d94c323a14d33d6a42bd2a61579b189cbc5addeb94abe"
+    },
+    {
+      "package": "libxslt1.1",
+      "version": "1.1.35-1+deb12u4",
+      "notice_sha256": "4b82c8dd6e55001a5921bea1d6db20be5c51e5976d892e870324026c23f37b6f"
+    },
+    {
+      "package": "libxxf86vm1",
+      "version": "1:1.1.4-1+b2",
+      "notice_sha256": "8a18884e1be08a37bf1b8fc9a14eba800e65a98d6ea19bb5d8b0ccf35f9bbcc4"
+    },
+    {
+      "package": "libxxhash0",
+      "version": "0.8.1-1",
+      "notice_sha256": "a123c93b07e781919ae996276ac02bb1c8b19dfde88176cd1240ab277c14a4ce"
+    },
+    {
+      "package": "libz3-4",
+      "version": "4.8.12-3.1",
+      "notice_sha256": "807f874c81a0dbce7d4e32b1a4e1ef1e094b9a3fe8579f34e60fda4f2077289c"
+    },
+    {
+      "package": "libzstd1",
+      "version": "1.5.4+dfsg2-5",
+      "notice_sha256": "35e85e8e9bbb71492c5f5dddf39ed65b68775a02ad8d710c25d097b497f06c49"
+    },
+    {
+      "package": "linux-libc-dev",
+      "version": "6.1.190-1",
+      "notice_sha256": "b747c37629e008bbb10bf2d44c5bb6e014ce2dde36b9ef1dc81e1425417c24bf"
+    },
+    {
+      "package": "login",
+      "version": "1:4.13+dfsg1-1+deb12u2",
+      "notice_sha256": "a4c3e5b19700dd3cc5961663d204bd7150f65f913314682aede5931548c436d5"
+    },
+    {
+      "package": "logsave",
+      "version": "1.47.0-2+b2",
+      "notice_sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+    },
+    {
+      "package": "make",
+      "version": "4.3-4.1",
+      "notice_sha256": "16deb73e706ec72758ce5e079a80d1aab17f3834449da9b718c4a4b60eb1f6ec"
+    },
+    {
+      "package": "mawk",
+      "version": "1.3.4.20200120-3.1",
+      "notice_sha256": "167d04422f2fdf76ab565878c23be8ba0c2ebb2c57a5dac0a5a59ccd27e747a5"
+    },
+    {
+      "package": "media-types",
+      "version": "10.0.0",
+      "notice_sha256": "5ded7c53199b6a1d089b0b7e231d77e5c84081c7156b372b3f11ad9c1c2c5cc7"
+    },
+    {
+      "package": "mount",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "ncurses-base",
+      "version": "6.4-4",
+      "notice_sha256": "f0974fb41778e23c94111ff90da0546de8971f8270c58877283d372e6bd7f17e"
+    },
+    {
+      "package": "ncurses-bin",
+      "version": "6.4-4",
+      "notice_sha256": "f0974fb41778e23c94111ff90da0546de8971f8270c58877283d372e6bd7f17e"
+    },
+    {
+      "package": "openssl",
+      "version": "3.0.22-1~deb12u1",
+      "notice_sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35"
+    },
+    {
+      "package": "passwd",
+      "version": "1:4.13+dfsg1-1+deb12u2",
+      "notice_sha256": "a4c3e5b19700dd3cc5961663d204bd7150f65f913314682aede5931548c436d5"
+    },
+    {
+      "package": "patch",
+      "version": "2.7.6-7",
+      "notice_sha256": "8c70d7b0af209abe627c97cd21883931b891c820d0a4affcc10b789a23538a0d"
+    },
+    {
+      "package": "perl",
+      "version": "5.36.0-7+deb12u4",
+      "notice_sha256": "b52f3ca17b45473cb0da6ec46748949101fcf0dda1fd5d8b306e6c97fd41af4d"
+    },
+    {
+      "package": "perl-base",
+      "version": "5.36.0-7+deb12u4",
+      "notice_sha256": "b52f3ca17b45473cb0da6ec46748949101fcf0dda1fd5d8b306e6c97fd41af4d"
+    },
+    {
+      "package": "perl-modules-5.36",
+      "version": "5.36.0-7+deb12u4",
+      "notice_sha256": "b52f3ca17b45473cb0da6ec46748949101fcf0dda1fd5d8b306e6c97fd41af4d"
+    },
+    {
+      "package": "pkg-config",
+      "version": "1.8.1-1",
+      "notice_sha256": "676c75e54ff7e3b9892940fbf1b31763cb6f2a6527a5607a3640ac59a2441fba"
+    },
+    {
+      "package": "pkgconf",
+      "version": "1.8.1-1",
+      "notice_sha256": "676c75e54ff7e3b9892940fbf1b31763cb6f2a6527a5607a3640ac59a2441fba"
+    },
+    {
+      "package": "pkgconf-bin",
+      "version": "1.8.1-1",
+      "notice_sha256": "676c75e54ff7e3b9892940fbf1b31763cb6f2a6527a5607a3640ac59a2441fba"
+    },
+    {
+      "package": "python3",
+      "version": "3.11.2-1+b1",
+      "notice_sha256": "5b274dbb44b28a54b795b9471c07ab045054d6b8a86273cb9feb632b6fd2760d"
+    },
+    {
+      "package": "python3-distutils",
+      "version": "3.11.2-3",
+      "notice_sha256": "183860dfd4168e0608fb99fe53cef26088ba7275ce38a41e3c737d4217c0ccc1"
+    },
+    {
+      "package": "python3-lib2to3",
+      "version": "3.11.2-3",
+      "notice_sha256": "183860dfd4168e0608fb99fe53cef26088ba7275ce38a41e3c737d4217c0ccc1"
+    },
+    {
+      "package": "python3-minimal",
+      "version": "3.11.2-1+b1",
+      "notice_sha256": "5b274dbb44b28a54b795b9471c07ab045054d6b8a86273cb9feb632b6fd2760d"
+    },
+    {
+      "package": "python3.11",
+      "version": "3.11.2-6+deb12u9",
+      "notice_sha256": "f1cbf908e1daa8789b389fdcf17811ed36b675d736b39a103591399861350382"
+    },
+    {
+      "package": "python3.11-minimal",
+      "version": "3.11.2-6+deb12u9",
+      "notice_sha256": "f1cbf908e1daa8789b389fdcf17811ed36b675d736b39a103591399861350382"
+    },
+    {
+      "package": "qdoc-qt5",
+      "version": "5.15.8-2",
+      "notice_sha256": "7a40d39e1f8ee761dc3061b646a887998c3da2d6c397ba2e5c53c92149b5f63e"
+    },
+    {
+      "package": "qhelpgenerator-qt5",
+      "version": "5.15.8-2",
+      "notice_sha256": "7a40d39e1f8ee761dc3061b646a887998c3da2d6c397ba2e5c53c92149b5f63e"
+    },
+    {
+      "package": "qt5-assistant",
+      "version": "5.15.8-2",
+      "notice_sha256": "7a40d39e1f8ee761dc3061b646a887998c3da2d6c397ba2e5c53c92149b5f63e"
+    },
+    {
+      "package": "qt5-qmake",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "qt5-qmake-bin",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "qt5-qmltooling-plugins",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "qtattributionsscanner-qt5",
+      "version": "5.15.8-2",
+      "notice_sha256": "7a40d39e1f8ee761dc3061b646a887998c3da2d6c397ba2e5c53c92149b5f63e"
+    },
+    {
+      "package": "qtbase5-dev",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "qtbase5-dev-tools",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "qtbase5-private-dev",
+      "version": "5.15.8+dfsg-11+deb12u3",
+      "notice_sha256": "44218f2bfd2e57e6216f4e77094317833509881d79940e304888b04e1bdbe940"
+    },
+    {
+      "package": "qtchooser",
+      "version": "66-2",
+      "notice_sha256": "0b3fa692b33acfbb5b9539335c66938c957350b2a24d2fec35de89e09198738e"
+    },
+    {
+      "package": "qtdeclarative5-dev",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "qtdeclarative5-dev-tools",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "qtdeclarative5-private-dev",
+      "version": "5.15.8+dfsg-3",
+      "notice_sha256": "2986b5829cb4de43ad5e7f7c647868bcdf0078171f57e4b3c84a77a8501cd896"
+    },
+    {
+      "package": "qttools5-dev-tools",
+      "version": "5.15.8-2",
+      "notice_sha256": "7a40d39e1f8ee761dc3061b646a887998c3da2d6c397ba2e5c53c92149b5f63e"
+    },
+    {
+      "package": "qtwayland5-dev-tools",
+      "version": "5.15.8-2",
+      "notice_sha256": "ce376bf713ebdd7b9dbedaa493ba41bc44ce51621fabdf8dfad33fb7295d9f03"
+    },
+    {
+      "package": "qtwayland5-private-dev",
+      "version": "5.15.8-2",
+      "notice_sha256": "ce376bf713ebdd7b9dbedaa493ba41bc44ce51621fabdf8dfad33fb7295d9f03"
+    },
+    {
+      "package": "readline-common",
+      "version": "8.2-1.3",
+      "notice_sha256": "3591a8e4de849d910c5ee9045388344ef151c23b10cf8c6b1950f89f1ba1569c"
+    },
+    {
+      "package": "rpcsvc-proto",
+      "version": "1.4.3-1",
+      "notice_sha256": "824b5da9d19adbc33463cc298cbcb3f8dfeb8016c68845b0d1fa4a8bc6ba0816"
+    },
+    {
+      "package": "sed",
+      "version": "4.9-1+deb12u1",
+      "notice_sha256": "719320e425e8e6da53a55e0fcfa2f2ed9b1332cea16abd65321bd651b2a88568"
+    },
+    {
+      "package": "sgml-base",
+      "version": "1.31",
+      "notice_sha256": "dd54c039d628f8397d1ed19f418b35281ff419b88d3822dc23e3dc409e2a7fe3"
+    },
+    {
+      "package": "shared-mime-info",
+      "version": "2.2-1",
+      "notice_sha256": "5145b47d997486e5327091374e807046a32216168b6f2bbf6d1816f60927686c"
+    },
+    {
+      "package": "sysvinit-utils",
+      "version": "3.06-4",
+      "notice_sha256": "ad7cb339e58a88918a883d553ca236795191f027e158788a8b33f747ff502fb2"
+    },
+    {
+      "package": "tar",
+      "version": "1.34+dfsg-1.2+deb12u1",
+      "notice_sha256": "bea61e0c172868e07845cf50423f97f093a9a46de167dbbe333a38be610c8e00"
+    },
+    {
+      "package": "tzdata",
+      "version": "2026c-0+deb12u1",
+      "notice_sha256": "cb61132bc0fc7b26ef5a82ee18b2fb644a1362f4f286ed980ff22e408471f59a"
+    },
+    {
+      "package": "usr-is-merged",
+      "version": "37~deb12u1",
+      "notice_sha256": "9836bfe2ef94505bbf29701e8c90799ab1a5fd966d26d60d019a822cdbf3d61a"
+    },
+    {
+      "package": "util-linux",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "util-linux-extra",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "uuid-dev",
+      "version": "2.38.1-5+deb12u3",
+      "notice_sha256": "30539a2df6a89d844f43c727505a3193a60515f8ec6cdede8cc515ed22941d1c"
+    },
+    {
+      "package": "wayland-protocols",
+      "version": "1.31-1",
+      "notice_sha256": "03336c87de0f28fdf3d1ea238c4a402f93640ebce18e62aca0b219d1707efc05"
+    },
+    {
+      "package": "x11-common",
+      "version": "1:7.7+23",
+      "notice_sha256": "2badb73e6e70d0bd2e0b85d39ce18d3c66cfebc3e301720374fa20e6539c947d"
+    },
+    {
+      "package": "x11proto-dev",
+      "version": "2022.1-1",
+      "notice_sha256": "7b40446cf2035abc6836c7a7f411ec79153dbf4530bce209e26aa2fd7c4dd55a"
+    },
+    {
+      "package": "xkb-data",
+      "version": "2.35.1-1",
+      "notice_sha256": "648621d1a2180678818eb393565849bbc8b332cc521c21e009d948ea5541b3c3"
+    },
+    {
+      "package": "xml-core",
+      "version": "0.18+nmu1",
+      "notice_sha256": "3ade07a2a247fa2855938f2dfe3c17b0aa4b0b894e554a4ec358157dc5ca033b"
+    },
+    {
+      "package": "xorg-sgml-doctools",
+      "version": "1:1.11-1.1",
+      "notice_sha256": "f8f02d5cfd7d4ed0eb6c46deacb3a64c1fa5bc60e06db10ecbf202e6fe1d5a89"
+    },
+    {
+      "package": "xtrans-dev",
+      "version": "1.4.0-1",
+      "notice_sha256": "29e6f06b1dcd85f1bc4b3e9374b92967cb2a274abde00169784f1dd1c7c95431"
+    },
+    {
+      "package": "xz-utils",
+      "version": "5.4.1-1+deb12u2",
+      "notice_sha256": "a2dc8fac0f496e1c58aff67018cf0c6b88336316afa5642f9335b71642e28aa8"
+    },
+    {
+      "package": "zlib1g",
+      "version": "1:1.2.13.dfsg-1",
+      "notice_sha256": "9e5b96d63773a5d177ba264254390f792be07e41748ebd94730981c6cac31cc6"
+    },
+    {
+      "package": "zlib1g-dev",
+      "version": "1:1.2.13.dfsg-1",
+      "notice_sha256": "9e5b96d63773a5d177ba264254390f792be07e41748ebd94730981c6cac31cc6"
+    }
+  ],
+  "notice_present": 389,
+  "notice_missing": []
+}

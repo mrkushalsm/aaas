@@ -14,10 +14,10 @@ class LipstickDependencyTest(unittest.TestCase):
 
     def test_isolated_image_notices_and_missing_dependencies(self):
         root = Path(__file__).resolve().parents[1]
-        inventory = json.loads((root / 'results/m01/lipstick/image-packages-and-notices.json').read_text())
+        inventory = json.loads((root / 'tests/fixtures/lipstick/image-packages-and-notices.json').read_text())
         self.assertGreater(len(inventory['packages']), 300)
         self.assertEqual(inventory['notice_missing'], [])
-        closure = json.loads((root / 'results/m01/lipstick/dependencies-container.json').read_text())
+        closure = json.loads((root / 'tests/fixtures/lipstick/dependencies-container.json').read_text())
         missing = {e['module'] for e in closure['immediate_requirements'] if e['state'] == 'environment-pkgconfig-missing'}
         self.assertIn('pkgconfig(mlite5)', missing)
         self.assertIn('pkgconfig(mce-qt5)', missing)
