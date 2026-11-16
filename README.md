@@ -281,11 +281,10 @@ M5 functional acceptance for the portable developer preview is
 and distribution-readiness work records the current evidence and unresolved
 rights. Broader compositor support, Fedora SELinux Enforcing compatibility,
 security approval, reproducible Android image assembly, and binary
-redistribution clearance remain future work. Source-only publication is also
-blocked on an owner-approved project license, third-party review, and a
-decision about historical Git metadata; the local export tool fails closed
-until then. See the [roadmap](docs/roadmap.md) and
-[source-publication readiness report](docs/source-publication-readiness.md).
+redistribution clearance remain future work. Public source release requires an
+owner-approved project license, third-party source review, and a privacy
+decision about existing Git history. See the [roadmap](docs/roadmap.md) and
+[licensing and external-input status](docs/dependencies-and-licenses.md).
 
 ## Third-party software and attribution
 
@@ -294,8 +293,7 @@ components, generated overlays, and host helpers. The available manifest does
 not establish complete per-file provenance or redistribution rights. Some
 embedded Digitalis materials carry Apache-2.0 notices, and related Refract
 source carries GPL-3.0-or-later terms; applicability to packaged binaries and
-required notices remain under review. See the candidate-specific
-[provenance and redistribution report](docs/dependencies-and-licenses.md),
-[SBOM](docs/release/sbom-engineering-af3dcb4.json), and
-[release notes](docs/release/v0.1.0-dev-preview.md). Do not treat this repository
-or bundle as licensed for redistribution by implication.
+required notices remain under review. See the [licensing and external-input
+status](docs/dependencies-and-licenses.md) and [release notes](docs/release/v0.1.0-dev-preview.md).
+Do not treat this repository or bundle as licensed for redistribution by
+implication.

@@ -19,9 +19,7 @@
 
 - [v0.1.0-dev-preview notes](release/v0.1.0-dev-preview.md): exact candidate, acceptance, and release limitations.
 - [M5 acceptance JSON](release/portable-preview-af3dcb4-acceptance.json): machine-readable exact-candidate results.
-- [Candidate SBOM](release/sbom-engineering-af3dcb4.json): per-path executable/library hashes and provenance status.
-- [Provenance and redistribution review](dependencies-and-licenses.md): component rights evidence and unresolved questions.
-- [Source-publication readiness](source-publication-readiness.md): Git-history risk, export boundary, and owner decisions.
+- [Licensing and external runtime inputs](dependencies-and-licenses.md): project-license status, upstream notices, and Android image limitations.
 - [Portable release guide](portable-development-release.md): install lifecycle and historical acceptance chronology.
 
 ## Development and historical records
